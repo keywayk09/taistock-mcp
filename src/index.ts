@@ -20,6 +20,8 @@ const TWSE = "https://openapi.twse.com.tw/v1";
 const TPEX = "https://www.tpex.org.tw/openapi/v1";
 const TWSE_EVENTS = `${TWSE}/opendata/t187ap04_L`;
 const TPEX_EVENTS = `${TPEX}/mopsfin_t187ap04_O`;
+const TDCC = "https://openapi.tdcc.com.tw/v1/opendata";
+const TAIFEX = "https://openapi.taifex.com.tw";
 
 const stockSymbol = z.string().trim().min(1).max(20).regex(/^[0-9A-Za-z._-]+$/);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -452,8 +454,228 @@ function sectorAggregation(rows: ReturnType<typeof normalizeSnapshot>[], infoRow
   };
 }
 
+type PublicSource = { label: string; url: string; kind?: string; market?: Market };
+
+async function publicRows(url: string, label: string) {
+  return arr(await json(url, { headers: { Accept: "application/json" } }, label));
+}
+
+async function collectPublicSources(sources: PublicSource[], symbol?: string) {
+  const settled = await Promise.allSettled(sources.map(async (source) => {
+    const rows = await publicRows(source.url, source.label);
+    const filtered = symbol ? rows.filter((x) => rowCode(rec(x)) === symbol) : rows;
+    return { ...source, rows: filtered };
+  }));
+  const datasets: any[] = [];
+  const errors: string[] = [];
+  settled.forEach((result) => result.status === "fulfilled"
+    ? datasets.push(result.value)
+    : errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason)));
+  return { datasets, errors };
+}
+
+function sourcesByMarket(market: "auto" | Market, listed: PublicSource[], otc: PublicSource[]) {
+  return market === "listed" ? listed : market === "otc" ? otc : [...listed, ...otc];
+}
+
+function tdccHoldingSnapshot(rows: any[], targetDate: string) {
+  const selected = rows.filter((x) => String(x.date) === targetDate && x.level >= 1 && x.level <= 15);
+  const sum = (levels: number[]) => round(selected.filter((x) => levels.includes(x.level)).reduce((a, b) => a + b.percent, 0), 4);
+  return {
+    date: targetDate,
+    holders: selected.reduce((a, b) => a + b.people, 0),
+    shares: selected.reduce((a, b) => a + b.shares, 0),
+    percent_400k_shares_or_more: sum([12, 13, 14, 15]),
+    percent_800k_shares_or_more: sum([14, 15]),
+    percent_1m_shares_or_more: sum([15]),
+    retail_percent_under_10k: sum([1, 2, 3]),
+    distribution: selected,
+  };
+}
+
+async function tdccShareholding(symbol: string) {
+  const rows = await publicRows(`${TDCC}/1-5`, "TDCC集保戶股權分散表");
+  const normalized = rows.map((x) => {
+    const o = rec(x);
+    return {
+      date: pick(o, ["資料日期", "date"]),
+      symbol: pick(o, ["證券代號", "stock_id", "symbol"]),
+      level: num(o["持股分級"] ?? o.level),
+      people: num(o["人數"] ?? o.people),
+      shares: num(o["股數"] ?? o.shares),
+      percent: num(o["占集保庫存數比例%"] ?? o.percent),
+    };
+  }).filter((x) => x.symbol === symbol);
+  const dates = [...new Set(normalized.map((x) => x.date))].filter(Boolean).sort();
+  const latest = dates.at(-1) ? tdccHoldingSnapshot(normalized, dates.at(-1)!) : null;
+  const previous = dates.at(-2) ? tdccHoldingSnapshot(normalized, dates.at(-2)!) : null;
+  return {
+    latest,
+    previous,
+    large_holder_1m_change_percentage_points: latest && previous ? round(latest.percent_1m_shares_or_more - previous.percent_1m_shares_or_more, 4) : null,
+    large_holder_400k_change_percentage_points: latest && previous ? round(latest.percent_400k_shares_or_more - previous.percent_400k_shares_or_more, 4) : null,
+    retail_change_percentage_points: latest && previous ? round(latest.retail_percent_under_10k - previous.retail_percent_under_10k, 4) : null,
+  };
+}
+
+const revenueOfficialSources: PublicSource[] = [
+  { market: "listed", label: "證交所上市月營收", url: `${TWSE}/opendata/t187ap05_L` },
+  { market: "otc", label: "櫃買上櫃月營收", url: `${TPEX}/mopsfin_t187ap05_O` },
+];
+
+function officialRevenueRow(row: any) {
+  const o = rec(row);
+  return {
+    company_code: rowCode(o),
+    company_name: pick(o, ["公司名稱", "CompanyName"]),
+    year_month: pick(o, ["資料年月", "年月", "year_month"]),
+    current_month_revenue: num(o["營業收入-當月營收"] ?? o["當月營收"] ?? o.revenue),
+    previous_month_revenue: num(o["營業收入-上月營收"] ?? o["上月營收"]),
+    last_year_month_revenue: num(o["營業收入-去年當月營收"] ?? o["去年當月營收"]),
+    mom_percent: num(o["營業收入-上月比較增減(%)"] ?? o["上月比較增減(%)"]),
+    yoy_percent: num(o["營業收入-去年同月增減(%)"] ?? o["去年同月增減(%)"]),
+    cumulative_revenue: num(o["累計營業收入-當月累計營收"] ?? o["當月累計營收"]),
+    cumulative_yoy_percent: num(o["累計營業收入-前期比較增減(%)"] ?? o["前期比較增減(%)"]),
+    raw: o,
+  };
+}
+
+const listedIncomeSources = ["ci", "basi", "bd", "fh", "ins", "mim"].map((x) => ({ market: "listed" as const, label: `證交所上市綜合損益表-${x}`, url: `${TWSE}/opendata/t187ap06_L_${x}`, kind: "income" }));
+const listedBalanceSources = ["ci", "basi", "bd", "fh", "ins", "mim"].map((x) => ({ market: "listed" as const, label: `證交所上市資產負債表-${x}`, url: `${TWSE}/opendata/t187ap07_L_${x}`, kind: "balance" }));
+const otcIncomeSources = ["ci", "basi", "bd", "fh", "ins", "mim"].map((x) => ({ market: "otc" as const, label: `櫃買上櫃綜合損益表-${x}`, url: `${TPEX}/mopsfin_t187ap06_O_${x}`, kind: "income" }));
+const otcBalanceSources = ["ci", "basi", "bd", "fh", "ins", "mim"].map((x) => ({ market: "otc" as const, label: `櫃買上櫃資產負債表-${x}`, url: `${TPEX}/mopsfin_t187ap07_O_${x}`, kind: "balance" }));
+
+function genericNumber(o: Obj, keys: string[]) {
+  for (const key of keys) if (o[key] != null && String(o[key]).trim() !== "") return num(String(o[key]).replace(/,/g, ""));
+  return null;
+}
+
+function summarizeOfficialFinancial(rows: any[]) {
+  const row = rows[0] ? rec(rows[0]) : null;
+  if (!row) return null;
+  const revenue = genericNumber(row, ["營業收入", "營業收入合計", "收益", "收入"]);
+  const gross = genericNumber(row, ["營業毛利（毛損）", "營業毛利(毛損)", "營業毛利"]);
+  const op = genericNumber(row, ["營業利益（損失）", "營業利益(損失)", "營業利益"]);
+  const net = genericNumber(row, ["本期淨利（淨損）", "本期淨利(淨損)", "本期淨利"]);
+  const assets = genericNumber(row, ["資產總計", "資產總額"]);
+  const liabilities = genericNumber(row, ["負債總計", "負債總額"]);
+  return {
+    report_date: pick(row, ["出表日期", "年度", "季別", "資料日期"]),
+    revenue,
+    gross_profit: gross,
+    gross_margin_percent: revenue && gross != null ? round(gross / revenue * 100) : null,
+    operating_income: op,
+    operating_margin_percent: revenue && op != null ? round(op / revenue * 100) : null,
+    net_income: net,
+    net_margin_percent: revenue && net != null ? round(net / revenue * 100) : null,
+    eps: genericNumber(row, ["基本每股盈餘（元）", "基本每股盈餘(元)", "每股盈餘"]),
+    total_assets: assets,
+    total_liabilities: liabilities,
+    debt_ratio_percent: assets && liabilities != null ? round(liabilities / assets * 100) : null,
+    inventory: genericNumber(row, ["存貨"]),
+    accounts_receivable: genericNumber(row, ["應收帳款淨額", "應收帳款"]),
+  };
+}
+
+const listedInsiderSources: PublicSource[] = [
+  ["large_shareholders", "上市持股逾10%大股東", "t187ap02_L"], ["holding_insufficient", "上市董監持股不足", "t187ap08_L"],
+  ["pledge", "上市董監事質押", "t187ap09_L"], ["director_holdings", "上市董監事持股", "t187ap11_L"],
+  ["transfer", "上市內部人持股轉讓", "t187ap12_L"], ["uncompleted_transfer", "上市內部人持股未轉讓", "t187ap13_L"],
+  ["violation", "上市資訊申報違規", "t187ap23_L"], ["control_change", "上市經營權異動", "t187ap24_L"],
+].map(([kind, label, path]) => ({ market: "listed", kind, label, url: `${TWSE}/opendata/${path}` }));
+const otcInsiderSources: PublicSource[] = [
+  ["large_shareholders", "上櫃持股逾10%大股東", "mopsfin_t187ap02_O"], ["holding_insufficient", "上櫃董監持股不足", "mopsfin_t187ap08_O"],
+  ["pledge", "上櫃董監事質押", "mopsfin_t187ap09_O"], ["director_holdings", "上櫃董監事持股", "mopsfin_t187ap11_O"],
+  ["transfer", "上櫃內部人持股轉讓", "mopsfin_t187ap12_O"], ["uncompleted_transfer", "上櫃內部人持股未轉讓", "mopsfin_t187ap13_O"],
+  ["violation", "上櫃資訊申報違規", "mopsfin_t187ap23_O"], ["control_change", "上櫃經營權異動", "mopsfin_t187ap24_O"],
+].map(([kind, label, path]) => ({ market: "otc", kind, label, url: `${TPEX}/${path}` }));
+
+function insiderRisk(datasets: any[]) {
+  const kinds = new Set(datasets.filter((x) => x.rows.length).map((x) => x.kind));
+  let pledge = 0;
+  for (const data of datasets.filter((x) => x.kind === "pledge")) for (const row of data.rows) {
+    const o = rec(row);
+    for (const [key, value] of Object.entries(o)) if (/質押|質權/.test(key) && /比率|比例|%/.test(key)) pledge = Math.max(pledge, num(String(value).replace(/,/g, "")));
+  }
+  let score = 0;
+  if (kinds.has("transfer")) score += 2;
+  if (kinds.has("holding_insufficient")) score += 2;
+  if (kinds.has("control_change")) score += 2;
+  if (kinds.has("violation")) score += 1;
+  if (pledge >= 50) score += 3; else if (pledge >= 30) score += 2; else if (pledge > 0) score += 1;
+  return { risk_score: score, risk_level: score >= 6 ? "high" : score >= 3 ? "medium" : "low", max_pledge_ratio_percent: pledge || null, flags: [...kinds] };
+}
+
+const valuationSources = {
+  listed: { label: "證交所估值", url: `${TWSE}/exchangeReport/BWIBBU_ALL` },
+  otc: { label: "櫃買估值", url: `${TPEX}/tpex_mainboard_peratio_analysis` },
+};
+function valuationRow(row: any) {
+  const o = rec(row);
+  return {
+    symbol: rowCode(o), name: pick(o, ["證券名稱", "股票名稱", "Name"]),
+    pe_ratio: genericNumber(o, ["本益比", "PEratio", "P/E"]),
+    dividend_yield_percent: genericNumber(o, ["殖利率(%)", "殖利率％", "DividendYield"]),
+    pb_ratio: genericNumber(o, ["股價淨值比", "PBratio", "P/B"]),
+    raw: o,
+  };
+}
+
+const listedCalendarSources: PublicSource[] = [
+  { market: "listed", kind: "dividend", label: "上市股利分派", url: `${TWSE}/opendata/t187ap45_L` },
+  { market: "listed", kind: "shareholder_meeting", label: "上市股東會公告", url: `${TWSE}/opendata/t187ap38_L` },
+  { market: "listed", kind: "shareholder_meeting_detail", label: "上市股東會日期地點", url: `${TWSE}/opendata/t187ap41_L` },
+  { market: "listed", kind: "ex_rights", label: "上市除權除息預告", url: `${TWSE}/exchangeReport/TWT48U_ALL` },
+];
+const otcCalendarSources: PublicSource[] = [
+  { market: "otc", kind: "dividend", label: "上櫃股利分派", url: `${TPEX}/mopsfin_t187ap45_O` },
+  { market: "otc", kind: "shareholder_meeting", label: "上櫃股東會公告", url: `${TPEX}/mopsfin_t187ap38_O` },
+  { market: "otc", kind: "shareholder_meeting_detail", label: "上櫃股東會日期地點", url: `${TPEX}/mopsfin_t187ap41_O` },
+  { market: "otc", kind: "ex_rights", label: "上櫃除權息資訊", url: `${TPEX}/tpex_exright_daily` },
+];
+
+const listedShortSources: PublicSource[] = [
+  { market: "listed", kind: "margin", label: "上市融資融券", url: `${TWSE}/exchangeReport/MI_MARGN` },
+  { market: "listed", kind: "daytrade", label: "上市當沖統計", url: `${TWSE}/exchangeReport/TWTB4U` },
+  { market: "listed", kind: "borrowable", label: "上市櫃可借券賣出", url: `${TWSE}/SBL/TWT96U` },
+  { market: "listed", kind: "margin_halt", label: "上市停資停券", url: `${TWSE}/exchangeReport/BFI84U` },
+];
+const otcShortSources: PublicSource[] = [
+  { market: "otc", kind: "margin_lending", label: "上櫃融資融券借券", url: `${TPEX}/tpex_margin_sbl` },
+  { market: "otc", kind: "daytrade", label: "上櫃當沖統計", url: `${TPEX}/tpex_intraday_trading_statistics` },
+  { market: "otc", kind: "margin_terms", label: "上櫃停資停券與融資券條件", url: `${TPEX}/tpex_margin_trading_term` },
+  { market: "otc", kind: "margin_adjustment", label: "上櫃融資券成數調整", url: `${TPEX}/tpex_margin_trading_adjust` },
+];
+
+async function derivativesSentiment() {
+  const sources: PublicSource[] = [
+    { kind: "put_call_ratio", label: "期交所Put/Call Ratio", url: `${TAIFEX}/PutCallRatio` },
+    { kind: "institutional_general", label: "期交所三大法人總表", url: `${TAIFEX}/MarketDataOfMajorInstitutionalTradersGeneralBytheDate` },
+    { kind: "futures_positions", label: "期交所法人期貨契約", url: `${TAIFEX}/MarketDataOfMajorInstitutionalTradersDetailsOfFuturesContractsBytheDate` },
+    { kind: "calls_puts", label: "期交所法人選擇權買賣權", url: `${TAIFEX}/MarketDataOfMajorInstitutionalTradersDetailsOfCallsAndPutsBytheDate` },
+    { kind: "large_traders", label: "期交所大額交易人期貨未平倉", url: `${TAIFEX}/OpenInterestOfLargeTradersFutures` },
+  ];
+  const result = await collectPublicSources(sources);
+  return { datasets: result.datasets.map((x) => ({ kind: x.kind, label: x.label, data: recent(x.rows, 60) })), partial_errors: result.errors };
+}
+
+function technicalSwingSummary(prices: any[]) {
+  const rows = prices.map((x) => ({ ...x, close: num(x.close), max: num(x.max), min: num(x.min), volume: num(x.Trading_Volume ?? x.volume) })).filter((x) => x.close > 0);
+  const latest = rows.at(-1);
+  if (!latest) return { score: 0, latest: null };
+  const avg = (n: number) => { const xs = rows.slice(-n); return xs.length ? xs.reduce((a, b) => a + b.close, 0) / xs.length : latest.close; };
+  const ma20 = avg(20), ma60 = avg(60), ma120 = avg(120);
+  const high60 = Math.max(...rows.slice(-60).map((x) => x.max || x.close));
+  let score = 50;
+  if (latest.close > ma20) score += 8; else score -= 8;
+  if (ma20 > ma60) score += 10; else score -= 10;
+  if (ma60 > ma120) score += 10; else score -= 10;
+  if (latest.close >= high60 * 0.98) score += 8;
+  return { score: Math.max(0, Math.min(100, score)), latest_close: latest.close, ma20: round(ma20), ma60: round(ma60), ma120: round(ma120), high_60d: high60 };
+}
+
 export class MyMCP extends McpAgent<Env> {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "4.0.0" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "5.0.0" });
 
   async init() {
     this.server.registerTool("get_quote", {
@@ -666,72 +888,59 @@ export class MyMCP extends McpAgent<Env> {
     });
 
     this.server.registerTool("get_monthly_revenue", {
-      description: "查詢月營收並計算月增、年增、連續成長與營收異常，適合波段基本面追蹤。",
+      description: "官方證交所/櫃買月營收優先，FinMind補歷史；計算月增、年增與營收異常。",
       inputSchema: { symbol: stockSymbol, months: z.number().int().min(13).max(120).optional().default(36) },
     }, async ({ symbol, months }) => {
       try {
-        const result = await finmind(this.env, "TaiwanStockMonthRevenue", { data_id: symbol, start_date: twDate(months * 32) });
-        return ok({ source: "FinMind", dataset: "TaiwanStockMonthRevenue", symbol, ...revenueSummary(result.data) });
+        const [official, history] = await Promise.allSettled([
+          collectPublicSources(revenueOfficialSources, symbol),
+          finmind(this.env, "TaiwanStockMonthRevenue", { data_id: symbol, start_date: twDate(months * 32) }),
+        ]);
+        const errors: string[] = [];
+        if (official.status === "rejected") errors.push(official.reason instanceof Error ? official.reason.message : String(official.reason));
+        if (history.status === "rejected") errors.push(history.reason instanceof Error ? history.reason.message : String(history.reason));
+        const officialRows = official.status === "fulfilled" ? official.value.datasets.flatMap((x) => x.rows.map(officialRevenueRow)) : [];
+        if (official.status === "fulfilled") errors.push(...official.value.errors);
+        return ok({ source_priority: ["TWSE/TPEx OpenAPI", "FinMind fallback/history"], symbol, official_latest: officialRows, historical_analysis: history.status === "fulfilled" ? revenueSummary(history.value.data) : null, partial_errors: errors });
       } catch (e) { return fail(e); }
     });
 
     this.server.registerTool("get_financial_anomalies", {
-      description: "彙整綜合損益表、資產負債表與現金流量表，標示營收、獲利、存貨、應收與現金流異常。",
-      inputSchema: { symbol: stockSymbol, start_date: isoDate.optional() },
-    }, async ({ symbol, start_date }) => {
+      description: "官方上市櫃損益表與資產負債表優先，FinMind補現金流與歷史比較。",
+      inputSchema: { symbol: stockSymbol, market: marketChoice.optional().default("auto"), start_date: isoDate.optional() },
+    }, async ({ symbol, market, start_date }) => {
       try {
+        const officialSources = sourcesByMarket(market, [...listedIncomeSources, ...listedBalanceSources], [...otcIncomeSources, ...otcBalanceSources]);
         const start = start_date ?? twDate(1_100);
-        const settled = await Promise.allSettled([
+        const [official, income, balance, cash] = await Promise.allSettled([
+          collectPublicSources(officialSources, symbol),
           finmind(this.env, "TaiwanStockFinancialStatements", { data_id: symbol, start_date: start }),
           finmind(this.env, "TaiwanStockBalanceSheet", { data_id: symbol, start_date: start }),
           finmind(this.env, "TaiwanStockCashFlowsStatement", { data_id: symbol, start_date: start }),
         ]);
         const errors: string[] = [];
-        settled.forEach((x) => { if (x.status === "rejected") errors.push(x.reason instanceof Error ? x.reason.message : String(x.reason)); });
-        const income = settled[0].status === "fulfilled" ? settled[0].value.data : [];
-        const balance = settled[1].status === "fulfilled" ? settled[1].value.data : [];
-        const cash = settled[2].status === "fulfilled" ? settled[2].value.data : [];
-        return ok({ source: "FinMind", symbol, start_date: start, ...financialSummary(income, balance, cash), partial_errors: errors });
+        for (const r of [official, income, balance, cash]) if (r.status === "rejected") errors.push(r.reason instanceof Error ? r.reason.message : String(r.reason));
+        const officialData = official.status === "fulfilled" ? official.value.datasets.filter((x) => x.rows.length) : [];
+        if (official.status === "fulfilled") errors.push(...official.value.errors);
+        return ok({ source_priority: ["TWSE/TPEx OpenAPI", "FinMind fallback/history"], symbol, official_summary: summarizeOfficialFinancial(officialData.flatMap((x) => x.rows)), official_datasets: officialData, historical_analysis: financialSummary(income.status === "fulfilled" ? income.value.data : [], balance.status === "fulfilled" ? balance.value.data : [], cash.status === "fulfilled" ? cash.value.data : []), partial_errors: errors });
       } catch (e) { return fail(e); }
     });
 
     this.server.registerTool("get_shareholding_structure", {
-      description: "查詢外資持股、股權持股分級與借券，觀察大戶集中度與中期籌碼；持股分級可能需要FinMind會員權限。",
+      description: "TDCC官方免費集保股權分散為主，搭配FinMind外資持股與借券。",
       inputSchema: { symbol: stockSymbol, start_date: isoDate.optional(), end_date: isoDate.optional() },
     }, async ({ symbol, start_date, end_date }) => {
       try {
-        const start = start_date ?? twDate(180);
-        const end = end_date ?? twDate();
-        const settled = await Promise.allSettled([
+        const start = start_date ?? twDate(180), end = end_date ?? twDate();
+        const [tdcc, foreign, lending] = await Promise.allSettled([
+          tdccShareholding(symbol),
           finmind(this.env, "TaiwanStockShareholding", { data_id: symbol, start_date: start, end_date: end }),
-          finmind(this.env, "TaiwanStockHoldingSharesPer", { data_id: symbol, start_date: start, end_date: end }),
           finmind(this.env, "TaiwanStockSecuritiesLending", { data_id: symbol, start_date: start, end_date: end }),
         ]);
         const errors: string[] = [];
-        settled.forEach((x) => { if (x.status === "rejected") errors.push(x.reason instanceof Error ? x.reason.message : String(x.reason)); });
-        const foreign = settled[0].status === "fulfilled" ? settled[0].value.data : [];
-        const holding = settled[1].status === "fulfilled" ? settled[1].value.data : [];
-        const lending = settled[2].status === "fulfilled" ? settled[2].value.data : [];
-        const foreignLatest = foreign.at(-1) ?? null;
-        const foreignPrevious = foreign.at(-2) ?? null;
-        const holdingDates = ([...new Set(holding.map((x: any) => String(x.date ?? "")))] as string[]).filter(Boolean).sort();
-        const latestHolding = holdingDates.at(-1) ? holdingSnapshot(holding, holdingDates.at(-1)!) : null;
-        const previousHolding = holdingDates.at(-2) ? holdingSnapshot(holding, holdingDates.at(-2)!) : null;
-        return ok({
-          source: "FinMind", symbol, start_date: start, end_date: end,
-          foreign_shareholding: {
-            latest: foreignLatest,
-            previous: foreignPrevious,
-            ratio_change_percentage_points: foreignLatest && foreignPrevious ? round(num(foreignLatest.ForeignInvestmentSharesRatio) - num(foreignPrevious.ForeignInvestmentSharesRatio), 4) : null,
-          },
-          holding_distribution: {
-            latest: latestHolding,
-            previous: previousHolding,
-            large_holder_1m_change_percentage_points: latestHolding && previousHolding ? round(latestHolding.percent_1m_shares_or_more - previousHolding.percent_1m_shares_or_more, 4) : null,
-          },
-          securities_lending: recent(lending, 30),
-          partial_errors: errors,
-        });
+        for (const r of [tdcc, foreign, lending]) if (r.status === "rejected") errors.push(r.reason instanceof Error ? r.reason.message : String(r.reason));
+        const f = foreign.status === "fulfilled" ? foreign.value.data : [];
+        return ok({ source_priority: ["TDCC OpenAPI", "FinMind supplementary"], symbol, tdcc_holding_distribution: tdcc.status === "fulfilled" ? tdcc.value : null, foreign_shareholding: { latest: f.at(-1) ?? null, previous: f.at(-2) ?? null }, securities_lending: lending.status === "fulfilled" ? recent(lending.value.data, 30) : [], partial_errors: errors });
       } catch (e) { return fail(e); }
     });
 
@@ -768,6 +977,121 @@ export class MyMCP extends McpAgent<Env> {
         });
       } catch (e) { return fail(e); }
     });
+
+    this.server.registerTool("get_insider_risk", {
+      description: "查詢內部人轉讓、董監質押、持股不足、經營權異動與資訊申報違規。",
+      inputSchema: { symbol: stockSymbol, market: marketChoice.optional().default("auto") },
+    }, async ({ symbol, market }) => {
+      try {
+        const result = await collectPublicSources(sourcesByMarket(market, listedInsiderSources, otcInsiderSources), symbol);
+        return ok({ source: "TWSE/TPEx OpenAPI", symbol, ...insiderRisk(result.datasets), datasets: result.datasets.filter((x) => x.rows.length), partial_errors: result.errors });
+      } catch (e) { return fail(e); }
+    });
+
+    this.server.registerTool("get_valuation", {
+      description: "查詢官方本益比、殖利率與股價淨值比。",
+      inputSchema: { symbol: stockSymbol, market: marketChoice.optional().default("auto") },
+    }, async ({ symbol, market }) => {
+      try {
+        const sources = market === "listed" ? [valuationSources.listed] : market === "otc" ? [valuationSources.otc] : [valuationSources.listed, valuationSources.otc];
+        const result = await collectPublicSources(sources, symbol);
+        return ok({ source: "TWSE/TPEx OpenAPI", symbol, data: result.datasets.flatMap((x) => x.rows.map(valuationRow)), partial_errors: result.errors });
+      } catch (e) { return fail(e); }
+    });
+
+    this.server.registerTool("get_corporate_action_calendar", {
+      description: "整合股利、除權息、股東會、暫停交易與重大訊息公司事件日曆。",
+      inputSchema: { symbol: stockSymbol, market: marketChoice.optional().default("auto"), limit: z.number().int().min(1).max(100).optional().default(50) },
+    }, async ({ symbol, market, limit }) => {
+      try {
+        const [calendar, restrictions, material] = await Promise.allSettled([
+          collectPublicSources(sourcesByMarket(market, listedCalendarSources, otcCalendarSources), symbol),
+          tradingRestrictions(symbol, market),
+          eventsFor(symbol, market, limit),
+        ]);
+        const errors: string[] = [];
+        for (const r of [calendar, restrictions, material]) if (r.status === "rejected") errors.push(r.reason instanceof Error ? r.reason.message : String(r.reason));
+        if (calendar.status === "fulfilled") errors.push(...calendar.value.errors);
+        if (material.status === "fulfilled") errors.push(...material.value.errors);
+        return ok({ source: "TWSE/TPEx OpenAPI", symbol, corporate_actions: calendar.status === "fulfilled" ? calendar.value.datasets.filter((x) => x.rows.length) : [], trading_restrictions: restrictions.status === "fulfilled" ? restrictions.value : null, material_events: material.status === "fulfilled" ? material.value.rows : [], partial_errors: errors });
+      } catch (e) { return fail(e); }
+    });
+
+    this.server.registerTool("get_short_pressure", {
+      description: "整合官方融資融券、借券、當沖、停資停券，搭配FinMind歷史資料判斷空方與籌碼壓力。",
+      inputSchema: { symbol: stockSymbol, market: marketChoice.optional().default("auto"), days: z.number().int().min(5).max(120).optional().default(30) },
+    }, async ({ symbol, market, days }) => {
+      try {
+        const [official, margin, lending] = await Promise.allSettled([
+          collectPublicSources(sourcesByMarket(market, listedShortSources, otcShortSources), symbol),
+          finmind(this.env, "TaiwanStockMarginPurchaseShortSale", { data_id: symbol, start_date: twDate(days * 2), end_date: twDate() }),
+          finmind(this.env, "TaiwanStockSecuritiesLending", { data_id: symbol, start_date: twDate(days * 2), end_date: twDate() }),
+        ]);
+        const errors: string[] = [];
+        for (const r of [official, margin, lending]) if (r.status === "rejected") errors.push(r.reason instanceof Error ? r.reason.message : String(r.reason));
+        if (official.status === "fulfilled") errors.push(...official.value.errors);
+        const marginRows = margin.status === "fulfilled" ? recent(margin.value.data, days) : [];
+        const latest = marginRows.at(-1) ?? null;
+        const prev = marginRows.at(-2) ?? null;
+        return ok({ source_priority: ["TWSE/TPEx OpenAPI", "FinMind history"], symbol, official_current: official.status === "fulfilled" ? official.value.datasets.filter((x) => x.rows.length) : [], margin_history: marginRows, securities_lending: lending.status === "fulfilled" ? recent(lending.value.data, days) : [], summary: { margin_balance_change: latest && prev ? num(latest.MarginPurchaseTodayBalance) - num(prev.MarginPurchaseTodayBalance) : null, short_balance_change: latest && prev ? num(latest.ShortSaleTodayBalance) - num(prev.ShortSaleTodayBalance) : null }, partial_errors: errors });
+      } catch (e) { return fail(e); }
+    });
+
+    this.server.registerTool("get_derivatives_sentiment", {
+      description: "查詢期交所Put/Call Ratio、三大法人期貨選擇權與大額交易人未平倉，適合盤後大盤情緒。",
+      inputSchema: {},
+    }, async () => {
+      try { return ok({ source: "TAIFEX OpenAPI", retrieved_at: new Date().toISOString(), ...(await derivativesSentiment()) }); }
+      catch (e) { return fail(e); }
+    });
+
+    this.server.registerTool("analyze_swing_candidate", {
+      description: "整合趨勢、營收、財報、TDCC大戶、法人、融資借券、估值、內部人、事件與大盤環境，提供波段候選評估。",
+      inputSchema: { symbol: stockSymbol, market: marketChoice.optional().default("auto") },
+    }, async ({ symbol, market }) => {
+      try {
+        const results = await Promise.allSettled([
+          finmind(this.env, "TaiwanStockPrice", { data_id: symbol, start_date: twDate(550), end_date: twDate() }),
+          finmind(this.env, "TaiwanStockMonthRevenue", { data_id: symbol, start_date: twDate(1_200) }),
+          tdccShareholding(symbol),
+          finmind(this.env, "TaiwanStockInstitutionalInvestorsBuySell", { data_id: symbol, start_date: twDate(90), end_date: twDate() }),
+          finmind(this.env, "TaiwanStockMarginPurchaseShortSale", { data_id: symbol, start_date: twDate(90), end_date: twDate() }),
+          collectPublicSources(market === "listed" ? [valuationSources.listed] : market === "otc" ? [valuationSources.otc] : [valuationSources.listed, valuationSources.otc], symbol),
+          collectPublicSources(sourcesByMarket(market, listedInsiderSources, otcInsiderSources), symbol),
+          eventsFor(symbol, market, 30),
+          Promise.allSettled([marketSnapshot(this.env, "TSE"), marketSnapshot(this.env, "OTC")]),
+        ]);
+        const errors: string[] = [];
+        results.forEach((r) => { if (r.status === "rejected") errors.push(r.reason instanceof Error ? r.reason.message : String(r.reason)); });
+        const prices = results[0].status === "fulfilled" ? results[0].value.data : [];
+        const tech = technicalSwingSummary(prices);
+        const revenue = results[1].status === "fulfilled" ? revenueSummary(results[1].value.data) : null;
+        const tdcc = results[2].status === "fulfilled" ? results[2].value : null;
+        const institutional = results[3].status === "fulfilled" ? results[3].value.data : [];
+        const margin = results[4].status === "fulfilled" ? results[4].value.data : [];
+        const valuation = results[5].status === "fulfilled" ? results[5].value.datasets.flatMap((x) => x.rows.map(valuationRow)) : [];
+        const insider = results[6].status === "fulfilled" ? insiderRisk(results[6].value.datasets) : null;
+        const eventsData = results[7].status === "fulfilled" ? results[7].value.rows : [];
+        const marketSettled = results[8].status === "fulfilled" ? results[8].value : [];
+        const marketRows = marketSettled.flatMap((r: any) => r.status === "fulfilled" ? r.value.rows : []);
+        const regimeAgg = aggregateMarket(marketRows);
+        const marketRegime = (regimeAgg.advance_decline_ratio ?? 0) >= 1.5 ? "risk_on" : (regimeAgg.advance_decline_ratio ?? 1) <= 0.67 ? "risk_off" : "mixed";
+        let fundamentalScore = 50;
+        if (revenue?.latest?.yoy_percent >= 20) fundamentalScore += 20; else if (revenue?.latest?.yoy_percent < 0) fundamentalScore -= 15;
+        if ((revenue?.positive_yoy_streak_months ?? 0) >= 3) fundamentalScore += 10;
+        let chipScore = 50;
+        if ((tdcc?.large_holder_1m_change_percentage_points ?? 0) > 0) chipScore += 15; else if ((tdcc?.large_holder_1m_change_percentage_points ?? 0) < 0) chipScore -= 15;
+        const instRecent = recent(institutional, 15).reduce((sum: number, x: any) => sum + num(x.buy) - num(x.sell), 0);
+        if (instRecent > 0) chipScore += 10; else if (instRecent < 0) chipScore -= 10;
+        const latestMargin = margin.at(-1), previousMargin = margin.at(-2);
+        if (latestMargin && previousMargin && num(latestMargin.MarginPurchaseTodayBalance) > num(previousMargin.MarginPurchaseTodayBalance) * 1.15) chipScore -= 8;
+        let riskPenalty = insider?.risk_level === "high" ? 20 : insider?.risk_level === "medium" ? 10 : 0;
+        if (eventsData.length) riskPenalty += 3;
+        const environmentScore = marketRegime === "risk_on" ? 75 : marketRegime === "risk_off" ? 30 : 50;
+        const total = round(tech.score * 0.35 + Math.max(0, Math.min(100, fundamentalScore)) * 0.25 + Math.max(0, Math.min(100, chipScore)) * 0.25 + environmentScore * 0.15 - riskPenalty);
+        return ok({ symbol, retrieved_at: new Date().toISOString(), scores: { trend: tech.score, fundamental: Math.max(0, Math.min(100, fundamentalScore)), chips: Math.max(0, Math.min(100, chipScore)), environment: environmentScore, risk_penalty: riskPenalty, total: Math.max(0, Math.min(100, total)) }, rating: total >= 80 ? "A" : total >= 70 ? "B+" : total >= 60 ? "B" : total >= 50 ? "C" : "D", stance: total >= 75 ? "可列入波段候選，等待合理進場點" : total >= 60 ? "條件中等，需等待技術與籌碼確認" : "目前不宜積極建立波段部位", technical: tech, revenue, tdcc_shareholding: tdcc, institutional_recent: recent(institutional, 30), margin_recent: recent(margin, 30), valuation, insider_risk: insider, material_events: eventsData, market_regime: { regime: marketRegime, breadth: regimeAgg }, partial_errors: errors, caution: "評分是資料整理與風險排序，不是獲利保證或自動下單訊號。" });
+      } catch (e) { return fail(e); }
+    });
   }
 }
 
@@ -779,9 +1103,9 @@ export default {
       return Response.json({
         service: "Taiwan Stock AI MCP",
         status: "ok",
-        version: "4.0.0",
+        version: "5.0.0",
         mcp_endpoint: "/mcp",
-        tools: 16,
+        tools: 22,
       });
     }
     return new Response("Not found", { status: 404 });
