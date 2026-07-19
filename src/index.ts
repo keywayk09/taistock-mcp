@@ -2,586 +2,91 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { z } from "zod";
 
-declare global {
-	interface Env {
-		FUGLE_API_KEY: string;
-		FINMIND_TOKEN: string;
-	}
-}
-
-type JsonObject = Record<string, unknown>;
-type FinMindResponse = JsonObject & { data?: unknown[]; msg?: string; message?: string };
+declare global { interface Env { FUGLE_API_KEY: string; FINMIND_TOKEN: string } }
+type Obj = Record<string, any>;
 type Market = "listed" | "otc";
 
-const FUGLE_BASE_URL = "https://api.fugle.tw/marketdata/v1.0/stock";
-const FINMIND_DATA_URL = "https://api.finmindtrade.com/api/v4/data";
-const FINMIND_BROKER_URL =
-	"https://api.finmindtrade.com/api/v4/taiwan_stock_trading_daily_report";
-const TWSE_MATERIAL_EVENTS_URL =
-	"https://openapi.twse.com.tw/v1/opendata/t187ap04_L";
-const TPEX_MATERIAL_EVENTS_URL =
-	"https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap04_O";
+const FUGLE = "https://api.fugle.tw/marketdata/v1.0/stock";
+const FINMIND = "https://api.finmindtrade.com/api/v4/data";
+const BROKER = "https://api.finmindtrade.com/api/v4/taiwan_stock_trading_daily_report";
+const TWSE_EVENTS = "https://openapi.twse.com.tw/v1/opendata/t187ap04_L";
+const TPEX_EVENTS = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap04_O";
+const symbol = z.string().trim().min(1).max(20).regex(/^[0-9A-Za-z._-]+$/);
+const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-const symbolSchema = z
-	.string()
-	.trim()
-	.min(1)
-	.max(20)
-	.regex(/^[0-9A-Za-z._-]+$/, "股票代碼格式不正確");
+const ok = (x: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(x, null, 2) }] });
+const fail = (e: unknown) => ({ isError: true, content: [{ type: "text" as const, text: `查詢失敗：${e instanceof Error ? e.message : String(e)}` }] });
+const rec = (x: unknown): Obj => x && typeof x === "object" ? x as Obj : {};
+const num = (x: unknown) => Number.isFinite(Number(x)) ? Number(x) : 0;
+const arr = (x: unknown): any[] => Array.isArray(x) ? x : Array.isArray(rec(x).data) ? rec(x).data : [];
+const recent = (x: any[], n: number) => x.length <= n ? x : x.slice(-n);
 
-const dateSchema = z
-	.string()
-	.regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式必須是 YYYY-MM-DD")
-	.refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)), "日期無效");
-
-function taipeiDate(daysAgo = 0): string {
-	const date = new Date(Date.now() - daysAgo * 86_400_000);
-	return new Intl.DateTimeFormat("en-CA", {
-		timeZone: "Asia/Taipei",
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-	}).format(date);
+function twDate(daysAgo = 0) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(Date.now() - daysAgo * 86400000));
 }
 
-function assertDateRange(startDate: string, endDate: string): void {
-	if (startDate > endDate) throw new Error("start_date 不可晚於 end_date");
+async function json(url: string | URL, init: RequestInit, source: string): Promise<any> {
+  const r = await fetch(url, init); const text = await r.text(); let body: any = text;
+  try { body = text ? JSON.parse(text) : null } catch {}
+  if (!r.ok) throw new Error(`${source} HTTP ${r.status}: ${String(rec(body).message ?? rec(body).msg ?? rec(body).error ?? text.slice(0, 300))}`);
+  return body;
 }
 
-function asRecord(value: unknown): JsonObject {
-	return value !== null && typeof value === "object" ? (value as JsonObject) : {};
+async function fugle(env: Env, path: string, query: Obj = {}) {
+  if (!env.FUGLE_API_KEY) throw new Error("FUGLE_API_KEY 尚未設定");
+  const url = new URL(FUGLE + path); Object.entries(query).forEach(([k,v]) => v !== undefined && v !== "" && url.searchParams.set(k, String(v)));
+  return json(url, { headers: { Accept: "application/json", "X-API-KEY": env.FUGLE_API_KEY } }, "富果");
 }
 
-function asNumber(value: unknown): number {
-	const number = Number(value);
-	return Number.isFinite(number) ? number : 0;
+async function finmind(env: Env, dataset: string, params: Obj) {
+  if (!env.FINMIND_TOKEN) throw new Error("FINMIND_TOKEN 尚未設定");
+  const url = new URL(FINMIND); url.searchParams.set("dataset", dataset); Object.entries(params).forEach(([k,v]) => v !== undefined && v !== "" && url.searchParams.set(k, String(v)));
+  const body = await json(url, { headers: { Accept: "application/json", Authorization: `Bearer ${env.FINMIND_TOKEN}` } }, "FinMind");
+  if (!Array.isArray(body.data)) throw new Error(`FinMind 回傳缺少 data：${String(body.msg ?? body.message ?? "unknown")}`);
+  return body;
 }
 
-function jsonText(value: unknown): string {
-	return JSON.stringify(value, null, 2);
+async function broker(env: Env, stock: string, day: string) {
+  const url = new URL(BROKER); url.searchParams.set("data_id", stock); url.searchParams.set("date", day);
+  const body = await json(url, { headers: { Accept: "application/json", Authorization: `Bearer ${env.FINMIND_TOKEN}` } }, "FinMind 分點");
+  if (!Array.isArray(body.data)) throw new Error("FinMind 分點回傳缺少 data"); return body.data as any[];
 }
 
-function toolSuccess(value: unknown) {
-	return { content: [{ type: "text" as const, text: jsonText(value) }] };
-}
-
-function toolFailure(error: unknown) {
-	const message = error instanceof Error ? error.message : String(error);
-	return {
-		isError: true,
-		content: [{ type: "text" as const, text: `查詢失敗：${message}` }],
-	};
-}
-
-async function fetchJson(
-	url: string | URL,
-	init: RequestInit,
-	source: string,
-): Promise<unknown> {
-	const response = await fetch(url, init);
-	const rawText = await response.text();
-	let body: unknown = rawText;
-
-	if (rawText) {
-		try {
-			body = JSON.parse(rawText);
-		} catch {
-			// Keep raw text for upstream error reporting.
-		}
-	}
-
-	if (!response.ok) {
-		const record = asRecord(body);
-		const upstreamMessage =
-			record.message ?? record.msg ?? record.error ?? rawText.slice(0, 500);
-		throw new Error(`${source} HTTP ${response.status}: ${String(upstreamMessage)}`);
-	}
-	return body;
-}
-
-function dataArray(value: unknown): unknown[] {
-	if (Array.isArray(value)) return value;
-	const record = asRecord(value);
-	return Array.isArray(record.data) ? record.data : [];
-}
-
-async function fetchFugle(
-	path: string,
-	apiKey: string,
-	query: Record<string, string | undefined> = {},
-): Promise<unknown> {
-	if (!apiKey) throw new Error("Cloudflare Secret FUGLE_API_KEY 尚未設定");
-	const url = new URL(`${FUGLE_BASE_URL}${path}`);
-	for (const [key, value] of Object.entries(query)) {
-		if (value !== undefined && value !== "") url.searchParams.set(key, value);
-	}
-	return fetchJson(
-		url,
-		{ headers: { Accept: "application/json", "X-API-KEY": apiKey } },
-		"富果",
-	);
-}
-
-async function fetchFinMindDataset(
-	dataset: string,
-	params: Record<string, string | undefined>,
-	token: string,
-): Promise<FinMindResponse> {
-	if (!token) throw new Error("Cloudflare Secret FINMIND_TOKEN 尚未設定");
-	const url = new URL(FINMIND_DATA_URL);
-	url.searchParams.set("dataset", dataset);
-	for (const [key, value] of Object.entries(params)) {
-		if (value !== undefined && value !== "") url.searchParams.set(key, value);
-	}
-	const body = (await fetchJson(
-		url,
-		{
-			headers: {
-				Accept: "application/json",
-				Authorization: `Bearer ${token}`,
-			},
-		},
-		"FinMind",
-	)) as FinMindResponse;
-	if (!Array.isArray(body.data)) {
-		throw new Error(
-			`FinMind 回傳格式異常：${String(body.msg ?? body.message ?? "缺少 data 欄位")}`,
-		);
-	}
-	return body;
-}
-
-async function fetchFinMindBroker(
-	symbol: string,
-	date: string,
-	token: string,
-): Promise<FinMindResponse> {
-	if (!token) throw new Error("Cloudflare Secret FINMIND_TOKEN 尚未設定");
-	const url = new URL(FINMIND_BROKER_URL);
-	url.searchParams.set("data_id", symbol);
-	url.searchParams.set("date", date);
-	const body = (await fetchJson(
-		url,
-		{
-			headers: {
-				Accept: "application/json",
-				Authorization: `Bearer ${token}`,
-			},
-		},
-		"FinMind 分點",
-	)) as FinMindResponse;
-	if (!Array.isArray(body.data)) {
-		throw new Error(
-			`FinMind 分點回傳格式異常：${String(body.msg ?? body.message ?? "缺少 data 欄位")}`,
-		);
-	}
-	return body;
-}
-
-function recentRows(rows: unknown[], limit: number): unknown[] {
-	return rows.length <= limit ? rows : rows.slice(rows.length - limit);
-}
-
-function firstText(row: JsonObject, keys: string[]): string {
-	for (const key of keys) {
-		const value = row[key];
-		if (value !== undefined && value !== null && String(value).trim() !== "") {
-			return String(value).trim();
-		}
-	}
-	return "";
-}
-
-function normalizeMaterialEvent(item: unknown, market: Market) {
-	const row = asRecord(item);
-	return {
-		market,
-		company_code: firstText(row, ["公司代號", "公司代碼", "SecuritiesCompanyCode", "stock_id"]),
-		company_name: firstText(row, ["公司名稱", "CompanyName", "stock_name"]),
-		report_date: firstText(row, ["出表日期", "資料日期", "date"]),
-		publish_date: firstText(row, ["發言日期", "申報日期", "publish_date"]),
-		publish_time: firstText(row, ["發言時間", "申報時間", "publish_time"]),
-		subject: firstText(row, ["主旨", "Subject", "title"]),
-		clause: firstText(row, ["符合條款", "條款", "clause"]),
-		event_date: firstText(row, ["事實發生日", "event_date"]),
-		description: firstText(row, ["說明", "Description", "content"]),
-		raw: row,
-	};
-}
-
-async function fetchMaterialEvents(market: Market): Promise<ReturnType<typeof normalizeMaterialEvent>[]> {
-	const url = market === "listed" ? TWSE_MATERIAL_EVENTS_URL : TPEX_MATERIAL_EVENTS_URL;
-	const source = market === "listed" ? "證交所重大訊息" : "櫃買中心重大訊息";
-	const body = await fetchJson(url, { headers: { Accept: "application/json" } }, source);
-	return dataArray(body).map((item) => normalizeMaterialEvent(item, market));
-}
-
-function fulfilledValue<T>(result: PromiseSettledResult<T>): T | null {
-	return result.status === "fulfilled" ? result.value : null;
-}
-
-function rejectedReason(result: PromiseSettledResult<unknown>): string | null {
-	if (result.status !== "rejected") return null;
-	return result.reason instanceof Error ? result.reason.message : String(result.reason);
+const pick = (o: Obj, keys: string[]) => { for (const k of keys) if (o[k] != null && String(o[k]).trim()) return String(o[k]).trim(); return "" };
+function normalizeEvent(x: unknown, market: Market) { const o = rec(x); return {
+  market,
+  company_code: pick(o,["公司代號","公司代碼","SecuritiesCompanyCode","stock_id"]), company_name: pick(o,["公司名稱","CompanyName","stock_name"]),
+  report_date: pick(o,["出表日期","資料日期","date"]), publish_date: pick(o,["發言日期","申報日期","publish_date"]), publish_time: pick(o,["發言時間","申報時間","publish_time"]),
+  subject: pick(o,["主旨","Subject","title"]), clause: pick(o,["符合條款","條款","clause"]), event_date: pick(o,["事實發生日","event_date"]), description: pick(o,["說明","Description","content"]), raw:o
+} }
+async function events(market: Market) { const url = market === "listed" ? TWSE_EVENTS : TPEX_EVENTS; return arr(await json(url,{headers:{Accept:"application/json"}},market === "listed" ? "證交所重大訊息" : "櫃買重大訊息")).map(x=>normalizeEvent(x,market)) }
+async function eventsFor(stock: string, market: "auto"|Market, limit=30) {
+  const markets: Market[] = market === "auto" ? ["listed","otc"] : [market]; const settled = await Promise.allSettled(markets.map(events)); const rows:any[]=[]; const errors:string[]=[];
+  settled.forEach(r=>r.status === "fulfilled" ? rows.push(...r.value) : errors.push(r.reason instanceof Error ? r.reason.message : String(r.reason)));
+  return { markets, errors, rows: rows.filter(x=>x.company_code===stock).slice(0,limit) };
 }
 
 export class MyMCP extends McpAgent<Env> {
-	server = new McpServer({ name: "Taiwan Stock AI", version: "3.0.0" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "3.1.0" });
+  async init() {
+    this.server.registerTool("get_quote", { description:"富果台股即時報價、量與五檔。", inputSchema:{symbol,type:z.enum(["normal","oddlot"]).optional().default("normal")} }, async ({symbol,type})=>{try{return ok({source:"Fugle",retrieved_at:new Date().toISOString(),data:await fugle(this.env,`/intraday/quote/${encodeURIComponent(symbol)}`,{type:type==="oddlot"?"oddlot":undefined})})}catch(e){return fail(e)}});
 
-	async init() {
-		this.server.registerTool(
-			"get_quote",
-			{
-				description: "使用富果 Fugle 查詢台股即時報價、開高低收、成交量、內外盤與最佳五檔。唯讀工具。",
-				inputSchema: {
-					symbol: symbolSchema.describe("台股代碼，例如 2330、2388"),
-					type: z.enum(["normal", "oddlot"]).optional().default("normal"),
-				},
-			},
-			async ({ symbol, type }) => {
-				try {
-					const data = await fetchFugle(
-						`/intraday/quote/${encodeURIComponent(symbol)}`,
-						this.env.FUGLE_API_KEY,
-						{ type: type === "oddlot" ? "oddlot" : undefined },
-					);
-					return toolSuccess({ source: "Fugle", retrieved_at: new Date().toISOString(), data });
-				} catch (error) {
-					return toolFailure(error);
-				}
-			},
-		);
+    this.server.registerTool("get_intraday_candles", { description:"富果台股當日日內分K。", inputSchema:{symbol,timeframe:z.enum(["1","3","5","10","15","30","60"]).optional().default("5"),sort:z.enum(["asc","desc"]).optional().default("asc"),type:z.enum(["normal","oddlot"]).optional().default("normal"),last_n:z.number().int().min(1).max(500).optional().default(100)} }, async ({symbol,timeframe,sort,type,last_n})=>{try{const raw=rec(await fugle(this.env,`/intraday/candles/${encodeURIComponent(symbol)}`,{timeframe,sort,type:type==="oddlot"?"oddlot":undefined}));const data=Array.isArray(raw.data)?raw.data:[];return ok({source:"Fugle",...raw,data:sort==="desc"?data.slice(0,last_n):data.slice(-last_n)})}catch(e){return fail(e)}});
 
-		this.server.registerTool(
-			"get_intraday_candles",
-			{
-				description: "使用富果 Fugle 查詢台股當日日內 K 線。支援 1、3、5、10、15、30、60 分 K。唯讀工具。",
-				inputSchema: {
-					symbol: symbolSchema,
-					timeframe: z.enum(["1", "3", "5", "10", "15", "30", "60"]).optional().default("5"),
-					sort: z.enum(["asc", "desc"]).optional().default("asc"),
-					type: z.enum(["normal", "oddlot"]).optional().default("normal"),
-					last_n: z.number().int().min(1).max(500).optional().default(100),
-				},
-			},
-			async ({ symbol, timeframe, sort, type, last_n }) => {
-				try {
-					const raw = await fetchFugle(
-						`/intraday/candles/${encodeURIComponent(symbol)}`,
-						this.env.FUGLE_API_KEY,
-						{ timeframe, sort, type: type === "oddlot" ? "oddlot" : undefined },
-					);
-					const result = asRecord(raw);
-					const rows = Array.isArray(result.data) ? result.data : [];
-					const selected = sort === "desc" ? rows.slice(0, last_n) : rows.slice(-last_n);
-					return toolSuccess({
-						source: "Fugle",
-						retrieved_at: new Date().toISOString(),
-						...result,
-						returned_bars: selected.length,
-						data: selected,
-					});
-				} catch (error) {
-					return toolFailure(error);
-				}
-			},
-		);
+    this.server.registerTool("get_daily_price", { description:"FinMind台股日K。", inputSchema:{symbol,start_date:date.optional(),end_date:date.optional(),limit:z.number().int().min(1).max(500).optional().default(120)} }, async ({symbol,start_date,end_date,limit})=>{try{const s=start_date??twDate(180),e=end_date??twDate();if(s>e)throw new Error("start_date 不可晚於 end_date");const r=await finmind(this.env,"TaiwanStockPrice",{data_id:symbol,start_date:s,end_date:e});return ok({source:"FinMind",dataset:"TaiwanStockPrice",symbol,start_date:s,end_date:e,data:recent(r.data,limit)})}catch(e){return fail(e)}});
 
-		this.server.registerTool(
-			"get_daily_price",
-			{
-				description: "使用 FinMind 查詢台股日 K、成交量與成交金額。唯讀工具。",
-				inputSchema: {
-					symbol: symbolSchema,
-					start_date: dateSchema.optional(),
-					end_date: dateSchema.optional(),
-					limit: z.number().int().min(1).max(500).optional().default(120),
-				},
-			},
-			async ({ symbol, start_date, end_date, limit }) => {
-				try {
-					const startDate = start_date ?? taipeiDate(180);
-					const endDate = end_date ?? taipeiDate();
-					assertDateRange(startDate, endDate);
-					const result = await fetchFinMindDataset(
-						"TaiwanStockPrice",
-						{ data_id: symbol, start_date: startDate, end_date: endDate },
-						this.env.FINMIND_TOKEN,
-					);
-					const rows = recentRows(result.data ?? [], limit);
-					return toolSuccess({ source: "FinMind", dataset: "TaiwanStockPrice", symbol, start_date: startDate, end_date: endDate, row_count: rows.length, data: rows });
-				} catch (error) {
-					return toolFailure(error);
-				}
-			},
-		);
+    this.server.registerTool("get_institutional", { description:"FinMind個股三大法人買賣。", inputSchema:{symbol,start_date:date.optional(),end_date:date.optional(),limit_days:z.number().int().min(1).max(120).optional().default(20)} }, async ({symbol,start_date,end_date,limit_days})=>{try{const s=start_date??twDate(45),e=end_date??twDate();const r=await finmind(this.env,"TaiwanStockInstitutionalInvestorsBuySell",{data_id:symbol,start_date:s,end_date:e});const rows=r.data.map((x:any)=>({...x,net:num(x.buy)-num(x.sell)}));const ds=[...new Set(rows.map((x:any)=>String(x.date??"")))].filter(Boolean).sort().slice(-limit_days);return ok({source:"FinMind",symbol,data:rows.filter((x:any)=>ds.includes(String(x.date??"")))})}catch(e){return fail(e)}});
 
-		this.server.registerTool(
-			"get_institutional",
-			{
-				description: "使用 FinMind 查詢個股外資、投信、自營商買進、賣出與買賣超。唯讀工具。",
-				inputSchema: {
-					symbol: symbolSchema,
-					start_date: dateSchema.optional(),
-					end_date: dateSchema.optional(),
-					limit_days: z.number().int().min(1).max(120).optional().default(20),
-				},
-			},
-			async ({ symbol, start_date, end_date, limit_days }) => {
-				try {
-					const startDate = start_date ?? taipeiDate(45);
-					const endDate = end_date ?? taipeiDate();
-					assertDateRange(startDate, endDate);
-					const result = await fetchFinMindDataset(
-						"TaiwanStockInstitutionalInvestorsBuySell",
-						{ data_id: symbol, start_date: startDate, end_date: endDate },
-						this.env.FINMIND_TOKEN,
-					);
-					const normalized = (result.data ?? []).map((item) => {
-						const row = asRecord(item);
-						return { ...row, net: asNumber(row.buy) - asNumber(row.sell) };
-					});
-					const dates = [...new Set(normalized.map((row) => String(row.date ?? "")))].filter(Boolean).sort();
-					const selectedDates = new Set(dates.slice(-limit_days));
-					const rows = normalized.filter((row) => selectedDates.has(String(row.date ?? "")));
-					return toolSuccess({ source: "FinMind", dataset: "TaiwanStockInstitutionalInvestorsBuySell", symbol, start_date: startDate, end_date: endDate, trading_days: selectedDates.size, data: rows });
-				} catch (error) {
-					return toolFailure(error);
-				}
-			},
-		);
+    this.server.registerTool("get_margin", { description:"FinMind融資融券。", inputSchema:{symbol,start_date:date.optional(),end_date:date.optional(),limit:z.number().int().min(1).max(250).optional().default(30)} }, async ({symbol,start_date,end_date,limit})=>{try{const s=start_date??twDate(60),e=end_date??twDate();const r=await finmind(this.env,"TaiwanStockMarginPurchaseShortSale",{data_id:symbol,start_date:s,end_date:e});const rows=r.data.map((x:any)=>({...x,margin_balance_change:num(x.MarginPurchaseTodayBalance)-num(x.MarginPurchaseYesterdayBalance),short_balance_change:num(x.ShortSaleTodayBalance)-num(x.ShortSaleYesterdayBalance)}));return ok({source:"FinMind",symbol,data:recent(rows,limit)})}catch(e){return fail(e)}});
 
-		this.server.registerTool(
-			"get_margin",
-			{
-				description: "使用 FinMind 查詢個股融資、融券買賣與餘額變化。唯讀工具。",
-				inputSchema: {
-					symbol: symbolSchema,
-					start_date: dateSchema.optional(),
-					end_date: dateSchema.optional(),
-					limit: z.number().int().min(1).max(250).optional().default(30),
-				},
-			},
-			async ({ symbol, start_date, end_date, limit }) => {
-				try {
-					const startDate = start_date ?? taipeiDate(60);
-					const endDate = end_date ?? taipeiDate();
-					assertDateRange(startDate, endDate);
-					const result = await fetchFinMindDataset(
-						"TaiwanStockMarginPurchaseShortSale",
-						{ data_id: symbol, start_date: startDate, end_date: endDate },
-						this.env.FINMIND_TOKEN,
-					);
-					const rows = recentRows(
-						(result.data ?? []).map((item) => {
-							const row = asRecord(item);
-							return {
-								...row,
-								margin_balance_change: asNumber(row.MarginPurchaseTodayBalance) - asNumber(row.MarginPurchaseYesterdayBalance),
-								short_balance_change: asNumber(row.ShortSaleTodayBalance) - asNumber(row.ShortSaleYesterdayBalance),
-							};
-						}),
-						limit,
-					);
-					return toolSuccess({ source: "FinMind", dataset: "TaiwanStockMarginPurchaseShortSale", symbol, start_date: startDate, end_date: endDate, row_count: rows.length, data: rows });
-				} catch (error) {
-					return toolFailure(error);
-				}
-			},
-		);
+    this.server.registerTool("get_broker_chips", { description:"FinMind單日券商分點淨買賣；需要對應權限。", inputSchema:{symbol,date,top_n:z.number().int().min(1).max(50).optional().default(20)} }, async ({symbol,date,top_n})=>{try{const rows=await broker(this.env,symbol,date);const m=new Map<string,any>();for(const x of rows){const id=String(x.securities_trader_id??"unknown"),name=String(x.securities_trader??id),k=`${id}|${name}`,v=m.get(k)??{id,name,buy:0,sell:0,bv:0,sv:0};const p=num(x.price),b=num(x.buy),s=num(x.sell);v.buy+=b;v.sell+=s;v.bv+=p*b;v.sv+=p*s;m.set(k,v)}const sum=[...m.values()].map(v=>({securities_trader_id:v.id,securities_trader:v.name,buy_shares:v.buy,sell_shares:v.sell,net_shares:v.buy-v.sell,net_lots:Number(((v.buy-v.sell)/1000).toFixed(2)),avg_buy_price:v.buy?Number((v.bv/v.buy).toFixed(4)):null,avg_sell_price:v.sell?Number((v.sv/v.sell).toFixed(4)):null}));return ok({source:"FinMind",symbol,date,top_net_buyers:sum.filter(x=>x.net_shares>0).sort((a,b)=>b.net_shares-a.net_shares).slice(0,top_n),top_net_sellers:sum.filter(x=>x.net_shares<0).sort((a,b)=>a.net_shares-b.net_shares).slice(0,top_n)})}catch(e){return fail(e)}});
 
-		this.server.registerTool(
-			"get_broker_chips",
-			{
-				description: "使用 FinMind 查詢單一交易日的個股券商分點並彙總淨買賣。需要對應 FinMind 權限。唯讀工具。",
-				inputSchema: {
-					symbol: symbolSchema,
-					date: dateSchema,
-					top_n: z.number().int().min(1).max(50).optional().default(20),
-				},
-			},
-			async ({ symbol, date, top_n }) => {
-				try {
-					const result = await fetchFinMindBroker(symbol, date, this.env.FINMIND_TOKEN);
-					const grouped = new Map<string, { id: string; name: string; buy: number; sell: number; buyValue: number; sellValue: number }>();
-					for (const item of result.data ?? []) {
-						const row = asRecord(item);
-						const id = String(row.securities_trader_id ?? "unknown");
-						const name = String(row.securities_trader ?? id);
-						const key = `${id}|${name}`;
-						const current = grouped.get(key) ?? { id, name, buy: 0, sell: 0, buyValue: 0, sellValue: 0 };
-						const price = asNumber(row.price);
-						const buy = asNumber(row.buy);
-						const sell = asNumber(row.sell);
-						current.buy += buy;
-						current.sell += sell;
-						current.buyValue += price * buy;
-						current.sellValue += price * sell;
-						grouped.set(key, current);
-					}
-					const summary = [...grouped.values()].map((row) => ({
-						securities_trader_id: row.id,
-						securities_trader: row.name,
-						buy_shares: row.buy,
-						sell_shares: row.sell,
-						net_shares: row.buy - row.sell,
-						net_lots: Number(((row.buy - row.sell) / 1000).toFixed(2)),
-						avg_buy_price: row.buy > 0 ? Number((row.buyValue / row.buy).toFixed(4)) : null,
-						avg_sell_price: row.sell > 0 ? Number((row.sellValue / row.sell).toFixed(4)) : null,
-					}));
-					return toolSuccess({
-						source: "FinMind",
-						dataset: "TaiwanStockTradingDailyReport",
-						symbol,
-						date,
-						broker_count: summary.length,
-						top_net_buyers: summary.filter((row) => row.net_shares > 0).sort((a, b) => b.net_shares - a.net_shares).slice(0, top_n),
-						top_net_sellers: summary.filter((row) => row.net_shares < 0).sort((a, b) => a.net_shares - b.net_shares).slice(0, top_n),
-					});
-				} catch (error) {
-					return toolFailure(error);
-				}
-			},
-		);
+    this.server.registerTool("get_stock_news", { description:"FinMind指定個股單日新聞。", inputSchema:{symbol,date:date.optional(),limit:z.number().int().min(1).max(100).optional().default(30)} }, async ({symbol,date,limit})=>{try{const d=date??twDate();const r=await finmind(this.env,"TaiwanStockNews",{data_id:symbol,start_date:d});return ok({source:"FinMind",dataset:"TaiwanStockNews",symbol,date:d,data:r.data.slice(0,limit).map((x:any)=>({date:x.date,stock_id:x.stock_id,title:x.title,source:x.source,link:x.link,description:x.description}))})}catch(e){return fail(e)}});
 
-		this.server.registerTool(
-			"get_stock_news",
-			{
-				description: "使用 FinMind TaiwanStockNews 查詢指定個股、指定日期的相關新聞。FinMind 此資料集單次只提供一天。唯讀工具。",
-				inputSchema: {
-					symbol: symbolSchema,
-					date: dateSchema.optional().describe("新聞日期，預設台灣當日"),
-					limit: z.number().int().min(1).max(100).optional().default(30),
-				},
-			},
-			async ({ symbol, date, limit }) => {
-				try {
-					const queryDate = date ?? taipeiDate();
-					const result = await fetchFinMindDataset(
-						"TaiwanStockNews",
-						{ data_id: symbol, start_date: queryDate },
-						this.env.FINMIND_TOKEN,
-					);
-					const rows = (result.data ?? []).slice(0, limit).map((item) => {
-						const row = asRecord(item);
-						return {
-							date: row.date,
-							stock_id: row.stock_id,
-							title: row.title,
-							source: row.source,
-							link: row.link,
-							description: row.description,
-						};
-					});
-					return toolSuccess({ source: "FinMind", dataset: "TaiwanStockNews", symbol, date: queryDate, row_count: rows.length, data: rows });
-				} catch (error) {
-					return toolFailure(error);
-				}
-			},
-		);
+    this.server.registerTool("get_material_events", { description:"證交所/櫃買中心官方每日重大訊息。", inputSchema:{symbol,market:z.enum(["auto","listed","otc"]).optional().default("auto"),limit:z.number().int().min(1).max(100).optional().default(30)} }, async ({symbol,market,limit})=>{try{const r=await eventsFor(symbol,market,limit);return ok({source:"TWSE/TPEx OpenAPI",symbol,markets_checked:r.markets,partial_errors:r.errors,data:r.rows})}catch(e){return fail(e)}});
 
-		this.server.registerTool(
-			"get_material_events",
-			{
-				description: "查詢證交所或櫃買中心官方每日重大訊息，並依股票代碼篩選。唯讀工具。",
-				inputSchema: {
-					symbol: symbolSchema,
-					market: z.enum(["auto", "listed", "otc"]).optional().default("auto"),
-					limit: z.number().int().min(1).max(100).optional().default(30),
-				},
-			},
-			async ({ symbol, market, limit }) => {
-				try {
-					const markets: Market[] = market === "auto" ? ["listed", "otc"] : [market];
-					const settled = await Promise.allSettled(markets.map((item) => fetchMaterialEvents(item)));
-					const rows = settled
-						.flatMap((result) => fulfilledValue(result) ?? [])
-						.filter((row) => row.company_code === symbol)
-						.slice(0, limit);
-					const errors = settled.map(rejectedReason).filter((value): value is string => Boolean(value));
-					return toolSuccess({
-						source: "TWSE/TPEx OpenAPI",
-						symbol,
-						markets_checked: markets,
-						row_count: rows.length,
-						partial_errors: errors,
-						data: rows,
-					});
-				} catch (error) {
-					return toolFailure(error);
-				}
-			},
-		);
-
-		this.server.registerTool(
-			"explain_price_move",
-			{
-				description: "一次整理個股即時報價、5 分 K、近期日 K、當日新聞與官方重大訊息，提供給模型判斷異動原因。工具只彙整證據，不保證單一事件具有因果關係。唯讀工具。",
-				inputSchema: {
-					symbol: symbolSchema,
-					date: dateSchema.optional().describe("事件與新聞日期，預設台灣當日"),
-					market: z.enum(["auto", "listed", "otc"]).optional().default("auto"),
-				},
-			},
-			async ({ symbol, date, market }) => {
-				try {
-					const queryDate = date ?? taipeiDate();
-					const markets: Market[] = market === "auto" ? ["listed", "otc"] : [market];
-					const [quoteResult, candlesResult, dailyResult, newsResult, ...eventResults] = await Promise.allSettled([
-						fetchFugle(`/intraday/quote/${encodeURIComponent(symbol)}`, this.env.FUGLE_API_KEY),
-						fetchFugle(`/intraday/candles/${encodeURIComponent(symbol)}`, this.env.FUGLE_API_KEY, { timeframe: "5", sort: "asc" }),
-						fetchFinMindDataset("TaiwanStockPrice", { data_id: symbol, start_date: taipeiDate(20), end_date: queryDate }, this.env.FINMIND_TOKEN),
-						fetchFinMindDataset("TaiwanStockNews", { data_id: symbol, start_date: queryDate }, this.env.FINMIND_TOKEN),
-						...markets.map((item) => fetchMaterialEvents(item)),
-					]);
-
-					const quote = fulfilledValue(quoteResult);
-					const candlesRaw = fulfilledValue(candlesResult);
-					const candlesRecord = asRecord(candlesRaw);
-					const candles = Array.isArray(candlesRecord.data) ? candlesRecord.data.slice(-60) : [];
-					const daily = fulfilledValue(dailyResult);
-					const news = fulfilledValue(newsResult);
-					const events = eventResults
-						.flatMap((result) => fulfilledValue(result) ?? [])
-						.filter((row) => row.company_code === symbol)
-						.slice(0, 30);
-					const errors = [quoteResult, candlesResult, dailyResult, newsResult, ...eventResults]
-						.map(rejectedReason)
-						.filter((value): value is string => Boolean(value));
-
-					return toolSuccess({
-						symbol,
-						date: queryDate,
-						retrieved_at: new Date().toISOString(),
-						caution: "以下為資料證據彙整。新聞或重訊與價格同時出現，不等於已證明因果關係。",
-						quote,
-						intraday_5m_candles: candles,
-						recent_daily_prices: daily?.data ? recentRows(daily.data, 20) : [],
-						stock_news: news?.data ? news.data.slice(0, 30) : [],
-						material_events: events,
-						partial_errors: errors,
-					});
-				} catch (error) {
-					return toolFailure(error);
-				}
-			},
-		);
-	}
+    this.server.registerTool("explain_price_move", { description:"彙整即時報價、5分K、日K、新聞與重大訊息，供模型判斷異動原因；不宣稱已證明因果。", inputSchema:{symbol,date:date.optional(),market:z.enum(["auto","listed","otc"]).optional().default("auto")} }, async ({symbol,date,market})=>{try{const d=date??twDate();const [q,c,p,n,ev]=await Promise.allSettled([fugle(this.env,`/intraday/quote/${encodeURIComponent(symbol)}`),fugle(this.env,`/intraday/candles/${encodeURIComponent(symbol)}`,{timeframe:"5",sort:"asc"}),finmind(this.env,"TaiwanStockPrice",{data_id:symbol,start_date:twDate(30),end_date:d}),finmind(this.env,"TaiwanStockNews",{data_id:symbol,start_date:d}),eventsFor(symbol,market,30)]);const errors:string[]=[];for(const r of [q,c,p,n,ev])if(r.status==="rejected")errors.push(r.reason instanceof Error?r.reason.message:String(r.reason));const cr=c.status==="fulfilled"?rec(c.value):{};const er=ev.status==="fulfilled"?ev.value:null;if(er)errors.push(...er.errors);return ok({symbol,date:d,retrieved_at:new Date().toISOString(),caution:"同時出現不等於已證明因果關係。",quote:q.status==="fulfilled"?q.value:null,intraday_5m_candles:Array.isArray(cr.data)?cr.data.slice(-60):[],recent_daily_prices:p.status==="fulfilled"?recent(p.value.data,20):[],stock_news:n.status==="fulfilled"?n.value.data.slice(0,30):[],material_events:er?.rows??[],partial_errors:errors})}catch(e){return fail(e)}});
+  }
 }
 
-export default {
-	fetch(request: Request, env: Env, ctx: ExecutionContext) {
-		const url = new URL(request.url);
-		if (url.pathname === "/mcp") return MyMCP.serve("/mcp").fetch(request, env, ctx);
-		if (url.pathname === "/" || url.pathname === "/health") {
-			return Response.json({
-				service: "Taiwan Stock AI MCP",
-				status: "ok",
-				version: "3.0.0",
-				mcp_endpoint: "/mcp",
-				tools: 9,
-			});
-		}
-		return new Response("Not found", { status: 404 });
-	},
-};
+export default { fetch(request: Request, env: Env, ctx: ExecutionContext) { const u=new URL(request.url); if(u.pathname==="/mcp")return MyMCP.serve("/mcp").fetch(request,env,ctx); if(u.pathname==="/"||u.pathname==="/health")return Response.json({service:"Taiwan Stock AI MCP",status:"ok",version:"3.1.0",mcp_endpoint:"/mcp",tools:9}); return new Response("Not found",{status:404}) } };
