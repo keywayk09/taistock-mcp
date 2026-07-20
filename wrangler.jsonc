@@ -5,24 +5,29 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "taistock-mcp",
-	"main": "src/index.ts",
+	"main": "src/index-v6.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
+	"d1_databases": [
+		{
+			"binding": "DB"
+		}
+	],
 	"migrations": [
 		{
 			"new_sqlite_classes": ["MyMCP"],
-			"tag": "v1",
-		},
+			"tag": "v1"
+		}
 	],
 	"durable_objects": {
 		"bindings": [
 			{
 				"class_name": "MyMCP",
-				"name": "MCP_OBJECT",
-			},
-		],
+				"name": "MCP_OBJECT"
+			}
+		]
 	},
 	"observability": {
-		"enabled": true,
-	},
+		"enabled": true
+	}
 }
