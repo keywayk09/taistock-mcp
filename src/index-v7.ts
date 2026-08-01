@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MyMCP as BaseMCP } from "./index-v6";
+import { registerEtfTools } from "./v7/etf";
 import { registerTwchipsTools } from "./v7/twchips";
 
 export class MyMCP extends BaseMCP {
@@ -8,6 +9,7 @@ export class MyMCP extends BaseMCP {
   async init() {
     await super.init();
     registerTwchipsTools(this.server, this.env);
+    registerEtfTools(this.server, this.env);
   }
 }
 
@@ -22,9 +24,10 @@ export default {
         version: "7.0.0",
         storage: env.DB ? "Cloudflare D1 connected" : "D1 binding pending",
         official_chip_sources: ["TWSE", "TAIFEX"],
+        etf_sources: ["FinMind active ETF holdings/change"],
         twchips_compatibility: "0.1.0 / f91bb03a3307665faccc1369bad628237c3a268c",
         mcp_endpoint: "/mcp",
-        tools: 50,
+        tools: 55,
       });
     }
     return new Response("Not found", { status: 404 });
