@@ -1,51 +1,35 @@
-# Building a Remote MCP Server on Cloudflare (Without Auth)
+# Taiwan Stock AI MCP
 
-This example allows you to deploy a remote MCP server that doesn't require authentication on Cloudflare Workers.
+部署於 Cloudflare Workers 的台股 MCP Server，提供即時行情、歷史資料、官方籌碼、基本面、事件資料庫、觀察清單與投資組合工具。
 
-## Get started:
+目前開發版本：**V7.1**
 
-[![Deploy to Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/ai/tree/main/demos/remote-mcp-authless)
+## V7.1 重點
 
-This will deploy your MCP server to a URL like: `remote-mcp-server-authless.<your-account>.workers.dev/mcp`
+- 保留 V6 既有工具
+- 新增 TWSE／TAIFEX 官方籌碼工具
+- 新增台股盤後籌碼日報資料包
+- ETF 改為投信官方網站每日投資組合優先
+- 使用 Cloudflare D1 保存 ETF 官方持股快照
+- 可比較 ETF 新增、剔除、加碼與減碼
+- FinMind ETF sponsor 資料降為選用備援，不是核心功能必要條件
 
-Alternatively, you can use the command line below to get the remote MCP Server created on your local machine:
+詳細說明請見 `docs/twchips-v7.md`。
+
+## 開發
 
 ```bash
-npm create cloudflare@latest -- my-mcp-server --template=cloudflare/ai/demos/remote-mcp-authless
+npm install
+npm run type-check
+npx wrangler deploy --dry-run
 ```
 
-## Customizing your MCP Server
+## 部署
 
-To add your own [tools](https://developers.cloudflare.com/agents/model-context-protocol/tools/) to the MCP server, define each tool inside the `init()` method of `src/index.ts` using `this.server.tool(...)`.
-
-## Connect to Cloudflare AI Playground
-
-You can connect to your MCP server from the Cloudflare AI Playground, which is a remote MCP client:
-
-1. Go to https://playground.ai.cloudflare.com/
-2. Enter your deployed MCP server URL (`remote-mcp-server-authless.<your-account>.workers.dev/mcp`)
-3. You can now use your MCP tools directly from the playground!
-
-## Connect Claude Desktop to your MCP server
-
-You can also connect to your remote MCP server from local MCP clients, by using the [mcp-remote proxy](https://www.npmjs.com/package/mcp-remote).
-
-To connect to your MCP server from Claude Desktop, follow [Anthropic's Quickstart](https://modelcontextprotocol.io/quickstart/user) and within Claude Desktop go to Settings > Developer > Edit Config.
-
-Update with this configuration:
-
-```json
-{
-	"mcpServers": {
-		"calculator": {
-			"command": "npx",
-			"args": [
-				"mcp-remote",
-				"http://localhost:8787/mcp" // or remote-mcp-server-authless.your-account.workers.dev/mcp
-			]
-		}
-	}
-}
+```bash
+npm run deploy
 ```
 
-Restart Claude and you should see the tools become available.
+MCP endpoint：`/mcp`
+
+Health endpoint：`/health`
