@@ -13,6 +13,18 @@ async function fetchWithTimeout(url, init = {}) {
   }
 }
 
+async function verifyJsonArray(label, url, minimumRows, requiredFields) {
+  const response = await fetchWithTimeout(url, { headers: { Accept: "application/json" } });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`${label}: HTTP ${response.status}: ${text.slice(0, 200)}`);
+  const rows = JSON.parse(text);
+  if (!Array.isArray(rows) || rows.length < minimumRows) throw new Error(`${label}: expected >= ${minimumRows} rows, got ${Array.isArray(rows) ? rows.length : "non-array"}`);
+  const first = rows[0] ?? {};
+  const matched = requiredFields.some((field) => field in first);
+  if (!matched) throw new Error(`${label}: expected one of fields ${requiredFields.join(", ")}: ${text.slice(0, 500)}`);
+  console.log(`PASS ${label} (${rows.length} rows)`);
+}
+
 async function verifyTwse(label, path, params, validate) {
   const url = new URL(`https://www.twse.com.tw/rwd/zh/${path}`);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
@@ -112,6 +124,25 @@ await verifyTaifex("TAIFEX options positions", "callsAndPutsDateDown", {
   queryEndDate: SLASH_DATE,
   queryDate: SLASH_DATE,
 });
+
+await verifyJsonArray(
+  "TWSE listed company universe",
+  "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
+  500,
+  ["公司代號", "公司名稱", "公司簡稱"],
+);
+await verifyJsonArray(
+  "TPEx listed company universe",
+  "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
+  300,
+  ["公司代號", "公司名稱", "公司簡稱"],
+);
+await verifyJsonArray(
+  "TPEx emerging company universe",
+  "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_R",
+  100,
+  ["公司代號", "公司名稱", "公司簡稱"],
+);
 
 await verifySitcaActiveEtfList();
 await verifyFinMindActiveEtfInfo();
