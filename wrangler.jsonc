@@ -8,6 +8,9 @@
 	"main": "src/index-v7.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
+	"triggers": {
+		"crons": ["40 7 * * 1-5"]
+	},
 	"d1_databases": [
 		{
 			"binding": "DB"
