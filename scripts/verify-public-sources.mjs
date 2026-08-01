@@ -42,6 +42,21 @@ async function verifyTaifex(label, path, data) {
   console.log(`PASS ${label} (${lines.length - 1} rows)`);
 }
 
+async function verifyFinMindActiveEtfInfo() {
+  const url = new URL("https://api.finmindtrade.com/api/v4/data");
+  url.searchParams.set("dataset", "TaiwanStockActiveETFInfo");
+  const response = await fetchWithTimeout(url, { headers: { Accept: "application/json" } });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`FinMind active ETF info: HTTP ${response.status}: ${text.slice(0, 200)}`);
+  const body = JSON.parse(text);
+  if (!Array.isArray(body?.data) || !body.data.length) throw new Error(`FinMind active ETF info: missing data: ${text.slice(0, 500)}`);
+  const first = body.data[0] ?? {};
+  for (const key of ["date", "stock_id", "stock_name", "category", "type"]) {
+    if (!(key in first)) throw new Error(`FinMind active ETF info: missing field ${key}`);
+  }
+  console.log(`PASS FinMind active ETF info (${body.data.length} rows)`);
+}
+
 await verifyTwse(
   "TWSE market institutional",
   "fund/BFI82U",
@@ -87,5 +102,7 @@ await verifyTaifex("TAIFEX options positions", "callsAndPutsDateDown", {
   queryEndDate: SLASH_DATE,
   queryDate: SLASH_DATE,
 });
+
+await verifyFinMindActiveEtfInfo();
 
 console.log(`All public-source smoke tests passed for ${DATE}.`);
