@@ -5,7 +5,7 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "taistock-mcp",
-	"main": "src/index-v6.ts",
+	"main": "src/index-v7.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
 	"d1_databases": [
