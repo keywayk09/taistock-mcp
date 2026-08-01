@@ -10,7 +10,6 @@ import {
   round,
   stockSchema,
   taipeiDate,
-  type Obj,
 } from "../v6/common";
 
 const ACTIVE_ETF_DATASETS = {
@@ -56,28 +55,31 @@ function holdingChange(row: unknown) {
   };
 }
 
-function dateList(rows: ReturnType<typeof holding>[]) {
+type Holding = ReturnType<typeof holding>;
+type HoldingChange = ReturnType<typeof holdingChange>;
+
+function dateList(rows: Holding[]) {
   return [...new Set(rows.map((row) => row.date))].filter(Boolean).sort();
 }
 
-function filterAsset(rows: ReturnType<typeof holding>[], assetType: string) {
+function filterAsset(rows: Holding[], assetType: string) {
   return assetType === "all" ? rows : rows.filter((row) => row.asset_type === assetType);
 }
 
-function snapshotMap(rows: ReturnType<typeof holding>[], date: string, assetType: string) {
+function snapshotMap(rows: Holding[], date: string, assetType: string) {
   return new Map(filterAsset(rows.filter((row) => row.date === date), assetType)
     .map((row) => [row.component_id, row] as const));
 }
 
 function compareSnapshots(
-  rows: ReturnType<typeof holding>[],
-  changes: ReturnType<typeof holdingChange>[],
+  rows: Holding[],
+  changes: HoldingChange[],
   currentDate: string,
-  previousDate: string | null,
+  previousDate: string,
   assetType: string,
 ) {
   const current = snapshotMap(rows, currentDate, assetType);
-  const previous = previousDate ? snapshotMap(rows, previousDate, assetType) : new Map<string, ReturnType<typeof holding>>();
+  const previous = snapshotMap(rows, previousDate, assetType);
   const direct = new Map(changes.filter((row) => row.date === currentDate).map((row) => [row.component_id, row] as const));
   const keys = [...new Set([...current.keys(), ...previous.keys(), ...direct.keys()])];
   const output = keys.map((componentId) => {
@@ -127,6 +129,44 @@ function sourceNote() {
     access: "持股明細與持股異動資料需要 FinMind sponsor 會員權限。",
     caution: "申購或贖回會使整體持股股數等比例變化；股數增減不必然代表經理人主動買賣。新增與剔除以相鄰持股快照是否由零變有、由有變零判定。",
   };
+}
+
+async function findAllHoldingSnapshot(env: Env, requestedDate: string, lookbackDays: number) {
+  const emptyDates: string[] = [];
+  for (let offset = 0; offset <= lookbackDays; offset++) {
+    const candidate = shiftDate(requestedDate, -offset);
+    // FinMind 官方規格：查全部主動式 ETF 時，一次查單一日期，不帶 data_id/end_date。
+    const raw = await finmind(env, ACTIVE_ETF_DATASETS.holdings, { start_date: candidate });
+    const rows = raw.map(holding).filter((row) => row.date === candidate);
+    if (rows.length) return { date: candidate, rows, empty_dates: emptyDates };
+    emptyDates.push(candidate);
+  }
+  throw new Error(`最近 ${lookbackDays + 1} 個日曆日找不到主動式 ETF 持股快照`);
+}
+
+async function findPreviousAllHoldingSnapshot(env: Env, currentDate: string, lookbackDays: number) {
+  return findAllHoldingSnapshot(env, shiftDate(currentDate, -1), lookbackDays);
+}
+
+async function allHoldingPair(env: Env, requestedDate: string, lookbackDays: number) {
+  const current = await findAllHoldingSnapshot(env, requestedDate, lookbackDays);
+  const previous = await findPreviousAllHoldingSnapshot(env, current.date, lookbackDays);
+  const currentEtfs = new Set(current.rows.map((row) => row.etf_id));
+  const previousEtfs = new Set(previous.rows.map((row) => row.etf_id));
+  const comparableEtfs = [...currentEtfs].filter((etfId) => previousEtfs.has(etfId));
+  return {
+    current,
+    previous,
+    comparable_etfs: comparableEtfs,
+    current_only_etfs: [...currentEtfs].filter((etfId) => !previousEtfs.has(etfId)),
+    previous_only_etfs: [...previousEtfs].filter((etfId) => !currentEtfs.has(etfId)),
+  };
+}
+
+async function allChangesOnDate(env: Env, date: string) {
+  // FinMind 官方規格：查全部主動式 ETF 異動時，一次查單一日期。
+  const raw = await finmind(env, ACTIVE_ETF_DATASETS.changes, { start_date: date });
+  return raw.map(holdingChange).filter((row) => row.date === date);
 }
 
 export function registerEtfTools(server: McpServer, env: Env) {
@@ -203,6 +243,7 @@ export function registerEtfTools(server: McpServer, env: Env) {
       const currentDate = dates.at(-1) ?? null;
       const previousDate = dates.at(-2) ?? null;
       if (!currentDate) throw new Error(`${etf_id} 在查詢區間內沒有持股資料`);
+      if (!previousDate) throw new Error(`${etf_id} 在查詢區間內不足兩個持股快照，無法判定新增或剔除`);
       let compared = compareSnapshots(holdings, changes, currentDate, previousDate, asset_type);
       if (!include_increased_decreased) compared = compared.filter((row) => row.status === "added" || row.status === "removed");
       compared.sort((a, b) => {
@@ -220,61 +261,73 @@ export function registerEtfTools(server: McpServer, env: Env) {
   });
 
   server.registerTool("get_stock_active_etf_activity", {
-    description: "查詢某檔股票在全部主動式ETF中的持股與當日買賣變化，找出哪些ETF新增、剔除、加碼或減碼。需要FinMind sponsor權限。",
+    description: "查詢某檔股票在全部主動式ETF中的相鄰交易日持股變化，找出哪些ETF新增、剔除、加碼或減碼。需要FinMind sponsor權限。",
     inputSchema: {
       symbol: stockSchema,
       date: dateSchema.optional().default(taipeiDate()),
-      lookback_days: z.number().int().min(3).max(60).optional().default(14),
+      lookback_days: z.number().int().min(3).max(30).optional().default(10),
     },
   }, async ({ symbol, date, lookback_days }) => {
     try {
-      const start = shiftDate(date, -lookback_days);
-      const [holdingRows, changeRows, infoRows] = await Promise.all([
-        finmind(env, ACTIVE_ETF_DATASETS.holdings, { start_date: start, end_date: date }),
-        finmind(env, ACTIVE_ETF_DATASETS.changes, { start_date: start, end_date: date }),
+      const [pair, infoRows] = await Promise.all([
+        allHoldingPair(env, date, lookback_days),
         finmind(env, ACTIVE_ETF_DATASETS.info, {}),
       ]);
-      const holdings = holdingRows.map(holding).filter((row) => row.component_id === symbol);
-      const changes = changeRows.map(holdingChange).filter((row) => row.component_id === symbol);
+      const changes = await allChangesOnDate(env, pair.current.date);
       const info = new Map(infoRows.map((row) => {
         const value = rec(row);
-        return [String(value.stock_id ?? ""), { etf_name: String(value.stock_name ?? ""), category: String(value.category ?? ""), market: String(value.type ?? "") }] as const;
+        return [String(value.stock_id ?? ""), {
+          etf_name: String(value.stock_name ?? ""),
+          category: String(value.category ?? ""),
+          market: String(value.type ?? ""),
+        }] as const;
       }));
-      const etfIds = [...new Set([...holdings.map((row) => row.etf_id), ...changes.map((row) => row.etf_id)])];
+      const comparable = new Set(pair.comparable_etfs);
+      const current = pair.current.rows.filter((row) => comparable.has(row.etf_id) && row.component_id === symbol);
+      const previous = pair.previous.rows.filter((row) => comparable.has(row.etf_id) && row.component_id === symbol);
+      const direct = changes.filter((row) => comparable.has(row.etf_id) && row.component_id === symbol);
+      const etfIds = [...new Set([...current.map((row) => row.etf_id), ...previous.map((row) => row.etf_id), ...direct.map((row) => row.etf_id)])];
       const activity = etfIds.map((etfId) => {
-        const etfHoldings = holdings.filter((row) => row.etf_id === etfId);
-        const dates = dateList(etfHoldings);
-        const currentDate = dates.at(-1) ?? null;
-        const previousDate = dates.at(-2) ?? null;
-        const current = currentDate ? etfHoldings.find((row) => row.date === currentDate) ?? null : null;
-        const previous = previousDate ? etfHoldings.find((row) => row.date === previousDate) ?? null : null;
-        const directDate = [...new Set(changes.filter((row) => row.etf_id === etfId).map((row) => row.date))].sort().at(-1) ?? null;
-        const direct = directDate ? changes.find((row) => row.etf_id === etfId && row.date === directDate) ?? null : null;
-        const shareDelta = (current?.shares ?? 0) - (previous?.shares ?? 0);
-        const status = !previous && current ? "added" : previous && !current ? "removed" : shareDelta > 0 ? "increased" : shareDelta < 0 ? "decreased" : "unchanged";
+        const now = current.find((row) => row.etf_id === etfId) ?? null;
+        const before = previous.find((row) => row.etf_id === etfId) ?? null;
+        const reported = direct.find((row) => row.etf_id === etfId) ?? null;
+        const shareDelta = (now?.shares ?? 0) - (before?.shares ?? 0);
+        const status = !before && now ? "added"
+          : before && !now ? "removed"
+          : shareDelta > 0 ? "increased"
+          : shareDelta < 0 ? "decreased"
+          : "unchanged";
         return {
           etf_id: etfId,
           ...info.get(etfId),
-          current_date: currentDate,
-          previous_date: previousDate,
+          current_date: pair.current.date,
+          previous_date: pair.previous.date,
           status,
-          previous_shares: previous?.shares ?? 0,
-          current_shares: current?.shares ?? 0,
+          previous_shares: before?.shares ?? 0,
+          current_shares: now?.shares ?? 0,
           share_delta: shareDelta,
-          previous_weight_percent: previous?.weight_percent ?? 0,
-          current_weight_percent: current?.weight_percent ?? 0,
-          weight_change_percentage_points: current && previous ? round(current.weight_percent - previous.weight_percent, 4) : null,
-          reported_buy_shares: direct?.buy_shares ?? 0,
-          reported_sell_shares: direct?.sell_shares ?? 0,
+          previous_weight_percent: before?.weight_percent ?? 0,
+          current_weight_percent: now?.weight_percent ?? 0,
+          weight_change_percentage_points: now && before ? round(now.weight_percent - before.weight_percent, 4) : null,
+          reported_buy_shares: reported?.buy_shares ?? 0,
+          reported_sell_shares: reported?.sell_shares ?? 0,
         };
       }).filter((row) => row.status !== "unchanged" || row.reported_buy_shares > 0 || row.reported_sell_shares > 0)
         .sort((a, b) => Math.abs(b.share_delta) - Math.abs(a.share_delta));
-      return ok({ ...sourceNote(), symbol, requested_date: date, etf_count: activity.length, data: activity });
+      return ok({
+        ...sourceNote(), symbol, requested_date: date,
+        current_date: pair.current.date, previous_date: pair.previous.date,
+        comparable_etf_count: pair.comparable_etfs.length,
+        skipped_current_only_etfs: pair.current_only_etfs,
+        skipped_previous_only_etfs: pair.previous_only_etfs,
+        etf_count: activity.length,
+        data: activity,
+      });
     } catch (error) { return fail(error); }
   });
 
   server.registerTool("get_active_etf_daily_change_report", {
-    description: "彙整全部主動式ETF某日新增、剔除與主要買賣持股，供台股盤後日報使用。需要FinMind sponsor權限。",
+    description: "彙整全部主動式ETF最近兩個有效持股日的新增、剔除與主要持股變化，供台股盤後日報使用。需要FinMind sponsor權限。",
     inputSchema: {
       date: dateSchema.optional().default(taipeiDate()),
       lookback_days: z.number().int().min(3).max(30).optional().default(10),
@@ -282,27 +335,34 @@ export function registerEtfTools(server: McpServer, env: Env) {
     },
   }, async ({ date, lookback_days, top_n }) => {
     try {
-      const start = shiftDate(date, -lookback_days);
-      const [holdingRows, changeRows, infoRows] = await Promise.all([
-        finmind(env, ACTIVE_ETF_DATASETS.holdings, { start_date: start, end_date: date }),
-        finmind(env, ACTIVE_ETF_DATASETS.changes, { start_date: start, end_date: date }),
+      const [pair, infoRows] = await Promise.all([
+        allHoldingPair(env, date, lookback_days),
         finmind(env, ACTIVE_ETF_DATASETS.info, {}),
       ]);
-      const holdings = holdingRows.map(holding).filter((row) => row.asset_type === "stock");
-      const changes = changeRows.map(holdingChange);
+      const changes = await allChangesOnDate(env, pair.current.date);
       const info = new Map(infoRows.map((row) => {
         const value = rec(row);
         return [String(value.stock_id ?? ""), String(value.stock_name ?? "")] as const;
       }));
-      const etfIds = [...new Set(holdings.map((row) => row.etf_id))];
-      const compared = etfIds.flatMap((etfId) => {
+      const comparable = new Set(pair.comparable_etfs);
+      const holdings = [...pair.current.rows, ...pair.previous.rows]
+        .filter((row) => comparable.has(row.etf_id) && row.asset_type === "stock");
+      const comparableChanges = changes.filter((row) => comparable.has(row.etf_id));
+      const compared = pair.comparable_etfs.flatMap((etfId) => {
         const rows = holdings.filter((row) => row.etf_id === etfId);
-        const dates = dateList(rows);
-        const currentDate = dates.at(-1);
-        const previousDate = dates.at(-2) ?? null;
-        if (!currentDate) return [];
-        return compareSnapshots(rows, changes.filter((row) => row.etf_id === etfId), currentDate, previousDate, "stock")
-          .map((row) => ({ etf_id: etfId, etf_name: info.get(etfId) ?? "", current_date: currentDate, previous_date: previousDate, ...row }));
+        return compareSnapshots(
+          rows,
+          comparableChanges.filter((row) => row.etf_id === etfId),
+          pair.current.date,
+          pair.previous.date,
+          "stock",
+        ).map((row) => ({
+          etf_id: etfId,
+          etf_name: info.get(etfId) ?? "",
+          current_date: pair.current.date,
+          previous_date: pair.previous.date,
+          ...row,
+        }));
       });
       const additions = compared.filter((row) => row.status === "added")
         .sort((a, b) => b.current_weight_percent - a.current_weight_percent).slice(0, top_n);
@@ -313,8 +373,16 @@ export function registerEtfTools(server: McpServer, env: Env) {
       const sells = compared.filter((row) => row.share_delta < 0)
         .sort((a, b) => a.share_delta - b.share_delta).slice(0, top_n);
       return ok({
-        ...sourceNote(), requested_date: date, etfs_analyzed: etfIds.length,
-        summary: statusSummary(compared), additions, removals, largest_share_increases: buys, largest_share_decreases: sells,
+        ...sourceNote(), requested_date: date,
+        current_date: pair.current.date, previous_date: pair.previous.date,
+        etfs_analyzed: pair.comparable_etfs.length,
+        skipped_current_only_etfs: pair.current_only_etfs,
+        skipped_previous_only_etfs: pair.previous_only_etfs,
+        summary: statusSummary(compared),
+        additions,
+        removals,
+        largest_share_increases: buys,
+        largest_share_decreases: sells,
       });
     } catch (error) { return fail(error); }
   });
