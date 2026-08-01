@@ -69,16 +69,7 @@ Cloudflare Worker 不能直接執行 Python／pandas，因此不是 `pip install
 }
 ```
 
-設定後執行：
-
-```json
-{
-  "etf_id": "00981A",
-  "date": "2026-08-01"
-}
-```
-
-呼叫 `refresh_active_etf_official_holdings`，即可把當日官方投資組合保存到 D1。若官方網站只有 Excel，需改找同站的 CSV、JSON 或 HTML 持股網址；V7.1 暫不直接解析 xlsx。
+設定後呼叫 `refresh_active_etf_official_holdings`，即可把當日官方投資組合保存到 D1。若官方網站只有 Excel，需改找同站的 CSV、JSON 或 HTML 持股網址；V7.1 暫不直接解析 xlsx。
 
 ## 台股日報用法
 
@@ -102,18 +93,20 @@ Cloudflare Worker 不能直接執行 Python／pandas，因此不是 `pip install
 - 單一 ETF 不足兩個完整快照，不產生新增／剔除結論。
 - 申購或贖回可能使全部持股股數等比例變動，因此加減碼不能直接解讀成經理人主動看多或看空。
 
-## 驗證
+## 驗證結果
 
-GitHub Actions `Verify V7` 會執行：
+GitHub Actions `Verify V7` 已通過：
 
 1. `npm run type-check`
 2. `wrangler deploy --dry-run`
 3. TWSE 三大法人、個股法人、融資融券 smoke test
 4. TAIFEX 期貨日行情、法人總表、期貨與選擇權部位 smoke test
-5. SITCA 主動式 ETF 公開清單 smoke test
-6. FinMind 公開 ETF 清單備援 smoke test
+5. SITCA 主動式 ETF 公開清單：解析到 35 個代號
+6. FinMind 公開 ETF 清單備援：取得 37 筆
 
-正式合併前仍需挑至少一個投信官方 CSV／JSON／HTML 持股網址，完成 `set → refresh → holdings → changes` 的端到端測試。
+Wrangler dry-run 顯示 Worker gzip 約 414 KiB，並正確識別 Durable Object 與 D1 `DB` binding。
+
+正式合併前仍需挑至少一個投信官方 CSV／JSON／HTML 持股網址，完成 `set → refresh → holdings → changes` 的端到端資料內容驗證。這項驗證不需要 FinMind sponsor，但需要確認各投信實際網址與欄位格式。
 
 ## 資料使用原則
 
