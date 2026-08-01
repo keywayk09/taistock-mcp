@@ -4,7 +4,7 @@ declare global {
   interface Env {
     FUGLE_API_KEY: string;
     FINMIND_TOKEN: string;
-    DB?: D1Database;
+    DB: D1Database;
   }
 }
 
