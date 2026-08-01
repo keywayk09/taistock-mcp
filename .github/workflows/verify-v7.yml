@@ -1,0 +1,35 @@
+name: Verify V7
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Wrangler bundle dry run
+        run: npx wrangler deploy --dry-run --outdir dist
+
+      - name: Verify TWSE and TAIFEX public sources
+        run: node scripts/verify-public-sources.mjs
