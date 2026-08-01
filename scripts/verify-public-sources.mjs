@@ -42,6 +42,16 @@ async function verifyTaifex(label, path, data) {
   console.log(`PASS ${label} (${lines.length - 1} rows)`);
 }
 
+async function verifySitcaActiveEtfList() {
+  const url = "https://www.sitca.org.tw/ROC/SITCA_ETF/etf_statement.aspx";
+  const response = await fetchWithTimeout(url, { headers: { Accept: "text/html" } });
+  const html = await response.text();
+  if (!response.ok) throw new Error(`SITCA active ETF list: HTTP ${response.status}: ${html.slice(0, 200)}`);
+  const codes = [...new Set(html.match(/\b\d{5}[AD]\b/g) ?? [])];
+  if (codes.length < 20) throw new Error(`SITCA active ETF list: only ${codes.length} ETF codes parsed`);
+  console.log(`PASS SITCA active ETF list (${codes.length} codes)`);
+}
+
 async function verifyFinMindActiveEtfInfo() {
   const url = new URL("https://api.finmindtrade.com/api/v4/data");
   url.searchParams.set("dataset", "TaiwanStockActiveETFInfo");
@@ -54,7 +64,7 @@ async function verifyFinMindActiveEtfInfo() {
   for (const key of ["date", "stock_id", "stock_name", "category", "type"]) {
     if (!(key in first)) throw new Error(`FinMind active ETF info: missing field ${key}`);
   }
-  console.log(`PASS FinMind active ETF info (${body.data.length} rows)`);
+  console.log(`PASS FinMind active ETF info fallback (${body.data.length} rows)`);
 }
 
 await verifyTwse(
@@ -103,6 +113,7 @@ await verifyTaifex("TAIFEX options positions", "callsAndPutsDateDown", {
   queryDate: SLASH_DATE,
 });
 
+await verifySitcaActiveEtfList();
 await verifyFinMindActiveEtfInfo();
 
 console.log(`All public-source smoke tests passed for ${DATE}.`);
