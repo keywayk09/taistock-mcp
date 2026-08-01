@@ -135,13 +135,13 @@ await verifyJsonArray(
   "TPEx listed company universe",
   "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
   300,
-  ["公司代號", "公司名稱", "公司簡稱"],
+  ["SecuritiesCompanyCode", "CompanyName", "CompanyAbbreviation", "公司代號"],
 );
 await verifyJsonArray(
   "TPEx emerging company universe",
   "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_R",
   100,
-  ["公司代號", "公司名稱", "公司簡稱"],
+  ["SecuritiesCompanyCode", "CompanyName", "CompanyAbbreviation", "公司代號"],
 );
 
 await verifySitcaActiveEtfList();
