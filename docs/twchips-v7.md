@@ -71,8 +71,9 @@ GitHub Actions `Verify V7` 會執行：
 2. `wrangler deploy --dry-run`
 3. TWSE 三大法人、個股法人、融資融券 smoke test
 4. TAIFEX 期貨日行情、法人總表、期貨與選擇權部位 smoke test
+5. FinMind 主動式 ETF 公開清單與欄位 smoke test
 
-2026-07-31 測試資料已通過上述公開資料來源驗證。FinMind sponsor 持股資料仍需使用實際 sponsor Token 在 Cloudflare Preview／正式環境驗證。
+2026-07-31 測試資料已通過上述公開資料來源驗證，當次取得 FinMind 主動式 ETF 清單 37 筆。FinMind sponsor 持股與異動資料仍需使用實際 sponsor Token 在 Cloudflare Preview／正式環境驗證。
 
 ## 資料使用原則
 
