@@ -1,8 +1,17 @@
-# V7：官方籌碼與主動式 ETF 持股整合
+# V7.1：官方籌碼與 ETF 每日持股整合
 
-本版本把 `catcat222222/twchips` 0.1.0（參考 commit `f91bb03a3307665faccc1369bad628237c3a268c`）涵蓋的 TWSE／TAIFEX 功能移植到 Cloudflare Worker TypeScript MCP，並加入 FinMind 主動式 ETF 持股異動工具。
+本版本把 `catcat222222/twchips` 0.1.0（參考 commit `f91bb03a3307665faccc1369bad628237c3a268c`）涵蓋的 TWSE／TAIFEX 功能移植到 Cloudflare Worker TypeScript MCP，並把 ETF 模組改為「投信官方網站每日投資組合優先」。
 
 Cloudflare Worker 不能直接執行 Python／pandas，因此不是 `pip install twchips`，而是使用相同官方資料端點與欄位清理概念，保留既有 V6 工具不變。
+
+## ETF 資料來源順位
+
+1. 各投信公司官方網站每日公布的完整投資組合
+2. Cloudflare D1 保存的官方持股快照
+3. 投信投顧公會公開的主動式 ETF 清單
+4. FinMind 僅作選用備援，不再是核心持股功能的必要條件
+
+主動式 ETF 核心功能不需要 FinMind sponsor。FinMind 的 sponsor 持股資料只有在工具參數明確設定 `allow_finmind_fallback=true` 時才會使用。
 
 ## 新增工具
 
@@ -19,49 +28,79 @@ Cloudflare Worker 不能直接執行 Python／pandas，因此不是 `pip install
 - `get_taifex_options_positions`：法人選擇權 CALL／PUT 部位
 - `get_daily_chip_report`：台股盤後籌碼日報資料包
 
-### 主動式 ETF
+### ETF 官方來源與快照
 
-- `get_active_etf_list`：主動式 ETF 清單
-- `get_active_etf_holdings`：單一 ETF 完整持股快照
-- `get_active_etf_holding_changes`：單一 ETF 新增、剔除、加碼、減碼
+- `get_active_etf_list`：SITCA 公開主動式 ETF 清單，FinMind 公開清單備援
+- `set_active_etf_official_source`：設定單一 ETF 的投信官方持股網址
+- `list_active_etf_official_sources`：列出已設定的官方來源
+- `refresh_active_etf_official_holdings`：下載官方持股並存入 D1
+- `get_active_etf_holdings`：查官方持股快照
+- `get_active_etf_holding_changes`：比較相鄰官方快照的新增、剔除、加碼、減碼
 - `get_stock_active_etf_activity`：反查某檔股票被哪些 ETF 調整
-- `get_active_etf_daily_change_report`：全體主動式 ETF 日報摘要
+- `get_active_etf_daily_change_report`：全體已建檔 ETF 的每日異動摘要
 
-## 台股日報建議用法
+## 官方網址設定
 
-呼叫 `get_daily_chip_report`，可一次取得：
+官方來源支援：
 
-1. 現貨外資、投信、自營商買賣金額
-2. 大盤融資融券變化
-3. 台指期日行情（一般盤與盤後盤）
-4. 期交所法人期貨、選擇權交易與未平倉
-5. 外資臺股期貨部位摘要
-6. 自選股個股法人與融資融券資料
+- CSV
+- JSON
+- HTML 表格
+- GET 或 POST
+- 網址及 POST body 日期模板
 
-範例：
+可使用的模板：
+
+- `{etf_id}`
+- `{date}`，例如 `2026-08-01`
+- `{compact_date}`，例如 `20260801`
+- `{slash_date}`，例如 `2026/08/01`
+
+設定範例：
 
 ```json
 {
-  "date": "2026-08-01",
-  "fallback_days": 7,
-  "watchlist": ["2330", "4566", "3293"],
-  "include_raw": false
+  "etf_id": "00981A",
+  "issuer": "統一投信",
+  "source_url": "https://投信官方網站/portfolio?code={etf_id}&date={compact_date}",
+  "source_format": "json",
+  "request_method": "GET",
+  "enabled": true
 }
 ```
 
-主動式 ETF 日報使用 `get_active_etf_daily_change_report`；全市場查詢依 FinMind 官方規格逐日取得單一日期快照，再比較最近兩個有效持股日。只比較前後兩日均有完整 ETF 快照的基金，避免某檔 ETF 當日未發布資料時被誤判為全部剔除。
+設定後執行：
+
+```json
+{
+  "etf_id": "00981A",
+  "date": "2026-08-01"
+}
+```
+
+呼叫 `refresh_active_etf_official_holdings`，即可把當日官方投資組合保存到 D1。若官方網站只有 Excel，需改找同站的 CSV、JSON 或 HTML 持股網址；V7.1 暫不直接解析 xlsx。
+
+## 台股日報用法
+
+`get_daily_chip_report` 負責現貨三大法人、融資融券、期貨與選擇權部位。
+
+`get_active_etf_daily_change_report` 負責 ETF 當日：
+
+- 新增持股
+- 剔除持股
+- 加碼
+- 減碼
+- 某檔股票被多檔 ETF 同步調整
+
+可設定 `refresh_registered_sources=true`，先更新全部已啟用的投信官方來源，再產生日報。
 
 ## 新增／剔除規則
 
-- 新增：前一快照沒有該標的，最新快照出現。
-- 剔除：前一快照持有，最新快照不再出現。
-- 加碼／減碼：前後均持有，以股數與權重變化判斷。
-- 單一 ETF 若不足兩個快照，不產生新增／剔除結論。
+- 新增：前一完整快照沒有該標的，最新完整快照出現。
+- 剔除：前一完整快照持有，最新完整快照不再出現。
+- 加碼／減碼：前後均持有，以股數與權重變化共同判斷。
+- 單一 ETF 不足兩個完整快照，不產生新增／剔除結論。
 - 申購或贖回可能使全部持股股數等比例變動，因此加減碼不能直接解讀成經理人主動看多或看空。
-
-## 權限與限制
-
-`TaiwanStockActiveETFHolding` 與 `TaiwanStockActiveETFHoldingChange` 需要 FinMind sponsor 權限。被動式 ETF 的正式指數換股公告、投信持股檔與指數授權資料尚未整合，不宣稱已涵蓋全部被動式 ETF 新增／剔除。
 
 ## 驗證
 
@@ -71,10 +110,11 @@ GitHub Actions `Verify V7` 會執行：
 2. `wrangler deploy --dry-run`
 3. TWSE 三大法人、個股法人、融資融券 smoke test
 4. TAIFEX 期貨日行情、法人總表、期貨與選擇權部位 smoke test
-5. FinMind 主動式 ETF 公開清單與欄位 smoke test
+5. SITCA 主動式 ETF 公開清單 smoke test
+6. FinMind 公開 ETF 清單備援 smoke test
 
-2026-07-31 測試資料已通過上述公開資料來源驗證，當次取得 FinMind 主動式 ETF 清單 37 筆。FinMind sponsor 持股與異動資料仍需使用實際 sponsor Token 在 Cloudflare Preview／正式環境驗證。
+正式合併前仍需挑至少一個投信官方 CSV／JSON／HTML 持股網址，完成 `set → refresh → holdings → changes` 的端到端測試。
 
 ## 資料使用原則
 
-盤中策略或歷史回測在交易日 T，只能使用 T-1 或更早已公開的籌碼資料，避免 lookahead。V7 的資料定位是盤後日報、盤前背景、選股與回測分群，不取代富果即時報價、FinMind 歷史資料或交易執行層。
+盤中策略或歷史回測在交易日 T，只能使用 T-1 或更早已公開的籌碼資料，避免 lookahead。V7.1 的資料定位是盤後日報、盤前背景、選股與回測分群，不取代富果即時報價或交易執行層。
