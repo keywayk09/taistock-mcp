@@ -5,6 +5,12 @@ import { registerGlobalIndustryTools, syncTaiwanCompanyUniverse } from "./v7/glo
 import { registerTwchipsTools } from "./v7/twchips";
 import { registerTaiwanStockAnalysis12Tools } from "./v8/fundamental-12";
 
+function jsonResponse(body: unknown) {
+  return new Response(JSON.stringify(body, null, 2), {
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
 export class MyMCP extends BaseMCP {
   server = new McpServer({ name: "Taiwan Stock AI", version: "8.1.0" });
 
@@ -22,7 +28,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/mcp") return MyMCP.serve("/mcp").fetch(request, env, ctx);
     if (url.pathname === "/" || url.pathname === "/health") {
-      return Response.json({
+      return jsonResponse({
         service: "Taiwan Stock AI MCP",
         status: "ok",
         version: "8.1.0",
