@@ -5,14 +5,26 @@ import { registerGlobalIndustryTools, syncTaiwanCompanyUniverse } from "./v7/glo
 import { registerTwchipsTools } from "./v7/twchips";
 import { registerTaiwanStockAnalysis12Tools } from "./v8/fundamental-12";
 
-function jsonResponse(body: unknown) {
+function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body, null, 2), {
-    headers: { "content-type": "application/json; charset=utf-8" },
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      ...headers,
+    },
   });
 }
 
+function authorized(request: Request, env: Env) {
+  const runtimeEnv = env as Env & { MCP_API_KEY?: string };
+  const secret = runtimeEnv.MCP_API_KEY?.trim();
+  if (!secret) return false;
+  return request.headers.get("authorization") === `Bearer ${secret}`;
+}
+
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "8.1.0" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "8.1.1" });
 
   async init() {
     await super.init();
@@ -26,32 +38,26 @@ export class MyMCP extends BaseMCP {
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
-    if (url.pathname === "/mcp") return MyMCP.serve("/mcp").fetch(request, env, ctx);
+
+    if (url.pathname === "/mcp") {
+      if (!authorized(request, env)) {
+        return jsonResponse(
+          { error: "unauthorized" },
+          401,
+          { "www-authenticate": 'Bearer realm="taistock-mcp"' },
+        );
+      }
+      return MyMCP.serve("/mcp").fetch(request, env, ctx);
+    }
+
     if (url.pathname === "/" || url.pathname === "/health") {
       return jsonResponse({
         service: "Taiwan Stock AI MCP",
         status: "ok",
-        version: "8.1.0",
-        storage: env.DB ? "Cloudflare D1 connected" : "D1 binding pending",
-        official_chip_sources: ["TWSE", "TAIFEX"],
-        etf_sources: ["issuer official daily portfolio", "SITCA active ETF list", "D1 official snapshots", "FinMind optional fallback"],
-        global_industry_map: {
-          markets: ["TWSE", "TPEX", "ESB", "NASDAQ", "NYSE", "TSE Japan", "KRX"],
-          model: ["companies", "themes", "memberships", "supply_chain_edges", "evidence", "review_candidates"],
-          taiwan_universe_source: ["TWSE OpenAPI", "TPEx OpenAPI"],
-          seed_regions: ["TW", "US", "JP", "KR", "NL"],
-        },
-        taiwan_stock_analysis: {
-          template_version: "TW_STOCK_ANALYSIS_12_V1",
-          sections: 12,
-          policy: "只呈現可追溯自動資料與人工核實內容；缺漏不得以推測補齊",
-        },
-        etf_core_requires_finmind_sponsor: false,
-        twchips_compatibility: "0.1.0 / f91bb03a3307665faccc1369bad628237c3a268c",
-        mcp_endpoint: "/mcp",
-        tools: 79,
+        version: "8.1.1",
       });
     }
+
     return new Response("Not found", { status: 404 });
   },
   async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext) {
