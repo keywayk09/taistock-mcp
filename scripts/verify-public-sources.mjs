@@ -3,14 +3,28 @@ const SLASH_DATE = DATE.replaceAll("-", "/");
 const COMPACT_DATE = DATE.replaceAll("-", "");
 const timeoutMs = 30_000;
 
-async function fetchWithTimeout(url, init = {}) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function fetchWithTimeout(url, init = {}, attempts = 3) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      const retryable = response.status === 429 || response.status >= 500;
+      if (!retryable || attempt === attempts) return response;
+      await response.arrayBuffer();
+      await sleep(1_000 * attempt);
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts) throw error;
+      await sleep(1_000 * attempt);
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  throw lastError ?? new Error("fetch failed");
 }
 
 async function verifyJsonArray(label, url, minimumRows, requiredFields) {
