@@ -1,4 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpAgent } from "agents/mcp";
+import { z } from "zod";
 import { MyMCP as BaseMCP } from "./index-v6";
 import { registerEtfTools } from "./v7/etf";
 import { registerGlobalIndustryTools, syncTaiwanCompanyUniverse } from "./v7/global-map";
@@ -44,7 +46,7 @@ function familyCorsHeaders() {
 }
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "8.2.0" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "8.2.1" });
 
   async init() {
     await super.init();
@@ -54,6 +56,41 @@ export class MyMCP extends BaseMCP {
     registerTaiwanStockAnalysis12Tools(this.server, this.env);
   }
 }
+
+export class FamilyMCP extends McpAgent<Env> {
+  server = new McpServer({ name: "Taiwan Stock AI Family Read-Only", version: "8.2.1" });
+
+  async init() {
+    this.server.registerTool("queryTaiwanStockSystem", {
+      description: "媽媽／家人專用的單一台股智慧查詢工具。可查個股完整分析、股票比較、基本面、財務、籌碼、題材、同業與全球供應鏈；只讀取資料，不能新增、修改、刪除、匯入或核准任何內容。",
+      inputSchema: {
+        query: z.string().trim().min(1).max(2_000).describe("使用者的完整原始問題；保留股票代號、公司名稱、比較條件與分析需求。"),
+        as_of_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("選填資料截止日，格式 YYYY-MM-DD；未填則使用台北當日。"),
+      },
+    }, async ({ query, as_of_date }) => {
+      try {
+        const result = await runFamilyQuery(this.env, {
+          query,
+          mode: "auto",
+          as_of_date,
+        });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [{
+            type: "text" as const,
+            text: `查詢失敗：${error instanceof Error ? error.message : String(error)}`,
+          }],
+        };
+      }
+    });
+  }
+}
+
+const familyMcpHandler = FamilyMCP.serve("/family-mcp", { binding: "FAMILY_MCP_OBJECT" });
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
@@ -69,6 +106,17 @@ export default {
         );
       }
       return MyMCP.serve("/mcp").fetch(request, env, ctx);
+    }
+
+    if (url.pathname === "/family-mcp") {
+      if (!bearerAuthorized(request, runtimeEnv.MOM_GPT_API_KEY)) {
+        return jsonResponse(
+          { error: "unauthorized" },
+          401,
+          { "www-authenticate": 'Bearer realm="taistock-family-mcp"' },
+        );
+      }
+      return familyMcpHandler.fetch(request, env, ctx);
     }
 
     if (url.pathname === "/api/family/query") {
@@ -113,8 +161,9 @@ export default {
       return jsonResponse({
         service: "Taiwan Stock AI MCP",
         status: "ok",
-        version: "8.2.0",
+        version: "8.2.1",
         family_read_only_api: "/api/family/query",
+        family_read_only_mcp: "/family-mcp",
       });
     }
 
