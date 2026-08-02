@@ -13,7 +13,9 @@
 	},
 	"d1_databases": [
 		{
-			"binding": "DB"
+			"binding": "DB",
+			"database_name": "taistock-mcp-db",
+			"database_id": "18673f52-c286-49f3-a82c-bf67d0593611"
 		}
 	],
 	"migrations": [
