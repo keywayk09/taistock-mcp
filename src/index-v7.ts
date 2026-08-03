@@ -51,7 +51,7 @@ function familyCorsHeaders() {
 }
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "8.3.0" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "8.4.0" });
 
   async init() {
     const role = (this.props as OAuthGrantProps | undefined)?.role;
@@ -74,7 +74,7 @@ export class MyMCP extends BaseMCP {
 }
 
 export class FamilyMCP extends McpAgent<Env> {
-  server = new McpServer({ name: "Taiwan Stock AI Family Read-Only", version: "8.3.0" });
+  server = new McpServer({ name: "Taiwan Stock AI Family Read-Only", version: "8.4.0" });
 
   async init() {
     const role = (this.props as OAuthGrantProps | undefined)?.role;
@@ -189,7 +189,8 @@ export default {
       return jsonResponse({
         service: "Taiwan Stock AI MCP",
         status: "ok",
-        version: "8.3.0",
+        version: "8.4.0",
+        data_policy: "official-first: TWSE/TPEx/MOPS/TDCC; FinMind optional fallback",
         bearer_mcp: "/mcp",
         owner_oauth_mcp: "/my-mcp",
         family_read_only_api: "/api/family/query",
