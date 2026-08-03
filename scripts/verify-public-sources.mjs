@@ -28,15 +28,39 @@ async function fetchWithTimeout(url, init = {}, attempts = 3) {
 }
 
 async function verifyJsonArray(label, url, minimumRows, requiredFields) {
-  const response = await fetchWithTimeout(url, { headers: { Accept: "application/json" } });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`${label}: HTTP ${response.status}: ${text.slice(0, 200)}`);
-  const rows = JSON.parse(text);
-  if (!Array.isArray(rows) || rows.length < minimumRows) throw new Error(`${label}: expected >= ${minimumRows} rows, got ${Array.isArray(rows) ? rows.length : "non-array"}`);
-  const first = rows[0] ?? {};
-  const matched = requiredFields.some((field) => field in first);
-  if (!matched) throw new Error(`${label}: expected one of fields ${requiredFields.join(", ")}: ${text.slice(0, 500)}`);
-  console.log(`PASS ${label} (${rows.length} rows)`);
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const response = await fetchWithTimeout(url, {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "taistock-mcp-source-verifier/8.4",
+        },
+      });
+      const text = await response.text();
+      if (!response.ok) throw new Error(`${label}: HTTP ${response.status}: ${text.slice(0, 200)}`);
+      if (text.trimStart().startsWith("<")) throw new Error(`${label}: returned HTML instead of JSON`);
+      let rows;
+      try {
+        rows = JSON.parse(text);
+      } catch (error) {
+        throw new Error(`${label}: invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (!Array.isArray(rows) || rows.length < minimumRows) throw new Error(`${label}: expected >= ${minimumRows} rows, got ${Array.isArray(rows) ? rows.length : "non-array"}`);
+      const first = rows[0] ?? {};
+      const matched = requiredFields.some((field) => field in first);
+      if (!matched) throw new Error(`${label}: expected one of fields ${requiredFields.join(", ")}: ${text.slice(0, 500)}`);
+      console.log(`PASS ${label} (${rows.length} rows)`);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) {
+        console.warn(`RETRY ${label} (${attempt}/3): ${error instanceof Error ? error.message : String(error)}`);
+        await sleep(1_000 * attempt);
+      }
+    }
+  }
+  throw lastError ?? new Error(`${label}: verification failed`);
 }
 
 async function verifyTwse(label, path, params, validate) {
