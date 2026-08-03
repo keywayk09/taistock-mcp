@@ -18,6 +18,12 @@
 			"database_id": "18673f52-c286-49f3-a82c-bf67d0593611"
 		}
 	],
+	"kv_namespaces": [
+		{
+			"binding": "OAUTH_KV",
+			"id": "7421664843414cd584f772f9ddd53670"
+		}
+	],
 	"migrations": [
 		{
 			"new_sqlite_classes": ["MyMCP"],
