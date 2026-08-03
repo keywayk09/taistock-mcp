@@ -5,7 +5,8 @@ import { MyMCP as BaseMCP } from "./index-v6";
 import { registerEtfTools } from "./v7/etf";
 import { registerGlobalIndustryTools, syncTaiwanCompanyUniverse } from "./v7/global-map";
 import { registerTwchipsTools } from "./v7/twchips";
-import { familyOpenApiSchema, runFamilyQuery } from "./v8/family-query";
+import { runFamilyQuery } from "./v8/family-query";
+import { familyOpenApiSchema, familyPrivacyPolicyHtml } from "./v8/family-openapi";
 import { registerTaiwanStockAnalysis12Tools } from "./v8/fundamental-12";
 
 type OAuthGrantProps = {
@@ -20,6 +21,20 @@ function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store",
       ...headers,
+    },
+  });
+}
+
+function publicHtmlResponse(html: string) {
+  return new Response(html, {
+    status: 200,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "public, max-age=3600",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "DENY",
     },
   });
 }
@@ -185,6 +200,10 @@ export default {
       return jsonResponse(familyOpenApiSchema(url.origin));
     }
 
+    if (url.pathname === "/privacy" || url.pathname === "/privacy-policy") {
+      return publicHtmlResponse(familyPrivacyPolicyHtml(url.origin));
+    }
+
     if (url.pathname === "/" || url.pathname === "/health") {
       return jsonResponse({
         service: "Taiwan Stock AI MCP",
@@ -194,6 +213,8 @@ export default {
         bearer_mcp: "/mcp",
         owner_oauth_mcp: "/my-mcp",
         family_read_only_api: "/api/family/query",
+        family_openapi: "/family-openapi.json",
+        privacy_policy: "/privacy",
         family_oauth_mcp: "/family-mcp",
         oauth_authorize: "/authorize",
       });
