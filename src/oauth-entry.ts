@@ -110,6 +110,32 @@ ${error}
 </html>`;
 }
 
+function authorizationCompletePage(redirectTo: string) {
+  const safeUrl = escapeHtml(redirectTo);
+  return `<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="1;url=${safeUrl}">
+<title>授權完成</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f5f6f8;color:#171717;margin:0;padding:24px}
+main{max-width:520px;margin:10vh auto;background:#fff;border:1px solid #ddd;border-radius:18px;padding:28px;box-shadow:0 10px 35px rgba(0,0,0,.08);text-align:center}
+h1{font-size:25px;margin:0 0 12px}p{line-height:1.6;color:#555}a{display:block;margin-top:20px;padding:14px;border-radius:10px;background:#111;color:#fff;text-decoration:none;font-size:17px;font-weight:700}.note{font-size:13px;color:#777;margin-top:16px}
+</style>
+</head>
+<body>
+<main>
+<h1>授權成功</h1>
+<p>正在返回 ChatGPT 完成連線。</p>
+<a href="${safeUrl}">返回 ChatGPT 完成連線</a>
+<p class="note">若沒有自動跳轉，請按上方按鈕。</p>
+</main>
+</body>
+</html>`;
+}
+
 async function authFailureLimited(env: OAuthRuntimeEnv, request: Request) {
   const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
   const key = `login-fail:${ip}`;
@@ -205,7 +231,14 @@ const authAndLegacyHandler = {
       scope: grantedScopes,
       props,
     });
-    return Response.redirect(redirectTo, 302);
+
+    const redirectUrl = new URL(redirectTo);
+    if (redirectUrl.protocol !== "https:" || redirectUrl.hostname !== "chatgpt.com") {
+      console.warn(`Blocked unexpected OAuth redirect target: ${redirectUrl.origin}${redirectUrl.pathname}`);
+      return jsonResponse({ error: "invalid_redirect_target" }, 400);
+    }
+    console.info(`OAuth authorization completed for ${role}; redirecting to ${redirectUrl.origin}${redirectUrl.pathname}`);
+    return htmlResponse(authorizationCompletePage(redirectTo));
   },
 };
 
