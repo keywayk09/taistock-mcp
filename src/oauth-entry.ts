@@ -60,8 +60,8 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function normalizeRequestedScopes(request: AuthRequest) {
-  const value = request.scope;
+function normalizeRequestedScopes(request: AuthRequest): string[] {
+  const value: unknown = request.scope;
   if (Array.isArray(value)) return value.map(String);
   if (typeof value === "string") return value.split(/\s+/).filter(Boolean);
   return [];
@@ -185,10 +185,10 @@ const authAndLegacyHandler = {
     }
     await runtimeEnv.OAUTH_KV.delete(limit.key);
 
-    const allowedScopes = role === "owner"
+    const allowedScopes: string[] = role === "owner"
       ? ["taistock.read", "taistock.admin"]
       : ["taistock.read"];
-    const requestedAllowed = requestedScopes.filter((scope) => allowedScopes.includes(scope));
+    const requestedAllowed = requestedScopes.filter((scope: string) => allowedScopes.includes(scope));
     const grantedScopes = requestedAllowed.length > 0
       ? requestedAllowed
       : role === "owner" ? ["taistock.admin", "taistock.read"] : ["taistock.read"];
