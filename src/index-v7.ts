@@ -8,6 +8,11 @@ import { registerTwchipsTools } from "./v7/twchips";
 import { familyOpenApiSchema, runFamilyQuery } from "./v8/family-query";
 import { registerTaiwanStockAnalysis12Tools } from "./v8/fundamental-12";
 
+type OAuthGrantProps = {
+  role?: "owner" | "family";
+  permissions?: string[];
+};
+
 function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body, null, 2), {
     status,
@@ -46,9 +51,20 @@ function familyCorsHeaders() {
 }
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "8.2.1" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "8.3.0" });
 
   async init() {
+    const role = (this.props as OAuthGrantProps | undefined)?.role;
+    if (role && role !== "owner") {
+      this.server.registerTool("accessDenied", {
+        description: "此 OAuth 帳號沒有完整台股 MCP 權限。",
+        inputSchema: {},
+      }, async () => ({
+        isError: true,
+        content: [{ type: "text" as const, text: "權限不足：此入口僅限擁有者。" }],
+      }));
+      return;
+    }
     await super.init();
     registerTwchipsTools(this.server, this.env);
     registerEtfTools(this.server, this.env);
@@ -58,9 +74,21 @@ export class MyMCP extends BaseMCP {
 }
 
 export class FamilyMCP extends McpAgent<Env> {
-  server = new McpServer({ name: "Taiwan Stock AI Family Read-Only", version: "8.2.1" });
+  server = new McpServer({ name: "Taiwan Stock AI Family Read-Only", version: "8.3.0" });
 
   async init() {
+    const role = (this.props as OAuthGrantProps | undefined)?.role;
+    if (role && role !== "family" && role !== "owner") {
+      this.server.registerTool("accessDenied", {
+        description: "此 OAuth 帳號沒有家人版台股 MCP 權限。",
+        inputSchema: {},
+      }, async () => ({
+        isError: true,
+        content: [{ type: "text" as const, text: "權限不足。" }],
+      }));
+      return;
+    }
+
     this.server.registerTool("queryTaiwanStockSystem", {
       description: "媽媽／家人專用的單一台股智慧查詢工具。可查個股完整分析、股票比較、基本面、財務、籌碼、題材、同業與全球供應鏈；只讀取資料，不能新增、修改、刪除、匯入或核准任何內容。",
       inputSchema: {
@@ -161,9 +189,12 @@ export default {
       return jsonResponse({
         service: "Taiwan Stock AI MCP",
         status: "ok",
-        version: "8.2.1",
+        version: "8.3.0",
+        bearer_mcp: "/mcp",
+        owner_oauth_mcp: "/my-mcp",
         family_read_only_api: "/api/family/query",
-        family_read_only_mcp: "/family-mcp",
+        family_oauth_mcp: "/family-mcp",
+        oauth_authorize: "/authorize",
       });
     }
 
