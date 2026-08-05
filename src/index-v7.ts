@@ -11,6 +11,7 @@ import { registerFundFlowReportTools } from "./v8/fund-flow-reports";
 import { registerTaiwanStockAnalysis12Tools } from "./v8/fundamental-12";
 import { registerOfficialInstitutionalV2 } from "./v8/official-institutional-v2";
 import { registerSwingMarketRadarTools } from "./v8/swing-market-radar";
+import { registerDiamondResearchTools } from "./v9/diamond-research";
 
 type OAuthGrantProps = {
   role?: "owner" | "family";
@@ -69,7 +70,7 @@ function familyCorsHeaders() {
 }
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "8.6.0" });
+  server = new McpServer({ name: "Diamond Engine Taiwan Stock AI", version: "9.0.0" });
 
   async init() {
     const role = (this.props as OAuthGrantProps | undefined)?.role;
@@ -88,6 +89,7 @@ export class MyMCP extends BaseMCP {
     registerOfficialInstitutionalV2(this.server);
     registerFundFlowReportTools(this.server);
     registerSwingMarketRadarTools(this.server);
+    registerDiamondResearchTools(this.server, this.env);
     registerEtfTools(this.server, this.env);
     registerGlobalIndustryTools(this.server, this.env);
     registerTaiwanStockAnalysis12Tools(this.server, this.env);
@@ -212,14 +214,30 @@ export default {
 
     if (url.pathname === "/" || url.pathname === "/health") {
       return jsonResponse({
-        service: "Taiwan Stock AI MCP",
+        service: "Diamond Engine Taiwan Stock AI MCP",
         status: "ok",
-        version: "8.6.0",
+        version: "9.0.0",
+        governance: "AI may research and create proposals, but formal strategy changes require explicit user discussion and approval",
         data_policy: "official-first: TWSE/TPEx/MOPS/TDCC; FinMind optional fallback",
         swing_radar: {
           tools: ["scan_swing_candidates", "analyze_market_sentiment"],
           scope: "official daily price-volume breadth plus institutional flow",
           realtime_limitations: "intraday large orders and order-book rankings require licensed tick data",
+        },
+        diamond_research: {
+          tools: [
+            "initialize_diamond_research_system",
+            "record_candidate_pool",
+            "record_swing_decision",
+            "close_swing_decision",
+            "record_engine_lab_case",
+            "create_strategy_proposal",
+            "record_user_proposal_decision",
+            "register_engine_version",
+            "get_diamond_research_dashboard",
+          ],
+          storage: "Cloudflare D1",
+          formal_strategy_auto_modification: false,
         },
         report_schedule: {
           fund_flow: "18:00 Asia/Taipei after TWSE and TPEx institutional data are both available",
