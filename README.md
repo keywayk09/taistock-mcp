@@ -1,51 +1,44 @@
-# Building a Remote MCP Server on Cloudflare (Without Auth)
+# Taiwan Stock AI MCP
 
-This example allows you to deploy a remote MCP server that doesn't require authentication on Cloudflare Workers.
+部署於 Cloudflare Workers 的台股與全球產業研究 MCP Server，提供即時行情、歷史資料、官方籌碼、ETF 持股、基本面、事件資料庫、觀察清單、投資組合，以及全球產業鏈與題材知識圖譜。
 
-## Get started:
+目前開發版本：**V8.1**
 
-[![Deploy to Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/ai/tree/main/demos/remote-mcp-authless)
+## V8.1 重點
 
-This will deploy your MCP server to a URL like: `remote-mcp-server-authless.<your-account>.workers.dev/mcp`
+- 保留 V6 既有 40 個工具
+- 保留 V7 的 TWSE／TAIFEX 官方籌碼與 ETF 官方持股工具
+- 從 TWSE／TPEx 官方 OpenAPI 全量同步上市、上櫃與興櫃公司
+- 建立全球公司、產業、產品、技術、題材、供應鏈與證據資料模型
+- 同一家公司可同時屬於多個題材，並記錄角色、關聯度與有效期間
+- 供應鏈可保存供應商、客戶、代工、設備、材料、競爭與生態系關係
+- AI 自動分類先進入 pending 候選，核准後才寫入正式資料
+- 內建美國、日本、韓國、荷蘭重要公司與核心產業題材種子
+- 導入 `TW_STOCK_ANALYSIS_12_V1` 台股個股分析模板
+- 個股分析固定涵蓋商業模式、產業位置、財務、成長、產能地緣、客戶訂單、催化風險、籌碼、同業、估值、技術面與多空 KPI
+- 缺少正式資料時明確標示，不以推測補齊
+- 週一至週五自動同步台股公司主檔
+- V8.1 合計 79 個 MCP 工具
 
-Alternatively, you can use the command line below to get the remote MCP Server created on your local machine:
+詳細說明：
+
+- `docs/global-industry-map-v8.md`
+- `docs/twchips-v7.md`
+
+## 開發
 
 ```bash
-npm create cloudflare@latest -- my-mcp-server --template=cloudflare/ai/demos/remote-mcp-authless
+npm install
+npm run type-check
+npx wrangler deploy --dry-run
 ```
 
-## Customizing your MCP Server
+## 部署
 
-To add your own [tools](https://developers.cloudflare.com/agents/model-context-protocol/tools/) to the MCP server, define each tool inside the `init()` method of `src/index.ts` using `this.server.tool(...)`.
-
-## Connect to Cloudflare AI Playground
-
-You can connect to your MCP server from the Cloudflare AI Playground, which is a remote MCP client:
-
-1. Go to https://playground.ai.cloudflare.com/
-2. Enter your deployed MCP server URL (`remote-mcp-server-authless.<your-account>.workers.dev/mcp`)
-3. You can now use your MCP tools directly from the playground!
-
-## Connect Claude Desktop to your MCP server
-
-You can also connect to your remote MCP server from local MCP clients, by using the [mcp-remote proxy](https://www.npmjs.com/package/mcp-remote).
-
-To connect to your MCP server from Claude Desktop, follow [Anthropic's Quickstart](https://modelcontextprotocol.io/quickstart/user) and within Claude Desktop go to Settings > Developer > Edit Config.
-
-Update with this configuration:
-
-```json
-{
-	"mcpServers": {
-		"calculator": {
-			"command": "npx",
-			"args": [
-				"mcp-remote",
-				"http://localhost:8787/mcp" // or remote-mcp-server-authless.your-account.workers.dev/mcp
-			]
-		}
-	}
-}
+```bash
+npm run deploy
 ```
 
-Restart Claude and you should see the tools become available.
+MCP endpoint：`/mcp`
+
+Health endpoint：`/health`

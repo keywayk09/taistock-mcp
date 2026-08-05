@@ -4,7 +4,7 @@ declare global {
   interface Env {
     FUGLE_API_KEY: string;
     FINMIND_TOKEN: string;
-    DB?: D1Database;
+    DB: D1Database;
   }
 }
 
@@ -72,7 +72,349 @@ export async function fetchJson(url: string | URL, init: RequestInit, source: st
   return { body, latency_ms: Date.now() - started };
 }
 
-export async function finmind(env: Env, dataset: string, params: Obj): Promise<any[]> {
+const OFFICIAL_USER_AGENT = "taistock-mcp/8.4 (+https://github.com/keywayk09/taistock-mcp)";
+const OFFICIAL_FINMIND_DATASETS = new Set([
+  "TaiwanStockMonthRevenue",
+  "TaiwanStockFinancialStatements",
+  "TaiwanStockBalanceSheet",
+  "TaiwanStockInstitutionalInvestorsBuySell",
+  "TaiwanStockCashFlowsStatement",
+  "TaiwanStockPrice",
+]);
+const FINANCIAL_SUFFIXES = ["ci", "mim", "basi", "fh", "ins", "bd"] as const;
+
+function officialKey(value: string) {
+  return value.toLowerCase().replace(/[\s_()（）%％:：/\\.\-]/g, "");
+}
+
+function officialPick(row: Obj, aliases: string[]) {
+  for (const alias of aliases) {
+    const value = row[alias];
+    if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+  }
+  const keys = Object.keys(row);
+  for (const alias of aliases) {
+    const target = officialKey(alias);
+    const exact = keys.find((key) => officialKey(key) === target);
+    if (exact) return row[exact];
+  }
+  for (const alias of aliases) {
+    const target = officialKey(alias);
+    const fuzzy = keys.find((key) => officialKey(key).includes(target));
+    if (fuzzy) return row[fuzzy];
+  }
+  return null;
+}
+
+function officialNumber(value: unknown): number | null {
+  const text = String(value ?? "").trim();
+  if (!text || text === "-" || text === "--" || text === "N/A") return null;
+  const negative = /^\(.*\)$/.test(text);
+  const parsed = Number(text.replace(/,/g, "").replace(/%$/, "").replace(/[()]/g, ""));
+  if (!Number.isFinite(parsed)) return null;
+  return negative ? -parsed : parsed;
+}
+
+function officialSymbol(row: Obj) {
+  return String(officialPick(row, [
+    "公司代號", "公司代碼", "證券代號", "股票代號", "SecuritiesCompanyCode", "SecuritiesCompanyID",
+    "Code", "stock_id", "symbol",
+  ]) ?? "").replace(/\s/g, "");
+}
+
+function officialRocYear(value: number) {
+  return value > 0 && value < 1911 ? value + 1911 : value;
+}
+
+function officialYearMonth(row: Obj) {
+  const raw = String(officialPick(row, ["資料年月", "年月", "RevenueYearMonth"]) ?? "").replace(/[^0-9]/g, "");
+  if (raw.length >= 5) {
+    const month = Number(raw.slice(-2));
+    const year = officialRocYear(Number(raw.slice(0, -2)));
+    if (year && month >= 1 && month <= 12) return { year, month };
+  }
+  const yearRaw = officialNumber(officialPick(row, ["資料年度", "年度", "RevenueYear"]));
+  const month = officialNumber(officialPick(row, ["資料月份", "月份", "RevenueMonth"]));
+  return yearRaw && month && month >= 1 && month <= 12 ? { year: officialRocYear(yearRaw), month } : null;
+}
+
+function officialReportDate(row: Obj) {
+  const yearRaw = officialNumber(officialPick(row, ["年度", "資料年度", "Year", "FiscalYear"]));
+  const quarter = officialNumber(officialPick(row, ["季別", "季度", "Season", "Quarter"]));
+  const year = yearRaw == null ? null : officialRocYear(yearRaw);
+  if (year && quarter) {
+    const month = Math.min(12, Math.max(1, quarter * 3));
+    return `${year}-${String(month).padStart(2, "0")}-01`;
+  }
+  return year ? `${year}-12-31` : taipeiDate();
+}
+
+async function officialRows(url: string, source: string) {
+  const { body } = await fetchJson(url, { headers: { Accept: "application/json", "User-Agent": OFFICIAL_USER_AGENT } }, source);
+  if (Array.isArray(body)) return body.map(rec);
+  return arr(body).map(rec);
+}
+
+async function officialCompanyMarket(env: Env, symbol: string): Promise<"TWSE" | "TPEX" | "ESB" | null> {
+  try {
+    const row = await env.DB.prepare("SELECT exchange FROM global_companies WHERE country = 'TW' AND ticker = ? AND status = 'active' ORDER BY exchange = 'TWSE' DESC LIMIT 1")
+      .bind(symbol).first<{ exchange: string }>();
+    const exchange = String(row?.exchange ?? "").toUpperCase();
+    if (exchange === "TWSE" || exchange === "TPEX" || exchange === "ESB") return exchange;
+  } catch {}
+  return null;
+}
+
+async function officialFindRow(url: string, source: string, symbol: string) {
+  return (await officialRows(url, source)).find((row) => officialSymbol(row) === symbol) ?? null;
+}
+
+async function officialMonthRevenue(env: Env, symbol: string) {
+  const market = await officialCompanyMarket(env, symbol);
+  const candidates = market === "TWSE"
+    ? [{ url: "https://openapi.twse.com.tw/v1/opendata/t187ap05_L", source: "TWSE/MOPS 月營收" }]
+    : market === "TPEX" || market === "ESB"
+      ? [{ url: "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap05_O", source: "TPEx/MOPS 月營收" }]
+      : [
+          { url: "https://openapi.twse.com.tw/v1/opendata/t187ap05_L", source: "TWSE/MOPS 月營收" },
+          { url: "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap05_O", source: "TPEx/MOPS 月營收" },
+        ];
+  for (const candidate of candidates) {
+    const row = await officialFindRow(candidate.url, candidate.source, symbol);
+    if (!row) continue;
+    const ym = officialYearMonth(row);
+    if (!ym) return [];
+    const revenue = officialNumber(officialPick(row, ["營業收入-當月營收", "當月營收", "本月營業收入", "營業收入", "CurrentMonthRevenue"]));
+    const previous = officialNumber(officialPick(row, ["營業收入-上月營收", "上月營收", "PreviousMonthRevenue"]));
+    const lastYear = officialNumber(officialPick(row, ["營業收入-去年當月營收", "去年當月營收", "LastYearMonthRevenue"]));
+    const currentDate = `${ym.year}-${String(ym.month).padStart(2, "0")}-01`;
+    const previousDateObject = new Date(`${currentDate}T00:00:00Z`);
+    previousDateObject.setUTCMonth(previousDateObject.getUTCMonth() - 1);
+    const previousDate = previousDateObject.toISOString().slice(0, 10);
+    const lastYearDate = `${ym.year - 1}-${String(ym.month).padStart(2, "0")}-01`;
+    return [
+      ...(lastYear != null ? [{
+        date: lastYearDate,
+        stock_id: symbol,
+        revenue_year: ym.year - 1,
+        revenue_month: ym.month,
+        revenue: lastYear,
+        _source: candidate.source,
+        _source_url: candidate.url,
+      }] : []),
+      ...(previous != null ? [{
+        date: previousDate,
+        stock_id: symbol,
+        revenue_year: Number(previousDate.slice(0, 4)),
+        revenue_month: Number(previousDate.slice(5, 7)),
+        revenue: previous,
+        _source: candidate.source,
+        _source_url: candidate.url,
+      }] : []),
+      ...(revenue != null ? [{
+        date: currentDate,
+        stock_id: symbol,
+        revenue_year: ym.year,
+        revenue_month: ym.month,
+        revenue,
+        yoy_percent_official: officialNumber(officialPick(row, ["營業收入-去年同月增減(%)", "去年同月增減百分比", "YoY"])),
+        mom_percent_official: officialNumber(officialPick(row, ["營業收入-上月比較增減(%)", "上月比較增減百分比", "MoM"])),
+        _source: candidate.source,
+        _source_url: candidate.url,
+        _raw: row,
+      }] : []),
+    ];
+  }
+  return [];
+}
+
+function officialFinancialUrls(market: "TWSE" | "TPEX" | "ESB" | null, statement: "income" | "balance") {
+  const code = statement === "income" ? "06" : "07";
+  const listed = FINANCIAL_SUFFIXES.map((suffix) => ({
+    url: `https://openapi.twse.com.tw/v1/opendata/t187ap${code}_L_${suffix}`,
+    source: `TWSE/MOPS ${statement === "income" ? "綜合損益表" : "資產負債表"}`,
+  }));
+  const tpexMarket = market === "ESB" ? "U" : "O";
+  const otc = FINANCIAL_SUFFIXES.map((suffix) => ({
+    url: `https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap${code}_${tpexMarket}_${suffix}`,
+    source: `TPEx/MOPS ${statement === "income" ? "綜合損益表" : "資產負債表"}`,
+  }));
+  return market === "TWSE" ? listed : market === "TPEX" || market === "ESB" ? otc : [...listed, ...otc];
+}
+
+async function officialFinancialRow(env: Env, symbol: string, statement: "income" | "balance") {
+  const market = await officialCompanyMarket(env, symbol);
+  for (const candidate of officialFinancialUrls(market, statement)) {
+    try {
+      const row = await officialFindRow(candidate.url, candidate.source, symbol);
+      if (row) return { ...candidate, row };
+    } catch {}
+  }
+  return null;
+}
+
+function finmindMetric(date: string, symbol: string, type: string, value: number | null, source: string, sourceUrl: string, raw?: Obj) {
+  return value == null ? null : {
+    date,
+    stock_id: symbol,
+    type,
+    origin_name: type,
+    name: type,
+    value,
+    _source: source,
+    _source_url: sourceUrl,
+    ...(raw ? { _raw: raw } : {}),
+  };
+}
+
+async function officialIncomeStatement(env: Env, symbol: string) {
+  const found = await officialFinancialRow(env, symbol, "income");
+  if (!found) return [];
+  const row = found.row;
+  const date = officialReportDate(row);
+  return [
+    finmindMetric(date, symbol, "OperatingRevenue", officialNumber(officialPick(row, ["營業收入", "營業收入合計", "收益", "OperatingRevenue", "Revenue"])), found.source, found.url, row),
+    finmindMetric(date, symbol, "GrossProfit", officialNumber(officialPick(row, ["營業毛利（毛損）", "營業毛利(毛損)", "營業毛利", "GrossProfitLoss", "GrossProfit"])), found.source, found.url),
+    finmindMetric(date, symbol, "OperatingIncome", officialNumber(officialPick(row, ["營業利益（損失）", "營業利益(損失)", "營業利益", "ProfitLossFromOperatingActivities", "OperatingIncome"])), found.source, found.url),
+    finmindMetric(date, symbol, "NonOperatingIncome", officialNumber(officialPick(row, ["營業外收入及支出", "營業外收入及支出合計", "NonoperatingIncomeAndExpenses"])), found.source, found.url),
+    finmindMetric(date, symbol, "NetIncome", officialNumber(officialPick(row, ["本期淨利（淨損）", "本期淨利(淨損)", "本期淨利", "本期稅後淨利", "歸屬於母公司業主之淨利（損）", "ProfitLoss", "NetIncome"])), found.source, found.url),
+    finmindMetric(date, symbol, "BasicEarningsPerShare", officialNumber(officialPick(row, ["基本每股盈餘（元）", "基本每股盈餘(元)", "基本每股盈餘", "每股盈餘", "BasicEarningsLossPerShare"])), found.source, found.url),
+    finmindMetric(date, symbol, "InterestExpense", officialNumber(officialPick(row, ["利息費用", "InterestExpense"])), found.source, found.url),
+  ].filter(Boolean);
+}
+
+async function officialBalanceSheet(env: Env, symbol: string) {
+  const found = await officialFinancialRow(env, symbol, "balance");
+  if (!found) return [];
+  const row = found.row;
+  const date = officialReportDate(row);
+  return [
+    finmindMetric(date, symbol, "TotalAssets", officialNumber(officialPick(row, ["資產總額", "資產合計", "TotalAssets"])), found.source, found.url, row),
+    finmindMetric(date, symbol, "TotalLiabilities", officialNumber(officialPick(row, ["負債總額", "負債合計", "TotalLiabilities"])), found.source, found.url),
+    finmindMetric(date, symbol, "TotalEquity", officialNumber(officialPick(row, ["權益總額", "權益合計", "TotalEquity"])), found.source, found.url),
+    finmindMetric(date, symbol, "CurrentAssets", officialNumber(officialPick(row, ["流動資產", "流動資產合計", "CurrentAssets"])), found.source, found.url),
+    finmindMetric(date, symbol, "CurrentLiabilities", officialNumber(officialPick(row, ["流動負債", "流動負債合計", "CurrentLiabilities"])), found.source, found.url),
+    finmindMetric(date, symbol, "CashAndCashEquivalents", officialNumber(officialPick(row, ["現金及約當現金", "CashAndCashEquivalents"])), found.source, found.url),
+    finmindMetric(date, symbol, "Inventory", officialNumber(officialPick(row, ["存貨", "存貨淨額", "Inventory"])), found.source, found.url),
+    finmindMetric(date, symbol, "AccountsReceivable", officialNumber(officialPick(row, ["應收帳款淨額", "應收帳款", "AccountsReceivableNet"])), found.source, found.url),
+  ].filter(Boolean);
+}
+
+function officialJsonTable(table: unknown): Obj[] {
+  const root = rec(table);
+  const fields = Array.isArray(root.fields) ? root.fields.map((value: unknown) => String(value).trim()) : [];
+  const data = Array.isArray(root.data) ? root.data : [];
+  return data.map((raw: unknown) => {
+    const values = Array.isArray(raw) ? raw : [];
+    return Object.fromEntries(fields.map((field: string, index: number) => [field, values[index] ?? null]));
+  });
+}
+
+function officialCompactDate(date: string) {
+  return date.replaceAll("-", "");
+}
+
+function officialShiftDate(date: string, days: number) {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+function institutionalRowsFromRaw(symbol: string, date: string, row: Obj, source: string, sourceUrl: string) {
+  const metric = (name: string, buyAliases: string[], sellAliases: string[], netAliases: string[]) => {
+    const buy = officialNumber(officialPick(row, buyAliases)) ?? 0;
+    const sell = officialNumber(officialPick(row, sellAliases)) ?? 0;
+    const net = officialNumber(officialPick(row, netAliases)) ?? buy - sell;
+    return { date, stock_id: symbol, name, buy, sell, buy_sell: net, _source: source, _source_url: sourceUrl, _raw: row };
+  };
+  return [
+    metric("外資及陸資", ["外陸資買進股數(不含外資自營商)", "外資及陸資買進股數", "ForeignInvestorBuy"], ["外陸資賣出股數(不含外資自營商)", "外資及陸資賣出股數", "ForeignInvestorSell"], ["外陸資買賣超股數(不含外資自營商)", "外資及陸資買賣超股數", "ForeignInvestorNetBuySell"]),
+    metric("投信", ["投信買進股數", "InvestmentTrustBuy"], ["投信賣出股數", "InvestmentTrustSell"], ["投信買賣超股數", "InvestmentTrustNetBuySell"]),
+    metric("自營商", ["自營商買進股數", "DealerBuy"], ["自營商賣出股數", "DealerSell"], ["自營商買賣超股數", "DealerNetBuySell"]),
+  ];
+}
+
+function tdccLevel(row: Obj) {
+  const raw = String(officialPick(row, ["持股分級", "持股/單位數分級", "HoldingSharesLevel", "持股級距", "Level"]) ?? "").trim();
+  const numeric = Number(raw.match(/^\d+/)?.[0] ?? NaN);
+  const numbers = raw.replace(/,/g, "").match(/\d+/g)?.map(Number) ?? [];
+  return {
+    numeric: Number.isFinite(numeric) ? numeric : null,
+    minimumShares: numbers.length >= 2 ? numbers[0] : raw.includes("以上") && numbers.length ? numbers[0] : null,
+  };
+}
+
+async function officialTdccRows(symbol: string) {
+  const url = "https://openapi.tdcc.com.tw/v1/opendata/1-5";
+  try {
+    const rows = (await officialRows(url, "TDCC 集保戶股權分散表")).filter((row) => officialSymbol(row) === symbol);
+    if (!rows.length) return [];
+    const date = String(officialPick(rows[0], ["資料日期", "DataDate", "Date"]) ?? taipeiDate());
+    const normalized = rows.map((row) => {
+      const level = tdccLevel(row);
+      return {
+        level,
+        holders: officialNumber(officialPick(row, ["人數", "持有人數", "NumberOfHolders", "Holders"])) ?? 0,
+        shares: officialNumber(officialPick(row, ["股數", "持有股數", "Shares", "NumberOfShares"])) ?? 0,
+        ratio: officialNumber(officialPick(row, ["占集保庫存數比例%", "占集保庫存數比例", "占集保庫存比例", "Percent", "Ratio"])) ?? 0,
+      };
+    });
+    const over400 = normalized.filter((item) => (item.level.numeric != null && item.level.numeric >= 12 && item.level.numeric <= 15) || (item.level.minimumShares != null && item.level.minimumShares >= 400_000));
+    const over1000 = normalized.filter((item) => (item.level.numeric != null && item.level.numeric === 15) || (item.level.minimumShares != null && item.level.minimumShares >= 1_000_000));
+    const ratio = (items: typeof normalized) => round(items.reduce((sum, item) => sum + item.ratio, 0), 4);
+    return [
+      { date, stock_id: symbol, name: "TDCC 400張以上持股比率(%)", buy: 0, sell: 0, buy_sell: ratio(over400), metric_type: "holder_distribution", _source: "TDCC", _source_url: url },
+      { date, stock_id: symbol, name: "TDCC 1000張以上持股比率(%)", buy: 0, sell: 0, buy_sell: ratio(over1000), metric_type: "holder_distribution", _source: "TDCC", _source_url: url },
+    ];
+  } catch {
+    return [];
+  }
+}
+
+async function officialInstitutional(env: Env, symbol: string, endDate: string) {
+  const market = await officialCompanyMarket(env, symbol);
+  if (market === "TWSE" || market === null) {
+    for (let offset = 0; offset <= 10; offset++) {
+      const date = officialShiftDate(endDate, -offset);
+      const url = new URL("https://www.twse.com.tw/rwd/zh/fund/T86");
+      url.searchParams.set("response", "json");
+      url.searchParams.set("date", officialCompactDate(date));
+      url.searchParams.set("selectType", "ALLBUT0999");
+      try {
+        const { body } = await fetchJson(url, { headers: { Accept: "application/json", "User-Agent": OFFICIAL_USER_AGENT } }, "TWSE 個股三大法人");
+        if (rec(body).stat !== "OK") continue;
+        const row = officialJsonTable(body).find((item) => officialSymbol(item) === symbol);
+        if (row) return [...institutionalRowsFromRaw(symbol, date, row, "TWSE", url.toString()), ...await officialTdccRows(symbol)];
+      } catch {}
+    }
+  }
+  if (market === "TPEX" || market === "ESB" || market === null) {
+    const sourceUrl = "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading";
+    try {
+      const row = await officialFindRow(sourceUrl, "TPEx 個股三大法人", symbol);
+      if (row) {
+        const date = String(officialPick(row, ["Date", "日期", "資料日期"]) ?? endDate);
+        return [...institutionalRowsFromRaw(symbol, date, row, "TPEx", sourceUrl), ...await officialTdccRows(symbol)];
+      }
+    } catch {}
+  }
+  return await officialTdccRows(symbol);
+}
+
+async function officialFinmindDataset(env: Env, dataset: string, params: Obj): Promise<{ handled: boolean; data: any[] }> {
+  const symbol = String(params.data_id ?? params.stock_id ?? "").trim();
+  if (!symbol || !OFFICIAL_FINMIND_DATASETS.has(dataset)) return { handled: false, data: [] };
+  if (dataset === "TaiwanStockMonthRevenue") return { handled: true, data: await officialMonthRevenue(env, symbol) };
+  if (dataset === "TaiwanStockFinancialStatements") return { handled: true, data: await officialIncomeStatement(env, symbol) };
+  if (dataset === "TaiwanStockBalanceSheet") return { handled: true, data: await officialBalanceSheet(env, symbol) };
+  if (dataset === "TaiwanStockInstitutionalInvestorsBuySell") return { handled: true, data: await officialInstitutional(env, symbol, String(params.end_date ?? taipeiDate())) };
+  // TWSE/TPEx目前免費OpenAPI沒有與既有格式等價的完整現金流量表及120日個股價量序列。
+  // 這兩項保留FinMind作選用備援；備援不可用時回傳空陣列，避免把授權錯誤當成分析結論。
+  if (dataset === "TaiwanStockCashFlowsStatement" || dataset === "TaiwanStockPrice") return { handled: true, data: [] };
+  return { handled: false, data: [] };
+}
+
+async function callFinMind(env: Env, dataset: string, params: Obj): Promise<any[]> {
   if (!env.FINMIND_TOKEN) throw new Error("FINMIND_TOKEN 尚未設定");
   const url = new URL("https://api.finmindtrade.com/api/v4/data");
   url.searchParams.set("dataset", dataset);
@@ -84,6 +426,22 @@ export async function finmind(env: Env, dataset: string, params: Obj): Promise<a
   }, `FinMind ${dataset}`);
   if (!Array.isArray(body?.data)) throw new Error(`FinMind ${dataset} 回傳缺少 data`);
   return body.data;
+}
+
+export async function finmind(env: Env, dataset: string, params: Obj): Promise<any[]> {
+  let official: { handled: boolean; data: any[] } = { handled: false, data: [] };
+  try { official = await officialFinmindDataset(env, dataset, params); } catch (error) {
+    console.warn(`Official-first adapter ${dataset} failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (official.handled && official.data.length) return official.data;
+  try {
+    const fallback = await callFinMind(env, dataset, params);
+    if (fallback.length) return fallback;
+  } catch (error) {
+    if (!official.handled) throw error;
+    console.warn(`FinMind optional fallback ${dataset} unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return official.handled ? official.data : [];
 }
 
 export async function fugle(env: Env, path: string, query: Obj = {}): Promise<any> {

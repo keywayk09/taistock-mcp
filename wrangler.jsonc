@@ -5,18 +5,33 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "taistock-mcp",
-	"main": "src/index-v6.ts",
+	"main": "src/oauth-entry.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
+	"triggers": {
+		"crons": ["40 7 * * 1-5"]
+	},
 	"d1_databases": [
 		{
-			"binding": "DB"
+			"binding": "DB",
+			"database_name": "taistock-mcp-db",
+			"database_id": "18673f52-c286-49f3-a82c-bf67d0593611"
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "OAUTH_KV",
+			"id": "7421664843414cd584f772f9ddd53670"
 		}
 	],
 	"migrations": [
 		{
 			"new_sqlite_classes": ["MyMCP"],
 			"tag": "v1"
+		},
+		{
+			"new_sqlite_classes": ["FamilyMCP"],
+			"tag": "v2"
 		}
 	],
 	"durable_objects": {
@@ -24,6 +39,10 @@
 			{
 				"class_name": "MyMCP",
 				"name": "MCP_OBJECT"
+			},
+			{
+				"class_name": "FamilyMCP",
+				"name": "FAMILY_MCP_OBJECT"
 			}
 		]
 	},
