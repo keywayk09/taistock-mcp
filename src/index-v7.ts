@@ -7,6 +7,7 @@ import { registerGlobalIndustryTools, syncTaiwanCompanyUniverse } from "./v7/glo
 import { registerTwchipsTools } from "./v7/twchips";
 import { runFamilyQuery } from "./v8/family-query";
 import { familyOpenApiSchema, familyPrivacyPolicyHtml } from "./v8/family-openapi";
+import { registerFundFlowReportTools } from "./v8/fund-flow-reports";
 import { registerTaiwanStockAnalysis12Tools } from "./v8/fundamental-12";
 import { registerOfficialInstitutionalV2 } from "./v8/official-institutional-v2";
 
@@ -67,7 +68,7 @@ function familyCorsHeaders() {
 }
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "8.4.0" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "8.5.0" });
 
   async init() {
     const role = (this.props as OAuthGrantProps | undefined)?.role;
@@ -84,6 +85,7 @@ export class MyMCP extends BaseMCP {
     await super.init();
     registerTwchipsTools(this.server, this.env);
     registerOfficialInstitutionalV2(this.server);
+    registerFundFlowReportTools(this.server);
     registerEtfTools(this.server, this.env);
     registerGlobalIndustryTools(this.server, this.env);
     registerTaiwanStockAnalysis12Tools(this.server, this.env);
@@ -91,7 +93,7 @@ export class MyMCP extends BaseMCP {
 }
 
 export class FamilyMCP extends McpAgent<Env> {
-  server = new McpServer({ name: "Taiwan Stock AI Family Read-Only", version: "8.4.0" });
+  server = new McpServer({ name: "Taiwan Stock AI Family Read-Only", version: "8.5.0" });
 
   async init() {
     const role = (this.props as OAuthGrantProps | undefined)?.role;
@@ -210,8 +212,12 @@ export default {
       return jsonResponse({
         service: "Taiwan Stock AI MCP",
         status: "ok",
-        version: "8.4.0",
+        version: "8.5.0",
         data_policy: "official-first: TWSE/TPEx/MOPS/TDCC; FinMind optional fallback",
+        report_schedule: {
+          fund_flow: "18:00 Asia/Taipei after TWSE and TPEx institutional data are both available",
+          margin: "21:00-22:00 Asia/Taipei after TWSE and TPEx margin data are both available",
+        },
         bearer_mcp: "/mcp",
         owner_oauth_mcp: "/my-mcp",
         family_read_only_api: "/api/family/query",
