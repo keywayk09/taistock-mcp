@@ -3,7 +3,7 @@ import { z } from "zod";
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const dateTimeSchema = z.string().min(10).max(40);
-const jsonObjectSchema = z.record(z.unknown()).default({});
+const jsonObjectSchema = z.record(z.string(), z.unknown()).default({});
 
 function ok(payload: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] };
@@ -163,7 +163,7 @@ export function registerDiamondResearchTools(server: McpServer, env: Env) {
       mode: z.enum(["swing", "daytrade"]),
       engine_version: z.string().max(80).optional(),
       selection_method: z.string().min(3).max(2000),
-      candidates: z.array(z.record(z.unknown())).min(1).max(300),
+      candidates: z.array(z.record(z.string(), z.unknown())).min(1).max(300),
       ranking_sources: z.array(z.string()).min(1).max(30),
     },
   }, async (input) => {
@@ -309,7 +309,7 @@ export function registerDiamondResearchTools(server: McpServer, env: Env) {
       problem_statement: z.string().min(5).max(10000),
       evidence_summary: z.string().min(5).max(10000),
       baseline: jsonObjectSchema,
-      alternatives: z.array(z.record(z.unknown())).min(1).max(20),
+      alternatives: z.array(z.record(z.string(), z.unknown())).min(1).max(20),
       test_results: jsonObjectSchema,
       recommendation: z.string().max(10000).optional(),
       risks: z.string().max(10000).optional(),
