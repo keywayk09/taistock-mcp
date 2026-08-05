@@ -8,6 +8,7 @@ import { registerTwchipsTools } from "./v7/twchips";
 import { runFamilyQuery } from "./v8/family-query";
 import { familyOpenApiSchema, familyPrivacyPolicyHtml } from "./v8/family-openapi";
 import { registerTaiwanStockAnalysis12Tools } from "./v8/fundamental-12";
+import { registerOfficialInstitutionalV2 } from "./v8/official-institutional-v2";
 
 type OAuthGrantProps = {
   role?: "owner" | "family";
@@ -82,6 +83,7 @@ export class MyMCP extends BaseMCP {
     }
     await super.init();
     registerTwchipsTools(this.server, this.env);
+    registerOfficialInstitutionalV2(this.server);
     registerEtfTools(this.server, this.env);
     registerGlobalIndustryTools(this.server, this.env);
     registerTaiwanStockAnalysis12Tools(this.server, this.env);
