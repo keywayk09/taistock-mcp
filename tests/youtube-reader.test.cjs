@@ -32,6 +32,13 @@ function playerHtml(baseUrl, options = {}) {
 	return `<html><script>var ytInitialPlayerResponse = ${JSON.stringify(payload)};</script></html>`;
 }
 
+function json3() {
+	return JSON.stringify({ events: [
+		{ tStartMs: 1000, dDurationMs: 2000, segs: [{ utf8: "第一段內容" }] },
+		{ tStartMs: 3000, dDurationMs: 1500, segs: [{ utf8: "第二段內容" }] },
+	] });
+}
+
 test("只接受標準 YouTube 公開網址並解析影片 ID", () => {
 	const expected = "tM3peHJbHSw";
 	assert.equal(parseYouTubeVideoId(`https://www.youtube.com/watch?v=${expected}`), expected);
@@ -50,10 +57,7 @@ test("讀取公開 json3 字幕且不請求影音檔", async () => {
 	global.fetch = async (url) => {
 		calls.push(String(url));
 		if (String(url).includes("/watch?")) return new Response(playerHtml("https://www.youtube.com/api/timedtext?v=tM3peHJbHSw&lang=zh-TW"), { status: 200 });
-		return new Response(JSON.stringify({ events: [
-			{ tStartMs: 1000, dDurationMs: 2000, segs: [{ utf8: "第一段內容" }] },
-			{ tStartMs: 3000, dDurationMs: 1500, segs: [{ utf8: "第二段內容" }] },
-		] }), { status: 200, headers: { "content-type": "application/json" } });
+		return new Response(json3(), { status: 200, headers: { "content-type": "application/json" } });
 	};
 	const result = await readYouTubePublicTranscript("https://www.youtube.com/watch?v=tM3peHJbHSw");
 	assert.equal(result.title, "測試影片");
@@ -61,6 +65,30 @@ test("讀取公開 json3 字幕且不請求影音檔", async () => {
 	assert.equal(result.segments.length, 2);
 	assert.match(result.transcript, /第一段內容 第二段內容/);
 	assert.equal(calls.some((url) => /videoplayback|googlevideo\.com/.test(url)), false);
+});
+
+test("頁面無字幕時使用受限 Innertube player fallback", async () => {
+	const calls = [];
+	const watchHtml = `<html><script>var ytInitialPlayerResponse = ${JSON.stringify({ videoDetails: { title: "頁面無字幕" } })};</script><script>ytcfg.set(${JSON.stringify({ INNERTUBE_API_KEY: "A".repeat(39), INNERTUBE_CLIENT_VERSION: "2.20260801.00.00", VISITOR_DATA: "visitor" })});</script></html>`;
+	global.fetch = async (url, init = {}) => {
+		calls.push({ url: String(url), method: init.method ?? "GET", body: init.body });
+		if (String(url).includes("/watch?")) return new Response(watchHtml, { status: 200 });
+		if (String(url).includes("/youtubei/v1/player")) {
+			return new Response(JSON.stringify({
+				playabilityStatus: { status: "OK" },
+				videoDetails: { title: "備援成功", author: "測試頻道", lengthSeconds: "60" },
+				captions: { playerCaptionsTracklistRenderer: { captionTracks: [{ baseUrl: "https://www.youtube.com/api/timedtext?v=tM3peHJbHSw&lang=zh-TW", languageCode: "zh-TW" }] } },
+			}), { status: 200, headers: { "content-type": "application/json" } });
+		}
+		return new Response(json3(), { status: 200, headers: { "content-type": "application/json" } });
+	};
+	const result = await readYouTubePublicTranscript("https://www.youtube.com/watch?v=tM3peHJbHSw");
+	assert.equal(result.title, "備援成功");
+	assert.equal(result.segments.length, 2);
+	const apiCall = calls.find((call) => call.url.includes("/youtubei/v1/player"));
+	assert.equal(apiCall.method, "POST");
+	assert.match(String(apiCall.body), /"videoId":"tM3peHJbHSw"/);
+	assert.equal(calls.some((call) => /videoplayback/.test(call.url)), false);
 });
 
 test("沒有公開字幕時明確停止", async () => {
