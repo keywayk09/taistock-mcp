@@ -12,7 +12,7 @@ export function parseYouTubeVideoId(input: string): string {
 	let url: URL;
 	try { url = new URL(input); } catch { throw new YouTubeReaderError("YouTube 網址格式錯誤", "INVALID_URL"); }
 	if (!WATCH_ORIGINS.has(url.origin)) throw new YouTubeReaderError("只允許 YouTube 公開網址", "INVALID_HOST");
-	if (url.username || url.password || (url.port && url.port !== "443")) throw new YouTubeReaderError("YouTube 網址含不允許的欄位", "INVALID_URL");
+	if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443")) throw new YouTubeReaderError("YouTube 網址含不允許的欄位", "INVALID_URL");
 	let id = "";
 	if (url.hostname === "youtu.be") id = url.pathname.split("/").filter(Boolean)[0] ?? "";
 	else if (url.pathname === "/watch") id = url.searchParams.get("v") ?? "";
@@ -26,6 +26,8 @@ export function parseYouTubeVideoId(input: string): string {
 
 async function readLimitedResponse(response: Response, maxBytes: number): Promise<string> {
 	if (!response.ok) throw new YouTubeReaderError(`YouTube 回應 HTTP ${response.status}`, "FETCH_FAILED");
+	const declared = Number(response.headers.get("content-length"));
+	if (Number.isFinite(declared) && declared > maxBytes) throw new YouTubeReaderError("YouTube 回應超過安全大小限制", "CONTENT_TOO_LARGE");
 	const reader = response.body?.getReader();
 	if (!reader) throw new YouTubeReaderError("YouTube 回應沒有內容", "FETCH_FAILED");
 	const chunks: Uint8Array[] = [];
@@ -44,7 +46,12 @@ async function readLimitedResponse(response: Response, maxBytes: number): Promis
 }
 
 async function fetchText(url: string, maxBytes: number, signal: AbortSignal): Promise<string> {
-	const response = await fetch(url, { redirect: "error", signal, headers: { Accept: "text/html,application/json,text/plain", "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.5" } });
+	const target = new URL(url);
+	const host = target.hostname.toLowerCase();
+	if (target.protocol !== "https:" || !(host === "youtube.com" || host.endsWith(".youtube.com") || host.endsWith(".googlevideo.com"))) {
+		throw new YouTubeReaderError("YouTube 請求網域不允許", "INVALID_HOST");
+	}
+	const response = await fetch(target, { redirect: "error", signal, headers: { Accept: "text/html,application/json,text/plain,application/xml,text/xml", "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.5" } });
 	return readLimitedResponse(response, maxBytes);
 }
 
@@ -57,7 +64,7 @@ async function postJson(url: string, body: unknown, maxBytes: number, signal: Ab
 		method: "POST",
 		redirect: "error",
 		signal,
-		headers: { Accept: "application/json", "Content-Type": "application/json", "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.5" },
+		headers: { Accept: "application/json", "Content-Type": "application/json", "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.5", Origin: "https://www.youtube.com" },
 		body: JSON.stringify(body),
 	});
 	const raw = await readLimitedResponse(response, maxBytes);
@@ -90,11 +97,7 @@ function extractJsonObject(source: string, marker: string): any {
 
 function findConfigString(source: string, key: string): string | null {
 	const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	const patterns = [
-		new RegExp(`"${escaped}"\\s*:\\s*"([^"]+)"`),
-		new RegExp(`'${escaped}'\\s*:\\s*'([^']+)'`),
-	];
-	for (const pattern of patterns) {
+	for (const pattern of [new RegExp(`"${escaped}"\\s*:\\s*"([^"]+)"`), new RegExp(`'${escaped}'\\s*:\\s*'([^']+)'`)]) {
 		const match = source.match(pattern);
 		if (match?.[1]) return match[1].replace(/\\u0026/g, "&");
 	}
@@ -111,17 +114,9 @@ async function fetchInnertubePlayer(html: string, videoId: string, signal: Abort
 	endpoint.searchParams.set("prettyPrint", "false");
 	return postJson(endpoint.toString(), {
 		videoId,
-		contentCheckOk: true,
-		racyCheckOk: true,
-		context: {
-			client: {
-				clientName: "WEB",
-				clientVersion,
-				hl: "zh-TW",
-				gl: "TW",
-				visitorData,
-			},
-		},
+		contentCheckOk: false,
+		racyCheckOk: false,
+		context: { client: { clientName: "WEB", clientVersion, hl: "zh-TW", gl: "TW", visitorData } },
 	}, HARD_LIMITS.maxPlayerBytes, signal);
 }
 
@@ -139,16 +134,47 @@ function chooseCaptionTrack(tracks: any[], preferredLanguages: string[]) {
 	return [...tracks].sort((a, b) => rank(a) - rank(b))[0];
 }
 
-function parseJson3Captions(raw: string): TranscriptSegment[] {
-	let data: any;
-	try { data = JSON.parse(raw); } catch { throw new YouTubeReaderError("字幕資料無法解析", "CAPTION_INVALID"); }
-	const events = Array.isArray(data.events) ? data.events : [];
-	return events.flatMap((event: any) => {
-		if (!Array.isArray(event.segs)) return [];
-		const text = event.segs.map((seg: any) => String(seg.utf8 ?? "")).join("").replace(/\s+/g, " ").trim();
-		if (!text) return [];
-		return [{ startSeconds: Number(event.tStartMs ?? 0) / 1000, durationSeconds: Number(event.dDurationMs ?? 0) / 1000, text }];
-	});
+function decodeXml(value: string): string {
+	return value
+		.replace(/&amp;/g, "&")
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&quot;/g, '"')
+		.replace(/&#39;|&apos;/g, "'")
+		.replace(/&#(\d+);/g, (_, code: string) => {
+			const n = Number(code);
+			return Number.isInteger(n) && n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "�";
+		});
+}
+
+function parseCaptionPayload(raw: string): TranscriptSegment[] {
+	const trimmed = raw.trim();
+	if (!trimmed) return [];
+	if (trimmed.startsWith("{")) {
+		let data: any;
+		try { data = JSON.parse(trimmed); } catch { throw new YouTubeReaderError("字幕資料無法解析", "CAPTION_INVALID"); }
+		const events = Array.isArray(data.events) ? data.events : [];
+		return events.flatMap((event: any) => {
+			if (!Array.isArray(event.segs)) return [];
+			const text = event.segs.map((seg: any) => String(seg.utf8 ?? "")).join("").replace(/\s+/g, " ").trim();
+			if (!text) return [];
+			return [{ startSeconds: Number(event.tStartMs ?? 0) / 1000, durationSeconds: Number(event.dDurationMs ?? 0) / 1000, text }];
+		});
+	}
+	if (trimmed.startsWith("<")) {
+		const segments: TranscriptSegment[] = [];
+		const pattern = /<text\b([^>]*)>([\s\S]*?)<\/text>/gi;
+		let match: RegExpExecArray | null;
+		while ((match = pattern.exec(trimmed))) {
+			const attrs = match[1];
+			const start = Number(attrs.match(/\bstart="([^"]+)"/)?.[1] ?? 0);
+			const duration = Number(attrs.match(/\bdur="([^"]+)"/)?.[1] ?? 0);
+			const text = decodeXml(match[2].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+			if (text) segments.push({ startSeconds: Number.isFinite(start) ? start : 0, durationSeconds: Number.isFinite(duration) ? duration : 0, text });
+		}
+		return segments;
+	}
+	throw new YouTubeReaderError("字幕資料格式不支援", "CAPTION_INVALID");
 }
 
 export async function readYouTubePublicTranscript(input: string, preferredLanguages = ["zh-TW", "zh-Hant", "zh", "en"]): Promise<YouTubeReadResult> {
@@ -159,36 +185,30 @@ export async function readYouTubePublicTranscript(input: string, preferredLangua
 		const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&hl=zh-TW&gl=TW&has_verified=1`;
 		const html = await fetchText(watchUrl, HARD_LIMITS.maxWatchBytes, controller.signal);
 		let player: any;
-		try { player = extractJsonObject(html, "ytInitialPlayerResponse"); }
-		catch (error) {
-			if (!(error instanceof YouTubeReaderError) || !["PLAYER_DATA_MISSING", "PLAYER_DATA_INVALID"].includes(error.code)) throw error;
-			player = null;
-		}
+		try { player = extractJsonObject(html, "ytInitialPlayerResponse"); } catch { player = null; }
 		let tracks = captionTracks(player);
 		if (tracks.length === 0) {
 			const fallback = await fetchInnertubePlayer(html, videoId, controller.signal);
-			if (fallback) {
-				player = fallback;
-				tracks = captionTracks(fallback);
-			}
+			if (fallback) { player = fallback; tracks = captionTracks(fallback); }
 		}
 		const details = player?.videoDetails ?? {};
 		if (details.isPrivate) throw new YouTubeReaderError("私人影片不可讀取", "VIDEO_UNAVAILABLE");
 		const status = String(player?.playabilityStatus?.status ?? "");
-		if (status && !["OK", "LIVE_STREAM_OFFLINE"].includes(status) && tracks.length === 0) {
-			throw new YouTubeReaderError(String(player?.playabilityStatus?.reason ?? "影片不可讀取"), "VIDEO_UNAVAILABLE");
-		}
+		if (status && !["OK", "LIVE_STREAM_OFFLINE"].includes(status) && tracks.length === 0) throw new YouTubeReaderError(String(player?.playabilityStatus?.reason ?? "影片不可讀取"), "VIDEO_UNAVAILABLE");
 		if (tracks.length === 0) throw new YouTubeReaderError("影片沒有公開字幕或文字記錄", "NO_PUBLIC_TRANSCRIPT");
 		const track = chooseCaptionTrack(tracks, preferredLanguages);
 		if (!track?.baseUrl) throw new YouTubeReaderError("公開字幕網址缺失", "NO_PUBLIC_TRANSCRIPT");
 		const captionUrl = new URL(String(track.baseUrl));
 		const captionHost = captionUrl.hostname.toLowerCase();
-		if (!(captionHost === "www.youtube.com" || captionHost === "youtube.com" || captionHost.endsWith(".youtube.com") || captionHost.endsWith(".googlevideo.com"))) {
-			throw new YouTubeReaderError("字幕來源網域不允許", "CAPTION_HOST_BLOCKED");
-		}
+		if (captionUrl.protocol !== "https:" || !(captionHost === "youtube.com" || captionHost.endsWith(".youtube.com") || captionHost.endsWith(".googlevideo.com"))) throw new YouTubeReaderError("字幕來源網域不允許", "CAPTION_HOST_BLOCKED");
 		captionUrl.searchParams.set("fmt", "json3");
-		const rawCaption = await fetchText(captionUrl.toString(), HARD_LIMITS.maxCaptionBytes, controller.signal);
-		const segments = parseJson3Captions(rawCaption);
+		let rawCaption = await fetchText(captionUrl.toString(), HARD_LIMITS.maxCaptionBytes, controller.signal);
+		let segments = parseCaptionPayload(rawCaption);
+		if (segments.length === 0 && captionUrl.searchParams.has("fmt")) {
+			captionUrl.searchParams.delete("fmt");
+			rawCaption = await fetchText(captionUrl.toString(), HARD_LIMITS.maxCaptionBytes, controller.signal);
+			segments = parseCaptionPayload(rawCaption);
+		}
 		if (segments.length === 0) throw new YouTubeReaderError("公開字幕內容為空", "NO_PUBLIC_TRANSCRIPT");
 		const transcript = segments.map((x) => x.text).join(" ").slice(0, HARD_LIMITS.maxTranscriptChars);
 		return {
