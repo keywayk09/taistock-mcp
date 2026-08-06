@@ -1,0 +1,42 @@
+name: YouTube Reader Check
+
+on:
+  pull_request:
+    paths:
+      - "src/youtube-reader/**"
+      - "tests/youtube-reader.test.cjs"
+      - "tsconfig.youtube-reader-test.json"
+      - "package.json"
+      - ".github/workflows/youtube-reader-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install dependencies safely
+        run: npm install --ignore-scripts
+      - name: Audit dependencies
+        run: npm run audit:security
+      - name: Run YouTube reader tests
+        run: npm run test:youtube-reader
+      - name: Live public transcript smoke test
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const { readYouTubePublicTranscript } = require('./.tmp-youtube-reader/index.js');
+          readYouTubePublicTranscript('https://www.youtube.com/watch?v=tM3peHJbHSw')
+            .then((result) => {
+              if (!result.transcript || result.segments.length === 0) throw new Error('empty transcript');
+              console.log(JSON.stringify({ videoId: result.videoId, title: result.title, language: result.language, segments: result.segments.length, chars: result.transcript.length }));
+            })
+            .catch((error) => { console.error(error); process.exit(1); });
+          NODE
