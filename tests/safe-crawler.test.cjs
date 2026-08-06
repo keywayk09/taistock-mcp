@@ -40,9 +40,9 @@ test("拒絕惡意與未核准網址", () => {
 	}
 });
 
-test("固定 TWSE 入口拒絕完整網址與 protocol-relative 網址", async () => {
-	await assert.rejects(() => crawlTwse("https://mops.twse.com.tw/"), /只接受站內絕對路徑/);
-	await assert.rejects(() => crawlTwse("//mops.twse.com.tw/"), /只接受站內絕對路徑/);
+test("固定 TWSE 入口拒絕完整網址與 protocol-relative 網址", () => {
+	assert.throws(() => crawlTwse("https://mops.twse.com.tw/"), /只接受站內路徑/);
+	assert.throws(() => crawlTwse("//mops.twse.com.tw/"), /只接受站內路徑/);
 });
 
 test("阻擋跨網域重新導向", async () => {
