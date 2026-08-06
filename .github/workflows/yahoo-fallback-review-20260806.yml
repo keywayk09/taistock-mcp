@@ -1,0 +1,75 @@
+name: Fetch intraday fallback for 2026-08-06 review
+
+on:
+  push:
+    branches:
+      - research/trai-foundation-v1
+    paths:
+      - .github/workflows/yahoo-fallback-review-20260806.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/trai-foundation-v1
+      - name: Fetch and normalize Yahoo 5m data
+        run: |
+          set -euo pipefail
+          mkdir -p data/intraday/2026-08-06/yahoo-5m
+          python - <<'PY'
+          import json, urllib.request
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+          from pathlib import Path
+
+          symbols = {
+              '2330': '2330.TW', '2337': '2337.TW', '2408': '2408.TW',
+              '2454': '2454.TW', '3481': '3481.TW', '6196': '6196.TW',
+              '3081': '3081.TWO', '5347': '5347.TWO', '6147': '6147.TWO',
+              'TAIEX': '^TWII'
+          }
+          root = Path('data/intraday/2026-08-06/yahoo-5m')
+          tz = ZoneInfo('Asia/Taipei')
+          summary = {'date':'2026-08-06','source':'Yahoo Finance fallback','timeframe':'5m','symbols':{}}
+          headers = {'User-Agent':'Mozilla/5.0'}
+          for key, ticker in symbols.items():
+              url = f'https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(ticker)}?interval=5m&range=5d&includePrePost=false&events=div%2Csplits'
+              req = urllib.request.Request(url, headers=headers)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      obj = json.load(r)
+                  result = obj.get('chart',{}).get('result') or []
+                  if not result:
+                      raise RuntimeError(str(obj.get('chart',{}).get('error')))
+                  x = result[0]
+                  ts = x.get('timestamp') or []
+                  q = ((x.get('indicators') or {}).get('quote') or [{}])[0]
+                  bars=[]
+                  for i,t in enumerate(ts):
+                      dt=datetime.fromtimestamp(t,tz)
+                      if dt.strftime('%Y-%m-%d')!='2026-08-06':
+                          continue
+                      vals={k:(q.get(k) or [None]*len(ts))[i] for k in ['open','high','low','close','volume']}
+                      if vals['close'] is None:
+                          continue
+                      bars.append({'time':dt.isoformat(),'open':vals['open'],'high':vals['high'],'low':vals['low'],'close':vals['close'],'volume':vals['volume']})
+                  payload={'symbol':key,'ticker':ticker,'source':'Yahoo Finance fallback','date':'2026-08-06','timeframe':'5m','data':bars}
+                  (root/f'{key}.json').write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding='utf-8')
+                  summary['symbols'][key]={'bars':len(bars),'first':bars[0] if bars else None,'last':bars[-1] if bars else None}
+              except Exception as e:
+                  summary['symbols'][key]={'bars':0,'error':str(e)}
+          (root/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(summary,ensure_ascii=False,indent=2))
+          PY
+      - name: Commit fallback research data
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/intraday/2026-08-06/yahoo-5m
+          git commit -m 'data: add fallback 5m candles for 2026-08-06 review' || exit 0
+          git push origin HEAD:research/trai-foundation-v1
