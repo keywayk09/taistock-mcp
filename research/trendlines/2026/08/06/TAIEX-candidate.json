@@ -1,0 +1,40 @@
+{
+  "trendline_id": "TL-20260806-TAIEX-0920-SUPPORT",
+  "date": "2026-08-06",
+  "market": "TAIEX_fallback_not_TAIFEX",
+  "session": "cash_day",
+  "timeframe": "5m",
+  "source": "Yahoo Finance fallback",
+  "line_type": "ascending_support_candidate",
+  "start": {
+    "time": "09:20",
+    "price": 44024.3203125
+  },
+  "machine_selected_end": {
+    "time": "12:15",
+    "price": 44329.859375
+  },
+  "machine_slope_points_per_bar": 8.72969,
+  "machine_tolerance_points": 49.11973,
+  "machine_touch_count": 24,
+  "machine_breakout": {
+    "time": "13:30",
+    "direction": "down"
+  },
+  "ai_verdict": "Need More Data",
+  "ai_quality": "invalid_for_engine_v1",
+  "diagnosis": [
+    "相鄰K棒靠近線被重複計數，24次觸碰明顯膨脹",
+    "49點容許誤差過寬，會把盤整貼線誤判為多次有效觸碰",
+    "13:30收盤撮合不應直接當一般盤中突破",
+    "目前資料是加權指數，不是台指期日夜盤"
+  ],
+  "required_changes_before_indicator": [
+    "觸碰只計獨立Pivot事件",
+    "觸碰間隔至少3至5根K",
+    "容許誤差改用ATR或中位K棒振幅標準化",
+    "closing_auction獨立標記並排除一般突破統計",
+    "突破需收盤確認、維持與回測結果"
+  ],
+  "engine_action": "store_only_do_not_trade"
+}

@@ -1,0 +1,77 @@
+{
+  "schema_version": "1.0.0",
+  "case_id": "CASE-YYYYMMDD-0001",
+  "market": "TW_STOCK",
+  "symbol": "",
+  "date": "YYYY-MM-DD",
+  "time": "HH:mm:ss",
+  "timeframe": "5m",
+  "engine_version": "",
+  "strategy": "S1|S2|S3|S5|L1|L2|RBND|BRK|TRND|SQCH|LSQ|OTHER",
+  "direction": "LONG|SHORT|NO_TRADE",
+  "engine_signal": {
+    "appeared": false,
+    "label_time": null,
+    "label_price": null,
+    "raw": null,
+    "seed": null,
+    "commit": null,
+    "distance_pass": null,
+    "risk_reward_pass": null,
+    "duplicate_event": null
+  },
+  "ai_review": {
+    "expected_action": "LONG|SHORT|NO_TRADE",
+    "quality_grade": "A|B|C|D",
+    "score": null,
+    "position_score": null,
+    "background_score": null,
+    "structure_score": null,
+    "volume_price_score": null,
+    "risk_reward_score": null,
+    "reasoning_summary": ""
+  },
+  "context": {
+    "taiex_futures_regime": "UPTREND|DOWNTREND|RANGE|REVERSAL|UNKNOWN",
+    "taiex_futures_alignment": "WITH|AGAINST|NEUTRAL|UNKNOWN",
+    "sector_alignment": "WITH|AGAINST|NEUTRAL|UNKNOWN",
+    "vwap_relation": "ABOVE|BELOW|CROSSING|UNKNOWN",
+    "daily_support_distance_atr": null,
+    "daily_resistance_distance_atr": null,
+    "rvol": null,
+    "atr": null,
+    "gap_atr": null,
+    "er": null,
+    "macd_hist_atr": null
+  },
+  "trade_model": {
+    "entry_price": null,
+    "stop_price": null,
+    "risk_points": null,
+    "target_1r": null,
+    "target_1_5r": null,
+    "target_2r": null,
+    "mfe_r": null,
+    "mae_r": null,
+    "bars_to_mfe": null,
+    "bars_to_mae": null,
+    "exit_ema10_r": null,
+    "exit_structure_r": null,
+    "exit_session_close_r": null
+  },
+  "diagnosis": {
+    "verdict": "CORRECT|MISSED|WRONG|REASONABLE_NO_TRADE|NEED_MORE_DATA",
+    "primary_issue": "NONE|DATA|IMPLEMENTATION|STRATEGY_DEFINITION|PARAMETER_TOO_STRICT|PARAMETER_TOO_LOOSE|BACKGROUND_FILTER|TIMING|DISTANCE|RISK_REWARD|DUPLICATION|OTHER",
+    "secondary_issues": [],
+    "trigger_or_block_reason": "",
+    "proposed_check": "",
+    "possible_side_effect": "",
+    "hypothesis_id": null
+  },
+  "evidence": {
+    "ohlcv_source": "",
+    "chart_path": null,
+    "raw_data_path": null,
+    "notes": ""
+  }
+}
