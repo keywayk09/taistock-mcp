@@ -1,0 +1,16 @@
+{
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "CommonJS",
+		"moduleResolution": "Node16",
+		"rootDir": "src/youtube-reader",
+		"outDir": ".tmp-youtube-reader",
+		"strict": true,
+		"skipLibCheck": true,
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
+		"declaration": false,
+		"sourceMap": false,
+		"ignoreDeprecations": "6.0"
+	},
+	"include": ["src/youtube-reader/**/*.ts"]
+}
