@@ -1,0 +1,47 @@
+name: Compact 2026-08-06 TWSE summary
+
+on:
+  push:
+    paths:
+      - .github/workflows/compact-20260806.yml
+
+permissions:
+  contents: write
+
+jobs:
+  compact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build compact summary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('tmp/20260806-data/summary.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          compact={
+            'date':d.get('date'),
+            'status':d.get('status'),
+            'index_raw':d.get('index_raw'),
+            'market_stats_raw':d.get('market_stats_raw'),
+            'institution_totals':d.get('institution_totals'),
+            'foreign_buy_top10':d.get('foreign_buy_top10'),
+            'foreign_sell_top10':d.get('foreign_sell_top10'),
+            'trust_buy_top10':d.get('trust_buy_top10'),
+            'trust_sell_top10':d.get('trust_sell_top10'),
+            'margin_count':d.get('margin_count'),
+            'margin_increase_top20':d.get('margin_increase_top20'),
+            'margin_decrease_top20':d.get('margin_decrease_top20'),
+            'short_increase_top20':d.get('short_increase_top20'),
+            'short_decrease_top20':d.get('short_decrease_top20'),
+          }
+          Path('tmp/20260806-data/summary-compact.json').write_text(json.dumps(compact,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+      - name: Commit compact result
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/20260806-data/summary-compact.json
+          git commit -m 'data: add compact TWSE summary for 2026-08-06' || exit 0
+          git push
