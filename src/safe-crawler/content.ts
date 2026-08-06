@@ -1,3 +1,11 @@
+function decodeNumericEntity(rawCode: string): string {
+	const code = Number(rawCode);
+	if (!Number.isInteger(code) || code < 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) {
+		return "�";
+	}
+	return String.fromCodePoint(code);
+}
+
 function decodeEntities(value: string): string {
 	return value
 		.replace(/&nbsp;/gi, " ")
@@ -6,7 +14,7 @@ function decodeEntities(value: string): string {
 		.replace(/&gt;/gi, ">")
 		.replace(/&quot;/gi, '"')
 		.replace(/&#39;/gi, "'")
-		.replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)));
+		.replace(/&#(\d+);/g, (_, code: string) => decodeNumericEntity(code));
 }
 
 export function extractSafeContent(html: string, maxOutputChars: number): {
@@ -15,6 +23,7 @@ export function extractSafeContent(html: string, maxOutputChars: number): {
 	markdown: string;
 	truncated: boolean;
 } {
+	const safeLimit = Math.max(1, Math.floor(maxOutputChars));
 	const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
 	const title = titleMatch ? decodeEntities(titleMatch[1].replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim() : null;
 
@@ -33,7 +42,7 @@ export function extractSafeContent(html: string, maxOutputChars: number): {
 		.replace(/\n{3,}/g, "\n\n")
 		.trim();
 
-	const truncated = normalized.length > maxOutputChars;
-	const text = truncated ? normalized.slice(0, maxOutputChars) : normalized;
+	const truncated = normalized.length > safeLimit;
+	const text = truncated ? normalized.slice(0, safeLimit) : normalized;
 	return { title, text, markdown: text, truncated };
 }
