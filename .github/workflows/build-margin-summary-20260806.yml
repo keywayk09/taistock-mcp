@@ -1,0 +1,59 @@
+name: Build 2026-08-06 margin summary
+on:
+  push:
+    paths:
+      - .github/workflows/build-margin-summary-20260806.yml
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse official margin data
+        run: |
+          python - <<'PY'
+          import json, pathlib, re
+          base=pathlib.Path('tmp/20260806-margin-late')
+          tw=json.loads((base/'twse.json').read_text())
+          tp=json.loads((base/'tpex.json').read_text())
+          rows=[]
+          # TWSE second table: margin cols 2-8, short cols 9-15
+          for t in tw.get('tables',[]):
+            if '融資融券彙總' in t.get('title',''):
+              for r in t.get('data',[]):
+                code,name=r[0].strip(),r[1].strip()
+                if not re.fullmatch(r'\d{4}',code): continue
+                n=lambda x:int(str(x).replace(',','').strip() or 0)
+                rows.append({'market':'上市','code':code,'name':name,'margin_prev':n(r[5]),'margin_today':n(r[6]),'margin_delta':n(r[6])-n(r[5]),'short_prev':n(r[12]),'short_today':n(r[13]),'short_delta':n(r[13])-n(r[12]),'note':r[15].strip()})
+          # TPEX locate rows flexibly
+          for table in tp.get('tables',[]):
+            fields=table.get('fields',[])
+            data=table.get('data',[])
+            if not data: continue
+            def idx(keys):
+              for i,f in enumerate(fields):
+                if any(k in str(f) for k in keys): return i
+              return None
+            ci=idx(['代號']); ni=idx(['名稱']); mp=idx(['前資餘額','融資前日餘額']); mt=idx(['資餘額','融資當日餘額']); sp=idx(['前券餘額','融券前日餘額']); st=idx(['券餘額','融券當日餘額']); no=idx(['備註','註記'])
+            if None in (ci,ni,mp,mt,sp,st): continue
+            n=lambda x:int(str(x).replace(',','').strip() or 0)
+            for r in data:
+              code=str(r[ci]).strip()
+              if not re.fullmatch(r'\d{4}',code): continue
+              rows.append({'market':'上櫃','code':code,'name':str(r[ni]).strip(),'margin_prev':n(r[mp]),'margin_today':n(r[mt]),'margin_delta':n(r[mt])-n(r[mp]),'short_prev':n(r[sp]),'short_today':n(r[st]),'short_delta':n(r[st])-n(r[sp]),'note':str(r[no]).strip() if no is not None else ''})
+          def top(key,rev=True,n=20): return sorted(rows,key=lambda x:x[key],reverse=rev)[:n]
+          stats={'rows':len(rows),'margin_increase':top('margin_delta',True),'margin_decrease':top('margin_delta',False),'short_increase':top('short_delta',True),'short_decrease':top('short_delta',False)}
+          # total summaries
+          for t in tw.get('tables',[]):
+            if '信用交易統計' in t.get('title',''): stats['twse_summary']=t.get('data',[])
+          stats['tpex_status']=tp.get('stat') or tp.get('status')
+          pathlib.Path('tmp/margin-summary-20260806.json').write_text(json.dumps(stats,ensure_ascii=False,indent=2))
+          PY
+      - name: Commit summary
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add tmp/margin-summary-20260806.json
+          git commit -m 'data: build 2026-08-06 margin summary' || exit 0
+          git push
