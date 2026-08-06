@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - "src/safe-crawler/**"
-      - "tsconfig.json"
+      - "tsconfig.safe-crawler.json"
       - "package.json"
       - ".github/workflows/safe-crawler-check.yml"
   workflow_dispatch:
@@ -28,5 +28,5 @@ jobs:
       - name: Install dependencies
         run: npm install --ignore-scripts
 
-      - name: Type-check
-        run: npm run type-check
+      - name: Type-check safe crawler
+        run: npx tsc --noEmit -p tsconfig.safe-crawler.json
