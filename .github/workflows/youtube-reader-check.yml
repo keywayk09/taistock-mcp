@@ -41,11 +41,12 @@ jobs:
             .catch((error) => { console.error(error); process.exit(1); });
           NODE
       - name: Probe requested video without bypassing restrictions
+        if: always()
         shell: bash
         run: |
           node - <<'NODE'
           const { readYouTubePublicTranscript } = require('./.tmp-youtube-reader/index.js');
           readYouTubePublicTranscript('https://www.youtube.com/watch?v=tM3peHJbHSw')
-            .then((result) => console.log(JSON.stringify({ status: 'readable', videoId: result.videoId, segments: result.segments.length, chars: result.transcript.length })))
+            .then((result) => console.log(JSON.stringify({ status: 'readable', videoId: result.videoId, title: result.title, language: result.language, segments: result.segments.length, chars: result.transcript.length })))
             .catch((error) => console.log(JSON.stringify({ status: 'unavailable', code: error.code, message: error.message })));
           NODE
