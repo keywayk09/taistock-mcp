@@ -100,7 +100,7 @@ export async function safeCrawl(input: string, options: SafeCrawlerOptions = {})
 				offset += chunk.byteLength;
 			}
 
-			const raw = new TextDecoder("utf-8", { fatal: false }).decode(body);
+			const raw = new TextDecoder("utf-8", { fatal: false, ignoreBOM: false }).decode(body);
 			const extracted = contentType.includes("text/plain")
 				? {
 						title: null,
