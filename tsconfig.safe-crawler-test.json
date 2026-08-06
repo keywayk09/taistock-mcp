@@ -2,8 +2,9 @@
 	"extends": "./tsconfig.safe-crawler.json",
 	"compilerOptions": {
 		"noEmit": false,
-		"module": "commonjs",
-		"moduleResolution": "node",
+		"module": "node16",
+		"moduleResolution": "node16",
+		"rootDir": "src/safe-crawler",
 		"outDir": ".tmp-safe-crawler",
 		"declaration": false,
 		"sourceMap": false
