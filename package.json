@@ -11,6 +11,7 @@
 		"cf-typegen": "wrangler types",
 		"type-check": "tsc --noEmit",
 		"test:safe-crawler": "rm -rf .tmp-safe-crawler && tsc -p tsconfig.safe-crawler-test.json && node --test tests/safe-crawler.test.cjs",
+		"test:youtube-reader": "rm -rf .tmp-youtube-reader && tsc -p tsconfig.youtube-reader-test.json && node --test tests/youtube-reader.test.cjs",
 		"audit:security": "npm audit --audit-level=moderate"
 	},
 	"dependencies": {
