@@ -2,6 +2,8 @@
 	"extends": "./tsconfig.safe-crawler.json",
 	"compilerOptions": {
 		"noEmit": false,
+		"target": "es2022",
+		"lib": ["es2022", "dom", "dom.iterable"],
 		"module": "node16",
 		"moduleResolution": "node16",
 		"rootDir": "src/safe-crawler",
