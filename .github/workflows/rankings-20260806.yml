@@ -1,0 +1,45 @@
+name: Build 2026-08-06 TWSE rankings
+
+on:
+  push:
+    paths:
+      - .github/workflows/rankings-20260806.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build rankings
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          src=json.loads(Path('tmp/20260806-data/summary.json').read_text(encoding='utf-8'))
+          def slim(xs):
+              return [{k:v for k,v in x.items() if k!='price'} for x in (xs or [])]
+          out={
+            'date':src['date'],'status':src['status'],'index':src['index_raw'],
+            'market_stats':src['market_stats_raw'],'institution_totals':src['institution_totals'],
+            'foreign_buy_top10':slim(src['foreign_buy_top10']),
+            'foreign_sell_top10':slim(src['foreign_sell_top10']),
+            'trust_buy_top10':slim(src['trust_buy_top10']),
+            'trust_sell_top10':slim(src['trust_sell_top10']),
+            'margin_count':src['margin_count'],
+            'margin_increase_top20':src['margin_increase_top20'],
+            'margin_decrease_top20':src['margin_decrease_top20'],
+            'short_increase_top20':src['short_increase_top20'],
+            'short_decrease_top20':src['short_decrease_top20']
+          }
+          Path('tmp/20260806-data/summary-rankings.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+      - name: Commit rankings
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/20260806-data/summary-rankings.json
+          git commit -m 'data: add TWSE rankings for 2026-08-06' || exit 0
+          git push
