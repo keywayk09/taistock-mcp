@@ -1,0 +1,70 @@
+{
+  "schema_version": "1.0.0",
+  "trendline_id": "TL-YYYYMMDD-0001",
+  "market": "TXF|MTX|TW_STOCK",
+  "symbol_or_contract": "",
+  "session": "DAY|NIGHT|FULL",
+  "date": "YYYY-MM-DD",
+  "timeframe": "1m|5m|15m|60m",
+  "line_type": "ASCENDING|DESCENDING|HORIZONTAL_SUPPORT|HORIZONTAL_RESISTANCE|PARALLEL_CHANNEL|SYMMETRICAL_TRIANGLE|ASCENDING_TRIANGLE|DESCENDING_TRIANGLE|BROADENING|FLAG|WEDGE|SLOPE_TRANSITION|OTHER",
+  "anchors": [
+    {
+      "time": "YYYY-MM-DDTHH:mm:ss+08:00",
+      "price": null,
+      "pivot_type": "HIGH|LOW",
+      "pivot_strength": null
+    },
+    {
+      "time": "YYYY-MM-DDTHH:mm:ss+08:00",
+      "price": null,
+      "pivot_type": "HIGH|LOW",
+      "pivot_strength": null
+    }
+  ],
+  "geometry": {
+    "slope_points_per_bar": null,
+    "slope_atr_per_bar": null,
+    "touch_count": null,
+    "tolerance_mode": "POINTS|PERCENT|ATR",
+    "tolerance_value": null,
+    "channel_width_atr": null
+  },
+  "breakout": {
+    "occurred": false,
+    "direction": "UP|DOWN|NONE",
+    "time": null,
+    "price": null,
+    "close_confirmed": null,
+    "volume_confirmed": null,
+    "bars_held_beyond_line": null,
+    "retest_occurred": null,
+    "retest_time": null,
+    "retest_held": null,
+    "false_breakout": null
+  },
+  "outcome": {
+    "entry_model": "DIRECT_BREAK|CLOSE_CONFIRM|RETEST|OBSERVATION_ONLY",
+    "entry_price": null,
+    "stop_price": null,
+    "mfe_r": null,
+    "mae_r": null,
+    "bars_to_mfe": null,
+    "bars_to_failure": null
+  },
+  "review": {
+    "ai_quality_grade": "A|B|C|D",
+    "ai_expected_action": "LONG|SHORT|NO_TRADE",
+    "engine_detected": null,
+    "verdict": "CORRECT|MISSED|WRONG|REASONABLE_NO_TRADE|NEED_MORE_DATA",
+    "reasoning_summary": "",
+    "candidate_rule": "",
+    "possible_side_effect": "",
+    "hypothesis_id": null
+  },
+  "evidence": {
+    "ohlcv_source": "",
+    "chart_path": null,
+    "raw_data_path": null,
+    "notes": ""
+  }
+}
