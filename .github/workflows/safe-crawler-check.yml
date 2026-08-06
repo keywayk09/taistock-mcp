@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - "src/safe-crawler/**"
+      - "tests/safe-crawler.test.cjs"
       - "tsconfig.safe-crawler.json"
+      - "tsconfig.safe-crawler-test.json"
       - "package.json"
       - ".github/workflows/safe-crawler-check.yml"
   workflow_dispatch:
@@ -13,7 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  type-check:
+  security-and-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -25,8 +27,14 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install dependencies
+      - name: Install dependencies safely
         run: npm install --ignore-scripts
+
+      - name: Audit dependencies
+        run: npm run audit:security
 
       - name: Type-check safe crawler
         run: npx tsc --noEmit -p tsconfig.safe-crawler.json
+
+      - name: Run safe crawler security tests
+        run: npm run test:safe-crawler
