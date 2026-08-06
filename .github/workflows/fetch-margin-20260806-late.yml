@@ -1,0 +1,35 @@
+name: Fetch late margin 2026-08-06
+on:
+  push:
+    paths:
+      - .github/workflows/fetch-margin-20260806-late.yml
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch and summarize
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/20260806-margin-late
+          curl -L --retry 3 -A 'Mozilla/5.0' 'https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=20260806&selectType=ALL&response=json' -o tmp/20260806-margin-late/twse.json
+          curl -L --retry 3 -A 'Mozilla/5.0' 'https://www.tpex.org.tw/www/zh-tw/margin/marginBalance?date=2026%2F08%2F06&id=&response=json' -o tmp/20260806-margin-late/tpex.json
+          python - <<'PY'
+          import json, pathlib
+          p=pathlib.Path('tmp/20260806-margin-late')
+          out={}
+          for n in ('twse','tpex'):
+              try:
+                  d=json.loads((p/f'{n}.json').read_text())
+                  out[n]=d
+              except Exception as e:
+                  out[n]={'error':str(e),'raw':(p/f'{n}.json').read_text(errors='ignore')[:500]}
+          (p/'combined.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/20260806-margin-late
+          git commit -m 'data: fetch late 2026-08-06 margin data' || exit 0
+          git push
