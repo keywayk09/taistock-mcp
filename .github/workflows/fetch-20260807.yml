@@ -1,0 +1,127 @@
+name: Fetch 2026-08-07 TWSE data
+
+on:
+  push:
+    paths:
+      - .github/workflows/fetch-20260807.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch official data
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/20260807-data
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36'
+          curl -fL --retry 3 -A "$UA" 'https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=20260807&type=ALLBUT0999&response=json' -o tmp/20260807-data/mi_index.json
+          curl -fL --retry 3 -A "$UA" 'https://www.twse.com.tw/rwd/zh/fund/BFI82U?dayDate=20260807&type=day&response=json' -o tmp/20260807-data/bfi82u.json
+          curl -fL --retry 3 -A "$UA" 'https://www.twse.com.tw/rwd/zh/fund/T86?date=20260807&selectType=ALLBUT0999&response=json' -o tmp/20260807-data/t86.json
+          curl -fL --retry 3 -A "$UA" 'https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=20260807&selectType=ALL&response=json' -o tmp/20260807-data/mi_margn.json
+          curl -L --retry 3 -A "$UA" 'https://histock.tw/stock/three.aspx?m=mg' -o tmp/20260807-data/histock_mg.html || true
+      - name: Parse compact summary
+        run: |
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+
+          root = Path('tmp/20260807-data')
+          def load(name):
+              return json.loads((root/name).read_text(encoding='utf-8-sig'))
+          def num(v):
+              s = str(v or '').replace(',', '').replace('+', '').strip()
+              if s in {'', '--', '---', 'X'}: return 0.0
+              try: return float(s)
+              except: return 0.0
+          def tables(obj):
+              if isinstance(obj.get('tables'), list): return obj['tables']
+              if isinstance(obj.get('data'), list) and isinstance(obj.get('fields'), list):
+                  return [{'title': obj.get('title',''), 'fields': obj['fields'], 'data': obj['data']}]
+              return []
+          def rowdicts(table):
+              fields = table.get('fields') or []
+              return [dict(zip(fields, row)) for row in table.get('data') or []]
+          def stock_code(v): return str(v or '').strip()
+          def ordinary(code): return bool(re.fullmatch(r'[1-9]\d{3}', code))
+          def keypick(d, includes):
+              for k,v in d.items():
+                  if all(x in k for x in includes): return v
+              return None
+
+          mi, bfi, t86, marg = map(load, ['mi_index.json','bfi82u.json','t86.json','mi_margn.json'])
+          out = {'date':'2026-08-07','status':{}}
+          for name,obj in [('mi_index',mi),('bfi82u',bfi),('t86',t86),('mi_margn',marg)]: out['status'][name] = obj.get('stat')
+
+          idx = {}; prices = {}; market_stats=[]
+          for t in tables(mi):
+              title=t.get('title',''); rows=rowdicts(t)
+              if '價格指數' in title:
+                  for r in rows:
+                      label=str(next(iter(r.values()),''))
+                      if '發行量加權股價指數' in label: idx=r
+              if '每日收盤行情' in title or '每日收盤行情' in str(t.get('subtitle','')):
+                  for r in rows:
+                      code=stock_code(keypick(r,['證券代號']) or keypick(r,['證券代碼']))
+                      if ordinary(code): prices[code]=r
+              if '統計' in title or '成交' in title: market_stats.extend(rows)
+          out['index']=idx; out['market_stats']=market_stats[:30]
+
+          bfi_rows=[]
+          for t in tables(bfi): bfi_rows += rowdicts(t)
+          if not bfi_rows and isinstance(bfi.get('data'),list): bfi_rows=[dict(zip(bfi.get('fields',[]),r)) for r in bfi['data']]
+          out['institution_totals']=bfi_rows
+
+          rows=[]
+          for t in tables(t86): rows += rowdicts(t)
+          if not rows and isinstance(t86.get('data'),list): rows=[dict(zip(t86.get('fields',[]),r)) for r in t86['data']]
+          inst=[]
+          for r in rows:
+              code=stock_code(keypick(r,['證券代號']) or keypick(r,['證券代碼']))
+              if not ordinary(code): continue
+              name=str(keypick(r,['證券名稱']) or '').strip()
+              foreign=num(keypick(r,['外陸資買賣超股數']))
+              trust=num(keypick(r,['投信買賣超股數']))
+              p=prices.get(code,{})
+              inst.append({'code':code,'name':name,'foreign_shares':foreign,'trust_shares':trust,'close':keypick(p,['收盤價']),'change':keypick(p,['漲跌價差']),'sign':keypick(p,['漲跌(+/-)'])})
+          out['foreign_buy_top20']=sorted(inst,key=lambda x:x['foreign_shares'],reverse=True)[:20]
+          out['foreign_sell_top20']=sorted(inst,key=lambda x:x['foreign_shares'])[:20]
+          out['trust_buy_top20']=sorted(inst,key=lambda x:x['trust_shares'],reverse=True)[:20]
+          out['trust_sell_top20']=sorted(inst,key=lambda x:x['trust_shares'])[:20]
+
+          mrows=[]
+          for t in tables(marg):
+              rs=rowdicts(t)
+              if any(any('證券代號' in k or '股票代號' in k for k in r) for r in rs): mrows += rs
+          details=[]
+          for r in mrows:
+              code=stock_code(keypick(r,['證券代號']) or keypick(r,['股票代號']) or keypick(r,['證券代碼']))
+              if not ordinary(code): continue
+              name=str(keypick(r,['證券名稱']) or keypick(r,['股票名稱']) or '').strip()
+              mp=num(keypick(r,['融資前日餘額']) or keypick(r,['融資前日']))
+              mc=num(keypick(r,['融資今日餘額']) or keypick(r,['融資今日']))
+              sp=num(keypick(r,['融券前日餘額']) or keypick(r,['融券前日']))
+              sc=num(keypick(r,['融券今日餘額']) or keypick(r,['融券今日']))
+              note=str(keypick(r,['註記']) or '').strip()
+              details.append({'code':code,'name':name,'margin_change':mc-mp,'margin_balance':mc,'short_change':sc-sp,'short_balance':sc,'note':note})
+          out['margin_count']=len(details)
+          out['margin_increase_top20']=sorted(details,key=lambda x:x['margin_change'],reverse=True)[:20]
+          out['margin_decrease_top20']=sorted(details,key=lambda x:x['margin_change'])[:20]
+          out['short_increase_top20']=sorted(details,key=lambda x:x['short_change'],reverse=True)[:20]
+          out['short_decrease_top20']=sorted(details,key=lambda x:x['short_change'])[:20]
+
+          html=(root/'histock_mg.html').read_text(encoding='utf-8',errors='ignore') if (root/'histock_mg.html').exists() else ''
+          out['histock_mg']={'bytes':len(html),'contains_0807':('08/07' in html or '2026/08/07' in html or '115/08/07' in html),'title':re.search(r'<title>(.*?)</title>',html,re.I|re.S).group(1).strip() if re.search(r'<title>(.*?)</title>',html,re.I|re.S) else ''}
+          (root/'summary.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps({'status':out['status'],'index':out['index'],'foreign_buy':out['foreign_buy_top20'][:3],'trust_buy':out['trust_buy_top20'][:3],'margin_count':out['margin_count'],'histock':out['histock_mg']},ensure_ascii=False,indent=2))
+          PY
+      - name: Commit fetched result
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/20260807-data
+          git commit -m 'data: fetch official TWSE data for 2026-08-07' || exit 0
+          git push
