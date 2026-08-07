@@ -12,6 +12,7 @@ import { registerTaiwanStockAnalysis12Tools } from "./v8/fundamental-12";
 import { registerOfficialInstitutionalV2 } from "./v8/official-institutional-v2";
 import { registerSwingMarketRadarTools } from "./v8/swing-market-radar";
 import { registerDiamondResearchTools } from "./v9/diamond-research";
+import { registerOhlcMcpTools } from "./v10/ohlc-mcp";
 
 type OAuthGrantProps = {
   role?: "owner" | "family";
@@ -70,7 +71,7 @@ function familyCorsHeaders() {
 }
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Diamond Engine Taiwan Stock AI", version: "9.0.0" });
+  server = new McpServer({ name: "Diamond Engine Taiwan Stock AI", version: "9.1.0" });
 
   async init() {
     const role = (this.props as OAuthGrantProps | undefined)?.role;
@@ -90,6 +91,7 @@ export class MyMCP extends BaseMCP {
     registerFundFlowReportTools(this.server);
     registerSwingMarketRadarTools(this.server);
     registerDiamondResearchTools(this.server, this.env);
+    registerOhlcMcpTools(this.server, this.env);
     registerEtfTools(this.server, this.env);
     registerGlobalIndustryTools(this.server, this.env);
     registerTaiwanStockAnalysis12Tools(this.server, this.env);
@@ -216,7 +218,7 @@ export default {
       return jsonResponse({
         service: "Diamond Engine Taiwan Stock AI MCP",
         status: "ok",
-        version: "9.0.0",
+        version: "9.1.0",
         governance: "AI may research and create proposals, but formal strategy changes require explicit user discussion and approval",
         data_policy: "official-first: TWSE/TPEx/MOPS/TDCC; FinMind optional fallback",
         swing_radar: {
@@ -237,6 +239,22 @@ export default {
             "get_diamond_research_dashboard",
           ],
           storage: "Cloudflare D1",
+          formal_strategy_auto_modification: false,
+        },
+        ohlc_mcp: {
+          stage: "facade_contract_ready",
+          tools: [
+            "get_ohlc_mcp_status",
+            "get_ohlc_bars",
+            "get_ohlc_symbol_status",
+            "get_ohlc_missing_ranges",
+            "get_ohlc_watchlist",
+            "preview_alert_symbols_for_ohlc",
+            "validate_incremental_indicators",
+          ],
+          markets: ["tw_stock", "txf", "mtx", "tmf"],
+          timeframes: ["1m", "5m", "1d"],
+          backend_required: "OHLC_API_URL",
           formal_strategy_auto_modification: false,
         },
         report_schedule: {
