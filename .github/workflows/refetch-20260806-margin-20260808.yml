@@ -1,0 +1,39 @@
+name: Refetch 2026-08-06 margin
+on:
+  push:
+    paths:
+      - .github/workflows/refetch-20260806-margin-20260808.yml
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch margin data
+        run: |
+          set -e
+          mkdir -p tmp/20260806-margin-refetch
+          UA='Mozilla/5.0'
+          curl -sSL -A "$UA" 'https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=20260806&selectType=ALL&response=json' -o tmp/20260806-margin-refetch/twse.json
+          curl -sSL -A "$UA" 'https://www.tpex.org.tw/www/zh-tw/margin/balance?date=2026/08/06&response=json' -o tmp/20260806-margin-refetch/tpex.json || true
+          python - <<'PY'
+          import json,re
+          from pathlib import Path
+          root=Path('tmp/20260806-margin-refetch')
+          def load(p):
+            try:return json.loads((root/p).read_text(encoding='utf-8-sig'))
+            except Exception:return {}
+          out={}
+          for key,f in [('twse','twse.json'),('tpex','tpex.json')]:
+            o=load(f); out[key+'_keys']=list(o)[:20]; out[key+'_stat']=o.get('stat') or o.get('status') or o.get('date'); out[key+'_title']=o.get('title')
+          (root/'check.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+      - name: Commit
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/20260806-margin-refetch
+          git commit -m 'data: refetch 2026-08-06 margin' || exit 0
+          git push
