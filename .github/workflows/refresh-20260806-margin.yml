@@ -1,0 +1,28 @@
+name: Refresh 2026-08-06 margin data
+
+on:
+  push:
+    paths:
+      - .github/workflows/refresh-20260806-margin.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch TWSE margin data
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/20260806-refresh
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36'
+          curl -fL --retry 3 -A "$UA" 'https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=20260806&selectType=ALL&response=json' -o tmp/20260806-refresh/mi_margn.json
+      - name: Commit result
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/20260806-refresh/mi_margn.json
+          git commit -m 'data: refresh TWSE margin 2026-08-06' || exit 0
+          git push
