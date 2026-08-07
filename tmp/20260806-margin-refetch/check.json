@@ -1,0 +1,16 @@
+{
+  "twse_keys": [
+    "stat",
+    "date",
+    "tables"
+  ],
+  "twse_stat": "OK",
+  "twse_title": null,
+  "tpex_keys": [
+    "date",
+    "tables",
+    "stat"
+  ],
+  "tpex_stat": "ok",
+  "tpex_title": null
+}
