@@ -49,8 +49,8 @@ function bar(symbol: string, index: number, values: { open?: number; high?: numb
 }
 
 async function dataset(symbol: string, bars: Intraday5mBar[], suffix: string): Promise<FrozenDatasetManifest> {
-  const sourceFiles = [{ path:`data/OHLC/tw/5m/2026/07/14/${symbol}.csv`,sha:suffix.repeat(40).slice(0,40),trade_date:"2026-07-14",year:null }];
-  const canonicalFiles = sourceFiles.map((file) => ({ ...file })).sort((a,b)=>`${a.path}|${a.sha}`.localeCompare(`${b.path}|${b.sha}`));
+  const sourceFiles = [{ path:`data/OHLC/tw/5m/2026/07/14/${symbol}.csv`,sha:suffix.repeat(40).slice(0,40),trade_date:"2026-07-14" }];
+  const canonicalFiles = sourceFiles.map((file) => ({ path:file.path, sha:file.sha, trade_date:file.trade_date, year:null })).sort((a,b)=>`${a.path}|${a.sha}`.localeCompare(`${b.path}|${b.sha}`));
   const rows = bars.map((row) => COLUMNS.map((key) => row[key] === undefined || row[key] === null ? "" : String(row[key])));
   const first=String(Number(bars[0].ts_ms)); const last=String(Number(bars.at(-1)!.ts_ms));
   const hash=await sha256Hex({schema_version:"ohlc-dataset/v1",market:"tw-stock",symbol,timeframe:"5m",source:"github_historical",columns:[...COLUMNS],source_files:canonicalFiles,scope:{first,last,row_count:bars.length},rows});
