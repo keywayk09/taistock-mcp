@@ -53,6 +53,10 @@ build/Release
 node_modules/
 jspm_packages/
 
+# Safe crawler test build
+
+.tmp-safe-crawler/
+
 # Snowpack dependency directory (https://snowpack.dev/)
 
 web_modules/
