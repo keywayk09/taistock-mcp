@@ -1,0 +1,31 @@
+name: P6 Selective 1m Replay
+
+on:
+  pull_request:
+    paths:
+      - 'src/v6/selective-1m-replay.ts'
+      - 'src/v6/selective-1m-replay-tool.ts'
+      - 'tests/selective-1m-replay.test.ts'
+      - '.github/workflows/p6-selective-replay.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/v6/selective-1m-replay.ts'
+      - 'src/v6/selective-1m-replay-tool.ts'
+      - 'tests/selective-1m-replay.test.ts'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-p6:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run type-check
+      - run: node --experimental-strip-types tests/selective-1m-replay.test.ts
+      - run: npx wrangler deploy --dry-run --outdir dist-p6
