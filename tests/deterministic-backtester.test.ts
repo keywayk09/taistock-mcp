@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import {
   BacktestInputError,
   DEFAULT_INTRADAY_5M_PARAMETERS,
@@ -8,7 +9,6 @@ import {
   type FrozenDatasetManifest,
   type Intraday5mBar,
 } from "../src/v6/deterministic-backtester.ts";
-import { executeDeterministicBacktestTool } from "../src/v6/deterministic-backtest-tool.ts";
 
 if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: webcrypto });
 
@@ -233,17 +233,17 @@ function signal(side: "LONG" | "SHORT" = "LONG") {
   );
 }
 
-// Tool boundary: signal at the end of a day may not use the next day's first bar as entry.
+// Static contract gates for the official Diamond MCP boundary.
 {
-  const bars = [bar(0), bar(1, { day: "2026-07-15" })];
-  const dataset = await frozenDataset(bars);
-  const result = await executeDeterministicBacktestTool({
-    dataset,
-    bars,
-    signal: { ...signal("LONG"), trade_date: "2026-07-14" },
-  });
-  assert.equal(result.ok, false);
-  if (!result.ok) assert.equal(result.status, "NO_NEXT_BAR_SAME_DAY");
+  const toolSource = await readFile(new URL("../src/v6/deterministic-backtest-tool.ts", import.meta.url), "utf8");
+  const engineSource = await readFile(new URL("../src/v6/deterministic-backtester.ts", import.meta.url), "utf8");
+  assert.match(toolSource, /NO_NEXT_BAR_SAME_DAY/);
+  assert.match(toolSource, /signal\.trade_date/);
+  assert.match(toolSource, /run_deterministic_intraday_backtest_5m/);
+  assert.match(toolSource, /P6_SELECTIVE_1M_REPLAY_REQUIRED/);
+  assert.doesNotMatch(engineSource, /\bfetch\s*\(/, "pure backtester must never fetch market data");
+  assert.doesNotMatch(engineSource, /Date\.now\s*\(/, "pure backtester must never read current time");
+  assert.doesNotMatch(engineSource, /new Date\s*\(/, "pure backtester must not derive behavior from runtime clock/date parsing");
 }
 
 // Baseline parameters remain the adopted formal rules.
