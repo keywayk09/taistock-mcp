@@ -21,4 +21,5 @@ jobs:
       - run: npm install
       - run: npm run type-check
       - run: npm run test:backtester
+      - run: npm run test:ledger
       - run: npx wrangler deploy --dry-run --outdir dist
