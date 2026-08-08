@@ -69,6 +69,15 @@ const parameterSchema = z.object({
   end_of_day_exit: z.literal(true).optional(),
 }).optional();
 
+const payloadSchema = z.object({
+  dataset: datasetSchema,
+  bars: z.array(barSchema).min(1).max(2000),
+  signal: signalSchema,
+  parameters: parameterSchema,
+});
+
+export type DeterministicBacktestToolPayload = z.infer<typeof payloadSchema>;
+
 function barTradeDate(barTime: string): string {
   const raw = String(barTime ?? "");
   const iso = raw.slice(0, 10);
@@ -82,18 +91,54 @@ function barTradeDate(barTime: string): string {
   return `${match[3]}-${months[match[1]] ?? "00"}-${String(match[2]).padStart(2, "0")}`;
 }
 
-function fail(code: string, message: string, detail?: Record<string, unknown>) {
+function failure(code: string, message: string, detail?: Record<string, unknown>) {
   return {
-    content: [{ type: "text" as const, text: JSON.stringify({
-      ok: false,
-      deterministic: true,
-      engine_version: DETERMINISTIC_BACKTEST_ENGINE_VERSION,
-      status: code,
-      error: message,
-      detail: detail ?? null,
-    }, null, 2) }],
-    isError: true,
+    ok: false as const,
+    deterministic: true as const,
+    engine_version: DETERMINISTIC_BACKTEST_ENGINE_VERSION,
+    status: code,
+    error: message,
+    detail: detail ?? null,
   };
+}
+
+export async function executeDeterministicBacktestTool(rawPayload: unknown) {
+  const parsed = payloadSchema.safeParse(rawPayload);
+  if (!parsed.success) {
+    return failure("INVALID_INPUT_SCHEMA", "回測輸入不符合固定 Schema", {
+      issues: parsed.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })),
+    });
+  }
+
+  const { dataset, bars, signal, parameters } = parsed.data;
+  const firstAfterSignal = bars.find((bar) => Number(bar.ts_ms) > signal.signal_ts_ms);
+  if (!firstAfterSignal) return failure("NO_NEXT_BAR", "訊號後沒有下一根 5m bar");
+  const entryDate = barTradeDate(firstAfterSignal.bar_time_tw);
+  if (entryDate !== signal.trade_date) {
+    return failure("NO_NEXT_BAR_SAME_DAY", "台股當沖禁止跨日；訊號後第一根可用 bar 不在同一交易日", {
+      signal_trade_date: signal.trade_date,
+      next_bar_trade_date: entryDate || null,
+    });
+  }
+
+  try {
+    const result = await runDeterministicIntraday5mBacktest({
+      dataset,
+      bars,
+      signal,
+      parameters,
+    });
+    return {
+      ok: true as const,
+      ...result,
+      signal_trade_date: signal.trade_date,
+      mfe_mae_basis: "5M_BAR_ENVELOPE" as const,
+      replay_policy: result.requires_1m_replay ? "P6_SELECTIVE_1M_REPLAY_REQUIRED" as const : "NO_AUTOMATIC_1M_REPLAY" as const,
+    };
+  } catch (error) {
+    if (error instanceof BacktestInputError) return failure(error.code, error.message, error.detail);
+    return failure("BACKTEST_INTERNAL_ERROR", error instanceof Error ? error.message : String(error));
+  }
 }
 
 export function registerDeterministicBacktestTool(server: McpServer) {
@@ -110,37 +155,12 @@ export function registerDeterministicBacktestTool(server: McpServer) {
       signal: signalSchema,
       parameters: parameterSchema,
     },
-  }, async ({ dataset, bars, signal, parameters }) => {
-    const firstAfterSignal = bars.find((bar) => Number(bar.ts_ms) > signal.signal_ts_ms);
-    if (!firstAfterSignal) return fail("NO_NEXT_BAR", "訊號後沒有下一根 5m bar");
-    const entryDate = barTradeDate(firstAfterSignal.bar_time_tw);
-    if (entryDate !== signal.trade_date) {
-      return fail("NO_NEXT_BAR_SAME_DAY", "台股當沖禁止跨日；訊號後第一根可用 bar 不在同一交易日", {
-        signal_trade_date: signal.trade_date,
-        next_bar_trade_date: entryDate || null,
-      });
-    }
-
-    try {
-      const result = await runDeterministicIntraday5mBacktest({
-        dataset,
-        bars,
-        signal,
-        parameters,
-      });
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify({
-          ok: true,
-          ...result,
-          signal_trade_date: signal.trade_date,
-          mfe_mae_basis: "5M_BAR_ENVELOPE",
-          replay_policy: result.requires_1m_replay ? "P6_SELECTIVE_1M_REPLAY_REQUIRED" : "NO_AUTOMATIC_1M_REPLAY",
-        }, null, 2) }],
-      };
-    } catch (error) {
-      if (error instanceof BacktestInputError) return fail(error.code, error.message, error.detail);
-      return fail("BACKTEST_INTERNAL_ERROR", error instanceof Error ? error.message : String(error));
-    }
+  }, async (payload) => {
+    const result = await executeDeterministicBacktestTool(payload);
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+      ...(result.ok ? {} : { isError: true }),
+    };
   });
 }
 
