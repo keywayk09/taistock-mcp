@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { registerDeterministicBacktestTool } from "./deterministic-backtest-tool";
 import { getResearchStatus, getStoredCandles } from "./research-pipeline";
 
 const ok = (value: unknown) => ({
@@ -35,4 +36,6 @@ export function registerResearchTools(server: McpServer, env: Env) {
       timeframe: z.enum(["1m", "5m"]).optional().default("5m"),
     },
   }, async ({ symbol, date, timeframe }) => ok(await getStoredCandles(env, date, symbol, timeframe)));
+
+  registerDeterministicBacktestTool(server);
 }
