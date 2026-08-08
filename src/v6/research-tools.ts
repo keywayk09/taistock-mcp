@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { registerDeterministicBacktestTool } from "./deterministic-backtest-tool";
 import { getResearchStatus, getStoredCandles } from "./research-pipeline";
+import { registerSignalEventLedgerTools } from "./signal-event-ledger-tools";
 
 const ok = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
@@ -38,4 +39,5 @@ export function registerResearchTools(server: McpServer, env: Env) {
   }, async ({ symbol, date, timeframe }) => ok(await getStoredCandles(env, date, symbol, timeframe)));
 
   registerDeterministicBacktestTool(server);
+  registerSignalEventLedgerTools(server, env);
 }

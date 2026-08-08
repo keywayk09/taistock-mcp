@@ -10,7 +10,8 @@
 		"start": "wrangler dev",
 		"cf-typegen": "wrangler types",
 		"type-check": "tsc --noEmit",
-		"test:backtester": "node --experimental-strip-types tests/deterministic-backtester.test.ts"
+		"test:backtester": "node --experimental-strip-types tests/deterministic-backtester.test.ts",
+		"test:ledger": "node --experimental-strip-types tests/signal-event-ledger.test.ts"
 	},
 	"dependencies": {
 		"agents": "^0.17.1",
