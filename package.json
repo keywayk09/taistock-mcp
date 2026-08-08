@@ -9,7 +9,8 @@
 		"lint:fix": "oxlint --fix",
 		"start": "wrangler dev",
 		"cf-typegen": "wrangler types",
-		"type-check": "tsc --noEmit"
+		"type-check": "tsc --noEmit",
+		"test:backtester": "node --experimental-strip-types tests/deterministic-backtester.test.ts"
 	},
 	"dependencies": {
 		"agents": "^0.17.1",
