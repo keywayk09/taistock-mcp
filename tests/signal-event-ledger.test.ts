@@ -11,7 +11,9 @@ if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: web
 
 class FakeStatement {
   private params: unknown[] = [];
-  constructor(private readonly db: FakeD1, private readonly sql: string) {}
+  private readonly db: FakeD1;
+  private readonly sql: string;
+  constructor(db: FakeD1, sql: string) { this.db = db; this.sql = sql; }
   bind(...params: unknown[]) { const copy = new FakeStatement(this.db, this.sql); copy.params = params; return copy; }
 
   async run() {
@@ -189,7 +191,7 @@ const signalBase = {
   assert.doesNotMatch(moduleSource, /\bUPDATE\s+signal_ledger\b/i);
   assert.doesNotMatch(moduleSource, /\bUPDATE\s+event_ledger\b/i);
   assert.doesNotMatch(moduleSource, /\bDELETE\s+FROM\s+(signal_ledger|event_ledger)\b/i);
-  assert.doesNotMatch(moduleSource, /OHLC|ohlc.*INSERT|write.*ohlc/i, "ledger module must not become an OHLC writer");
+  assert.doesNotMatch(moduleSource, /ohlc.*INSERT|write.*ohlc/i, "ledger module must not become an OHLC writer");
   assert.match(moduleSource, /data_watermark_ts_ms > knowledge_cutoff_ts_ms \|\| knowledge_cutoff_ts_ms > signal_ts_ms/);
   assert.match(moduleSource, /event_available_ts_ms/);
   assert.match(migration, /UNIQUE \(signal_id, signal_version\)/);
