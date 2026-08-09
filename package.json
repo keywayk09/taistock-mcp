@@ -17,7 +17,8 @@
 		"test:swing": "node --experimental-strip-types tests/swing-outcome-path.test.ts",
 		"test:experiment": "node --experimental-strip-types tests/experiment-ledger.test.ts",
 		"test:capability": "node --experimental-strip-types tests/diamond-capability-registry.test.ts",
-		"test:research": "npm run test:backtester && npm run test:ledger && npm run test:batch && npm run test:replay && npm run test:swing && npm run test:experiment && npm run test:capability"
+		"test:validation": "node --experimental-strip-types tests/research-validation.test.ts",
+		"test:research": "npm run test:backtester && npm run test:ledger && npm run test:batch && npm run test:replay && npm run test:swing && npm run test:experiment && npm run test:capability && npm run test:validation"
 	},
 	"dependencies": {
 		"agents": "^0.17.1",
