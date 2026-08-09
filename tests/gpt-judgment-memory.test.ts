@@ -60,8 +60,11 @@ const researchTools = read("src/v6/research-tools.ts");
 assert.match(researchTools, /registerGptJudgmentMemoryTools\(server, env\)/);
 
 const index = read("src/index-v6.ts");
-assert.match(index, /version: "6\.14\.0"/);
-assert.match(index, /tools: 105/);
+const versionMatch = index.match(/version: "(\d+)\.(\d+)\.(\d+)"/);
+assert.ok(versionMatch, "Taiwan Stock AI version must be present");
+assert.ok(Number(versionMatch[1]) > 6 || (Number(versionMatch[1]) === 6 && Number(versionMatch[2]) >= 14), "P16 requires Taiwan Stock AI >= 6.14.0");
+const toolsMatch = index.match(/tools: (\d+)/);
+assert.ok(toolsMatch && Number(toolsMatch[1]) >= 105, "P16 requires at least 105 MCP tools");
 
 const migration = read("migrations/0005_gpt_judgment_memory.sql");
 for (const table of ["gpt_judgments","gpt_judgment_reasons","gpt_judgment_trendlines","gpt_judgment_patterns","gpt_judgment_reviews","gpt_trading_knowledge"]) assert.match(migration, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`));
