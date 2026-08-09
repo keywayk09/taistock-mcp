@@ -47,8 +47,8 @@ const candidateB = {
   assert.equal(a.no_lookahead,true);
   assert.equal(a.fold_count,3);
   assert.equal(a.folds[0].selected_candidate_id,"A","first train window should select A");
-  assert.equal(a.folds[1].selected_candidate_id,"A","second train window still selects only from its own past train window");
-  assert.equal(a.folds[2].selected_candidate_id,"B","later train evidence may select B without seeing its future test rows");
+  assert.equal(a.folds[1].selected_candidate_id,"B","second train window legitimately selects B from only its own past train window");
+  assert.equal(a.folds[2].selected_candidate_id,"B","later train evidence continues to select B without seeing its future test rows");
   assert.equal(a.production_promotion,"FORBIDDEN");
   for (const fold of a.folds) {
     assert.ok(String(fold.train_end) < String(fold.test_start),"every fold must have strict train-before-test ordering");
