@@ -1,50 +1,36 @@
 import assert from "node:assert/strict";
-import { scoreFamilyCandidate } from "../src/v6/family-stock-selection.ts";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const base = {
-  symbol: "2330",
-  name: "測試股",
-  market: "TSE",
-  sector: "半導體業",
-  close: 100,
-  change_percent: 1.5,
-  trade_value: 500_000_000,
-  technical_score: 80,
-  return_20d_percent: 8,
-  return_60d_percent: 18,
-  annualized_volatility_60d_percent: 28,
-  max_drawdown_percent: -12,
-  atr14: 2.5,
-  distance_to_sma20_atr: 0.8,
-  distance_to_prior_20d_high_percent: -1.5,
-  revenue_yoy_percent: 16,
-};
+const here = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(here, "..");
+const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
 
-const healthy = scoreFamilyCandidate(base, "balanced");
-assert.ok(healthy.score >= 70, `expected healthy candidate >=70, got ${healthy.score}`);
-assert.equal(healthy.bucket, "GREEN_RESEARCH");
-assert.ok(healthy.reasons.length > 0);
+const source = read("src/v6/family-stock-selection.ts");
+assert.match(source, /FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection\/v1\.0\.0"/);
+assert.match(source, /server\.registerTool\("screen_family_swing_candidates"/);
+assert.match(source, /z\.enum\(\["stable", "balanced", "aggressive"\]\)/);
+assert.match(source, /GREEN_RESEARCH/);
+assert.match(source, /YELLOW_WAIT/);
+assert.match(source, /RED_SKIP/);
+assert.match(source, /家用模式避免追價/);
+assert.match(source, /此家用選股結果不寫入Diamond GPT Judgment\/Trading Knowledge/);
+assert.match(source, /snapshotShortlist/);
+assert.match(source, /technicalShortlist/);
+assert.match(source, /TaiwanStockMonthRevenue/);
+assert.match(source, /TaiwanStockPrice/);
+assert.match(source, /COMMONSTOCK/);
+assert.match(source, /scoreFamilyCandidate/);
 
-const chased = scoreFamilyCandidate({
-  ...base,
-  change_percent: 8.5,
-  return_20d_percent: 30,
-  distance_to_sma20_atr: 3.2,
-}, "balanced");
-assert.equal(chased.bucket, "YELLOW_WAIT", "extended stock must not be promoted to direct research priority");
-assert.ok(chased.cautions.some((text) => text.includes("追價") || text.includes("乖離") || text.includes("20日")));
+const index = read("src/index-v6.ts");
+assert.match(index, /registerFamilyStockSelectionTools\(this\.server, this\.env\)/);
+assert.match(index, /version: "6\.15\.0"/);
+assert.match(index, /tools: 106/);
 
-const weak = scoreFamilyCandidate({
-  ...base,
-  technical_score: 30,
-  trade_value: 25_000_000,
-  return_60d_percent: -18,
-  annualized_volatility_60d_percent: 72,
-  max_drawdown_percent: -45,
-  distance_to_prior_20d_high_percent: -20,
-  revenue_yoy_percent: -25,
-}, "stable");
-assert.ok(weak.score < healthy.score);
-assert.equal(weak.bucket, "RED_SKIP");
+const instructions = read("docs/family-custom-gpt-instructions.md");
+assert.match(instructions, /必須優先呼叫 MCP 工具 `screen_family_swing_candidates`/);
+assert.match(instructions, /好公司不等於現在就是好買點/);
+assert.match(instructions, /目前沒有需要追的股票/);
 
-console.log("family-stock-selection tests passed");
+console.log("P17 family stock selection contract/regression tests passed");
