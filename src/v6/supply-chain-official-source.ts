@@ -99,8 +99,11 @@ export async function fetchOfficialSupplyChainEvidence(env:Env, input:{
   const evidenceHash = await sha256Bytes(bytes);
   const contentType = String(response.headers.get("content-type") ?? "application/octet-stream").slice(0,160);
   let excerpt:string|null = null;
+  let decodedLength = 0;
   if (/json|text|html|xml|javascript/i.test(contentType)) {
-    excerpt = new TextDecoder("utf-8", { fatal:false }).decode(bytes).slice(0, EXCERPT_CHARS);
+    const decoded = new TextDecoder("utf-8").decode(bytes);
+    decodedLength = decoded.length;
+    excerpt = decoded.slice(0, EXCERPT_CHARS);
   }
   const observedAt = new Date().toISOString();
   return {
@@ -116,7 +119,7 @@ export async function fetchOfficialSupplyChainEvidence(env:Env, input:{
       evidence_sha256:evidenceHash,
       note:`official source fetched via guarded allowlist adapter; content-type=${contentType}; bytes=${bytes.byteLength}`,
     },
-    content:{ content_type:contentType, bytes:bytes.byteLength, excerpt, truncated:excerpt !== null && new TextDecoder("utf-8", { fatal:false }).decode(bytes).length > EXCERPT_CHARS },
+    content:{ content_type:contentType, bytes:bytes.byteLength, excerpt, truncated:excerpt !== null && decodedLength > EXCERPT_CHARS },
     trust_boundary:{ relationship_status:"CANDIDATE_UNTIL_CROSS_VERIFIED", auto_edge_creation:false, auto_strategy_promotion:false, production_write:false },
   };
 }
