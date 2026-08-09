@@ -9,6 +9,7 @@ import { registerResearchValidationTools } from "./research-validation-tools";
 import { registerSelective1mReplayTool } from "./selective-1m-replay-tool";
 import { registerSignalEventLedgerTools } from "./signal-event-ledger-tools";
 import { registerStrategyLabTools } from "./strategy-lab-tools";
+import { registerSupplyChainDataPlaneTools } from "./supply-chain-data-plane-tools";
 import { registerSupplyChainTools } from "./supply-chain-tools";
 import { registerSwingOutcomePathTool } from "./swing-outcome-path-tool";
 
@@ -55,5 +56,6 @@ export function registerResearchTools(server: McpServer, env: Env) {
   registerExperimentLedgerTools(server, env);
   registerStrategyLabTools(server);
   registerSupplyChainTools(server);
+  registerSupplyChainDataPlaneTools(server, env);
   registerDiamondCapabilityTools(server);
 }
