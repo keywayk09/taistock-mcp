@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MyMCP as BaseMCP } from "./index";
 import { registerDailyReportFormatTool } from "./v6/daily-report-format";
 import { registerAdvancedTools } from "./v6/register";
+import { registerFamilyStockSelectionTools } from "./v6/family-stock-selection";
 import {
   getResearchStatus,
   getStoredCandles,
@@ -11,13 +12,14 @@ import {
 import { registerResearchTools } from "./v6/research-tools";
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "6.14.0" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "6.15.0" });
 
   async init() {
     await super.init();
     registerAdvancedTools(this.server, this.env);
     registerDailyReportFormatTool(this.server);
     registerResearchTools(this.server, this.env);
+    registerFamilyStockSelectionTools(this.server, this.env);
   }
 }
 
@@ -30,7 +32,7 @@ export default {
       return Response.json({
         service: "Taiwan Stock AI MCP",
         status: "ok",
-        version: "6.14.0",
+        version: "6.15.0",
         storage: {
           legacy_d1: env.DB ? "connected" : "pending",
           research_d1: env.RESEARCH_DB ? "connected" : "pending",
@@ -38,7 +40,7 @@ export default {
         },
         mcp_endpoint: "/mcp",
         research_status_endpoint: "/research/status",
-        tools: 105,
+        tools: 106,
       });
     }
 
