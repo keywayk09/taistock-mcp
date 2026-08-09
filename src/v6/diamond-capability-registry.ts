@@ -1,8 +1,9 @@
 export const DIAMOND_CAPABILITY_SCHEMA_VERSION = "diamond-capability-registry/v1";
-export const DIAMOND_ARCHITECTURE_VERSION = "diamond-architecture/2026-08-p9";
+export const DIAMOND_ARCHITECTURE_VERSION = "diamond-architecture/2026-08-p10b";
 
 export type CapabilityStatus =
   | "ACTIVE_INTERNAL"
+  | "ADAPTER_IMPLEMENTED_UNVERIFIED"
   | "CANDIDATE_EXTERNAL"
   | "NOT_CONNECTED"
   | "SANDBOX_ONLY"
@@ -19,6 +20,11 @@ export type DiamondToolCapability = {
   source_projects: string[];
   markets?: string[];
   gateway?: string;
+  current_tool?: string;
+  timeframes?: string[];
+  implementation_version?: string;
+  runtime_configuration?: "INTERNAL" | "PROVIDER_SECRET_REQUIRED" | "NOT_IMPLEMENTED";
+  formal_research_eligible?: boolean;
   direct_provider_access: false;
   read_only_research: boolean;
   production_write: false;
@@ -58,7 +64,32 @@ const EXTERNAL_GATE = [
   "APPROVAL",
 ] as const;
 
-const MARKET_ADAPTER_NOTE = "Product surface belongs to Diamond Tool Registry, but OHLC implementation must live behind OHLC MCP Provider Adapter -> normalization -> Data Quality Gate -> frozen dataset/provenance. No Diamond direct-provider call.";
+const MARKET_ADAPTER_NOTE = "Product surface belongs to Diamond Tool Registry, but OHLC implementation lives behind OHLC MCP Provider Adapter -> normalization -> Data Quality Gate -> frozen dataset/provenance. No Diamond direct-provider call.";
+const P10_UNVERIFIED_NOTE = "P10 global 1D adapter is implemented in tv-papertrader/OHLC MCP 1.3.0. Runtime provider configuration is owned by the OHLC data plane. A successful provider response is frozen/hash-versioned but formal_research_eligible=false until independent cross-verification/archive reconciliation exists.";
+
+const implementedGlobalOhlc = (
+  id: string,
+  title: string,
+  markets: string[],
+): DiamondToolCapability => ({
+  id,
+  title,
+  category: "MARKET_DATA",
+  status: "ADAPTER_IMPLEMENTED_UNVERIFIED",
+  owner: "OHLC MCP / Global Market Adapter",
+  source_projects: ["keywayk09/tv-papertrader"],
+  markets,
+  gateway: "OHLC_MCP",
+  current_tool: "read_global_ohlc",
+  timeframes: ["1d"],
+  implementation_version: "OHLC MCP 1.3.0 / global-market-adapter v1.0.0",
+  runtime_configuration: "PROVIDER_SECRET_REQUIRED",
+  formal_research_eligible: false,
+  direct_provider_access: false,
+  read_only_research: true,
+  production_write: false,
+  notes: `${MARKET_ADAPTER_NOTE} ${P10_UNVERIFIED_NOTE}`,
+});
 
 export const DIAMOND_TOOL_REGISTRY: readonly DiamondToolCapability[] = Object.freeze([
   {
@@ -70,35 +101,41 @@ export const DIAMOND_TOOL_REGISTRY: readonly DiamondToolCapability[] = Object.fr
     source_projects: ["keywayk09/tv-papertrader"],
     markets: ["TW_STOCK"],
     gateway: "OHLC_MCP",
+    current_tool: "read_ohlc",
+    timeframes: ["1d", "5m", "1m"],
+    implementation_version: "OHLC V4 / OHLC MCP 1.3.0",
+    runtime_configuration: "INTERNAL",
+    formal_research_eligible: true,
     direct_provider_access: false,
     read_only_research: true,
     production_write: false,
-    notes: "Diamond reads 1D/5m/1m through the governed OHLC gateway. Production writers remain in the OHLC data plane.",
+    notes: "Diamond reads 1D/5m/1m through the governed OHLC gateway. Production writers remain in the OHLC data plane. Formal research eligibility is still evaluated per returned dataset by the Data Quality/verification gate.",
   },
-  ...[
-    ["us_ohlc", "美股 OHLC / ETF", ["US_STOCK", "US_ETF"]],
-    ["hk_ohlc", "港股 OHLC", ["HK_STOCK"]],
-    ["cn_ohlc", "A股 OHLC", ["CN_STOCK"]],
-    ["jp_ohlc", "日股 OHLC", ["JP_STOCK"]],
-    ["kr_ohlc", "韓股 OHLC", ["KR_STOCK"]],
-    ["global_index_ohlc", "全球指數 OHLC", ["GLOBAL_INDEX"]],
-    ["crypto_ohlc", "Crypto OHLC", ["CRYPTO"]],
-    ["fx_ohlc", "Forex / Metals OHLC", ["FX", "METALS"]],
-    ["futures_ohlc", "Futures OHLC", ["FUTURES"]],
-  ].map(([id, title, markets]) => ({
-    id: id as string,
-    title: title as string,
-    category: "MARKET_DATA" as const,
-    status: "CANDIDATE_EXTERNAL" as const,
-    owner: "OHLC MCP / External Market Adapter",
-    source_projects: ["ZhuLinsen/daily_stock_analysis", "HKUDS/Vibe-Trading"],
-    markets: markets as string[],
+  implementedGlobalOhlc("us_ohlc", "美股 OHLC / ETF", ["US_STOCK", "US_ETF"]),
+  implementedGlobalOhlc("hk_ohlc", "港股 OHLC", ["HK_STOCK"]),
+  implementedGlobalOhlc("cn_ohlc", "A股 OHLC", ["CN_STOCK"]),
+  implementedGlobalOhlc("jp_ohlc", "日股 OHLC", ["JP_STOCK"]),
+  implementedGlobalOhlc("kr_ohlc", "韓股 OHLC", ["KR_STOCK"]),
+  implementedGlobalOhlc("global_index_ohlc", "全球指數 OHLC", ["GLOBAL_INDEX"]),
+  implementedGlobalOhlc("crypto_ohlc", "Crypto OHLC", ["CRYPTO"]),
+  implementedGlobalOhlc("fx_ohlc", "Forex OHLC", ["FX"]),
+  {
+    id: "futures_ohlc",
+    title: "Futures OHLC",
+    category: "MARKET_DATA",
+    status: "CANDIDATE_EXTERNAL",
+    owner: "OHLC MCP / Future Market Adapter",
+    source_projects: ["HKUDS/Vibe-Trading"],
+    markets: ["FUTURES"],
     gateway: "OHLC_MCP",
-    direct_provider_access: false as const,
+    timeframes: [],
+    runtime_configuration: "NOT_IMPLEMENTED",
+    formal_research_eligible: false,
+    direct_provider_access: false,
     read_only_research: true,
-    production_write: false as const,
-    notes: MARKET_ADAPTER_NOTE,
-  })),
+    production_write: false,
+    notes: `${MARKET_ADAPTER_NOTE} Futures remain candidate-only; P10 does not implement futures.`,
+  },
   {
     id: "fundamental_data",
     title: "Fundamental / 財報研究資料",
@@ -106,6 +143,7 @@ export const DIAMOND_TOOL_REGISTRY: readonly DiamondToolCapability[] = Object.fr
     status: "CANDIDATE_EXTERNAL",
     owner: "Research Data Gateway",
     source_projects: ["ZhuLinsen/daily_stock_analysis", "HKUDS/Vibe-Trading"],
+    runtime_configuration: "NOT_IMPLEMENTED",
     direct_provider_access: false,
     read_only_research: true,
     production_write: false,
@@ -118,6 +156,7 @@ export const DIAMOND_TOOL_REGISTRY: readonly DiamondToolCapability[] = Object.fr
     status: "CANDIDATE_EXTERNAL",
     owner: "News/Event Gateway",
     source_projects: ["ZhuLinsen/daily_stock_analysis", "HKUDS/Vibe-Trading"],
+    runtime_configuration: "NOT_IMPLEMENTED",
     direct_provider_access: false,
     read_only_research: true,
     production_write: false,
@@ -130,6 +169,7 @@ export const DIAMOND_TOOL_REGISTRY: readonly DiamondToolCapability[] = Object.fr
     status: "CANDIDATE_EXTERNAL",
     owner: "Macro Gateway",
     source_projects: ["HKUDS/Vibe-Trading"],
+    runtime_configuration: "NOT_IMPLEMENTED",
     direct_provider_access: false,
     read_only_research: true,
     production_write: false,
@@ -148,6 +188,7 @@ export const DIAMOND_TOOL_REGISTRY: readonly DiamondToolCapability[] = Object.fr
     status: "CANDIDATE_EXTERNAL" as const,
     owner: "Diamond Tool Registry",
     source_projects: ["ZhuLinsen/daily_stock_analysis"],
+    runtime_configuration: "NOT_IMPLEMENTED" as const,
     direct_provider_access: false as const,
     read_only_research: true,
     production_write: false as const,
@@ -315,6 +356,7 @@ export function getDiamondToolRegistry() {
     product_integration: "DIAMOND_ENGINE" as const,
     implementation_boundary: "SERVICE_LEVEL_SEPARATION" as const,
     ohlc_gateway: "OHLC_MCP" as const,
+    implemented_global_adapter_count: DIAMOND_TOOL_REGISTRY.filter((x) => x.status === "ADAPTER_IMPLEMENTED_UNVERIFIED").length,
     capabilities: DIAMOND_TOOL_REGISTRY,
   };
 }
@@ -357,9 +399,11 @@ export function getDiamondArchitectureStatus() {
       external_direct_production_access: false,
       strategy_auto_promotion: false,
       external_bulk_import: false,
+      global_adapter_formal_research: "BLOCKED_UNTIL_CROSS_VERIFIED_ARCHIVE",
     },
     counts: {
       tool_capabilities: DIAMOND_TOOL_REGISTRY.length,
+      implemented_global_adapters_unverified: DIAMOND_TOOL_REGISTRY.filter((x) => x.status === "ADAPTER_IMPLEMENTED_UNVERIFIED").length,
       research_capabilities: DIAMOND_RESEARCH_LAB.length,
       strategy_candidates: DIAMOND_STRATEGY_LAB.length,
       external_projects: EXTERNAL_PROJECT_REGISTRY.length,

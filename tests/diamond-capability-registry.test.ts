@@ -6,6 +6,7 @@ import {
   DIAMOND_TOOL_REGISTRY,
   EXTERNAL_PROJECT_REGISTRY,
   getDiamondArchitectureStatus,
+  getDiamondToolRegistry,
 } from "../src/v6/diamond-capability-registry.ts";
 
 const expectedStrategies = [
@@ -38,12 +39,20 @@ const expectedStrategies = [
 
 {
   const overseas = DIAMOND_TOOL_REGISTRY.filter((item) => item.category === "MARKET_DATA" && item.id !== "tw_ohlc");
+  const implemented = overseas.filter((item) => item.status === "ADAPTER_IMPLEMENTED_UNVERIFIED");
+  const candidate = overseas.filter((item) => item.status === "CANDIDATE_EXTERNAL");
   assert.equal(overseas.length, 9);
-  assert.ok(overseas.every((item) => item.status === "CANDIDATE_EXTERNAL"));
-  assert.ok(overseas.every((item) => item.gateway === "OHLC_MCP"));
+  assert.equal(implemented.length, 8, "P10 implements eight 1D global market surfaces");
+  assert.deepEqual(candidate.map((item) => item.id), ["futures_ohlc"], "futures must remain candidate-only");
+  assert.ok(implemented.every((item) => item.gateway === "OHLC_MCP"));
+  assert.ok(implemented.every((item) => item.current_tool === "read_global_ohlc"));
+  assert.ok(implemented.every((item) => JSON.stringify(item.timeframes) === JSON.stringify(["1d"])));
+  assert.ok(implemented.every((item) => item.runtime_configuration === "PROVIDER_SECRET_REQUIRED"));
+  assert.ok(implemented.every((item) => item.formal_research_eligible === false));
   assert.ok(overseas.every((item) => item.direct_provider_access === false));
   assert.ok(overseas.every((item) => item.production_write === false));
   assert.equal(DIAMOND_TOOL_REGISTRY.find((item) => item.id === "tw_ohlc")?.status, "ACTIVE_INTERNAL");
+  assert.equal(getDiamondToolRegistry().implemented_global_adapter_count, 8);
 }
 
 {
@@ -71,15 +80,19 @@ const expectedStrategies = [
   assert.equal(architecture.hard_boundaries.ohlc_gateway, "OHLC_MCP_ONLY");
   assert.equal(architecture.hard_boundaries.research_ohlc_access, "READ_ONLY");
   assert.equal(architecture.hard_boundaries.strategy_auto_promotion, false);
+  assert.equal(architecture.hard_boundaries.global_adapter_formal_research, "BLOCKED_UNTIL_CROSS_VERIFIED_ARCHIVE");
+  assert.equal(architecture.counts.implemented_global_adapters_unverified, 8);
   assert.equal(architecture.counts.strategy_candidates, 15);
 }
 
 {
   const source = await readFile(new URL("../src/v6/diamond-capability-registry.ts", import.meta.url), "utf8");
   assert.doesNotMatch(source, /\bfetch\s*\(/, "registry must never fetch external providers directly");
-  assert.doesNotMatch(source, /GITHUB_TOKEN|FUGLE_API_KEY|API_KEY\s*=/, "registry must not own provider secrets");
+  assert.doesNotMatch(source, /GITHUB_TOKEN|FUGLE_API_KEY|TWELVE_DATA_API_KEY|API_KEY\s*=/, "registry must not own provider secrets");
   assert.match(source, /OHLC_MCP_ONLY/);
+  assert.match(source, /ADAPTER_IMPLEMENTED_UNVERIFIED/);
+  assert.match(source, /BLOCKED_UNTIL_CROSS_VERIFIED_ARCHIVE/);
   assert.match(source, /NO_DIRECT_BULK_IMPORT/);
 }
 
-console.log("Diamond Tool Registry, Research Lab, Strategy Lab, and external-integration boundaries passed.");
+console.log("Diamond Tool Registry reflects P10 global adapter implementation without overstating verification or provider configuration.");
