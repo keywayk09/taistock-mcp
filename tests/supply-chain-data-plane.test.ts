@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { applyCrossVerification } from "../src/v6/supply-chain-cross-verification";
+import { getOfficialSupplyChainSourceContract } from "../src/v6/supply-chain-official-source";
 
 const evidence = [
   { evidence_id:"e1", source_type:"COMPANY_IR", source_ref:"https://example-a.com/ir/a", published_at:"2026-01-01T00:00:00Z", observed_at:"2026-01-02T00:00:00Z", evidence_sha256:"1".repeat(64) },
@@ -38,6 +39,21 @@ assert.throws(() => applyCrossVerification({
   evidence:[...evidence] as any,
   edges:[{ ...edgeBase, evidence_ids:["e1"] } as any],
 }), /future evidence is forbidden/);
+
+const contract = getOfficialSupplyChainSourceContract();
+assert.ok(contract.allowed_hosts.includes("data.sec.gov"));
+assert.ok(contract.allowed_hosts.includes("mops.twse.com.tw"));
+assert.equal(contract.redirect_policy, "REJECT");
+assert.equal(contract.sec_user_agent_required, true);
+assert.equal(contract.relationship_auto_verification, false);
+
+const sourceAdapter = fs.readFileSync(new URL("../src/v6/supply-chain-official-source.ts", import.meta.url), "utf8");
+assert.match(sourceAdapter, /ALLOWED_HOSTS/);
+assert.match(sourceAdapter, /redirect:"manual"/);
+assert.match(sourceAdapter, /REDIRECT_REJECTED/);
+assert.match(sourceAdapter, /SEC_USER_AGENT_REQUIRED/);
+assert.match(sourceAdapter, /MAX_BYTES = 2 \* 1024 \* 1024/);
+assert.doesNotMatch(sourceAdapter, /method:"POST"|Authorization|Bearer /);
 
 const archiveSource = fs.readFileSync(new URL("../src/v6/supply-chain-data-plane.ts", import.meta.url), "utf8");
 assert.match(archiveSource, /HUMAN_APPROVAL_REQUIRED/);
