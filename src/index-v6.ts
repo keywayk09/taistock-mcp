@@ -11,7 +11,7 @@ import {
 import { registerResearchTools } from "./v6/research-tools";
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "6.9.0" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "6.10.0" });
 
   async init() {
     await super.init();
@@ -30,7 +30,7 @@ export default {
       return Response.json({
         service: "Taiwan Stock AI MCP",
         status: "ok",
-        version: "6.9.0",
+        version: "6.10.0",
         storage: {
           legacy_d1: env.DB ? "connected" : "pending",
           research_d1: env.RESEARCH_DB ? "connected" : "pending",
@@ -38,7 +38,7 @@ export default {
         },
         mcp_endpoint: "/mcp",
         research_status_endpoint: "/research/status",
-        tools: 73,
+        tools: 76,
       });
     }
 
