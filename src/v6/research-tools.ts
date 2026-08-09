@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { registerBatchBacktestTool } from "./batch-backtest-tool";
 import { registerDeterministicBacktestTool } from "./deterministic-backtest-tool";
+import { registerExperimentLedgerTools } from "./experiment-ledger-tools";
 import { getResearchStatus, getStoredCandles } from "./research-pipeline";
 import { registerSelective1mReplayTool } from "./selective-1m-replay-tool";
 import { registerSignalEventLedgerTools } from "./signal-event-ledger-tools";
@@ -46,4 +47,5 @@ export function registerResearchTools(server: McpServer, env: Env) {
   registerSelective1mReplayTool(server);
   registerSwingOutcomePathTool(server);
   registerSignalEventLedgerTools(server, env);
+  registerExperimentLedgerTools(server, env);
 }
