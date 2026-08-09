@@ -1,0 +1,43 @@
+name: P13 Cross-market Supply Chain Graph
+
+on:
+  pull_request:
+    paths:
+      - 'src/v6/supply-chain-graph.ts'
+      - 'src/v6/supply-chain-tools.ts'
+      - 'src/v6/diamond-capability-p13.ts'
+      - 'src/v6/diamond-capability-tools.ts'
+      - 'src/v6/research-tools.ts'
+      - 'src/index-v6.ts'
+      - 'tests/supply-chain-graph.test.ts'
+      - 'docs/P13-CROSS-MARKET-SUPPLY-CHAIN.md'
+      - '.github/workflows/p13-supply-chain-graph.yml'
+      - 'package.json'
+  push:
+    branches: [main]
+    paths:
+      - 'src/v6/supply-chain-graph.ts'
+      - 'src/v6/supply-chain-tools.ts'
+      - 'src/v6/diamond-capability-p13.ts'
+      - 'src/v6/diamond-capability-tools.ts'
+      - 'src/v6/research-tools.ts'
+      - 'src/index-v6.ts'
+      - 'tests/supply-chain-graph.test.ts'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-p13:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run type-check
+      - run: npm run test:supply-chain
+      - run: npm run test:research
+      - run: npx wrangler deploy --dry-run --outdir dist-p13
