@@ -6,7 +6,7 @@ import {
   type Intraday5mBar,
   type Intraday5mParameters,
   type DeterministicBacktestResult,
-} from "./deterministic-backtester";
+} from "./deterministic-backtester.ts";
 
 export const BATCH_BACKTEST_SCHEMA_VERSION = "diamond-batch-backtest/v1";
 

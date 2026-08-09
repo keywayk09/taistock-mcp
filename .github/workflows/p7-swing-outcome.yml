@@ -1,0 +1,38 @@
+name: P7 Swing Outcome Path
+
+on:
+  pull_request:
+    paths:
+      - 'src/v6/swing-outcome-path.ts'
+      - 'src/v6/swing-outcome-path-tool.ts'
+      - 'src/v6/research-tools.ts'
+      - 'tests/swing-outcome-path.test.ts'
+      - 'docs/P7-SWING-OUTCOME-PATH.md'
+      - '.github/workflows/p7-swing-outcome.yml'
+      - 'package.json'
+  push:
+    branches: [main]
+    paths:
+      - 'src/v6/swing-outcome-path.ts'
+      - 'src/v6/swing-outcome-path-tool.ts'
+      - 'src/v6/research-tools.ts'
+      - 'tests/swing-outcome-path.test.ts'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-p7:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run type-check
+      - run: npm run test:swing
+      - run: npm run test:batch
+      - run: npm run test:replay
+      - run: npx wrangler deploy --dry-run --outdir dist-p7

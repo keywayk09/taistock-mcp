@@ -20,6 +20,5 @@ jobs:
           node-version: 22
       - run: npm install
       - run: npm run type-check
-      - run: npm run test:backtester
-      - run: npm run test:ledger
+      - run: npm run test:research
       - run: npx wrangler deploy --dry-run --outdir dist
