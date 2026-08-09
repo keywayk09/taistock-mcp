@@ -22,7 +22,8 @@
 		"test:supply-chain": "node --experimental-strip-types tests/supply-chain-graph.test.ts",
 		"test:supply-chain-data": "node --experimental-strip-types tests/supply-chain-data-plane.test.ts",
 		"test:txf": "node --experimental-strip-types tests/txf-review.test.ts",
-		"test:research": "npm run test:backtester && npm run test:ledger && npm run test:batch && npm run test:replay && npm run test:swing && npm run test:experiment && npm run test:capability && npm run test:validation && npm run test:strategy-lab && npm run test:supply-chain && npm run test:supply-chain-data && npm run test:txf"
+		"test:orchestrator": "node --experimental-strip-types tests/review-orchestrator.test.ts",
+		"test:research": "npm run test:backtester && npm run test:ledger && npm run test:batch && npm run test:replay && npm run test:swing && npm run test:experiment && npm run test:capability && npm run test:validation && npm run test:strategy-lab && npm run test:supply-chain && npm run test:supply-chain-data && npm run test:txf && npm run test:orchestrator"
 	},
 	"dependencies": {
 		"agents": "^0.17.1",
