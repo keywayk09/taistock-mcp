@@ -24,7 +24,8 @@
 		"test:txf": "node --experimental-strip-types tests/txf-review.test.ts",
 		"test:orchestrator": "node --experimental-strip-types tests/review-orchestrator.test.ts",
 		"test:judgment-memory": "node --experimental-strip-types tests/gpt-judgment-memory.test.ts",
-		"test:research": "npm run test:backtester && npm run test:ledger && npm run test:batch && npm run test:replay && npm run test:swing && npm run test:experiment && npm run test:capability && npm run test:validation && npm run test:strategy-lab && npm run test:supply-chain && npm run test:supply-chain-data && npm run test:txf && npm run test:orchestrator && npm run test:judgment-memory"
+		"test:family-selection": "node --experimental-strip-types tests/family-stock-selection.test.ts",
+		"test:research": "npm run test:backtester && npm run test:ledger && npm run test:batch && npm run test:replay && npm run test:swing && npm run test:experiment && npm run test:capability && npm run test:validation && npm run test:strategy-lab && npm run test:supply-chain && npm run test:supply-chain-data && npm run test:txf && npm run test:orchestrator && npm run test:judgment-memory && npm run test:family-selection"
 	},
 	"dependencies": {
 		"agents": "^0.17.1",
