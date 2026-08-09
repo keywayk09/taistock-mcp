@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { scoreFamilyCandidate } from "../src/v6/family-stock-selection";
+import { scoreFamilyCandidate } from "../src/v6/family-stock-selection.ts";
 
 const base = {
   symbol: "2330",
