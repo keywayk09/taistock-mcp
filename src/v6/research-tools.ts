@@ -6,6 +6,7 @@ import { registerDiamondCapabilityTools } from "./diamond-capability-tools";
 import { registerExperimentLedgerTools } from "./experiment-ledger-tools";
 import { getResearchStatus, getStoredCandles } from "./research-pipeline";
 import { registerResearchValidationTools } from "./research-validation-tools";
+import { registerReviewOrchestratorTools } from "./review-orchestrator-tools";
 import { registerSelective1mReplayTool } from "./selective-1m-replay-tool";
 import { registerSignalEventLedgerTools } from "./signal-event-ledger-tools";
 import { registerStrategyLabTools } from "./strategy-lab-tools";
@@ -56,6 +57,7 @@ export function registerResearchTools(server: McpServer, env: Env) {
   registerSignalEventLedgerTools(server, env);
   registerExperimentLedgerTools(server, env);
   registerTxfReviewTools(server, env);
+  registerReviewOrchestratorTools(server, env);
   registerStrategyLabTools(server);
   registerSupplyChainTools(server);
   registerSupplyChainDataPlaneTools(server, env);
