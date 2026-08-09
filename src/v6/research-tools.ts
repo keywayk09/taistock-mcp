@@ -8,6 +8,7 @@ import { getResearchStatus, getStoredCandles } from "./research-pipeline";
 import { registerResearchValidationTools } from "./research-validation-tools";
 import { registerSelective1mReplayTool } from "./selective-1m-replay-tool";
 import { registerSignalEventLedgerTools } from "./signal-event-ledger-tools";
+import { registerStrategyLabTools } from "./strategy-lab-tools";
 import { registerSwingOutcomePathTool } from "./swing-outcome-path-tool";
 
 const ok = (value: unknown) => ({
@@ -51,5 +52,6 @@ export function registerResearchTools(server: McpServer, env: Env) {
   registerResearchValidationTools(server);
   registerSignalEventLedgerTools(server, env);
   registerExperimentLedgerTools(server, env);
+  registerStrategyLabTools(server);
   registerDiamondCapabilityTools(server);
 }
