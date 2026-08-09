@@ -1,0 +1,39 @@
+name: P8 Experiment Memory
+
+on:
+  pull_request:
+    paths:
+      - 'src/v6/experiment-ledger.ts'
+      - 'src/v6/experiment-ledger-tools.ts'
+      - 'src/v6/research-tools.ts'
+      - 'migrations/0003_experiment_ledger.sql'
+      - 'tests/experiment-ledger.test.ts'
+      - 'docs/P8-EXPERIMENT-MEMORY.md'
+      - '.github/workflows/p8-experiment-memory.yml'
+      - 'package.json'
+  push:
+    branches: [main]
+    paths:
+      - 'src/v6/experiment-ledger.ts'
+      - 'src/v6/experiment-ledger-tools.ts'
+      - 'src/v6/research-tools.ts'
+      - 'migrations/0003_experiment_ledger.sql'
+      - 'tests/experiment-ledger.test.ts'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-p8:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run type-check
+      - run: npm run test:experiment
+      - run: npm run test:research
+      - run: npx wrangler deploy --dry-run --outdir dist-p8
