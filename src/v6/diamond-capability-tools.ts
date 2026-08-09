@@ -1,10 +1,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getDiamondToolRegistry } from "./diamond-capability-registry";
 import { getDiamondResearchLabP11 } from "./diamond-capability-p11";
+import { getDiamondStrategyLabP12 } from "./diamond-capability-p12";
 import {
-  getDiamondArchitectureStatusP12,
-  getDiamondStrategyLabP12,
-} from "./diamond-capability-p12";
+  getDiamondArchitectureStatusP13,
+  getDiamondToolRegistryP13,
+} from "./diamond-capability-p13";
 
 const out = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
@@ -12,10 +12,10 @@ const out = (value: unknown) => ({
 
 export function registerDiamondCapabilityTools(server: McpServer) {
   server.registerTool("get_diamond_tool_registry", {
-    description: "鑽石引擎正式工具列：列出 Market Data、Research Data、Workflow 能力與接入狀態。海外 OHLC 只透過 OHLC MCP；未完成驗證的能力會明確標示狀態。",
+    description: "鑽石引擎正式工具列：列出 Market Data、Research Data、Workflow 能力與接入狀態。P13 已加入跨市場 Supply Chain Research Data surface；海外 OHLC 仍只透過 OHLC MCP。",
     inputSchema: {},
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
-  }, async () => out(getDiamondToolRegistry()));
+  }, async () => out(getDiamondToolRegistryP13()));
 
   server.registerTool("get_diamond_research_lab", {
     description: "鑽石引擎 Research & Validation Lab：列出 P3-P11 研究能力，包括 deterministic Walk-Forward、Bootstrap、Monte Carlo；未實作的方法仍維持 Candidate。",
@@ -30,8 +30,8 @@ export function registerDiamondCapabilityTools(server: McpServer) {
   }, async () => out(getDiamondStrategyLabP12()));
 
   server.registerTool("get_diamond_architecture_status", {
-    description: "鑽石引擎整體狀態：Production Data Plane / Trading Research Plane / Engineering Control Plane、P11 驗證能力、P12 Strategy Lab 治理與硬性安全邊界。",
+    description: "鑽石引擎整體狀態：Production Data Plane / Trading Research Plane / Engineering Control Plane、P11 驗證、P12 Strategy Lab，以及 P13 台股+海外跨市場 Supply Chain Graph 的 Evidence/Time-safe 邊界。",
     inputSchema: {},
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
-  }, async () => out(getDiamondArchitectureStatusP12()));
+  }, async () => out(getDiamondArchitectureStatusP13()));
 }
