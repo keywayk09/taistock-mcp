@@ -41,6 +41,9 @@ class FakeStatement {
     if (compact.includes("FROM experiment_ledger WHERE experiment_id=? AND experiment_version=?")) {
       return (this.db.experiments.get(`${this.params[0]}\u0000${this.params[1]}`) ?? null) as T | null;
     }
+    if (compact.includes("FROM experiment_decision_ledger WHERE decision_id=? AND decision_version=?")) {
+      return (this.db.decisions.get(`${this.params[0]}\u0000${this.params[1]}`) ?? null) as T | null;
+    }
     throw new Error(`unhandled first SQL: ${compact}`);
   }
 
