@@ -4,6 +4,7 @@ import { registerBatchBacktestTool } from "./batch-backtest-tool";
 import { registerDeterministicBacktestTool } from "./deterministic-backtest-tool";
 import { registerDiamondCapabilityTools } from "./diamond-capability-tools";
 import { registerExperimentLedgerTools } from "./experiment-ledger-tools";
+import { registerGptJudgmentMemoryTools } from "./gpt-judgment-memory-tools";
 import { getResearchStatus, getStoredCandles } from "./research-pipeline";
 import { registerResearchValidationTools } from "./research-validation-tools";
 import { registerReviewOrchestratorTools } from "./review-orchestrator-tools";
@@ -58,6 +59,7 @@ export function registerResearchTools(server: McpServer, env: Env) {
   registerExperimentLedgerTools(server, env);
   registerTxfReviewTools(server, env);
   registerReviewOrchestratorTools(server, env);
+  registerGptJudgmentMemoryTools(server, env);
   registerStrategyLabTools(server);
   registerSupplyChainTools(server);
   registerSupplyChainDataPlaneTools(server, env);
