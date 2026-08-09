@@ -12,7 +12,9 @@ if (!globalThis.crypto) Object.defineProperty(globalThis, "crypto", { value: web
 
 class FakeStatement {
   private params: unknown[] = [];
-  constructor(private readonly db: FakeD1, private readonly sql: string) {}
+  private readonly db: FakeD1;
+  private readonly sql: string;
+  constructor(db: FakeD1, sql: string) { this.db = db; this.sql = sql; }
   bind(...params: unknown[]) { const copy = new FakeStatement(this.db, this.sql); copy.params = params; return copy; }
   compact() { return this.sql.replace(/\s+/g, " ").trim(); }
 
