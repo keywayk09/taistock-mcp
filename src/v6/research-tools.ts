@@ -5,6 +5,7 @@ import { registerDeterministicBacktestTool } from "./deterministic-backtest-tool
 import { registerDiamondCapabilityTools } from "./diamond-capability-tools";
 import { registerExperimentLedgerTools } from "./experiment-ledger-tools";
 import { getResearchStatus, getStoredCandles } from "./research-pipeline";
+import { registerResearchValidationTools } from "./research-validation-tools";
 import { registerSelective1mReplayTool } from "./selective-1m-replay-tool";
 import { registerSignalEventLedgerTools } from "./signal-event-ledger-tools";
 import { registerSwingOutcomePathTool } from "./swing-outcome-path-tool";
@@ -47,6 +48,7 @@ export function registerResearchTools(server: McpServer, env: Env) {
   registerBatchBacktestTool(server, env);
   registerSelective1mReplayTool(server);
   registerSwingOutcomePathTool(server);
+  registerResearchValidationTools(server);
   registerSignalEventLedgerTools(server, env);
   registerExperimentLedgerTools(server, env);
   registerDiamondCapabilityTools(server);
