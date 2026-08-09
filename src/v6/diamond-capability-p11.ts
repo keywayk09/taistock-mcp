@@ -1,7 +1,7 @@
 import {
   getDiamondArchitectureStatus as getBaseArchitectureStatus,
   getDiamondResearchLab as getBaseResearchLab,
-} from "./diamond-capability-registry";
+} from "./diamond-capability-registry.ts";
 
 const P11_ACTIVE = Object.freeze({
   walk_forward: {
