@@ -12,6 +12,7 @@ import { registerStrategyLabTools } from "./strategy-lab-tools";
 import { registerSupplyChainDataPlaneTools } from "./supply-chain-data-plane-tools";
 import { registerSupplyChainTools } from "./supply-chain-tools";
 import { registerSwingOutcomePathTool } from "./swing-outcome-path-tool";
+import { registerTxfReviewTools } from "./txf-review-tools";
 
 const ok = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
@@ -39,7 +40,7 @@ export function registerResearchTools(server: McpServer, env: Env) {
   });
 
   server.registerTool("get_stored_intraday_candles", {
-    description: "從 Cloudflare D1 索引與 R2 讀取已保存的富果1分K或5分K及資料品質統計。",
+    description: "從 Cloudflare D1 索引與 R2 讀取已保存的台股富果1分K或5分K及資料品質統計；TXF 必須透過 OHLC MCP read_txf_ohlc，不混用台股 storage path。",
     inputSchema: {
       symbol: z.string().trim().regex(/^\d{4,6}$/),
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -54,6 +55,7 @@ export function registerResearchTools(server: McpServer, env: Env) {
   registerResearchValidationTools(server);
   registerSignalEventLedgerTools(server, env);
   registerExperimentLedgerTools(server, env);
+  registerTxfReviewTools(server, env);
   registerStrategyLabTools(server);
   registerSupplyChainTools(server);
   registerSupplyChainDataPlaneTools(server, env);
