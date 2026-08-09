@@ -19,7 +19,8 @@
 		"test:capability": "node --experimental-strip-types tests/diamond-capability-registry.test.ts",
 		"test:validation": "node --experimental-strip-types tests/research-validation.test.ts",
 		"test:strategy-lab": "node --experimental-strip-types tests/strategy-lab-governance.test.ts",
-		"test:research": "npm run test:backtester && npm run test:ledger && npm run test:batch && npm run test:replay && npm run test:swing && npm run test:experiment && npm run test:capability && npm run test:validation && npm run test:strategy-lab"
+		"test:supply-chain": "node --experimental-strip-types tests/supply-chain-graph.test.ts",
+		"test:research": "npm run test:backtester && npm run test:ledger && npm run test:batch && npm run test:replay && npm run test:swing && npm run test:experiment && npm run test:capability && npm run test:validation && npm run test:strategy-lab && npm run test:supply-chain"
 	},
 	"dependencies": {
 		"agents": "^0.17.1",
