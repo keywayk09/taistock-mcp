@@ -1,0 +1,42 @@
+name: P15 Review Swing Orchestration
+
+on:
+  pull_request:
+    paths:
+      - 'src/v6/review-orchestrator.ts'
+      - 'src/v6/review-orchestrator-tools.ts'
+      - 'src/v6/diamond-capability-p15.ts'
+      - 'src/v6/diamond-capability-tools.ts'
+      - 'src/v6/research-tools.ts'
+      - 'src/index-v6.ts'
+      - 'tests/review-orchestrator.test.ts'
+      - 'package.json'
+      - '.github/workflows/p15-review-swing-orchestration.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/v6/review-orchestrator.ts'
+      - 'src/v6/review-orchestrator-tools.ts'
+      - 'src/v6/diamond-capability-p15.ts'
+      - 'src/v6/diamond-capability-tools.ts'
+      - 'src/v6/research-tools.ts'
+      - 'src/index-v6.ts'
+      - 'tests/review-orchestrator.test.ts'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-p15:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run type-check
+      - run: npm run test:orchestrator
+      - run: npm run test:research
+      - run: npx wrangler deploy --dry-run --outdir dist-p15
