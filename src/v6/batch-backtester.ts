@@ -40,42 +40,9 @@ export type BatchBacktestInput = {
   parameters?: Intraday5mParameters;
 };
 
-export type BatchBacktestResult = {
-  schema_version: string;
-  batch_run_id: string;
-  deterministic: true;
-  status: "OK";
-  engine_version: string;
-  parameter_version: string;
-  dataset_versions: string[];
-  case_count: number;
-  win_count: number;
-  loss_count: number;
-  flat_count: number;
-  win_rate: number;
-  gross_profit_pct: number;
-  gross_loss_pct: number;
-  profit_factor: number | null;
-  expectancy_pct: number;
-  average_mfe_pct: number;
-  average_mae_pct: number;
-  ambiguous_count: number;
-  ambiguous_rate: number;
-  replay_queue: Array<{
-    signal_id: string;
-    signal_version: string;
-    symbol: string;
-    trade_date: string;
-    backtest_run_id: string;
-    dataset_version: string;
-  }>;
-  results: DeterministicBacktestResult[];
-};
-
 export class BatchBacktestError extends Error {
   readonly code: string;
   readonly detail?: Record<string, unknown>;
-
   constructor(code: string, message: string, detail?: Record<string, unknown>) {
     super(message);
     this.name = "BatchBacktestError";
@@ -84,166 +51,195 @@ export class BatchBacktestError extends Error {
   }
 }
 
+function finite(value: unknown, field: string): number {
+  const number = Number(value);
+  if (!Number.isFinite(number)) throw new BatchBacktestError("INVALID_CASE", `${field} must be finite`);
+  return number;
+}
+
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
   if (value && typeof value === "object") {
     const source = value as Record<string, unknown>;
-    const output: Record<string, unknown> = {};
-    for (const key of Object.keys(source).sort()) output[key] = stableValue(source[key]);
-    return output;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(source).sort()) out[key] = stableValue(source[key]);
+    return out;
   }
   if (value === undefined) return null;
   if (typeof value === "number" && !Number.isFinite(value)) return String(value);
   return value;
 }
 
-function stableJson(value: unknown): string {
-  return JSON.stringify(stableValue(value));
-}
-
 async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(stableValue(JSON.parse(value)))));
   return Array.from(new Uint8Array(digest)).map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
-function finite(value: unknown, field: string): number {
-  const number = Number(value);
-  if (!Number.isFinite(number)) throw new BatchBacktestError("INVALID_SIGNAL", `${field} must be finite`);
-  return number;
+function tradeDateOf(barTime: unknown): string {
+  const raw = String(barTime ?? "");
+  const iso = raw.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const match = raw.match(/\b[A-Z][a-z]{2} ([A-Z][a-z]{2}) (\d{1,2}) (\d{4})/);
+  if (!match) return "";
+  const months: Record<string, string> = {
+    Jan:"01", Feb:"02", Mar:"03", Apr:"04", May:"05", Jun:"06",
+    Jul:"07", Aug:"08", Sep:"09", Oct:"10", Nov:"11", Dec:"12",
+  };
+  return `${match[3]}-${months[match[1]] ?? "00"}-${String(match[2]).padStart(2, "0")}`;
 }
 
-function toBacktestSignal(signal: BatchSignalRecord) {
-  const side = String(signal.side ?? "").toUpperCase();
-  if (side !== "LONG" && side !== "SHORT") throw new BatchBacktestError("INVALID_SIGNAL", "P5 requires LONG/SHORT signals", { signal_id: signal.signal_id, side });
-  const atr = finite(signal.atr, "signal.atr");
-  if (atr <= 0) throw new BatchBacktestError("INVALID_SIGNAL", "signal.atr must be > 0", { signal_id: signal.signal_id });
-  const signalTs = finite(signal.signal_ts_ms, "signal.signal_ts_ms");
-  if (!Number.isSafeInteger(signalTs) || signalTs <= 0) throw new BatchBacktestError("INVALID_SIGNAL", "signal_ts_ms must be a positive safe integer");
-  if (!signal.signal_id || !signal.signal_version) throw new BatchBacktestError("INVALID_SIGNAL", "signal_id and signal_version are required");
-  if (!/^\d{4,6}$/.test(String(signal.symbol ?? ""))) throw new BatchBacktestError("INVALID_SIGNAL", "invalid Taiwan stock symbol");
-  if (String(signal.timeframe ?? "").toLowerCase() !== "5m") throw new BatchBacktestError("INVALID_SIGNAL", "P5 batch baseline only accepts 5m signals", { signal_id: signal.signal_id, timeframe: signal.timeframe });
-  return {
-    signal_id: String(signal.signal_id),
-    signal_version: String(signal.signal_version),
-    symbol: String(signal.symbol),
-    side,
-    signal_ts_ms: signalTs,
-    atr,
-    strategy: String(signal.strategy || ""),
-    event: Array.isArray(signal.event_refs) && signal.event_refs.length ? stableJson(signal.event_refs) : undefined,
-  } as const;
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-function validateBundle(bundle: EvaluationDatasetBundle) {
-  const version = String(bundle?.dataset?.dataset_version ?? "");
-  if (!/^sha256:[0-9a-f]{64}$/.test(version)) throw new BatchBacktestError("INVALID_DATASET_VERSION", "dataset version must be P2 SHA-256");
-  if (!bundle.dataset.complete_view || bundle.dataset.truncated || !bundle.dataset.frozen_view || !bundle.dataset.formal_research_eligible) {
-    throw new BatchBacktestError("DATASET_NOT_ELIGIBLE", "P5 requires complete frozen research dataset", { dataset_version: version });
-  }
-  if (String(bundle.dataset.provenance?.timeframe ?? "") !== "5m") throw new BatchBacktestError("INVALID_DATASET", "P5 dataset timeframe must be 5m");
-  if (String(bundle.dataset.provenance?.market ?? "") !== "tw-stock") throw new BatchBacktestError("INVALID_DATASET", "P5 dataset market must be tw-stock");
-  return version;
-}
-
-function round(value: number, digits = 10): number {
+function round(value: number, digits = 8): number {
   const factor = 10 ** digits;
   return Math.round((value + Number.EPSILON) * factor) / factor;
 }
 
-export async function runDeterministicBatchBacktest5m(input: BatchBacktestInput): Promise<BatchBacktestResult> {
-  if (!Array.isArray(input?.datasets) || !input.datasets.length) throw new BatchBacktestError("DATASET_REQUIRED", "datasets are required");
-  if (!Array.isArray(input?.cases) || !input.cases.length) throw new BatchBacktestError("CASES_REQUIRED", "cases are required");
+function aggregate(results: DeterministicBacktestResult[]) {
+  const net = results.map((result) => result.net_return_pct);
+  const gains = net.filter((value) => value > 0);
+  const losses = net.filter((value) => value < 0);
+  const sumGain = gains.reduce((sum, value) => sum + value, 0);
+  const sumLossAbs = Math.abs(losses.reduce((sum, value) => sum + value, 0));
+  const total = results.length;
+  const exitReasons: Record<string, number> = {};
+  const strategies: Record<string, { total: number; net_sum_pct: number; wins: number; losses: number }> = {};
+  for (const result of results) {
+    exitReasons[result.exit_reason] = (exitReasons[result.exit_reason] ?? 0) + 1;
+    const key = result.strategy ?? "UNSPECIFIED";
+    const row = strategies[key] ?? { total: 0, net_sum_pct: 0, wins: 0, losses: 0 };
+    row.total += 1;
+    row.net_sum_pct += result.net_return_pct;
+    if (result.net_return_pct > 0) row.wins += 1;
+    if (result.net_return_pct < 0) row.losses += 1;
+    strategies[key] = row;
+  }
+  const strategySummary = Object.fromEntries(Object.entries(strategies).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => [key, {
+    ...value,
+    net_sum_pct: round(value.net_sum_pct),
+    avg_net_return_pct: round(value.net_sum_pct / value.total),
+    win_rate_pct: round((value.wins / value.total) * 100),
+  }]));
+  return {
+    total,
+    wins: gains.length,
+    losses: losses.length,
+    breakeven: total - gains.length - losses.length,
+    win_rate_pct: total ? round((gains.length / total) * 100) : 0,
+    expectancy_pct: total ? round(net.reduce((sum, value) => sum + value, 0) / total) : 0,
+    median_net_return_pct: median(net) === null ? null : round(median(net)!),
+    profit_factor: sumLossAbs > 0 ? round(sumGain / sumLossAbs) : null,
+    profit_factor_status: sumLossAbs > 0 ? "FINITE" : (sumGain > 0 ? "NO_LOSSES" : "NO_GAINS_OR_LOSSES"),
+    gross_profit_sum_pct: round(sumGain),
+    gross_loss_sum_abs_pct: round(sumLossAbs),
+    avg_mfe_pct: total ? round(results.reduce((sum, value) => sum + value.mfe_pct, 0) / total) : 0,
+    avg_mae_pct: total ? round(results.reduce((sum, value) => sum + value.mae_pct, 0) / total) : 0,
+    avg_mfe_r: total ? round(results.reduce((sum, value) => sum + value.mfe_r, 0) / total) : 0,
+    avg_mae_r: total ? round(results.reduce((sum, value) => sum + value.mae_r, 0) / total) : 0,
+    ambiguous_intrabar_count: results.filter((result) => result.ambiguous_intrabar).length,
+    ambiguous_intrabar_rate_pct: total ? round((results.filter((result) => result.ambiguous_intrabar).length / total) * 100) : 0,
+    requires_1m_replay_count: results.filter((result) => result.requires_1m_replay).length,
+    exit_reasons: Object.fromEntries(Object.entries(exitReasons).sort(([a], [b]) => a.localeCompare(b))),
+    strategies: strategySummary,
+  };
+}
+
+export async function runDeterministicBatchBacktest5m(input: BatchBacktestInput) {
+  if (!Array.isArray(input?.datasets) || !input.datasets.length) throw new BatchBacktestError("DATASETS_REQUIRED", "at least one evaluation dataset is required");
+  if (!Array.isArray(input?.cases) || !input.cases.length) throw new BatchBacktestError("CASES_REQUIRED", "at least one signal case is required");
 
   const datasetMap = new Map<string, EvaluationDatasetBundle>();
   for (const bundle of input.datasets) {
-    const version = validateBundle(bundle);
-    if (datasetMap.has(version)) throw new BatchBacktestError("DUPLICATE_DATASET_VERSION", "dataset version supplied more than once", { dataset_version: version });
+    const version = String(bundle?.dataset?.dataset_version ?? "");
+    if (!version) throw new BatchBacktestError("INVALID_DATASET", "evaluation dataset_version is required");
+    const existing = datasetMap.get(version);
+    if (existing) {
+      if (existing.dataset.dataset_hash !== bundle.dataset.dataset_hash || existing.dataset.dataset_id !== bundle.dataset.dataset_id) {
+        throw new BatchBacktestError("DUPLICATE_DATASET_VERSION_CONFLICT", "same dataset_version maps to conflicting dataset identity", { dataset_version: version });
+      }
+      continue;
+    }
     datasetMap.set(version, bundle);
   }
 
-  const seenCases = new Set<string>();
+  const sortedCases = [...input.cases].sort((a, b) => {
+    const ak = `${a.signal.signal_ts_ms}|${a.signal.signal_id}|${a.signal.signal_version}|${a.evaluation_dataset_version}`;
+    const bk = `${b.signal.signal_ts_ms}|${b.signal.signal_id}|${b.signal.signal_version}|${b.evaluation_dataset_version}`;
+    return ak.localeCompare(bk);
+  });
+  const caseKeys = new Set<string>();
   const results: DeterministicBacktestResult[] = [];
-  const caseDescriptors: Array<{ signal_id: string; signal_version: string; evaluation_dataset_version: string }> = [];
 
-  for (const item of input.cases) {
-    const signal = item?.signal;
-    if (!signal) throw new BatchBacktestError("SIGNAL_REQUIRED", "every case requires a Signal Ledger record");
-    const caseKey = `${signal.signal_id}\u0000${signal.signal_version}`;
-    if (seenCases.has(caseKey)) throw new BatchBacktestError("DUPLICATE_CASE", "same Signal Ledger version appears twice in a batch", { signal_id: signal.signal_id, signal_version: signal.signal_version });
-    seenCases.add(caseKey);
-
-    const version = String(item.evaluation_dataset_version ?? "");
-    const bundle = datasetMap.get(version);
-    if (!bundle) throw new BatchBacktestError("EVALUATION_DATASET_MISSING", "case references a dataset version not included in the request", { signal_id: signal.signal_id, evaluation_dataset_version: version });
-    if (String(bundle.dataset.provenance?.symbol ?? "") !== String(signal.symbol ?? "")) {
-      throw new BatchBacktestError("SYMBOL_MISMATCH", "case dataset symbol differs from immutable Signal Ledger symbol", { signal_id: signal.signal_id });
-    }
-
+  for (const item of sortedCases) {
+    const signal = item.signal;
+    const caseKey = `${signal.signal_id}\u0000${signal.signal_version}\u0000${item.evaluation_dataset_version}`;
+    if (caseKeys.has(caseKey)) throw new BatchBacktestError("DUPLICATE_CASE", "duplicate signal/version/evaluation-dataset case", { signal_id: signal.signal_id, signal_version: signal.signal_version, evaluation_dataset_version: item.evaluation_dataset_version });
+    caseKeys.add(caseKey);
+    if (signal.timeframe !== "5m") throw new BatchBacktestError("UNSUPPORTED_SIGNAL_TIMEFRAME", "P5 baseline accepts only 5m Signal Ledger entries", { signal_id: signal.signal_id, timeframe: signal.timeframe });
+    if (signal.side !== "LONG" && signal.side !== "SHORT") throw new BatchBacktestError("UNSUPPORTED_SIGNAL_SIDE", "P5 baseline requires LONG or SHORT signal", { signal_id: signal.signal_id, side: signal.side });
+    const atr = finite(signal.atr, `signal ${signal.signal_id} atr`);
+    if (atr <= 0) throw new BatchBacktestError("MISSING_SIGNAL_ATR", "P5 baseline requires positive ATR captured at signal time", { signal_id: signal.signal_id });
+    const signalTs = finite(signal.signal_ts_ms, `signal ${signal.signal_id} signal_ts_ms`);
+    const bundle = datasetMap.get(item.evaluation_dataset_version);
+    if (!bundle) throw new BatchBacktestError("EVALUATION_DATASET_NOT_FOUND", "case references an evaluation dataset_version not supplied in this batch", { signal_id: signal.signal_id, evaluation_dataset_version: item.evaluation_dataset_version });
+    if (bundle.dataset.provenance?.symbol !== signal.symbol) throw new BatchBacktestError("SYMBOL_MISMATCH", "evaluation dataset symbol differs from immutable signal", { signal_id: signal.signal_id, signal_symbol: signal.symbol, dataset_symbol: bundle.dataset.provenance?.symbol });
+    const firstAfter = bundle.bars.find((bar) => Number(bar.ts_ms) > signalTs);
+    if (!firstAfter) throw new BatchBacktestError("NO_NEXT_BAR", "evaluation dataset has no bar after signal", { signal_id: signal.signal_id });
+    const entryDate = tradeDateOf(firstAfter.bar_time_tw);
+    if (entryDate !== signal.trade_date) throw new BatchBacktestError("NO_NEXT_BAR_SAME_DAY", "Taiwan intraday case would cross the immutable signal trade_date", { signal_id: signal.signal_id, signal_trade_date: signal.trade_date, next_bar_trade_date: entryDate || null });
     try {
       const result = await runDeterministicIntraday5mBacktest({
         dataset: bundle.dataset,
         bars: bundle.bars,
-        signal: toBacktestSignal(signal),
+        signal: {
+          signal_id: signal.signal_id,
+          signal_version: signal.signal_version,
+          symbol: signal.symbol,
+          side: signal.side,
+          signal_ts_ms: signalTs,
+          atr,
+          strategy: signal.strategy,
+          event: Array.isArray(signal.event_refs) && signal.event_refs.length ? "EVENT_LINKED" : undefined,
+        },
         parameters: input.parameters,
       });
       results.push(result);
-      caseDescriptors.push({ signal_id: signal.signal_id, signal_version: signal.signal_version, evaluation_dataset_version: version });
     } catch (error) {
       if (error instanceof BacktestInputError) {
-        throw new BatchBacktestError(error.code, error.message, { signal_id: signal.signal_id, signal_version: signal.signal_version, ...(error.detail ?? {}) });
+        throw new BatchBacktestError("CASE_BACKTEST_FAILED", error.message, { signal_id: signal.signal_id, signal_version: signal.signal_version, engine_code: error.code, engine_detail: error.detail ?? null });
       }
       throw error;
     }
   }
 
-  const net = results.map((result) => result.net_return_pct);
-  const wins = net.filter((value) => value > 0);
-  const losses = net.filter((value) => value < 0);
-  const flat = net.length - wins.length - losses.length;
-  const grossProfit = wins.reduce((sum, value) => sum + value, 0);
-  const grossLossAbs = Math.abs(losses.reduce((sum, value) => sum + value, 0));
-  const profitFactor = grossLossAbs > 0 ? grossProfit / grossLossAbs : (grossProfit > 0 ? null : 0);
-  const average = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
-  const ambiguous = results.filter((result) => result.requires_1m_replay);
-  const parameterVersion = results[0]?.parameter_version ?? "";
-  const datasetVersions = Array.from(new Set(caseDescriptors.map((item) => item.evaluation_dataset_version))).sort();
-  const batchFingerprint = {
+  const summary = aggregate(results);
+  const batchIdentity = {
     schema_version: BATCH_BACKTEST_SCHEMA_VERSION,
     engine_version: DETERMINISTIC_BACKTEST_ENGINE_VERSION,
-    parameter_version: parameterVersion,
-    cases: caseDescriptors,
+    case_run_ids: results.map((result) => result.backtest_run_id).sort(),
   };
-  const batchHash = await sha256Hex(stableJson(batchFingerprint));
-
+  const batchHash = await sha256Hex(JSON.stringify(batchIdentity));
   return {
+    ok: true as const,
+    deterministic: true as const,
     schema_version: BATCH_BACKTEST_SCHEMA_VERSION,
-    batch_run_id: `batch:${batchHash}`,
-    deterministic: true,
-    status: "OK",
     engine_version: DETERMINISTIC_BACKTEST_ENGINE_VERSION,
-    parameter_version: parameterVersion,
-    dataset_versions: datasetVersions,
+    batch_run_id: `btbatch:${batchHash}`,
     case_count: results.length,
-    win_count: wins.length,
-    loss_count: losses.length,
-    flat_count: flat,
-    win_rate: round(results.length ? wins.length / results.length : 0),
-    gross_profit_pct: round(grossProfit),
-    gross_loss_pct: round(grossLossAbs),
-    profit_factor: profitFactor === null ? null : round(profitFactor),
-    expectancy_pct: round(average(net)),
-    average_mfe_pct: round(average(results.map((result) => result.mfe_pct))),
-    average_mae_pct: round(average(results.map((result) => result.mae_pct))),
-    ambiguous_count: ambiguous.length,
-    ambiguous_rate: round(results.length ? ambiguous.length / results.length : 0),
-    replay_queue: ambiguous.map((result) => ({
+    summary,
+    results,
+    replay_queue: results.filter((result) => result.requires_1m_replay).map((result) => ({
+      backtest_run_id: result.backtest_run_id,
       signal_id: result.signal_id,
       signal_version: result.signal_version,
-      symbol: result.symbol,
-      trade_date: String(input.cases.find((item) => item.signal.signal_id === result.signal_id && item.signal.signal_version === result.signal_version)?.signal.trade_date ?? ""),
-      backtest_run_id: result.backtest_run_id,
       dataset_version: result.dataset_version,
+      ambiguous_5m_ts_ms: result.exit_ts_ms,
+      reason: "AMBIGUOUS_INTRABAR",
     })),
-    results,
   };
 }
