@@ -274,9 +274,18 @@ export async function recordExperiment(env: Env, raw: RecordExperimentInput) {
   };
 }
 
-function hydrateExperiment(row: Record<string, unknown>) {
+type HydratedExperiment = Record<string, unknown> & {
+  validation_status: unknown;
+  signal_refs: unknown;
+  dataset_refs: unknown;
+  parameters: unknown;
+  result: unknown;
+};
+
+function hydrateExperiment(row: Record<string, unknown>): HydratedExperiment {
   return {
     ...row,
+    validation_status: row.validation_status,
     signal_refs: parseJson(row.signal_refs_json, []),
     dataset_refs: parseJson(row.dataset_refs_json, []),
     parameters: parseJson(row.parameters_json, {}),
