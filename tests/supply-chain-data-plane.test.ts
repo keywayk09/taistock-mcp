@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { applyCrossVerification } from "../src/v6/supply-chain-cross-verification";
-import { getOfficialSupplyChainSourceContract } from "../src/v6/supply-chain-official-source";
+import { applyCrossVerification } from "../src/v6/supply-chain-cross-verification.ts";
+import { getOfficialSupplyChainSourceContract } from "../src/v6/supply-chain-official-source.ts";
 
 const evidence = [
   { evidence_id:"e1", source_type:"COMPANY_IR", source_ref:"https://example-a.com/ir/a", published_at:"2026-01-01T00:00:00Z", observed_at:"2026-01-02T00:00:00Z", evidence_sha256:"1".repeat(64) },
