@@ -38,7 +38,7 @@ export default {
         },
         mcp_endpoint: "/mcp",
         research_status_endpoint: "/research/status",
-        tools: 81,
+        tools: 83,
       });
     }
 
