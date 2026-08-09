@@ -1,0 +1,43 @@
+name: P11 Research Validation
+
+on:
+  pull_request:
+    paths:
+      - 'src/v6/research-validation.ts'
+      - 'src/v6/research-validation-tools.ts'
+      - 'src/v6/diamond-capability-p11.ts'
+      - 'src/v6/diamond-capability-tools.ts'
+      - 'src/v6/research-tools.ts'
+      - 'src/index-v6.ts'
+      - 'tests/research-validation.test.ts'
+      - 'docs/P11-RESEARCH-VALIDATION.md'
+      - '.github/workflows/p11-research-validation.yml'
+      - 'package.json'
+  push:
+    branches: [main]
+    paths:
+      - 'src/v6/research-validation.ts'
+      - 'src/v6/research-validation-tools.ts'
+      - 'src/v6/diamond-capability-p11.ts'
+      - 'src/v6/diamond-capability-tools.ts'
+      - 'src/v6/research-tools.ts'
+      - 'src/index-v6.ts'
+      - 'tests/research-validation.test.ts'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-p11:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run type-check
+      - run: npm run test:validation
+      - run: npm run test:research
+      - run: npx wrangler deploy --dry-run --outdir dist-p11
