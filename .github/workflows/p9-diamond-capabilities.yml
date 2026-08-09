@@ -1,0 +1,39 @@
+name: P9 Diamond Capability Registry
+
+on:
+  pull_request:
+    paths:
+      - 'src/v6/diamond-capability-registry.ts'
+      - 'src/v6/diamond-capability-tools.ts'
+      - 'src/v6/research-tools.ts'
+      - 'src/index-v6.ts'
+      - 'tests/diamond-capability-registry.test.ts'
+      - 'docs/P9-DIAMOND-CAPABILITY-REGISTRY.md'
+      - '.github/workflows/p9-diamond-capabilities.yml'
+      - 'package.json'
+  push:
+    branches: [main]
+    paths:
+      - 'src/v6/diamond-capability-registry.ts'
+      - 'src/v6/diamond-capability-tools.ts'
+      - 'src/v6/research-tools.ts'
+      - 'src/index-v6.ts'
+      - 'tests/diamond-capability-registry.test.ts'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-p9:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run type-check
+      - run: npm run test:capability
+      - run: npm run test:research
+      - run: npx wrangler deploy --dry-run --outdir dist-p9
