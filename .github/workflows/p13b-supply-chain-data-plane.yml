@@ -1,0 +1,46 @@
+name: P13b Supply Chain Data Plane
+
+on:
+  pull_request:
+    paths:
+      - 'src/v6/supply-chain-data-plane.ts'
+      - 'src/v6/supply-chain-data-plane-tools.ts'
+      - 'src/v6/supply-chain-cross-verification.ts'
+      - 'src/v6/supply-chain-official-source.ts'
+      - 'src/v6/diamond-capability-p13.ts'
+      - 'src/v6/research-tools.ts'
+      - 'src/index-v6.ts'
+      - 'tests/supply-chain-data-plane.test.ts'
+      - 'migrations/0004_supply_chain_data_plane.sql'
+      - '.github/workflows/p13b-supply-chain-data-plane.yml'
+      - 'package.json'
+  push:
+    branches: [main]
+    paths:
+      - 'src/v6/supply-chain-data-plane.ts'
+      - 'src/v6/supply-chain-data-plane-tools.ts'
+      - 'src/v6/supply-chain-cross-verification.ts'
+      - 'src/v6/supply-chain-official-source.ts'
+      - 'src/v6/diamond-capability-p13.ts'
+      - 'src/v6/research-tools.ts'
+      - 'src/index-v6.ts'
+      - 'tests/supply-chain-data-plane.test.ts'
+      - 'migrations/0004_supply_chain_data_plane.sql'
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-p13b:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run type-check
+      - run: npm run test:supply-chain-data
+      - run: npm run test:research
+      - run: npx wrangler deploy --dry-run --outdir dist-p13b
