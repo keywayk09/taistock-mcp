@@ -1,12 +1,10 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { getDiamondToolRegistry } from "./diamond-capability-registry";
+import { getDiamondResearchLabP11 } from "./diamond-capability-p11";
 import {
-  getDiamondStrategyLab,
-  getDiamondToolRegistry,
-} from "./diamond-capability-registry";
-import {
-  getDiamondArchitectureStatusP11,
-  getDiamondResearchLabP11,
-} from "./diamond-capability-p11";
+  getDiamondArchitectureStatusP12,
+  getDiamondStrategyLabP12,
+} from "./diamond-capability-p12";
 
 const out = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
@@ -14,26 +12,26 @@ const out = (value: unknown) => ({
 
 export function registerDiamondCapabilityTools(server: McpServer) {
   server.registerTool("get_diamond_tool_registry", {
-    description: "鑽石引擎正式工具列：列出 Market Data、Research Data、Workflow 能力與接入狀態。海外 OHLC 僅作 Diamond product surface，底層仍強制走 OHLC MCP；未啟用的外部能力會明確標示 Candidate。",
+    description: "鑽石引擎正式工具列：列出 Market Data、Research Data、Workflow 能力與接入狀態。海外 OHLC 只透過 OHLC MCP；未完成驗證的能力會明確標示狀態。",
     inputSchema: {},
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
   }, async () => out(getDiamondToolRegistry()));
 
   server.registerTool("get_diamond_research_lab", {
-    description: "鑽石引擎 Research & Validation Lab：列出已啟用的 P3-P11 研究能力。P11 已把 Walk-Forward、Bootstrap、Monte Carlo 轉為 Diamond 內部 deterministic 驗證工具；其餘外部方法仍維持 Candidate。",
+    description: "鑽石引擎 Research & Validation Lab：列出 P3-P11 研究能力，包括 deterministic Walk-Forward、Bootstrap、Monte Carlo；未實作的方法仍維持 Candidate。",
     inputSchema: {},
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
   }, async () => out(getDiamondResearchLabP11()));
 
   server.registerTool("get_diamond_strategy_lab", {
-    description: "鑽石引擎 Strategy Lab：列出 daily_stock_analysis 15 個外部 Strategy Skill 候選及正式驗證管線。全部預設未通過台股驗證且 Production disabled。",
+    description: "P12 鑽石引擎 Strategy Lab：15 個 daily_stock_analysis 外部策略已鎖定 immutable source blob / MIT license 並進入治理流程；全部仍是 Research Candidate，未形式化、未台股驗證、Production disabled。",
     inputSchema: {},
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
-  }, async () => out(getDiamondStrategyLab()));
+  }, async () => out(getDiamondStrategyLabP12()));
 
   server.registerTool("get_diamond_architecture_status", {
-    description: "鑽石引擎整體整合狀態：Production Data Plane / Trading Research Plane / Engineering Control Plane、P11 驗證能力、外部專案接入位置與硬性安全邊界。",
+    description: "鑽石引擎整體狀態：Production Data Plane / Trading Research Plane / Engineering Control Plane、P11 驗證能力、P12 Strategy Lab 治理與硬性安全邊界。",
     inputSchema: {},
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
-  }, async () => out(getDiamondArchitectureStatusP11()));
+  }, async () => out(getDiamondArchitectureStatusP12()));
 }
