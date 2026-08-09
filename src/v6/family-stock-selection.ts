@@ -1,7 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
-  arr,
   concurrencyMap,
   fail,
   finmind,
@@ -17,9 +16,10 @@ import {
   type DailyBar,
 } from "./common";
 
-export const FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection/v1.0.0";
+export const FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection/v1.1.0";
 
 type FamilyMode = "stable" | "balanced" | "aggressive";
+type SnapshotSource = "FUGLE" | "FUGLE_WITH_FINMIND_FALLBACK" | "FINMIND_FALLBACK" | "UNAVAILABLE";
 
 type CandidateInput = {
   symbol: string;
@@ -183,25 +183,211 @@ export function scoreFamilyCandidate(input: CandidateInput, mode: FamilyMode) {
   return { score, bucket, reasons: reasons.slice(0, 4), cautions: cautions.slice(0, 4) };
 }
 
-async function loadCommonStockSnapshot(env: Env) {
-  const settled = await Promise.allSettled(["TSE", "OTC"].map(async (market) => {
-    const root = rec(await fugle(env, `/snapshot/quotes/${market}`, { type: "COMMONSTOCK" }));
-    return arr(root.data)
-      .map((row) => ({ market, ...normalizeQuote(row, String(rec(row).symbol ?? "")) }))
+function extractFugleSnapshotRows(body: unknown): any[] {
+  const root = rec(body);
+  const data = root.data;
+  if (Array.isArray(data)) return data;
+  const dataRoot = rec(data);
+  if (Array.isArray(dataRoot.data)) return dataRoot.data;
+  if (Array.isArray(dataRoot.quotes)) return dataRoot.quotes;
+  if (Array.isArray(root.quotes)) return root.quotes;
+  return [];
+}
+
+function isLikelyCommonStock(symbol: string, name: string, info?: any) {
+  if (!/^\d{4}$/.test(symbol)) return false;
+  const code = Number(symbol);
+  if (!Number.isFinite(code) || code < 1100) return false;
+  const label = `${name} ${String(info?.stock_name ?? "")} ${String(info?.industry_category ?? "")}`;
+  if (/ETF|ETN|權證|指數|債券|債|期貨|選擇權/i.test(label)) return false;
+  return true;
+}
+
+export function normalizeFinMindMarketSnapshot(priceRows: any[], infoRows: any[]) {
+  const infoMap = new Map<string, any>();
+  for (const row of infoRows) {
+    const symbol = String(row.stock_id ?? row.symbol ?? "").trim();
+    if (symbol) infoMap.set(symbol, row);
+  }
+
+  const grouped = new Map<string, any[]>();
+  for (const row of priceRows) {
+    const symbol = String(row.stock_id ?? row.symbol ?? "").trim();
+    if (!symbol) continue;
+    const bucket = grouped.get(symbol) ?? [];
+    bucket.push(row);
+    grouped.set(symbol, bucket);
+  }
+
+  const result: any[] = [];
+  for (const [symbol, rows] of grouped) {
+    rows.sort((a, b) => String(a.date ?? "").localeCompare(String(b.date ?? "")));
+    const latest = rows.at(-1);
+    if (!latest) continue;
+    const info = infoMap.get(symbol) ?? {};
+    const name = String(info.stock_name ?? latest.stock_name ?? "");
+    if (!isLikelyCommonStock(symbol, name, info)) continue;
+
+    const close = num(latest.close);
+    if (close <= 0) continue;
+    const previousRow = rows.length >= 2 ? rows.at(-2) : undefined;
+    const previousCloseFromRow = num(previousRow?.close);
+    const spread = num(latest.spread);
+    const previousClose = previousCloseFromRow > 0
+      ? previousCloseFromRow
+      : spread !== 0
+        ? close - spread
+        : 0;
+    const changePercent = previousClose > 0 ? round((close / previousClose - 1) * 100, 2) : 0;
+    const marketRaw = String(info.type ?? info.market ?? latest.type ?? "").toUpperCase();
+    const market = marketRaw.includes("OTC") || marketRaw.includes("TPEX") ? "OTC" : "TSE";
+
+    result.push({
+      symbol,
+      name,
+      market,
+      open: num(latest.open),
+      high: num(latest.max ?? latest.high),
+      low: num(latest.min ?? latest.low),
+      close,
+      previous_close: previousClose,
+      change: previousClose > 0 ? round(close - previousClose, 4) : spread,
+      change_percent: changePercent,
+      trade_volume: num(latest.Trading_Volume ?? latest.volume),
+      trade_value: num(latest.Trading_money ?? latest.Trading_Value ?? latest.trade_value),
+      intraday_position: null,
+      last_updated: latest.date ?? null,
+      snapshot_provider: "FINMIND_FALLBACK",
+    });
+  }
+  return result;
+}
+
+async function loadFugleCommonStockSnapshot(env: Env) {
+  const markets = ["TSE", "OTC"] as const;
+  const settled = await Promise.allSettled(markets.map(async (market) => {
+    const body = await fugle(env, `/snapshot/quotes/${market}`, { type: "COMMONSTOCK" });
+    const rows = extractFugleSnapshotRows(body);
+    const normalized = rows
+      .map((row) => ({ market, ...normalizeQuote(row, String(rec(row).symbol ?? ""),), snapshot_provider: "FUGLE" }))
       .filter((row) => /^\d{4,6}$/.test(row.symbol) && row.close > 0);
+    return { market, data: normalized };
   }));
+
   const data: any[] = [];
   const errors: string[] = [];
-  settled.forEach((result) => {
-    if (result.status === "fulfilled") data.push(...result.value);
-    else errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+  const market_status: any[] = [];
+  settled.forEach((result, index) => {
+    const market = markets[index];
+    if (result.status === "fulfilled") {
+      data.push(...result.value.data);
+      market_status.push({ market, status: result.value.data.length ? "OK" : "EMPTY", count: result.value.data.length });
+      if (!result.value.data.length) errors.push(`Fugle ${market} snapshot 回傳 0 筆普通股`);
+    } else {
+      const error = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      errors.push(`Fugle ${market}: ${error}`);
+      market_status.push({ market, status: "ERROR", count: 0, error });
+    }
   });
-  return { data, errors };
+  return { data, errors, market_status };
+}
+
+async function loadFinMindFallbackSnapshot(env: Env) {
+  try {
+    const [priceRows, infoRows] = await Promise.all([
+      finmind(env, "TaiwanStockPrice", {
+        start_date: taipeiDate(10),
+        end_date: taipeiDate(),
+      }),
+      finmind(env, "TaiwanStockInfo", {}),
+    ]);
+    const data = normalizeFinMindMarketSnapshot(priceRows, infoRows);
+    return {
+      data,
+      error: data.length ? null : "FinMind fallback 回傳資料但無法形成有效普通股 snapshot",
+      price_row_count: priceRows.length,
+      info_row_count: infoRows.length,
+    };
+  } catch (error) {
+    return {
+      data: [] as any[],
+      error: error instanceof Error ? error.message : String(error),
+      price_row_count: 0,
+      info_row_count: 0,
+    };
+  }
+}
+
+async function loadCommonStockSnapshot(env: Env) {
+  const primary = await loadFugleCommonStockSnapshot(env);
+  const shouldFallback = primary.data.length < 100 || primary.market_status.some((row) => row.status !== "OK");
+  let fallback = { data: [] as any[], error: null as string | null, price_row_count: 0, info_row_count: 0 };
+  if (shouldFallback) fallback = await loadFinMindFallbackSnapshot(env);
+
+  const merged = new Map<string, any>();
+  for (const row of fallback.data) merged.set(row.symbol, row);
+  for (const row of primary.data) merged.set(row.symbol, row);
+  const data = [...merged.values()];
+
+  let source: SnapshotSource = "UNAVAILABLE";
+  if (primary.data.length && fallback.data.length) source = "FUGLE_WITH_FINMIND_FALLBACK";
+  else if (primary.data.length) source = "FUGLE";
+  else if (fallback.data.length) source = "FINMIND_FALLBACK";
+
+  const errors = [...primary.errors];
+  if (shouldFallback && fallback.error) errors.push(`FinMind fallback: ${fallback.error}`);
+  return {
+    data,
+    errors,
+    source,
+    fallback_used: shouldFallback,
+    provider_status: {
+      fugle: {
+        configured: Boolean(env.FUGLE_API_KEY),
+        count: primary.data.length,
+        markets: primary.market_status,
+      },
+      finmind_fallback: {
+        attempted: shouldFallback,
+        configured: Boolean(env.FINMIND_TOKEN),
+        count: fallback.data.length,
+        price_row_count: fallback.price_row_count,
+        info_row_count: fallback.info_row_count,
+        error: fallback.error,
+      },
+    },
+  };
+}
+
+function unavailablePayload(
+  status: string,
+  familyMode: FamilyMode,
+  snapshot: Awaited<ReturnType<typeof loadCommonStockSnapshot>>,
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    version: FAMILY_STOCK_SELECTION_VERSION,
+    status,
+    research_only: true,
+    family_mode: familyMode,
+    horizon: "1-8 weeks",
+    candidates: [],
+    data_quality: "INSUFFICIENT",
+    message: "本輪沒有形成可驗證候選股；這是資料鏈/篩選狀態，不代表市場上沒有好股票。請勿用新聞或猜測硬湊 Top 5。",
+    diagnostics: {
+      snapshot_source: snapshot.source,
+      snapshot_count: snapshot.data.length,
+      fallback_used: snapshot.fallback_used,
+      provider_status: snapshot.provider_status,
+      errors: snapshot.errors,
+      ...extra,
+    },
+  };
 }
 
 export function registerFamilyStockSelectionTools(server: McpServer, env: Env) {
   server.registerTool("screen_family_swing_candidates", {
-    description: "家用版全台股波段選股器。從上市櫃普通股主動找1~8週研究候選，不需要先提供股票代號。採兩階段篩選：全市場流動性快篩，再用日線趨勢/動能/波動/位置與最新月營收年增做深度排序。輸出GREEN_RESEARCH/YELLOW_WAIT/RED_SKIP，避免把好公司直接等同現在可追價；不提供下單、不自動買賣、不寫入Diamond研究記憶。",
+    description: "家用版全台股波段選股器。從上市櫃普通股主動找1~8週研究候選，不需要先提供股票代號。採兩階段篩選：全市場流動性快篩，再用日線趨勢/動能/波動/位置與最新月營收年增做深度排序。Fugle 全市場 snapshot 不完整時會嘗試 FinMind 市場資料 fallback，並回傳可讀 diagnostics。輸出GREEN_RESEARCH/YELLOW_WAIT/RED_SKIP，避免把好公司直接等同現在可追價；不提供下單、不自動買賣、不寫入Diamond研究記憶。",
     inputSchema: {
       mode: z.enum(["stable", "balanced", "aggressive"]).optional().default("balanced"),
       top_n: z.number().int().min(1).max(10).optional().default(5),
@@ -211,11 +397,18 @@ export function registerFamilyStockSelectionTools(server: McpServer, env: Env) {
       const familyMode = mode as FamilyMode;
       const cfg = MODE_CONFIG[familyMode];
       const snapshot = await loadCommonStockSnapshot(env);
+      if (!snapshot.data.length) return ok(unavailablePayload("DATA_UNAVAILABLE", familyMode, snapshot));
+
       const liquid = snapshot.data
         .filter((row) => row.trade_value >= cfg.minTradeValue)
         .filter((row) => row.change_percent > -9.5 && row.change_percent < 9.8)
         .sort((a, b) => b.trade_value - a.trade_value)
         .slice(0, cfg.snapshotShortlist);
+      if (!liquid.length) {
+        return ok(unavailablePayload("NO_LIQUID_CANDIDATES", familyMode, snapshot, {
+          min_trade_value: cfg.minTradeValue,
+        }));
+      }
 
       const technicalSettled = await concurrencyMap(liquid, 5, async (quote: any) => {
         const bars = normalizeDailyBars(await finmind(env, "TaiwanStockPrice", {
@@ -232,6 +425,14 @@ export function registerFamilyStockSelectionTools(server: McpServer, env: Env) {
         .flatMap((result) => result.status === "fulfilled" ? [result.value] : [])
         .sort((a: any, b: any) => num(b.technical?.score) - num(a.technical?.score))
         .slice(0, cfg.technicalShortlist);
+      if (!technicalRows.length) {
+        return ok(unavailablePayload("TECHNICAL_DATA_UNAVAILABLE", familyMode, snapshot, {
+          liquid_count: liquid.length,
+          technical_errors: technicalSettled.flatMap((result, index) => result.status === "rejected"
+            ? [{ symbol: liquid[index]?.symbol, error: result.reason instanceof Error ? result.reason.message : String(result.reason) }]
+            : []),
+        }));
+      }
 
       const [infoResult, deepSettled] = await Promise.all([
         finmind(env, "TaiwanStockInfo", {}).catch(() => []),
@@ -284,6 +485,13 @@ export function registerFamilyStockSelectionTools(server: McpServer, env: Env) {
         })
         .sort((a, b) => b.family_score - a.family_score);
 
+      if (!ranked.length) {
+        return ok(unavailablePayload("DEEP_DATA_UNAVAILABLE", familyMode, snapshot, {
+          liquid_count: liquid.length,
+          technical_scanned_count: technicalRows.length,
+        }));
+      }
+
       const green = ranked.filter((row) => row.family_bucket === "GREEN_RESEARCH");
       const yellow = ranked.filter((row) => row.family_bucket === "YELLOW_WAIT");
       const red = ranked.filter((row) => row.family_bucket === "RED_SKIP");
@@ -291,15 +499,23 @@ export function registerFamilyStockSelectionTools(server: McpServer, env: Env) {
 
       return ok({
         version: FAMILY_STOCK_SELECTION_VERSION,
+        status: candidates.length ? "OK" : "NO_QUALIFIED_CANDIDATES",
         research_only: true,
         family_mode: familyMode,
         horizon: "1-8 weeks",
         as_of: new Date().toISOString(),
+        data_quality: candidates.length ? "USABLE" : "NO_QUALIFIED_RESULTS",
         universe: {
+          snapshot_source: snapshot.source,
           snapshot_count: snapshot.data.length,
           liquid_count: liquid.length,
           technical_scanned_count: technicalRows.length,
           deep_scanned_count: ranked.length,
+        },
+        diagnostics: {
+          fallback_used: snapshot.fallback_used,
+          provider_status: snapshot.provider_status,
+          snapshot_errors: snapshot.errors,
         },
         interpretation: {
           GREEN_RESEARCH: "優先研究：條件相對完整，但仍要等合理位置，不代表直接買進。",
@@ -314,10 +530,12 @@ export function registerFamilyStockSelectionTools(server: McpServer, env: Env) {
           "不提供自動下單或保證報酬",
           "資料不足時必須明示，不可捏造即時價格、籌碼或目標價",
           "此家用選股結果不寫入Diamond GPT Judgment/Trading Knowledge，避免污染研究記憶",
+          "全市場資料鏈失敗時不可用新聞或猜測硬湊 Top 5",
         ],
         partial_errors: [
           ...snapshot.errors,
           ...technicalSettled.flatMap((result, index) => result.status === "rejected" ? [{ symbol: liquid[index]?.symbol, error: result.reason instanceof Error ? result.reason.message : String(result.reason) }] : []),
+          ...deepSettled.flatMap((result, index) => result.status === "rejected" ? [{ symbol: technicalRows[index]?.symbol, error: result.reason instanceof Error ? result.reason.message : String(result.reason) }] : []),
         ],
       });
     } catch (error) {
