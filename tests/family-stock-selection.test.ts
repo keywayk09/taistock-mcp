@@ -8,7 +8,7 @@ const root = path.resolve(here, "..");
 const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
 
 const source = read("src/v6/family-stock-selection.ts");
-assert.match(source, /FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection\/v1\.0\.0"/);
+assert.match(source, /FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection\/v1\.1\.0"/);
 assert.match(source, /server\.registerTool\("screen_family_swing_candidates"/);
 assert.match(source, /z\.enum\(\["stable", "balanced", "aggressive"\]\)/);
 assert.match(source, /GREEN_RESEARCH/);
@@ -20,12 +20,24 @@ assert.match(source, /snapshotShortlist/);
 assert.match(source, /technicalShortlist/);
 assert.match(source, /TaiwanStockMonthRevenue/);
 assert.match(source, /TaiwanStockPrice/);
+assert.match(source, /TaiwanStockInfo/);
 assert.match(source, /COMMONSTOCK/);
 assert.match(source, /scoreFamilyCandidate/);
+assert.match(source, /normalizeFinMindMarketSnapshot/);
+assert.match(source, /FINMIND_FALLBACK/);
+assert.match(source, /FUGLE_WITH_FINMIND_FALLBACK/);
+assert.match(source, /provider_status/);
+assert.match(source, /DATA_UNAVAILABLE/);
+assert.match(source, /TECHNICAL_DATA_UNAVAILABLE/);
+assert.match(source, /DEEP_DATA_UNAVAILABLE/);
+assert.match(source, /不代表市場上沒有好股票/);
+assert.match(source, /不可用新聞或猜測硬湊 Top 5/);
+assert.match(source, /configured: Boolean\(env\.FUGLE_API_KEY\)/);
+assert.match(source, /configured: Boolean\(env\.FINMIND_TOKEN\)/);
 
 const index = read("src/index-v6.ts");
 assert.match(index, /registerFamilyStockSelectionTools\(this\.server, this\.env\)/);
-assert.match(index, /version: "6\.15\.0"/);
+assert.match(index, /version: "6\.15\.1"/);
 assert.match(index, /tools: 106/);
 
 const instructions = read("docs/family-custom-gpt-instructions.md");
@@ -33,4 +45,4 @@ assert.match(instructions, /必須優先呼叫 MCP 工具 `screen_family_swing_c
 assert.match(instructions, /好公司不等於現在就是好買點/);
 assert.match(instructions, /目前沒有需要追的股票/);
 
-console.log("P17 family stock selection contract/regression tests passed");
+console.log("P17b family stock selection fallback/diagnostic contract tests passed");
