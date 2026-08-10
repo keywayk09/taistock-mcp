@@ -13,15 +13,17 @@ import {
   type Obj,
 } from "../v6/common";
 
-export const FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection/production-v1.2.0";
+export const FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection/production-v1.3.0";
 
 const TWSE_QUOTES_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL";
 const TPEX_QUOTES_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes";
-const USER_AGENT = "taistock-mcp-family-selector/1.2 (+https://github.com/keywayk09/taistock-mcp)";
+const TWSE_MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp";
+const USER_AGENT = "taistock-mcp-family-selector/1.3 (+https://github.com/keywayk09/taistock-mcp)";
+const MIS_BATCH_SIZE = 100;
 
 type FamilyMode = "stable" | "balanced" | "aggressive";
 type Market = "TWSE" | "TPEx";
-type Provider = "TWSE_OPENAPI" | "TPEX_OPENAPI" | "FUGLE_TSE" | "FUGLE_OTC" | "FINMIND_FALLBACK" | "UNAVAILABLE";
+type Provider = "TWSE_OPENAPI" | "TPEX_OPENAPI" | "FUGLE_TSE" | "FUGLE_OTC" | "FUGLE_TICKERS_MIS_OTC" | "FINMIND_FALLBACK" | "UNAVAILABLE";
 
 type SnapshotRow = {
   market: Market;
@@ -237,6 +239,108 @@ async function tryOfficialMarket(market: Market): Promise<MarketSnapshot> {
   }
 }
 
+function chunked<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
+}
+
+async function fetchMisOtcBatch(symbols: string[]) {
+  const url = new URL(TWSE_MIS_URL);
+  url.searchParams.set("ex_ch", symbols.map((symbol) => `otc_${symbol}.tw`).join("|"));
+  url.searchParams.set("json", "1");
+  url.searchParams.set("delay", "0");
+  url.searchParams.set("_", String(Date.now()));
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json,text/plain,*/*",
+      "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+      Referer: "https://mis.twse.com.tw/stock/index.jsp",
+      "User-Agent": USER_AGENT,
+    },
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`TWSE MIS OTC HTTP ${response.status}: ${text.slice(0, 180)}`);
+  let body: any = null;
+  try { body = JSON.parse(text); }
+  catch { throw new Error("TWSE MIS OTC 回傳無效 JSON"); }
+  if (String(body?.rtcode ?? "0000") !== "0000") throw new Error(`TWSE MIS OTC rtcode=${String(body?.rtcode)} ${String(body?.rtmessage ?? "")}`);
+  return Array.isArray(body?.msgArray) ? body.msgArray.map(rec) : [];
+}
+
+function normalizeMisOtcRow(raw: Obj, fallbackName: string): SnapshotRow | null {
+  const symbol = String(raw.c ?? "").trim();
+  const name = String(raw.n ?? raw.nf ?? fallbackName ?? "").trim();
+  if (!isOrdinaryStock(symbol, name)) return null;
+  const close = numberValue(raw.z) ?? numberValue(raw.pz);
+  const previous = numberValue(raw.y);
+  if (close == null || close <= 0) return null;
+  const volumeLots = numberValue(raw.v);
+  const tradeValue = volumeLots != null && volumeLots > 0 ? close * volumeLots * 1000 : 0;
+  return {
+    market: "TPEx",
+    symbol,
+    name,
+    open: numberValue(raw.o),
+    high: numberValue(raw.h),
+    low: numberValue(raw.l),
+    close,
+    change_pct: previous != null && previous > 0 ? round((close / previous - 1) * 100, 2) : null,
+    volume: volumeLots != null ? volumeLots * 1000 : null,
+    value: tradeValue,
+    source: "Fugle TPEx ticker universe + TWSE MIS OTC quotes",
+  };
+}
+
+async function tryFugleTickersMisOtc(env: Env): Promise<MarketSnapshot> {
+  try {
+    const tickerBody = await fugle(env, "/intraday/tickers", {
+      type: "EQUITY",
+      exchange: "TPEx",
+      market: "OTC",
+    });
+    const tickerRows = rowsFromBody(tickerBody);
+    const tickers = tickerRows.map((row) => ({
+      symbol: String(row.symbol ?? "").trim(),
+      name: String(row.name ?? "").trim(),
+    })).filter((row) => isOrdinaryStock(row.symbol, row.name));
+    if (tickers.length < MIN_COVERAGE.TPEx) {
+      throw new Error(`Fugle /intraday/tickers TPEx OTC 僅 ${tickers.length} 筆`);
+    }
+
+    const nameBySymbol = new Map(tickers.map((row) => [row.symbol, row.name]));
+    const batches = chunked(tickers.map((row) => row.symbol), MIS_BATCH_SIZE);
+    const settled = await concurrencyMap(batches, 4, async (batch) => fetchMisOtcBatch(batch));
+    const errors: string[] = [];
+    const raw: Obj[] = [];
+    settled.forEach((result, index) => {
+      if (result.status === "fulfilled") raw.push(...result.value);
+      else errors.push(`TWSE MIS batch ${index + 1}/${batches.length}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+    });
+    const deduped = new Map<string, SnapshotRow>();
+    for (const item of raw) {
+      const symbol = String(item.c ?? "").trim();
+      const row = normalizeMisOtcRow(item, nameBySymbol.get(symbol) ?? "");
+      if (row) deduped.set(row.symbol, row);
+    }
+    const rows = [...deduped.values()];
+    return {
+      market: "TPEx",
+      provider: rows.length ? "FUGLE_TICKERS_MIS_OTC" : "UNAVAILABLE",
+      rows,
+      raw_count: raw.length,
+      normalized_count: rows.length,
+      sample_keys: Object.keys(raw[0] ?? {}).slice(0, 24),
+      errors: rows.length ? errors : [...errors, "Fugle ticker universe 可用，但 TWSE MIS OTC 正規化後為 0 筆"],
+    };
+  } catch (error) {
+    return {
+      market: "TPEx", provider: "UNAVAILABLE", rows: [], raw_count: 0, normalized_count: 0, sample_keys: [],
+      errors: [error instanceof Error ? error.message : String(error)],
+    };
+  }
+}
+
 async function tryFugleMarket(env: Env, market: Market): Promise<MarketSnapshot> {
   const fugleMarket = market === "TWSE" ? "TSE" : "OTC";
   const provider: Provider = market === "TWSE" ? "FUGLE_TSE" : "FUGLE_OTC";
@@ -347,6 +451,13 @@ async function loadMarketUniverse(env: Env, requestedDate: string) {
   diagnostics.TPEx.attempts.push({ provider: official[1].provider, count: official[1].normalized_count, errors: official[1].errors });
 
   const deficient = (market: Market) => chosen[market].normalized_count < MIN_COVERAGE[market];
+
+  if (deficient("TPEx")) {
+    const misFallback = await tryFugleTickersMisOtc(env);
+    diagnostics.TPEx.attempts.push({ provider: misFallback.provider, count: misFallback.normalized_count, errors: misFallback.errors });
+    if (misFallback.normalized_count >= MIN_COVERAGE.TPEx) chosen.TPEx = misFallback;
+  }
+
   const fugleMarkets = (["TWSE", "TPEx"] as Market[]).filter(deficient);
   if (fugleMarkets.length) {
     const fugleResults = await Promise.all(fugleMarkets.map((market) => tryFugleMarket(env, market)));
@@ -715,7 +826,7 @@ export async function runFamilyStockSelection(env: Env, input: { query: string; 
     requested_date: requestedDate,
     latest_candidate_price_date: priceDates.at(-1) ?? null,
     universe: {
-      source: "TWSE/TPEx official OpenAPI with Fugle/FinMind provider fallback",
+      source: "TWSE/TPEx official OpenAPI with controlled Fugle ticker + TWSE MIS / Fugle snapshot / FinMind fallbacks",
       twse_provider: snapshot.TWSE.provider,
       tpex_provider: snapshot.TPEx.provider,
       twse_count: snapshot.TWSE.normalized_count,
@@ -740,7 +851,7 @@ export async function runFamilyStockSelection(env: Env, input: { query: string; 
     hard_rules: [
       "好公司不等於現在就是好買點。",
       "家用波段選股以不追高為硬原則；YELLOW_WAIT 不是立即買進訊號。",
-      "全市場候選優先使用 TWSE/TPEx 官方資料；官方來源不可用時，只能切到受控市場資料供應商，不用新聞或熱門股名單硬湊。",
+      "全市場候選優先使用 TWSE/TPEx 官方資料；TPEx 官方全市場端點不可用時，可用 Fugle 股票清單建立上櫃 universe，再由 TWSE MIS 取得批次行情；仍不可用新聞或熱門股名單硬湊。",
       "歷史技術資料、月營收或法人資料缺失時要明示，不捏造數字。",
       "不提供自動下單、不保證報酬。",
     ],
