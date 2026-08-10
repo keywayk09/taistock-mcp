@@ -18,11 +18,13 @@ jobs:
       - run: npm run type-check
       - run: node tests/production-family-selector.test.mjs
       - run: npx wrangler deploy --dry-run --outdir dist
-      - name: Probe deployed alternative family data paths
+      - name: Compare live production routes
         run: |
-          code=$(curl --silent --show-error --max-time 120 \
-            https://taistock-mcp.keywayk09.workers.dev/health/family-alternative-data \
-            -o /tmp/family-alternative-data.json -w '%{http_code}')
-          echo "HTTP=$code"
-          cat /tmp/family-alternative-data.json
-          node -e 'const fs=require("fs"); const x=JSON.parse(fs.readFileSync("/tmp/family-alternative-data.json","utf8")); console.log(JSON.stringify(x,null,2));'
+          for path in health health/family-selection-data health/family-alternative-data; do
+            echo "=== /$path ==="
+            curl --silent --show-error --max-time 120 \
+              -o "/tmp/${path//\//-}.txt" -w 'HTTP=%{http_code}\n' \
+              "https://taistock-mcp.keywayk09.workers.dev/$path" || true
+            cat "/tmp/${path//\//-}.txt" || true
+            echo
+          done
