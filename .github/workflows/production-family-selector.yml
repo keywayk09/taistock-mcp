@@ -18,15 +18,11 @@ jobs:
       - run: npm run type-check
       - run: node tests/production-family-selector.test.mjs
       - run: npx wrangler deploy --dry-run --outdir dist
-      - name: Probe TPEx official OpenAPI hosts
+      - name: Verify deployed family market data v1.2
         run: |
-          for url in \
-            'https://tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes' \
-            'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes' \
-            'https://tpex.org.tw/openapi/v1/tpex_mainboard_quotes'; do
-            echo "=== $url ==="
-            curl --silent --show-error --max-time 30 --max-redirs 5 \
-              -D /tmp/headers.txt -o /tmp/body.txt -w 'HTTP=%{http_code} redirects=%{num_redirects} final=%{url_effective}\n' "$url" || true
-            head -c 400 /tmp/body.txt || true
-            echo
-          done
+          code=$(curl --silent --show-error --max-time 120 \
+            https://taistock-mcp.keywayk09.workers.dev/health/family-selection-data \
+            -o /tmp/family-selection-data.json -w '%{http_code}')
+          echo "HTTP=$code"
+          cat /tmp/family-selection-data.json
+          node -e 'const fs=require("fs"); const x=JSON.parse(fs.readFileSync("/tmp/family-selection-data.json","utf8")); if(x.selector_version!=="family-stock-selection/production-v1.2.0") throw new Error(`wrong version ${x.selector_version}`); if(!x.usable) throw new Error(`not usable ${JSON.stringify(x)}`); if((x.twse?.normalized_count??0)<400) throw new Error(`TWSE ${x.twse?.normalized_count}`); if((x.tpex?.normalized_count??0)<250) throw new Error(`TPEx ${x.tpex?.normalized_count}`); console.log(`PRODUCTION_OK TWSE=${x.twse.normalized_count} via ${x.twse.provider} TPEx=${x.tpex.normalized_count} via ${x.tpex.provider}`);'
