@@ -4,7 +4,7 @@ import {
   diagnoseFamilySelectionData,
   isFamilyStockSelectionQuery,
   runFamilyStockSelection,
-} from "./v8/family-stock-selection";
+} from "./v8/family-stock-selection-v12";
 
 export { FamilyMCP, MyMCP } from "./oauth-entry";
 
@@ -109,9 +109,9 @@ async function augmentHealth(request: Request, env: Env, ctx: ExecutionContext) 
   }
 }
 
-async function familyDataHealth() {
+async function familyDataHealth(env: Env) {
   try {
-    const diagnostics = await diagnoseFamilySelectionData();
+    const diagnostics = await diagnoseFamilySelectionData(env);
     return jsonResponse(diagnostics, diagnostics.usable ? 200 : 503);
   } catch (error) {
     return jsonResponse({
@@ -126,7 +126,7 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
     if (url.pathname === "/" || url.pathname === "/health") return augmentHealth(request, env, ctx);
-    if (url.pathname === "/health/family-selection-data" && request.method === "GET") return familyDataHealth();
+    if (url.pathname === "/health/family-selection-data" && request.method === "GET") return familyDataHealth(env);
     const familySelection = await maybeHandleFamilySelection(request, env as RuntimeEnv);
     if (familySelection) return familySelection;
     return legacyOauthEntry.fetch(request, env, ctx);
