@@ -1,0 +1,4 @@
+production-branch: feature/twchips-official-v7
+purpose: trigger Cloudflare production rebuild after restoring correct production branch
+selector: family-stock-selection/production-v1.0.0
+triggered-at: 2026-08-10T09:53:00+08:00
