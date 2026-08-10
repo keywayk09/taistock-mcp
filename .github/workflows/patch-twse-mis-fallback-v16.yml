@@ -1,0 +1,242 @@
+name: One-shot TWSE MIS fallback v1.6
+
+on:
+  push:
+    branches:
+      - feature/twchips-official-v7
+    paths:
+      - .github/workflows/patch-twse-mis-fallback-v16.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/twchips-official-v7
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build v1.6 selector without overwriting v1.5
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          base = Path('src/v8/family-stock-selection-v14.ts')
+          new = Path('src/v8/family-stock-selection-v15.ts')
+          text = base.read_text(encoding='utf-8')
+
+          if 'family-stock-selection/production-v1.5.0' not in text:
+              raise SystemExit('expected production-v1.5.0 base')
+          if 'FUGLE_TICKERS_MIS_OTC' not in text:
+              raise SystemExit('expected OTC MIS fallback in base')
+
+          text = text.replace(
+              'export const FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection/production-v1.5.0";',
+              'export const FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection/production-v1.6.0";',
+              1,
+          )
+          text = text.replace(
+              'const USER_AGENT = "taistock-mcp-family-selector/1.5 (+https://github.com/keywayk09/taistock-mcp)";',
+              'const USER_AGENT = "taistock-mcp-family-selector/1.6 (+https://github.com/keywayk09/taistock-mcp)";',
+              1,
+          )
+          text = text.replace(
+              'type Provider = "TWSE_OPENAPI" | "TPEX_OPENAPI" | "TPEX_QUOTES_OPENAPI" | "FUGLE_TSE" | "FUGLE_OTC" | "FUGLE_TICKERS_MIS_OTC" | "FINMIND_FALLBACK" | "UNAVAILABLE";',
+              'type Provider = "TWSE_OPENAPI" | "TPEX_OPENAPI" | "TPEX_QUOTES_OPENAPI" | "FUGLE_TSE" | "FUGLE_OTC" | "FUGLE_TICKERS_MIS_TWSE" | "FUGLE_TICKERS_MIS_OTC" | "FINMIND_FALLBACK" | "UNAVAILABLE";',
+              1,
+          )
+
+          # Bound official-provider latency so a transient 522 cannot consume the Gemini request budget.
+          old_fetch_start = '''const response = await fetch(url, {
+              redirect: "manual",
+              headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+            });'''
+          new_fetch_start = '''const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort("official provider timeout"), 5_000);
+            let response: Response;
+            try {
+              response = await fetch(url, {
+                redirect: "manual",
+                signal: controller.signal,
+                headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+              });
+            } finally {
+              clearTimeout(timer);
+            }'''
+          if old_fetch_start not in text:
+              raise SystemExit('official fetch block not found')
+          text = text.replace(old_fetch_start, new_fetch_start, 1)
+
+          marker = 'async function fetchMisOtcBatch(symbols: string[]) {'
+          if marker not in text:
+              raise SystemExit('OTC MIS batch marker not found')
+          twse_helpers = r'''async function fetchMisTwseBatch(symbols: string[]) {
+            const url = new URL(TWSE_MIS_URL);
+            url.searchParams.set("ex_ch", symbols.map((symbol) => `tse_${symbol}.tw`).join("|"));
+            url.searchParams.set("json", "1");
+            url.searchParams.set("delay", "0");
+            url.searchParams.set("_", String(Date.now()));
+            const response = await fetch(url, {
+              headers: {
+                Accept: "application/json,text/plain,*/*",
+                "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+                Referer: "https://mis.twse.com.tw/stock/index.jsp",
+                "User-Agent": USER_AGENT,
+              },
+            });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`TWSE MIS listed HTTP ${response.status}: ${text.slice(0, 180)}`);
+            let body: any = null;
+            try { body = JSON.parse(text); }
+            catch { throw new Error("TWSE MIS listed 回傳無效 JSON"); }
+            if (String(body?.rtcode ?? "0000") !== "0000") throw new Error(`TWSE MIS listed rtcode=${String(body?.rtcode)} ${String(body?.rtmessage ?? "")}`);
+            return Array.isArray(body?.msgArray) ? body.msgArray.map(rec) : [];
+          }
+
+          function normalizeMisTwseRow(raw: Obj, fallbackName: string): SnapshotRow | null {
+            const symbol = String(raw.c ?? "").trim();
+            const name = String(raw.n ?? raw.nf ?? fallbackName ?? "").trim();
+            if (!isOrdinaryStock(symbol, name)) return null;
+            const close = numberValue(raw.z) ?? numberValue(raw.pz);
+            const previous = numberValue(raw.y);
+            if (close == null || close <= 0) return null;
+            const volumeLots = numberValue(raw.v);
+            const tradeValue = volumeLots != null && volumeLots > 0 ? close * volumeLots * 1000 : 0;
+            return {
+              market: "TWSE",
+              symbol,
+              name,
+              open: numberValue(raw.o),
+              high: numberValue(raw.h),
+              low: numberValue(raw.l),
+              close,
+              change_pct: previous != null && previous > 0 ? round((close / previous - 1) * 100, 2) : null,
+              volume: volumeLots != null ? volumeLots * 1000 : null,
+              value: tradeValue,
+              source: "Fugle TWSE ticker universe + TWSE MIS listed quotes",
+            };
+          }
+
+          async function tryFugleTickersMisTwse(env: Env): Promise<MarketSnapshot> {
+            try {
+              const tickerBody = await fugle(env, "/intraday/tickers", {
+                type: "EQUITY",
+                exchange: "TWSE",
+                market: "TSE",
+              });
+              const tickerRows = rowsFromBody(tickerBody);
+              const tickers = tickerRows.map((row) => ({
+                symbol: String(row.symbol ?? "").trim(),
+                name: String(row.name ?? "").trim(),
+              })).filter((row) => isOrdinaryStock(row.symbol, row.name));
+              if (tickers.length < MIN_COVERAGE.TWSE) {
+                throw new Error(`Fugle /intraday/tickers TWSE TSE 僅 ${tickers.length} 筆`);
+              }
+
+              const nameBySymbol = new Map(tickers.map((row) => [row.symbol, row.name]));
+              const batches = chunked(tickers.map((row) => row.symbol), MIS_BATCH_SIZE);
+              const settled = await concurrencyMap(batches, 4, async (batch) => fetchMisTwseBatch(batch));
+              const errors: string[] = [];
+              const raw: Obj[] = [];
+              settled.forEach((result, index) => {
+                if (result.status === "fulfilled") raw.push(...result.value);
+                else errors.push(`TWSE MIS listed batch ${index + 1}/${batches.length}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+              });
+              const deduped = new Map<string, SnapshotRow>();
+              for (const item of raw) {
+                const symbol = String(item.c ?? "").trim();
+                const row = normalizeMisTwseRow(item, nameBySymbol.get(symbol) ?? "");
+                if (row) deduped.set(row.symbol, row);
+              }
+              const rows = [...deduped.values()];
+              return {
+                market: "TWSE",
+                provider: rows.length ? "FUGLE_TICKERS_MIS_TWSE" : "UNAVAILABLE",
+                rows,
+                raw_count: raw.length,
+                normalized_count: rows.length,
+                sample_keys: Object.keys(raw[0] ?? {}).slice(0, 24),
+                errors: rows.length ? errors : [...errors, "Fugle TWSE ticker universe 可用，但 TWSE MIS listed 正規化後為 0 筆"],
+              };
+            } catch (error) {
+              return {
+                market: "TWSE", provider: "UNAVAILABLE", rows: [], raw_count: 0, normalized_count: 0, sample_keys: [],
+                errors: [error instanceof Error ? error.message : String(error)],
+              };
+            }
+          }
+
+          '''
+          text = text.replace(marker, twse_helpers + marker, 1)
+
+          load_marker = '''  const deficient = (market: Market) => chosen[market].normalized_count < MIN_COVERAGE[market];
+
+          if (deficient("TPEx")) {'''
+          replacement = '''  const deficient = (market: Market) => chosen[market].normalized_count < MIN_COVERAGE[market];
+
+          if (deficient("TWSE")) {
+            const misFallback = await tryFugleTickersMisTwse(env);
+            diagnostics.TWSE.attempts.push({ provider: misFallback.provider, count: misFallback.normalized_count, errors: misFallback.errors });
+            if (misFallback.normalized_count >= MIN_COVERAGE.TWSE) chosen.TWSE = misFallback;
+          }
+
+          if (deficient("TPEx")) {'''
+          if load_marker not in text:
+              raise SystemExit('loadMarketUniverse insertion marker not found')
+          text = text.replace(load_marker, replacement, 1)
+
+          if 'tryFugleTickersMisTwse' not in text or 'FUGLE_TICKERS_MIS_TWSE' not in text:
+              raise SystemExit('TWSE MIS fallback not applied')
+          new.write_text(text, encoding='utf-8')
+
+          entry_path = Path('src/production-entry.ts')
+          entry = entry_path.read_text(encoding='utf-8')
+          old_import = 'from "./v8/family-stock-selection-v14";'
+          new_import = 'from "./v8/family-stock-selection-v15";'
+          if old_import not in entry:
+              raise SystemExit('production-entry v14 import not found')
+          entry_path.write_text(entry.replace(old_import, new_import, 1), encoding='utf-8')
+
+          test_path = Path('tests/production-family-selector.test.mjs')
+          test = test_path.read_text(encoding='utf-8')
+          test = test.replace('src/v8/family-stock-selection-v14.ts', 'src/v8/family-stock-selection-v15.ts', 1)
+          test = test.replace('production-v1\\.5\\.0', 'production-v1\\.6\\.0', 1)
+          test = test.replace('/\\.\\/v8\\/family-stock-selection-v14/', '/\\.\\/v8\\/family-stock-selection-v15/', 1)
+          marker_test = 'assert.match(selector, /tryFugleTickersMisOtc/);'
+          if marker_test in test and 'tryFugleTickersMisTwse' not in test:
+              test = test.replace(marker_test, marker_test + '\nassert.match(selector, /tryFugleTickersMisTwse/);\nassert.match(selector, /FUGLE_TICKERS_MIS_TWSE/);\nassert.match(selector, /AbortController/);', 1)
+          test = re.sub(
+              r'Production family selector provider-fallback v1\.\d+ regression contract passed',
+              'Production family selector provider-fallback v1.6 regression contract passed',
+              test,
+              count=1,
+          )
+          test_path.write_text(test, encoding='utf-8')
+          PY
+
+      - name: Verify TypeScript and production contract
+        run: |
+          npm install
+          npm run type-check
+          node tests/production-family-selector.test.mjs
+          npx wrangler deploy --dry-run --outdir dist
+
+      - name: Commit patch and remove helper workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/patch-twse-mis-fallback-v16.yml
+          git add src/v8/family-stock-selection-v15.ts src/production-entry.ts tests/production-family-selector.test.mjs
+          git commit -m "P17e: add TWSE MIS fallback and official timeout"
+          git push origin HEAD:feature/twchips-official-v7
