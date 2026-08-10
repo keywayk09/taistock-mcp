@@ -50,7 +50,7 @@ jobs:
           curl --silent --show-error --fail --max-time 60 "$base/health/family-cache" -o /tmp/family-cache.json
           grep -q 'family-selection-lkg/v2' /tmp/family-cache.json
           grep -q 'family-production-runtime/1.9.0' /tmp/family-cache.json
-          grep -q 'selection_objective' /tmp/family-cache.json
+          grep -q '"objective"' /tmp/family-cache.json
 
           curl --silent --show-error --fail --max-time 30 \
             --get --data-urlencode 'q=有沒有低位階、還沒大漲但開始轉強的波段股 Top 5' \
