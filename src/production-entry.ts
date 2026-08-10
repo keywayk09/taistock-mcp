@@ -1,4 +1,5 @@
 import legacyOauthEntry from "./oauth-entry";
+import { probeFamilyAlternativeDataPaths } from "./v8/family-data-probes";
 import {
   FAMILY_STOCK_SELECTION_VERSION,
   diagnoseFamilySelectionData,
@@ -122,11 +123,20 @@ async function familyDataHealth(env: Env) {
   }
 }
 
+async function familyAlternativeDataHealth(env: Env) {
+  try {
+    return jsonResponse(await probeFamilyAlternativeDataPaths(env));
+  } catch (error) {
+    return jsonResponse({ error: error instanceof Error ? error.message : String(error) }, 503);
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
     if (url.pathname === "/" || url.pathname === "/health") return augmentHealth(request, env, ctx);
     if (url.pathname === "/health/family-selection-data" && request.method === "GET") return familyDataHealth(env);
+    if (url.pathname === "/health/family-alternative-data" && request.method === "GET") return familyAlternativeDataHealth(env);
     const familySelection = await maybeHandleFamilySelection(request, env as RuntimeEnv);
     if (familySelection) return familySelection;
     return legacyOauthEntry.fetch(request, env, ctx);
