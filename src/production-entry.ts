@@ -5,7 +5,12 @@ import {
   diagnoseFamilySelectionData,
   isFamilyStockSelectionQuery,
   runFamilyStockSelection,
-} from "./v8/family-stock-selection-v17";
+} from "./v8/family-stock-selection-v18";
+import {
+  inferFamilySelectionIntent,
+  type FamilyMode,
+  type FamilySelectionObjective,
+} from "./v8/family-selection-intent";
 
 export { FamilyMCP, MyMCP } from "./oauth-entry";
 
@@ -13,20 +18,20 @@ type RuntimeEnv = Env & {
   MOM_GPT_API_KEY?: string;
 };
 
-type FamilyMode = "stable" | "balanced" | "aggressive";
-
 type FamilyCacheEnvelope = {
-  schema: "family-selection-lkg/v1";
+  schema: "family-selection-lkg/v2";
   cached_at: string;
   selector_version: string;
   family_mode: FamilyMode;
+  selection_objective: FamilySelectionObjective;
+  intent_signature: string;
   top_n: number;
   result: Record<string, unknown>;
 };
 
-const FAMILY_RUNTIME_RELEASE = "family-production-runtime/1.8.0";
-const FAMILY_CACHE_SCHEMA = "family-selection-lkg/v1" as const;
-const FAMILY_CACHE_PREFIX = "family-selection:lkg:v1";
+const FAMILY_RUNTIME_RELEASE = "family-production-runtime/1.9.0";
+const FAMILY_CACHE_SCHEMA = "family-selection-lkg/v2" as const;
+const FAMILY_CACHE_PREFIX = "family-selection:lkg:v2";
 const FAMILY_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const FAMILY_PREWARM_QUERY = "波段選股，請你幫我找 Top 5";
 
@@ -74,17 +79,13 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 function familyRequestIdentity(query: string) {
-  const family_mode: FamilyMode = /穩健|保守|比較穩|低風險|穩一點/.test(query)
-    ? "stable"
-    : /積極|進攻|強勢|突破型|可以冒險/.test(query)
-      ? "aggressive"
-      : "balanced";
-  const match = query.match(/(?:top\s*|前\s*)(\d{1,2})/i);
-  const top_n = match ? Math.max(1, Math.min(10, Number(match[1]) || 5)) : 5;
+  const intent = inferFamilySelectionIntent(query);
   return {
-    family_mode,
-    top_n,
-    key: `${FAMILY_CACHE_PREFIX}:${family_mode}:top${top_n}`,
+    family_mode: intent.family_mode,
+    selection_objective: intent.objective,
+    intent_signature: intent.signature,
+    top_n: intent.top_n,
+    key: `${FAMILY_CACHE_PREFIX}:${intent.signature}:top${intent.top_n}`,
   };
 }
 
@@ -94,6 +95,15 @@ function validFamilyCacheEnvelope(value: unknown): value is FamilyCacheEnvelope 
   if (typeof item.cached_at !== "string" || !Number.isFinite(Date.parse(item.cached_at))) return false;
   if (typeof item.selector_version !== "string") return false;
   if (!(["stable", "balanced", "aggressive"] as const).includes(item.family_mode as FamilyMode)) return false;
+  if (!([
+    "balanced",
+    "low_position_turning_up",
+    "pullback_entry",
+    "breakout_confirmed",
+    "steady_trend",
+    "aggressive_momentum",
+  ] as const).includes(item.selection_objective as FamilySelectionObjective)) return false;
+  if (typeof item.intent_signature !== "string" || !item.intent_signature) return false;
   if (!Number.isInteger(item.top_n) || Number(item.top_n) < 1 || Number(item.top_n) > 10) return false;
   return Object.keys(record(item.result)).length > 0;
 }
@@ -108,6 +118,8 @@ async function putFamilySelectionCache(env: RuntimeEnv, query: string, result: u
     cached_at: new Date().toISOString(),
     selector_version: FAMILY_STOCK_SELECTION_VERSION,
     family_mode: identity.family_mode,
+    selection_objective: identity.selection_objective,
+    intent_signature: identity.intent_signature,
     top_n: identity.top_n,
     result: payload,
   };
@@ -122,7 +134,10 @@ async function getFamilySelectionCache(env: RuntimeEnv, query: string) {
   try { parsed = JSON.parse(raw); }
   catch { return null; }
   if (!validFamilyCacheEnvelope(parsed)) return null;
-  if (parsed.family_mode !== identity.family_mode || parsed.top_n !== identity.top_n) return null;
+  if (parsed.family_mode !== identity.family_mode
+    || parsed.selection_objective !== identity.selection_objective
+    || parsed.intent_signature !== identity.intent_signature
+    || parsed.top_n !== identity.top_n) return null;
   const age_ms = Date.now() - Date.parse(parsed.cached_at);
   if (age_ms < 0 || age_ms > FAMILY_CACHE_MAX_AGE_MS) return null;
   const candidates = Array.isArray(parsed.result.candidates) ? parsed.result.candidates : [];
@@ -141,8 +156,10 @@ function cachedFallbackResult(cache: { envelope: FamilyCacheEnvelope; age_ms: nu
       cached_at: cache.envelope.cached_at,
       age_minutes: Math.round(cache.age_ms / 60000),
       selector_version: cache.envelope.selector_version,
+      selection_objective: cache.envelope.selection_objective,
+      intent_signature: cache.envelope.intent_signature,
       reason: liveError instanceof Error ? liveError.message : String(liveError),
-      rule: "即時完整市場資料鏈失敗時，只能回退到七日內最後一次成功的完整選股結果；不得改用新聞或熱門股硬湊。",
+      rule: "即時完整市場資料鏈失敗時，只能回退到七日內同一選股意圖的最後成功結果；不得拿 balanced 名單冒充低位階/回檔/突破，也不得用新聞硬湊。",
     },
   };
 }
@@ -152,21 +169,32 @@ async function familyCacheHealth(env: RuntimeEnv) {
     "穩健波段選股 Top 5",
     FAMILY_PREWARM_QUERY,
     "積極波段選股 Top 5",
+    "有沒有低位階、還沒大漲但開始轉強的波段股 Top 5",
+    "找回檔到支撐附近的波段股 Top 5",
+    "找突破確認型的波段股 Top 5",
   ];
   const rows = await Promise.all(queries.map(async (query) => {
     const identity = familyRequestIdentity(query);
     const raw = await env.OAUTH_KV.get(identity.key);
-    if (!raw) return { mode: identity.family_mode, top_n: identity.top_n, available: false };
+    if (!raw) return {
+      mode: identity.family_mode,
+      objective: identity.selection_objective,
+      intent_signature: identity.intent_signature,
+      top_n: identity.top_n,
+      available: false,
+    };
     let parsed: unknown;
     try { parsed = JSON.parse(raw); }
-    catch { return { mode: identity.family_mode, top_n: identity.top_n, available: false, invalid: true }; }
+    catch { return { objective: identity.selection_objective, top_n: identity.top_n, available: false, invalid: true }; }
     if (!validFamilyCacheEnvelope(parsed)) {
-      return { mode: identity.family_mode, top_n: identity.top_n, available: false, invalid: true };
+      return { objective: identity.selection_objective, top_n: identity.top_n, available: false, invalid: true };
     }
     const age_ms = Date.now() - Date.parse(parsed.cached_at);
     const candidates = Array.isArray(parsed.result.candidates) ? parsed.result.candidates : [];
     return {
       mode: identity.family_mode,
+      objective: identity.selection_objective,
+      intent_signature: identity.intent_signature,
       top_n: identity.top_n,
       available: age_ms >= 0 && age_ms <= FAMILY_CACHE_MAX_AGE_MS && candidates.length > 0,
       cached_at: parsed.cached_at,
@@ -180,6 +208,7 @@ async function familyCacheHealth(env: RuntimeEnv) {
     runtime_release: FAMILY_RUNTIME_RELEASE,
     cache_schema: FAMILY_CACHE_SCHEMA,
     max_age_days: FAMILY_CACHE_MAX_AGE_MS / 86400000,
+    identity_rule: "family_mode + selection_objective + avoid_chasing signature + top_n",
     entries: rows,
   };
 }
@@ -195,11 +224,8 @@ async function maybeHandleFamilySelection(request: Request, env: RuntimeEnv, ctx
 
   const clone = request.clone();
   let body: unknown;
-  try {
-    body = await clone.json();
-  } catch {
-    return null;
-  }
+  try { body = await clone.json(); }
+  catch { return null; }
   const input = body !== null && typeof body === "object" ? body as Record<string, unknown> : {};
   const query = typeof input.query === "string" ? input.query.trim() : "";
   if (!query || !isFamilyStockSelectionQuery(query)) return null;
@@ -221,17 +247,21 @@ async function maybeHandleFamilySelection(request: Request, env: RuntimeEnv, ctx
     return jsonResponse({ ...record(result), runtime_release: FAMILY_RUNTIME_RELEASE }, 200, familyCorsHeaders());
   } catch (error) {
     const cached = await getFamilySelectionCache(env, query).catch(() => null);
-    if (cached) {
-      return jsonResponse(cachedFallbackResult(cached, error), 200, familyCorsHeaders());
-    }
+    if (cached) return jsonResponse(cachedFallbackResult(cached, error), 200, familyCorsHeaders());
+    const intent = inferFamilySelectionIntent(query);
     return jsonResponse({
       error: "family_stock_selection_failed",
       message: error instanceof Error ? error.message : String(error),
-      rule: "資料鏈失敗不可解讀成市場沒有好股票，也不可改用新聞硬湊候選股。",
+      interpreted_intent: intent,
+      rule: "資料鏈失敗不可解讀成市場沒有好股票，也不可改用新聞或固定 balanced 名單硬湊候選股。",
       selector_version: FAMILY_STOCK_SELECTION_VERSION,
       runtime_release: FAMILY_RUNTIME_RELEASE,
-      cache_fallback: { used: false, reason: "沒有七日內可用的同模式、同 Top N 最後成功結果" },
+      cache_fallback: {
+        used: false,
+        reason: "沒有七日內可用的同意圖、同模式、同 Top N 最後成功結果",
+      },
       diagnostic_route: "/health/family-selection-data",
+      intent_diagnostic_route: "/health/family-intent?q=...",
       cache_diagnostic_route: "/health/family-cache",
     }, 503, familyCorsHeaders());
   }
@@ -247,8 +277,10 @@ async function augmentHealth(request: Request, env: Env, ctx: ExecutionContext) 
       family_stock_selection: {
         version: FAMILY_STOCK_SELECTION_VERSION,
         runtime_release: FAMILY_RUNTIME_RELEASE,
+        intent_engine: "family-selection-intent/v1",
         route: "/api/family/query",
         diagnostic_route: "/health/family-selection-data",
+        intent_diagnostic_route: "/health/family-intent?q=...",
         cache_diagnostic_route: "/health/family-cache",
         cache_schema: FAMILY_CACHE_SCHEMA,
         cache_max_age_days: FAMILY_CACHE_MAX_AGE_MS / 86400000,
@@ -256,9 +288,7 @@ async function augmentHealth(request: Request, env: Env, ctx: ExecutionContext) 
         production_safe: true,
       },
     }, response.status);
-  } catch {
-    return response;
-  }
+  } catch { return response; }
 }
 
 async function familyDataHealth(env: Env) {
@@ -275,12 +305,21 @@ async function familyDataHealth(env: Env) {
   }
 }
 
+function familyIntentHealth(request: Request) {
+  const url = new URL(request.url);
+  const query = url.searchParams.get("q")?.trim() || FAMILY_PREWARM_QUERY;
+  return jsonResponse({
+    selector_version: FAMILY_STOCK_SELECTION_VERSION,
+    runtime_release: FAMILY_RUNTIME_RELEASE,
+    intent_engine: "family-selection-intent/v1",
+    query,
+    interpreted_intent: inferFamilySelectionIntent(query),
+  });
+}
+
 async function familyAlternativeDataHealth(env: Env) {
-  try {
-    return jsonResponse(await probeFamilyAlternativeDataPaths(env));
-  } catch (error) {
-    return jsonResponse({ error: error instanceof Error ? error.message : String(error) }, 503);
-  }
+  try { return jsonResponse(await probeFamilyAlternativeDataPaths(env)); }
+  catch (error) { return jsonResponse({ error: error instanceof Error ? error.message : String(error) }, 503); }
 }
 
 export default {
@@ -288,6 +327,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/" || url.pathname === "/health") return augmentHealth(request, env, ctx);
     if (url.pathname === "/health/family-selection-data" && request.method === "GET") return familyDataHealth(env);
+    if (url.pathname === "/health/family-intent" && request.method === "GET") return familyIntentHealth(request);
     if (url.pathname === "/health/family-alternative-data" && request.method === "GET") return familyAlternativeDataHealth(env);
     if (url.pathname === "/health/family-cache" && request.method === "GET") {
       return jsonResponse(await familyCacheHealth(env as RuntimeEnv));
@@ -298,7 +338,9 @@ export default {
   },
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(refreshDefaultFamilyCache(env as RuntimeEnv).catch(() => undefined));
-    const scheduled = (legacyOauthEntry as unknown as { scheduled?: (controller: ScheduledController, env: Env, ctx: ExecutionContext) => Promise<void> }).scheduled;
+    const scheduled = (legacyOauthEntry as unknown as {
+      scheduled?: (controller: ScheduledController, env: Env, ctx: ExecutionContext) => Promise<void>
+    }).scheduled;
     if (scheduled) await scheduled(controller, env, ctx);
   },
 };
