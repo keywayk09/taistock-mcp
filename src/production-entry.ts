@@ -5,7 +5,7 @@ import {
   diagnoseFamilySelectionData,
   isFamilyStockSelectionQuery,
   runFamilyStockSelection,
-} from "./v8/family-stock-selection-v12";
+} from "./v8/family-stock-selection-v13";
 
 export { FamilyMCP, MyMCP } from "./oauth-entry";
 
