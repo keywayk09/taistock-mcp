@@ -1,0 +1,42 @@
+name: Compact 2026-08-10 TWSE data
+
+on:
+  push:
+    paths:
+      - .github/workflows/compact-20260810.yml
+
+permissions:
+  contents: write
+
+jobs:
+  compact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build compact file
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('tmp/20260810-data/summary.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          out={
+            'date':d['date'],'status':d['status'],'index':d['index'],
+            'market_stock_value':next((x.get('成交金額(元)') for x in d['market_stats'] if x.get('成交統計')=='1.一般股票'),None),
+            'institution_totals':d['institution_totals'],
+            'foreign_buy_top10':d['foreign_buy_top20'][:10],
+            'foreign_sell_top10':d['foreign_sell_top20'][:10],
+            'trust_buy_top10':d['trust_buy_top20'][:10],
+            'trust_sell_top10':d['trust_sell_top20'][:10],
+            'margin_count':d['margin_count']
+          }
+          Path('tmp/20260810-data/compact.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+      - name: Commit compact result
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/20260810-data/compact.json
+          git commit -m 'data: compact official TWSE data for 2026-08-10' || exit 0
+          git push
