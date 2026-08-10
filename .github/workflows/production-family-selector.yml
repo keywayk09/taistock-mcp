@@ -4,10 +4,13 @@ on:
   pull_request:
     branches:
       - feature/twchips-official-v7
+  push:
+    branches:
+      - feature/twchips-official-v7
   workflow_dispatch:
 
 jobs:
-  verify:
+  verify-code:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,13 +21,19 @@ jobs:
       - run: npm run type-check
       - run: node tests/production-family-selector.test.mjs
       - run: npx wrangler deploy --dry-run --outdir dist
-      - name: Verify live production v1.8 and complete market coverage
+
+  verify-live-production:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: verify-code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify deployed production v1.8 and complete market coverage
         run: |
           set -euo pipefail
           base="https://taistock-mcp.keywayk09.workers.dev"
 
           ready=0
-          for attempt in $(seq 1 24); do
+          for attempt in $(seq 1 36); do
             if curl --silent --show-error --fail --max-time 30 "$base/health" -o /tmp/family-health.json; then
               if grep -q 'family-production-runtime/1.8.0' /tmp/family-health.json && \
                  grep -q 'family-stock-selection/production-v1.7.0' /tmp/family-health.json; then
@@ -32,7 +41,7 @@ jobs:
                 break
               fi
             fi
-            echo "waiting for Cloudflare production v1.8 deployment ($attempt/24)"
+            echo "waiting for Cloudflare production v1.8 deployment ($attempt/36)"
             sleep 5
           done
           test "$ready" = "1"
