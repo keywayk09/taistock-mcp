@@ -1,4 +1,4 @@
-name: One-shot TPEx official fallback v1.3
+name: One-shot TPEx official fallback v1.4
 
 on:
   push:
@@ -24,7 +24,7 @@ jobs:
         with:
           node-version: 24
 
-      - name: Build v1.3 selector from v1.2 without overwriting base
+      - name: Build v1.4 selector from current v1.3 base without overwriting base
         shell: bash
         run: |
           python - <<'PY'
@@ -35,25 +35,41 @@ jobs:
           new = Path('src/v8/family-stock-selection-v13.ts')
           text = base.read_text(encoding='utf-8')
 
+          if 'family-stock-selection/production-v1.3.0' not in text:
+              raise SystemExit('expected current selector production-v1.3.0 base')
+          if 'tryFugleTickersMisOtc' not in text:
+              raise SystemExit('expected existing MIS OTC fallback in current base')
+
           text = text.replace(
-              'export const FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection/production-v1.2.0";',
-              'export const FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection/production-v1.3.0";'
+              'export const FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection/production-v1.3.0";',
+              'export const FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection/production-v1.4.0";',
+              1,
           )
           text = text.replace(
               'const TPEX_QUOTES_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes";',
               'const TPEX_QUOTES_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes";\n'
-              'const TPEX_QUOTES_ALT_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes";'
+              'const TPEX_QUOTES_ALT_URL = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes";',
+              1,
           )
           text = text.replace(
-              'const USER_AGENT = "taistock-mcp-family-selector/1.2 (+https://github.com/keywayk09/taistock-mcp)";',
-              'const USER_AGENT = "taistock-mcp-family-selector/1.3 (+https://github.com/keywayk09/taistock-mcp)";'
-          )
-          text = text.replace(
-              'type Provider = "TWSE_OPENAPI" | "TPEX_OPENAPI" | "FUGLE_TSE" | "FUGLE_OTC" | "FINMIND_FALLBACK" | "UNAVAILABLE";',
-              'type Provider = "TWSE_OPENAPI" | "TPEX_OPENAPI" | "TPEX_QUOTES_OPENAPI" | "FUGLE_TSE" | "FUGLE_OTC" | "FINMIND_FALLBACK" | "UNAVAILABLE";'
+              'const USER_AGENT = "taistock-mcp-family-selector/1.3 (+https://github.com/keywayk09/taistock-mcp)";',
+              'const USER_AGENT = "taistock-mcp-family-selector/1.4 (+https://github.com/keywayk09/taistock-mcp)";',
+              1,
           )
 
-          pattern = re.compile(r'async function tryOfficialMarket\(market: Market\): Promise<MarketSnapshot> \{.*?\n\}\n\n(?=async function tryFugleMarket)', re.S)
+          provider_pattern = re.compile(r'type Provider = ([^;]+);')
+          match = provider_pattern.search(text)
+          if not match:
+              raise SystemExit('Provider union not found')
+          provider_union = match.group(1)
+          if '"TPEX_QUOTES_OPENAPI"' not in provider_union:
+              provider_union = provider_union.replace('"TPEX_OPENAPI"', '"TPEX_OPENAPI" | "TPEX_QUOTES_OPENAPI"', 1)
+              text = text[:match.start(1)] + provider_union + text[match.end(1):]
+
+          pattern = re.compile(
+              r'async function tryOfficialMarket\(market: Market\): Promise<MarketSnapshot> \{.*?\n\}\n\n(?=function chunked)',
+              re.S,
+          )
           replacement = r'''async function tryOfficialEndpoint(
             market: Market,
             url: string,
@@ -83,9 +99,6 @@ jobs:
               return tryOfficialEndpoint("TWSE", TWSE_QUOTES_URL, "TWSE_OPENAPI", "TWSE OpenAPI");
             }
 
-            // TPEx production hardening: the daily-close endpoint can enter a redirect loop from
-            // Cloudflare egress. Keep it as the first official source, then fail over to the second
-            // TPEx official OpenAPI endpoint before touching paid/provider fallbacks.
             const primary = await tryOfficialEndpoint(
               "TPEx",
               TPEX_QUOTES_URL,
@@ -94,6 +107,8 @@ jobs:
             );
             if (primary.normalized_count >= MIN_COVERAGE.TPEx) return primary;
 
+            // 第二個來源仍然是 TPEx 官方 OpenAPI。只有兩個官方端點都不足時，
+            // 才繼續走既有 Fugle ticker + TWSE MIS OTC、Fugle snapshot、FinMind fallback。
             const alternate = await tryOfficialEndpoint(
               "TPEx",
               TPEX_QUOTES_ALT_URL,
@@ -104,7 +119,7 @@ jobs:
               return {
                 ...alternate,
                 errors: primary.errors.length
-                  ? ["TPEx 主行情端點不可用，已自動切換第二官方 OpenAPI", ...primary.errors]
+                  ? ["TPEx daily_close_quotes 不可用，已切換 mainboard_quotes 官方備援", ...primary.errors]
                   : alternate.errors,
               };
             }
@@ -125,11 +140,16 @@ jobs:
           text, count = pattern.subn(replacement, text, count=1)
           if count != 1:
               raise SystemExit(f'expected one tryOfficialMarket replacement, got {count}')
+          if 'tryFugleTickersMisOtc' not in text:
+              raise SystemExit('MIS OTC fallback was accidentally removed')
 
-          text = text.replace(
-              'source: "TWSE/TPEx official OpenAPI with Fugle/FinMind provider fallback",',
-              'source: "TWSE/TPEx official OpenAPI (TPEx dual-endpoint) with Fugle/FinMind provider fallback",'
-          )
+          old_source = 'source: "TWSE/TPEx official OpenAPI with Fugle/FinMind provider fallback",'
+          if old_source in text:
+              text = text.replace(
+                  old_source,
+                  'source: "TWSE/TPEx official OpenAPI (TPEx dual-endpoint) with Fugle ticker + TWSE MIS OTC / Fugle / FinMind fallbacks",',
+                  1,
+              )
 
           new.write_text(text, encoding='utf-8')
 
@@ -144,15 +164,25 @@ jobs:
           test_path = Path('tests/production-family-selector.test.mjs')
           test = test_path.read_text(encoding='utf-8')
           test = test.replace('src/v8/family-stock-selection-v12.ts', 'src/v8/family-stock-selection-v13.ts')
-          test = test.replace('production-v1\\.2\\.0', 'production-v1\\.3\\.0')
-          test = test.replace(
-              'assert.match(selector, /www\\.tpex\\.org\\.tw\\/openapi\\/v1\\/tpex_mainboard_daily_close_quotes/);',
-              'assert.match(selector, /www\\.tpex\\.org\\.tw\\/openapi\\/v1\\/tpex_mainboard_daily_close_quotes/);\n'
-              'assert.match(selector, /www\\.tpex\\.org\\.tw\\/openapi\\/v1\\/tpex_mainboard_quotes/);\n'
-              'assert.match(selector, /TPEX_QUOTES_OPENAPI/);'
+          test = re.sub(
+              r'FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection\\/production-v1\\\.\d+\\\.\d+"',
+              'FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection\\/production-v1\\.4\\.0"',
+              test,
+              count=1,
           )
-          test = test.replace('\\.\\/v8\\/family-stock-selection-v12', '\\.\\/v8\\/family-stock-selection-v13')
-          test = test.replace('provider-fallback v1.2 regression contract passed', 'provider-fallback v1.3 regression contract passed')
+          if 'tpex_mainboard_quotes' not in test:
+              marker = 'assert.match(selector, /www\\.tpex\\.org\\.tw\\/openapi\\/v1\\/tpex_mainboard_daily_close_quotes/);'
+              addition = marker + '\nassert.match(selector, /www\\.tpex\\.org\\.tw\\/openapi\\/v1\\/tpex_mainboard_quotes/);\nassert.match(selector, /TPEX_QUOTES_OPENAPI/);\nassert.match(selector, /tryFugleTickersMisOtc/);'
+              if marker not in test:
+                  raise SystemExit('TPEx primary endpoint test marker not found')
+              test = test.replace(marker, addition, 1)
+          test = test.replace('/\\.\\/v8\\/family-stock-selection-v12/', '/\\.\\/v8\\/family-stock-selection-v13/', 1)
+          test = re.sub(
+              r'Production family selector provider-fallback v1\.\d+ regression contract passed',
+              'Production family selector provider-fallback v1.4 regression contract passed',
+              test,
+              count=1,
+          )
           test_path.write_text(test, encoding='utf-8')
           PY
 
