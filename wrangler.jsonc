@@ -1,11 +1,12 @@
 /**
- * For more details on how to configure Wrangler, refer to:
- * https://developers.cloudflare.com/workers/wrangler/configuration/
+ * Production Cloudflare configuration.
+ * Preserve the existing OAuth KV, D1 and Durable Object bindings; family stock
+ * selection is routed by production-entry without introducing R2 requirements.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "taistock-mcp",
-	"main": "src/oauth-entry.ts",
+	"main": "src/production-entry.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
 	"triggers": {
