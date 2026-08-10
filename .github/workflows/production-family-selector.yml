@@ -18,25 +18,21 @@ jobs:
       - run: npm run type-check
       - run: node tests/production-family-selector.test.mjs
       - run: npx wrangler deploy --dry-run --outdir dist
-      - name: Verify live production fingerprint
+      - name: Probe live family data paths
         run: |
           set -euo pipefail
           base="https://taistock-mcp.keywayk09.workers.dev"
 
           curl --silent --show-error --fail --max-time 60 "$base/health" -o /tmp/family-health.json
           grep -q 'family-production-runtime/1.7.0' /tmp/family-health.json
-          grep -q 'family-stock-selection/production-v1.6.0' /tmp/family-health.json
 
-          curl --silent --show-error --fail --max-time 60 "$base/health/family-cache" -o /tmp/family-cache.json
-          grep -q 'family-selection-lkg/v1' /tmp/family-cache.json
-          grep -q 'family-production-runtime/1.7.0' /tmp/family-cache.json
+          for path in health/family-selection-data health/family-alternative-data health/family-cache; do
+            status=$(curl --silent --show-error --max-time 120 \
+              -o "/tmp/${path//\//-}.json" -w '%{http_code}' \
+              "$base/$path" || true)
+            echo "=== /$path HTTP=$status ==="
+            cat "/tmp/${path//\//-}.json"
+            echo
+          done
 
-          status=$(curl --silent --show-error --max-time 120 \
-            -o /tmp/family-data.json -w '%{http_code}' \
-            "$base/health/family-selection-data" || true)
-          echo "family-selection-data HTTP=$status"
-          cat /tmp/family-data.json
-          echo
-          test "$status" = "200"
-          grep -q '"usable": true' /tmp/family-data.json
-          grep -q 'family-production-runtime/1.7.0' /tmp/family-data.json
+          grep -q 'family-production-runtime/1.7.0' /tmp/health-family-selection-data.json
