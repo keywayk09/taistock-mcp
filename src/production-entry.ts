@@ -5,7 +5,7 @@ import {
   diagnoseFamilySelectionData,
   isFamilyStockSelectionQuery,
   runFamilyStockSelection,
-} from "./v8/family-stock-selection-v15";
+} from "./v8/family-stock-selection-v17";
 
 export { FamilyMCP, MyMCP } from "./oauth-entry";
 
@@ -24,7 +24,7 @@ type FamilyCacheEnvelope = {
   result: Record<string, unknown>;
 };
 
-const FAMILY_RUNTIME_RELEASE = "family-production-runtime/1.7.0";
+const FAMILY_RUNTIME_RELEASE = "family-production-runtime/1.8.0";
 const FAMILY_CACHE_SCHEMA = "family-selection-lkg/v1" as const;
 const FAMILY_CACHE_PREFIX = "family-selection:lkg:v1";
 const FAMILY_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
