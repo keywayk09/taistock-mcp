@@ -3,6 +3,7 @@ import { fugle, rec } from "../v6/common";
 const MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp";
 const TWSE_PUBLIC_COMPANIES_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap03_P";
 const TPEX_COMPANIES_URL = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O";
+const MOPSFIN_TPEX_COMPANIES_CSV = "https://mopsfin.twse.com.tw/opendata/t187ap03_O.csv";
 
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -39,6 +40,34 @@ async function probeJsonRows(url: string) {
     };
   } catch (error) {
     return { ok: false, http_status: null, redirect_location: null, row_count: 0, sample_keys: [], samples: [], error: errorText(error) };
+  }
+}
+
+async function probeCsv(url: string) {
+  try {
+    const response = await fetch(url, {
+      redirect: "manual",
+      headers: {
+        Accept: "text/csv,text/plain,*/*",
+        "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+        "User-Agent": "taistock-mcp-family-selector-probe/1.0",
+      },
+    });
+    const location = response.headers.get("location");
+    const text = await response.text();
+    const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim().length > 0);
+    return {
+      ok: response.ok && lines.length > 2,
+      http_status: response.status,
+      redirect_location: location,
+      content_type: response.headers.get("content-type"),
+      line_count: lines.length,
+      header: lines[0]?.slice(0, 500) ?? "",
+      samples: lines.slice(1, 6).map((line) => line.slice(0, 500)),
+      body_prefix: text.slice(0, 220),
+    };
+  } catch (error) {
+    return { ok: false, http_status: null, redirect_location: null, line_count: 0, header: "", samples: [], error: errorText(error) };
   }
 }
 
@@ -130,12 +159,13 @@ async function probeD1Universe(env: Env) {
 }
 
 export async function probeFamilyAlternativeDataPaths(env: Env) {
-  const [mis, fugleHistory, d1Universe, twsePublicCompanies, tpexCompanies] = await Promise.all([
+  const [mis, fugleHistory, d1Universe, twsePublicCompanies, tpexCompanies, mopsfinTpexCsv] = await Promise.all([
     probeMisOtc(),
     probeFugleHistory(env),
     probeD1Universe(env),
     probeJsonRows(TWSE_PUBLIC_COMPANIES_URL),
     probeJsonRows(TPEX_COMPANIES_URL),
+    probeCsv(MOPSFIN_TPEX_COMPANIES_CSV),
   ]);
   return {
     checked_at: new Date().toISOString(),
@@ -144,5 +174,6 @@ export async function probeFamilyAlternativeDataPaths(env: Env) {
     d1_universe: d1Universe,
     twse_public_companies: twsePublicCompanies,
     tpex_company_master: tpexCompanies,
+    mopsfin_tpex_company_csv: mopsfinTpexCsv,
   };
 }
