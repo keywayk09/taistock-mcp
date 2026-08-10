@@ -3,12 +3,13 @@ import fs from "node:fs";
 
 const read = (path) => fs.readFileSync(path, "utf8");
 
-const selector = read("src/v8/family-stock-selection-v13.ts");
-assert.match(selector, /FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection\/production-v1\.4\.0"/);
+const selector = read("src/v8/family-stock-selection-v14.ts");
+assert.match(selector, /FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection\/production-v1\.5\.0"/);
 assert.match(selector, /openapi\.twse\.com\.tw\/v1\/exchangeReport\/STOCK_DAY_ALL/);
 assert.match(selector, /www\.tpex\.org\.tw\/openapi\/v1\/tpex_mainboard_daily_close_quotes/);
 assert.match(selector, /www\.tpex\.org\.tw\/openapi\/v1\/tpex_mainboard_quotes/);
 assert.match(selector, /TPEX_QUOTES_OPENAPI/);
+assert.match(selector, /redirect: \"manual\"/);
 assert.match(selector, /tryFugleTickersMisOtc/);
 assert.match(selector, /\/snapshot\/quotes\/\$\{fugleMarket\}/);
 assert.match(selector, /COMMONSTOCK/);
@@ -27,7 +28,7 @@ assert.doesNotMatch(selector, /afterTrading\/MI_INDEX/);
 assert.doesNotMatch(selector, /stk_quote_result\.php/);
 
 const entry = read("src/production-entry.ts");
-assert.match(entry, /\.\/v8\/family-stock-selection-v13/);
+assert.match(entry, /\.\/v8\/family-stock-selection-v14/);
 assert.match(entry, /isFamilyStockSelectionQuery/);
 assert.match(entry, /\/api\/family\/query/);
 assert.match(entry, /\/health\/family-selection-data/);
@@ -47,4 +48,4 @@ assert.match(wrangler, /"tag": "v2"/);
 assert.match(wrangler, /"database_id": "18673f52-c286-49f3-a82c-bf67d0593611"/);
 assert.doesNotMatch(wrangler, /RESEARCH_BUCKET/);
 
-console.log("Production family selector provider-fallback v1.4 regression contract passed");
+console.log("Production family selector provider-fallback v1.5 regression contract passed");
