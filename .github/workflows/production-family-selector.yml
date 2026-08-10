@@ -18,11 +18,15 @@ jobs:
       - run: npm run type-check
       - run: node tests/production-family-selector.test.mjs
       - run: npx wrangler deploy --dry-run --outdir dist
-      - name: Capture deployed family market data
+      - name: Probe TPEx official OpenAPI hosts
         run: |
-          code=$(curl --silent --show-error --max-time 60 \
-            https://taistock-mcp.keywayk09.workers.dev/health/family-selection-data \
-            -o /tmp/family-selection-data.json -w '%{http_code}')
-          echo "HTTP=$code"
-          cat /tmp/family-selection-data.json
-          node -e 'const fs=require("fs"); const x=JSON.parse(fs.readFileSync("/tmp/family-selection-data.json","utf8")); console.log(JSON.stringify(x,null,2)); if(x.selector_version!=="family-stock-selection/production-v1.1.0") throw new Error(`wrong version: ${x.selector_version}`);'
+          for url in \
+            'https://tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes' \
+            'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes' \
+            'https://tpex.org.tw/openapi/v1/tpex_mainboard_quotes'; do
+            echo "=== $url ==="
+            curl --silent --show-error --max-time 30 --max-redirs 5 \
+              -D /tmp/headers.txt -o /tmp/body.txt -w 'HTTP=%{http_code} redirects=%{num_redirects} final=%{url_effective}\n' "$url" || true
+            head -c 400 /tmp/body.txt || true
+            echo
+          done
