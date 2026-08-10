@@ -1,9 +1,45 @@
 import { fugle, rec } from "../v6/common";
 
 const MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp";
+const TWSE_PUBLIC_COMPANIES_URL = "https://openapi.twse.com.tw/v1/opendata/t187ap03_P";
+const TPEX_COMPANIES_URL = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O";
 
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function probeJsonRows(url: string) {
+  try {
+    const response = await fetch(url, {
+      redirect: "manual",
+      headers: {
+        Accept: "application/json,text/plain,*/*",
+        "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+        "User-Agent": "taistock-mcp-family-selector-probe/1.0",
+      },
+    });
+    const location = response.headers.get("location");
+    const text = await response.text();
+    let body: any = null;
+    try { body = JSON.parse(text); } catch {}
+    const root = rec(body);
+    const rows = Array.isArray(body)
+      ? body.map(rec)
+      : Array.isArray(root.data)
+        ? root.data.map(rec)
+        : [];
+    return {
+      ok: response.ok && rows.length > 0,
+      http_status: response.status,
+      redirect_location: location,
+      row_count: rows.length,
+      sample_keys: Object.keys(rows[0] ?? {}).slice(0, 40),
+      samples: rows.slice(0, 5).map((row) => Object.fromEntries(Object.entries(row).slice(0, 30))),
+      body_prefix: body ? null : text.slice(0, 220),
+    };
+  } catch (error) {
+    return { ok: false, http_status: null, redirect_location: null, row_count: 0, sample_keys: [], samples: [], error: errorText(error) };
+  }
 }
 
 async function probeMisOtc() {
@@ -94,15 +130,19 @@ async function probeD1Universe(env: Env) {
 }
 
 export async function probeFamilyAlternativeDataPaths(env: Env) {
-  const [mis, fugleHistory, d1Universe] = await Promise.all([
+  const [mis, fugleHistory, d1Universe, twsePublicCompanies, tpexCompanies] = await Promise.all([
     probeMisOtc(),
     probeFugleHistory(env),
     probeD1Universe(env),
+    probeJsonRows(TWSE_PUBLIC_COMPANIES_URL),
+    probeJsonRows(TPEX_COMPANIES_URL),
   ]);
   return {
     checked_at: new Date().toISOString(),
     mis_otc: mis,
     fugle_historical_otc: fugleHistory,
     d1_universe: d1Universe,
+    twse_public_companies: twsePublicCompanies,
+    tpex_company_master: tpexCompanies,
   };
 }
