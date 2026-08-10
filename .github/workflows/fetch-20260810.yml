@@ -1,0 +1,86 @@
+name: Fetch 2026-08-10 TWSE data
+
+on:
+  push:
+    paths:
+      - .github/workflows/fetch-20260810.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch official TWSE data
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/20260810-data
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36'
+          curl -fL --retry 3 -A "$UA" 'https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=20260810&type=ALLBUT0999&response=json' -o tmp/20260810-data/mi_index.json
+          curl -fL --retry 3 -A "$UA" 'https://www.twse.com.tw/rwd/zh/fund/BFI82U?dayDate=20260810&type=day&response=json' -o tmp/20260810-data/bfi82u.json
+          curl -fL --retry 3 -A "$UA" 'https://www.twse.com.tw/rwd/zh/fund/T86?date=20260810&selectType=ALLBUT0999&response=json' -o tmp/20260810-data/t86.json
+          curl -fL --retry 3 -A "$UA" 'https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=20260810&selectType=ALL&response=json' -o tmp/20260810-data/mi_margn.json
+      - name: Parse compact summary
+        run: |
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+          root=Path('tmp/20260810-data')
+          def load(n): return json.loads((root/n).read_text(encoding='utf-8-sig'))
+          def num(x):
+              s=str(x or '').replace(',','').replace('+','').strip()
+              if s in {'','--','---','X'}: return 0.0
+              try:return float(s)
+              except:return 0.0
+          def ordinary(c): return bool(re.fullmatch(r'[1-9]\d{3}',str(c).strip()))
+          mi,bfi,t86,marg=map(load,['mi_index.json','bfi82u.json','t86.json','mi_margn.json'])
+          out={'date':'2026-08-10','status':{'mi_index':mi.get('stat'),'bfi82u':bfi.get('stat'),'t86':t86.get('stat'),'mi_margn':marg.get('stat')}}
+          # index + stock closes
+          prices={}; idx=None; market=[]
+          for t in mi.get('tables',[]):
+              fields=t.get('fields',[])
+              title=t.get('title','')
+              for row in t.get('data',[]):
+                  d=dict(zip(fields,row))
+                  if '價格指數' in title and '發行量加權股價指數' in str(row[0]): idx=d
+                  if '成交統計' in fields: market.append(d)
+                  code=str(d.get('證券代號','')).strip()
+                  if ordinary(code): prices[code]=d
+          out['index']=idx; out['market_stats']=market
+          out['institution_totals']=[dict(zip(bfi.get('fields',[]),r)) for r in bfi.get('data',[])]
+          # institutional rankings
+          inst=[]
+          for r in t86.get('data',[]):
+              d=dict(zip(t86.get('fields',[]),r)); code=str(d.get('證券代號','')).strip()
+              if not ordinary(code): continue
+              inst.append({'code':code,'name':str(d.get('證券名稱','')).strip(),'foreign_shares':num(d.get('外陸資買賣超股數(不含外資自營商)') or d.get('外陸資買賣超股數')),'trust_shares':num(d.get('投信買賣超股數')),'close':prices.get(code,{}).get('收盤價'),'change':prices.get(code,{}).get('漲跌價差'),'sign':prices.get(code,{}).get('漲跌(+/-)')})
+          for k,key,rev in [('foreign_buy_top20','foreign_shares',True),('foreign_sell_top20','foreign_shares',False),('trust_buy_top20','trust_shares',True),('trust_sell_top20','trust_shares',False)]:
+              out[k]=sorted(inst,key=lambda x:x[key],reverse=rev)[:20]
+          # margin explicit column positions from duplicated field names
+          details=[]
+          for t in marg.get('tables',[]):
+              if '融資融券彙總' not in t.get('title',''): continue
+              for r in t.get('data',[]):
+                  if len(r)<16: continue
+                  code=str(r[0]).strip()
+                  if not ordinary(code): continue
+                  mp,mc=num(r[5]),num(r[6]); sp,sc=num(r[12]),num(r[13])
+                  details.append({'code':code,'name':str(r[1]).strip(),'margin_change':mc-mp,'margin_balance':mc,'short_change':sc-sp,'short_balance':sc,'note':str(r[15]).strip()})
+          out['margin_count']=len(details)
+          out['margin_increase_top20']=sorted(details,key=lambda x:x['margin_change'],reverse=True)[:20]
+          out['margin_decrease_top20']=sorted(details,key=lambda x:x['margin_change'])[:20]
+          out['short_increase_top20']=sorted(details,key=lambda x:x['short_change'],reverse=True)[:20]
+          out['short_decrease_top20']=sorted(details,key=lambda x:x['short_change'])[:20]
+          out['margin_totals']=marg.get('tables',[{}])[0] if marg.get('tables') else {}
+          (root/'summary.json').write_text(json.dumps(out,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps({'status':out['status'],'index':out['index'],'foreign_buy':out['foreign_buy_top20'][:3],'margin_count':out['margin_count'],'margin_inc':out['margin_increase_top20'][:3]},ensure_ascii=False,indent=2))
+          PY
+      - name: Commit fetched result
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/20260810-data
+          git commit -m 'data: fetch official TWSE data for 2026-08-10' || exit 0
+          git push
