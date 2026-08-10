@@ -11,7 +11,6 @@ assert.match(selector, /TPEx/);
 assert.match(selector, /GREEN_RESEARCH/);
 assert.match(selector, /YELLOW_WAIT/);
 assert.match(selector, /不追價/);
-assert.match(selector, /資料鏈失敗/);
 assert.match(selector, /TaiwanStockMonthRevenue/);
 
 const entry = read("src/production-entry.ts");
@@ -20,6 +19,8 @@ assert.match(entry, /\/api\/family\/query/);
 assert.match(entry, /MOM_GPT_API_KEY/);
 assert.match(entry, /legacyOauthEntry\.fetch/);
 assert.match(entry, /family_stock_selection/);
+assert.match(entry, /資料鏈失敗/);
+assert.match(entry, /新聞硬湊候選股/);
 
 const wrangler = read("wrangler.jsonc");
 assert.match(wrangler, /"main": "src\/production-entry\.ts"/);
