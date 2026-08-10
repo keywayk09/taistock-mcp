@@ -1,0 +1,136 @@
+name: One-shot TPEx redirect hardening v1.5
+
+on:
+  push:
+    branches:
+      - feature/twchips-official-v7
+    paths:
+      - .github/workflows/patch-tpex-redirect-v15.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/twchips-official-v7
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build v1.5 selector without overwriting v1.4
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          base = Path('src/v8/family-stock-selection-v13.ts')
+          new = Path('src/v8/family-stock-selection-v14.ts')
+          text = base.read_text(encoding='utf-8')
+
+          if 'family-stock-selection/production-v1.4.0' not in text:
+              raise SystemExit('expected production-v1.4.0 base')
+          if 'tryFugleTickersMisOtc' not in text:
+              raise SystemExit('MIS OTC fallback missing from base')
+
+          text = text.replace(
+              'export const FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection/production-v1.4.0";',
+              'export const FAMILY_STOCK_SELECTION_VERSION = "family-stock-selection/production-v1.5.0";',
+              1,
+          )
+          text = text.replace(
+              'const USER_AGENT = "taistock-mcp-family-selector/1.4 (+https://github.com/keywayk09/taistock-mcp)";',
+              'const USER_AGENT = "taistock-mcp-family-selector/1.5 (+https://github.com/keywayk09/taistock-mcp)";',
+              1,
+          )
+
+          old_fetch = '''async function fetchOfficialRows(url: string, source: string) {
+            const response = await fetch(url, { headers: { Accept: "application/json", "User-Agent": USER_AGENT } });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`${source} HTTP ${response.status}: ${text.slice(0, 180)}`);
+            if (text.trimStart().startsWith("<")) throw new Error(`${source} 回傳 HTML，不是 JSON`);
+            let body: unknown;
+            try { body = JSON.parse(text); }
+            catch { throw new Error(`${source} 回傳無效 JSON`); }
+            return rowsFromBody(body);
+          }'''
+          new_fetch = '''async function fetchOfficialRows(url: string, source: string) {
+            // Do not auto-follow a broken upstream redirect chain. Cloudflare counts every followed
+            // redirect as a subrequest; TPEx currently redirects these OpenAPI URLs to /errors,
+            // which previously consumed most of the Worker subrequest budget before MIS fallback.
+            const response = await fetch(url, {
+              redirect: "manual",
+              headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+            });
+            const location = response.headers.get("location");
+            const text = await response.text();
+            if (response.status >= 300 && response.status < 400) {
+              throw new Error(`${source} HTTP ${response.status} redirect blocked${location ? ` -> ${location}` : ""}`);
+            }
+            if (!response.ok) throw new Error(`${source} HTTP ${response.status}: ${text.slice(0, 180)}`);
+            if (text.trimStart().startsWith("<")) throw new Error(`${source} 回傳 HTML，不是 JSON`);
+            let body: unknown;
+            try { body = JSON.parse(text); }
+            catch { throw new Error(`${source} 回傳無效 JSON`); }
+            return rowsFromBody(body);
+          }'''
+          if old_fetch not in text:
+              raise SystemExit('fetchOfficialRows base block not found')
+          text = text.replace(old_fetch, new_fetch, 1)
+
+          if 'redirect: "manual"' not in text:
+              raise SystemExit('redirect hardening was not applied')
+          if 'tryFugleTickersMisOtc' not in text:
+              raise SystemExit('MIS fallback accidentally removed')
+          new.write_text(text, encoding='utf-8')
+
+          entry_path = Path('src/production-entry.ts')
+          entry = entry_path.read_text(encoding='utf-8')
+          old_import = 'from "./v8/family-stock-selection-v13";'
+          new_import = 'from "./v8/family-stock-selection-v14";'
+          if old_import not in entry:
+              raise SystemExit('production-entry v13 import not found')
+          entry_path.write_text(entry.replace(old_import, new_import, 1), encoding='utf-8')
+
+          test_path = Path('tests/production-family-selector.test.mjs')
+          test = test_path.read_text(encoding='utf-8')
+          test = test.replace('src/v8/family-stock-selection-v13.ts', 'src/v8/family-stock-selection-v14.ts', 1)
+          test = test.replace('production-v1\\.4\\.0', 'production-v1\\.5\\.0', 1)
+          test = test.replace('/\\.\\/v8\\/family-stock-selection-v13/', '/\\.\\/v8\\/family-stock-selection-v14/', 1)
+          if 'redirect: \\"manual\\"' not in test:
+              marker = 'assert.match(selector, /TPEX_QUOTES_OPENAPI/);'
+              if marker not in test:
+                  raise SystemExit('provider test marker not found')
+              test = test.replace(marker, marker + '\nassert.match(selector, /redirect: \\"manual\\"/);', 1)
+          test = re.sub(
+              r'Production family selector provider-fallback v1\.\d+ regression contract passed',
+              'Production family selector provider-fallback v1.5 regression contract passed',
+              test,
+              count=1,
+          )
+          test_path.write_text(test, encoding='utf-8')
+          PY
+
+      - name: Verify TypeScript and production contract
+        run: |
+          npm install
+          npm run type-check
+          node tests/production-family-selector.test.mjs
+          npx wrangler deploy --dry-run --outdir dist
+
+      - name: Commit patch and remove helper workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/patch-tpex-redirect-v15.yml
+          git add src/v8/family-stock-selection-v14.ts src/production-entry.ts tests/production-family-selector.test.mjs
+          git commit -m "P17d: stop TPEx redirect loops before MIS fallback"
+          git push origin HEAD:feature/twchips-official-v7
