@@ -32,15 +32,30 @@ assert.doesNotMatch(selector, /stk_quote_result\.php/);
 
 const entry = read("src/production-entry.ts");
 assert.match(entry, /\.\/v8\/family-stock-selection-v15/);
+assert.match(entry, /FAMILY_RUNTIME_RELEASE = "family-production-runtime\/1\.7\.0"/);
+assert.match(entry, /FAMILY_CACHE_SCHEMA = "family-selection-lkg\/v1"/);
+assert.match(entry, /FAMILY_CACHE_MAX_AGE_MS = 7 \* 24 \* 60 \* 60 \* 1000/);
+assert.match(entry, /family-selection:lkg:v1/);
+assert.match(entry, /putFamilySelectionCache/);
+assert.match(entry, /getFamilySelectionCache/);
+assert.match(entry, /cachedFallbackResult/);
+assert.match(entry, /refreshDefaultFamilyCache/);
+assert.match(entry, /ctx\.waitUntil\(putFamilySelectionCache/);
+assert.match(entry, /ctx\.waitUntil\(refreshDefaultFamilyCache/);
+assert.match(entry, /cache_fallback/);
+assert.match(entry, /\/health\/family-cache/);
 assert.match(entry, /isFamilyStockSelectionQuery/);
 assert.match(entry, /\/api\/family\/query/);
 assert.match(entry, /\/health\/family-selection-data/);
 assert.match(entry, /diagnoseFamilySelectionData\(env\)/);
 assert.match(entry, /MOM_GPT_API_KEY/);
+assert.match(entry, /OAUTH_KV\.put/);
+assert.match(entry, /OAUTH_KV\.get/);
 assert.match(entry, /legacyOauthEntry\.fetch/);
 assert.match(entry, /family_stock_selection/);
 assert.match(entry, /資料鏈失敗/);
 assert.match(entry, /新聞硬湊候選股/);
+assert.match(entry, /最後一次成功的完整選股結果/);
 
 const wrangler = read("wrangler.jsonc");
 assert.match(wrangler, /"main": "src\/production-entry\.ts"/);
@@ -51,4 +66,4 @@ assert.match(wrangler, /"tag": "v2"/);
 assert.match(wrangler, /"database_id": "18673f52-c286-49f3-a82c-bf67d0593611"/);
 assert.doesNotMatch(wrangler, /RESEARCH_BUCKET/);
 
-console.log("Production family selector provider-fallback v1.6 regression contract passed");
+console.log("Production family selector provider-fallback v1.6 + runtime v1.7 LKG cache contract passed");
