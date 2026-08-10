@@ -34,5 +34,9 @@ jobs:
           status=$(curl --silent --show-error --max-time 120 \
             -o /tmp/family-data.json -w '%{http_code}' \
             "$base/health/family-selection-data" || true)
-          test "$status" = "200" -o "$status" = "503"
+          echo "family-selection-data HTTP=$status"
+          cat /tmp/family-data.json
+          echo
+          test "$status" = "200"
+          grep -q '"usable": true' /tmp/family-data.json
           grep -q 'family-production-runtime/1.7.0' /tmp/family-data.json
