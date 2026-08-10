@@ -3,7 +3,6 @@ import { probeFamilyAlternativeDataPaths } from "./v8/family-data-probes";
 import {
   FAMILY_STOCK_SELECTION_VERSION,
   diagnoseFamilySelectionData,
-  isFamilyStockSelectionQuery,
   runFamilyStockSelection,
 } from "./v8/family-stock-selection-v18";
 import {
@@ -228,7 +227,10 @@ async function maybeHandleFamilySelection(request: Request, env: RuntimeEnv, ctx
   catch { return null; }
   const input = body !== null && typeof body === "object" ? body as Record<string, unknown> : {};
   const query = typeof input.query === "string" ? input.query.trim() : "";
-  if (!query || !isFamilyStockSelectionQuery(query)) return null;
+
+  // This route is already dedicated to the family stock selector and protected by its own bearer token.
+  // Do not reject natural-language follow-ups such as "有沒有低位階的" just because they omit the word 股票/選股.
+  if (!query) return null;
 
   if (!bearerAuthorized(request, env.MOM_GPT_API_KEY)) {
     return jsonResponse(
