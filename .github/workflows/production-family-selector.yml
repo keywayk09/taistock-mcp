@@ -18,3 +18,21 @@ jobs:
       - run: npm run type-check
       - run: node tests/production-family-selector.test.mjs
       - run: npx wrangler deploy --dry-run --outdir dist
+      - name: Verify live production fingerprint
+        run: |
+          set -euo pipefail
+          base="https://taistock-mcp.keywayk09.workers.dev"
+
+          curl --silent --show-error --fail --max-time 60 "$base/health" -o /tmp/family-health.json
+          grep -q 'family-production-runtime/1.7.0' /tmp/family-health.json
+          grep -q 'family-stock-selection/production-v1.6.0' /tmp/family-health.json
+
+          curl --silent --show-error --fail --max-time 60 "$base/health/family-cache" -o /tmp/family-cache.json
+          grep -q 'family-selection-lkg/v1' /tmp/family-cache.json
+          grep -q 'family-production-runtime/1.7.0' /tmp/family-cache.json
+
+          status=$(curl --silent --show-error --max-time 120 \
+            -o /tmp/family-data.json -w '%{http_code}' \
+            "$base/health/family-selection-data" || true)
+          test "$status" = "200" -o "$status" = "503"
+          grep -q 'family-production-runtime/1.7.0' /tmp/family-data.json
