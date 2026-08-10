@@ -1,5 +1,10 @@
 import legacyOauthEntry from "./oauth-entry";
-import { FAMILY_STOCK_SELECTION_VERSION, isFamilyStockSelectionQuery, runFamilyStockSelection } from "./v8/family-stock-selection";
+import {
+  FAMILY_STOCK_SELECTION_VERSION,
+  diagnoseFamilySelectionData,
+  isFamilyStockSelectionQuery,
+  runFamilyStockSelection,
+} from "./v8/family-stock-selection";
 
 export { FamilyMCP, MyMCP } from "./oauth-entry";
 
@@ -79,6 +84,7 @@ async function maybeHandleFamilySelection(request: Request, env: RuntimeEnv) {
       message: error instanceof Error ? error.message : String(error),
       rule: "資料鏈失敗不可解讀成市場沒有好股票，也不可改用新聞硬湊候選股。",
       selector_version: FAMILY_STOCK_SELECTION_VERSION,
+      diagnostic_route: "/health/family-selection-data",
     }, 503, familyCorsHeaders());
   }
 }
@@ -93,6 +99,7 @@ async function augmentHealth(request: Request, env: Env, ctx: ExecutionContext) 
       family_stock_selection: {
         version: FAMILY_STOCK_SELECTION_VERSION,
         route: "/api/family/query",
+        diagnostic_route: "/health/family-selection-data",
         horizon: "1-8 weeks",
         production_safe: true,
       },
@@ -102,10 +109,24 @@ async function augmentHealth(request: Request, env: Env, ctx: ExecutionContext) 
   }
 }
 
+async function familyDataHealth() {
+  try {
+    const diagnostics = await diagnoseFamilySelectionData();
+    return jsonResponse(diagnostics, diagnostics.usable ? 200 : 503);
+  } catch (error) {
+    return jsonResponse({
+      selector_version: FAMILY_STOCK_SELECTION_VERSION,
+      usable: false,
+      error: error instanceof Error ? error.message : String(error),
+    }, 503);
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
     if (url.pathname === "/" || url.pathname === "/health") return augmentHealth(request, env, ctx);
+    if (url.pathname === "/health/family-selection-data" && request.method === "GET") return familyDataHealth();
     const familySelection = await maybeHandleFamilySelection(request, env as RuntimeEnv);
     if (familySelection) return familySelection;
     return legacyOauthEntry.fetch(request, env, ctx);
