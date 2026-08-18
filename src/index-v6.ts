@@ -26,7 +26,7 @@ const MARKET_DATA_PHASES = new Set<MarketDataPhase>([
 ]);
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "6.16.0" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "6.15.1" });
 
   async init() {
     await super.init();
@@ -46,7 +46,7 @@ export default {
       return Response.json({
         service: "Taiwan Stock AI MCP",
         status: "ok",
-        version: "6.16.0",
+        version: "6.15.1",
         storage: {
           legacy_d1: env.DB ? "connected" : "pending",
           research_d1: env.RESEARCH_DB ? "connected" : "pending",
