@@ -208,14 +208,21 @@ function compactDate(value: string): string {
   return value.replaceAll("-", "");
 }
 
-function dateFromUnknown(value: unknown, fallback: string): string {
+export function dateFromUnknown(value: unknown, fallback: string): string {
   const raw = String(value ?? "").trim();
   if (!raw) return fallback;
-  const m = raw.match(/(\d{4})[\/-]?(\d{2})[\/-]?(\d{2})/);
+  const rocCompact = raw.match(/^(\d{3})(\d{2})(\d{2})$/);
+  if (rocCompact) return `${Number(rocCompact[1]) + 1911}-${rocCompact[2]}-${rocCompact[3]}`;
+  const m = raw.match(/^(\d{4})[\/-]?(\d{2})[\/-]?(\d{2})$/);
   if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  const roc = raw.match(/(\d{2,3})[\/-](\d{1,2})[\/-](\d{1,2})/);
+  const roc = raw.match(/^(\d{2,3})[\/-](\d{1,2})[\/-](\d{1,2})$/);
   if (roc) return `${Number(roc[1]) + 1911}-${String(Number(roc[2])).padStart(2, "0")}-${String(Number(roc[3])).padStart(2, "0")}`;
   return fallback;
+}
+
+export function payloadDataDate(body: unknown, fallback = ""): string {
+  const first = rows(body)[0];
+  return first ? dateFromUnknown(pick(first, ["Date", "date", "資料日期", "日期"]), fallback) : fallback;
 }
 
 async function sha256Text(text: string): Promise<string> {
@@ -328,18 +335,32 @@ export function normalizeTwseInstitutional(body: unknown): InstitutionalRow[] {
 }
 
 export function normalizeTpexInstitutional(body: unknown): InstitutionalRow[] {
-  return rows(body).map((raw) => {
+  return rows(body).flatMap((raw) => {
     const symbol = String(pick(raw, ["SecuritiesCompanyCode", "SecurityCode", "Code", "證券代號", "股票代號", "代號"]) ?? "").trim();
-    return {
+    if (!ordinaryStock(symbol)) return [];
+    const foreignRaw = pick(raw, [
+      "Foreign Investors include Mainland Area Investors (Foreign Dealers excluded)-Difference",
+      "ForeignInvestorsInclude MainlandAreaInvestors-Difference",
+      "ForeignInvestorsNetBuySell",
+      "ForeignAndMainlandAreaInvestorsNetBuySell",
+    ]);
+    const trustRaw = pick(raw, [
+      "SecuritiesInvestmentTrustCompanies-Difference",
+      "InvestmentTrustNetBuySell",
+      "SecuritiesInvestmentTrustCompaniesNetBuySell",
+    ]);
+    const dealerRaw = pick(raw, ["Dealers-Difference", "DealerNetBuySell", "DealersNetBuySell"]);
+    if (foreignRaw === undefined || trustRaw === undefined || dealerRaw === undefined) return [];
+    return [{
       symbol,
       market: "TPEx" as const,
       name: String(pick(raw, ["CompanyName", "SecurityName", "Name", "證券名稱", "股票名稱", "名稱"]) ?? "").trim(),
-      foreignNet: numberValue(pick(raw, ["ForeignInvestorsNetBuySell", "ForeignAndMainlandAreaInvestorsNetBuySell", "外資及陸資買賣超股數", "外資及陸資淨買賣超股數", "外資買賣超股數"])),
-      trustNet: numberValue(pick(raw, ["InvestmentTrustNetBuySell", "SecuritiesInvestmentTrustCompaniesNetBuySell", "投信買賣超股數", "投信淨買賣超股數"])),
-      dealerNet: numberValue(pick(raw, ["DealerNetBuySell", "DealersNetBuySell", "自營商買賣超股數", "自營商淨買賣超股數"])),
+      foreignNet: numberValue(foreignRaw),
+      trustNet: numberValue(trustRaw),
+      dealerNet: numberValue(dealerRaw),
       raw,
-    };
-  }).filter((row) => ordinaryStock(row.symbol));
+    }];
+  });
 }
 
 export function normalizeTwseMargin(body: unknown): MarginRow[] {
@@ -376,25 +397,39 @@ export function normalizeTwseMargin(body: unknown): MarginRow[] {
 }
 
 export function normalizeTpexMargin(body: unknown): MarginRow[] {
-  return rows(body).map((raw) => {
+  return rows(body).flatMap((raw) => {
     const symbol = String(pick(raw, ["SecuritiesCompanyCode", "SecurityCode", "Code", "證券代號", "股票代號", "代號"]) ?? "").trim();
-    return {
+    if (!ordinaryStock(symbol)) return [];
+    const required = {
+      marginPrev: pick(raw, ["MarginPurchaseBalancePreviousDay", "MarginPurchasePreviousBalance", "MarginPreviousBalance"]),
+      marginBuy: pick(raw, ["MarginPurchase", "MarginBuy"]),
+      marginSell: pick(raw, ["MarginSales", "MarginSale", "MarginSell"]),
+      marginCashRepay: pick(raw, ["CashRedemption", "MarginCashRepay"]),
+      marginBalance: pick(raw, ["MarginPurchaseBalance", "MarginPurchaseCurrentBalance", "MarginBalance"]),
+      shortPrev: pick(raw, ["ShortSaleBalancePreviousDay", "ShortSalePreviousBalance", "ShortPreviousBalance"]),
+      shortSell: pick(raw, ["ShortSale", "ShortSell"]),
+      shortBuy: pick(raw, ["ShortConvering", "ShortCover", "ShortBuy"]),
+      shortRepay: pick(raw, ["StockRedemption", "ShortRepay"]),
+      shortBalance: pick(raw, ["ShortSaleBalance", "ShortSaleCurrentBalance", "ShortBalance"]),
+    };
+    if (Object.values(required).some((value) => value === undefined)) return [];
+    return [{
       symbol,
       market: "TPEx" as const,
       name: String(pick(raw, ["CompanyName", "SecurityName", "Name", "證券名稱", "股票名稱", "名稱"]) ?? "").trim(),
-      marginPrev: numberValue(pick(raw, ["MarginPurchasePreviousBalance", "MarginPreviousBalance", "融資前日餘額"])),
-      marginBuy: numberValue(pick(raw, ["MarginPurchase", "MarginBuy", "融資買進"])),
-      marginSell: numberValue(pick(raw, ["MarginSale", "MarginSell", "融資賣出"])),
-      marginCashRepay: numberValue(pick(raw, ["CashRedemption", "MarginCashRepay", "融資現金償還"])),
-      marginBalance: numberValue(pick(raw, ["MarginPurchaseCurrentBalance", "MarginBalance", "融資今日餘額", "融資餘額"])),
-      shortPrev: numberValue(pick(raw, ["ShortSalePreviousBalance", "ShortPreviousBalance", "融券前日餘額"])),
-      shortSell: numberValue(pick(raw, ["ShortSale", "ShortSell", "融券賣出"])),
-      shortBuy: numberValue(pick(raw, ["ShortCover", "ShortBuy", "融券買進"])),
-      shortRepay: numberValue(pick(raw, ["StockRedemption", "ShortRepay", "融券現券償還"])),
-      shortBalance: numberValue(pick(raw, ["ShortSaleCurrentBalance", "ShortBalance", "融券今日餘額", "融券餘額"])),
+      marginPrev: numberValue(required.marginPrev),
+      marginBuy: numberValue(required.marginBuy),
+      marginSell: numberValue(required.marginSell),
+      marginCashRepay: numberValue(required.marginCashRepay),
+      marginBalance: numberValue(required.marginBalance),
+      shortPrev: numberValue(required.shortPrev),
+      shortSell: numberValue(required.shortSell),
+      shortBuy: numberValue(required.shortBuy),
+      shortRepay: numberValue(required.shortRepay),
+      shortBalance: numberValue(required.shortBalance),
       raw,
-    };
-  }).filter((row) => ordinaryStock(row.symbol));
+    }];
+  });
 }
 
 export function classifyOfficialEvent(raw: JsonRecord, market: Market, fallbackDate: string): OfficialEvent | null {
@@ -535,6 +570,10 @@ async function collectInstitutional(env: Env, tradeDate: string, final: boolean)
   for (const source of sources) {
     try {
       const body = await officialJson(source.url, `${source.market} institutional`);
+      if (source.market === "TPEx") {
+        const servedDate = payloadDataDate(body);
+        if (!servedDate || servedDate !== tradeDate) throw new Error(`TPEx institutional served ${servedDate || "UNKNOWN"}; requested ${tradeDate}`);
+      }
       const normalized = source.normalize(body);
       if (!normalized.length) throw new Error("institutional ordinary-stock rows = 0");
       await saveInstitutional(env, tradeDate, normalized);
@@ -570,6 +609,10 @@ async function collectMargin(env: Env, tradeDate: string) {
   for (const source of sources) {
     try {
       const body = await officialJson(source.url, `${source.market} margin`);
+      if (source.market === "TPEx") {
+        const servedDate = payloadDataDate(body);
+        if (!servedDate || servedDate !== tradeDate) throw new Error(`TPEx margin served ${servedDate || "UNKNOWN"}; requested ${tradeDate}`);
+      }
       const normalized = source.normalize(body);
       if (!normalized.length) throw new Error("margin ordinary-stock rows = 0; official data may not be published yet");
       await saveMargin(env, tradeDate, normalized);
@@ -599,17 +642,10 @@ const FINANCIAL_ENDPOINTS: Array<{ market: Market; dataset: string; path: string
     dataset: `income_${kind}`,
     path: `${TPEX_OPENAPI}/mopsfin_t187ap06_O_${kind}`,
   })),
-  ...([
-    ["basi", "basi"],
-    ["bd", "bd"],
-    ["ci", "ci"],
-    ["fh", "fh"],
-    ["ins", "insA"],
-    ["mim", "mimA"],
-  ] as const).map(([datasetKind, endpointKind]) => ({
+  ...["basi", "bd", "ci", "fh", "ins", "mim"].map((kind) => ({
     market: "TPEx" as const,
-    dataset: `balance_${datasetKind}`,
-    path: `${TPEX_OPENAPI}/mopsfin_t187ap07_O_${endpointKind}`,
+    dataset: `balance_${kind}`,
+    path: `${TPEX_OPENAPI}/mopsfin_t187ap07_O_${kind}`,
   })),
 ];
 

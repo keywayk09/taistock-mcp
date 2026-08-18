@@ -5,6 +5,8 @@ import {
   normalizeTpexInstitutional,
   normalizeTwseInstitutional,
   normalizeTwseMargin,
+  normalizeTpexMargin,
+  payloadDataDate,
 } from "../src/v6/market-data-pipeline.ts";
 
 const twseInstitutional = normalizeTwseInstitutional({
@@ -33,13 +35,14 @@ assert.deepEqual(
 
 const tpexInstitutional = normalizeTpexInstitutional([
   {
+    Date: "1150818",
     SecuritiesCompanyCode: "6488",
     CompanyName: "環球晶",
-    ForeignInvestorsNetBuySell: "2,000",
-    InvestmentTrustNetBuySell: "100",
-    DealerNetBuySell: "-50",
+    "Foreign Investors include Mainland Area Investors (Foreign Dealers excluded)-Difference": "2,000",
+    "SecuritiesInvestmentTrustCompanies-Difference": "100",
+    "Dealers-Difference": "-50",
   },
-  { SecuritiesCompanyCode: "00679B", CompanyName: "bond", ForeignInvestorsNetBuySell: "1" },
+  { Date: "1150818", SecuritiesCompanyCode: "00679B", CompanyName: "bond" },
 ]);
 assert.equal(tpexInstitutional.length, 1);
 assert.equal(tpexInstitutional[0].symbol, "6488");
@@ -72,6 +75,27 @@ assert.deepEqual(
   },
   { marginPrev: 1000, marginBalance: 1040, shortPrev: 200, shortBalance: 205 },
 );
+
+const tpexMargin = normalizeTpexMargin([{
+  Date: "1150817",
+  SecuritiesCompanyCode: "6488",
+  CompanyName: "環球晶",
+  MarginPurchaseBalancePreviousDay: "4,463",
+  MarginPurchase: "109",
+  MarginSales: "275",
+  CashRedemption: "3",
+  MarginPurchaseBalance: "4,294",
+  ShortSaleBalancePreviousDay: "1",
+  ShortSale: "0",
+  ShortConvering: "1",
+  StockRedemption: "0",
+  ShortSaleBalance: "0",
+}]);
+assert.equal(tpexMargin.length, 1);
+assert.equal(tpexMargin[0].marginPrev, 4463);
+assert.equal(tpexMargin[0].marginBalance, 4294);
+assert.equal(payloadDataDate([{ Date: "1150818" }]), "2026-08-18");
+assert.equal(payloadDataDate([{ Date: "1150817" }]), "2026-08-17");
 
 const investorConference = classifyOfficialEvent(
   {
