@@ -11,7 +11,6 @@ type JsonRecord = Record<string, any>;
 declare global {
   interface Env {
     RESEARCH_DB: D1Database;
-    RESEARCH_BUCKET: R2Bucket;
     MARKET_DATA_GITHUB_TOKEN?: string;
     MARKET_DATA_GITHUB_REPO?: string;
     MARKET_DATA_GITHUB_BRANCH?: string;
@@ -255,18 +254,8 @@ async function officialJson(url: string, source: string, attempts = 3): Promise<
 }
 
 async function ensureMarketDataSchema(env: Env) {
-  if (!env.RESEARCH_DB || !env.RESEARCH_BUCKET) throw new Error("RESEARCH_DB 或 RESEARCH_BUCKET 尚未綁定");
+  if (!env.RESEARCH_DB) throw new Error("RESEARCH_DB 尚未綁定");
   await env.RESEARCH_DB.batch(MARKET_DATA_SCHEMA_SQL.map((sql) => env.RESEARCH_DB.prepare(sql)));
-}
-
-async function putJson(env: Env, key: string, value: unknown, source: string) {
-  const text = JSON.stringify(value);
-  const sha256 = await sha256Text(text);
-  await env.RESEARCH_BUCKET.put(key, text, {
-    httpMetadata: { contentType: "application/json; charset=utf-8" },
-    customMetadata: { source, sha256, storedAt: new Date().toISOString() },
-  });
-  return { key, sha256, rowCount: Array.isArray(value) ? value.length : rows(value).length };
 }
 
 async function setStatus(
@@ -541,9 +530,8 @@ async function collectSymbolMaster(env: Env, tradeDate: string) {
       const normalized = normalizeSymbolMaster(body, source.market);
       if (!normalized.length) throw new Error("ordinary-stock rows = 0");
       await saveSymbols(env, normalized);
-      const raw = await putJson(env, `market/tw/raw/${tradeDate}/${source.market.toLowerCase()}/symbol-master.json`, body, source.market);
       await setStatus(env, tradeDate, "symbol_master", source.market, "READY", {
-        dataDate: tradeDate, rowCount: normalized.length, sourceUrl: source.url, r2Key: raw.key, sha256: raw.sha256,
+        dataDate: tradeDate, rowCount: normalized.length, sourceUrl: source.url,
       });
       results.push({ market: source.market, status: "READY", rowCount: normalized.length });
     } catch (error) {
@@ -579,9 +567,8 @@ async function collectInstitutional(env: Env, tradeDate: string, final: boolean)
       await saveInstitutional(env, tradeDate, normalized);
       combined.push(...normalized);
       const suffix = final ? "final" : "preliminary";
-      const raw = await putJson(env, `market/tw/raw/${tradeDate}/${source.market.toLowerCase()}/institutional-${suffix}.json`, body, source.market);
       await setStatus(env, tradeDate, "institutional", source.market, final ? "FINAL" : "PRELIMINARY", {
-        dataDate: tradeDate, rowCount: normalized.length, sourceUrl: source.url, r2Key: raw.key, sha256: raw.sha256,
+        dataDate: tradeDate, rowCount: normalized.length, sourceUrl: source.url,
       });
       results.push({ market: source.market, status: final ? "FINAL" : "PRELIMINARY", rowCount: normalized.length });
     } catch (error) {
@@ -590,7 +577,6 @@ async function collectInstitutional(env: Env, tradeDate: string, final: boolean)
       results.push({ market: source.market, status: "PENDING", error: message });
     }
   }
-  if (combined.length) await putJson(env, `market/tw/daily/${tradeDate}/institutional.json`, { tradeDate, final, rows: combined }, "OFFICIAL");
   return results;
 }
 
@@ -617,9 +603,8 @@ async function collectMargin(env: Env, tradeDate: string) {
       if (!normalized.length) throw new Error("margin ordinary-stock rows = 0; official data may not be published yet");
       await saveMargin(env, tradeDate, normalized);
       combined.push(...normalized);
-      const raw = await putJson(env, `market/tw/raw/${tradeDate}/${source.market.toLowerCase()}/margin.json`, body, source.market);
       await setStatus(env, tradeDate, "margin", source.market, "FINAL", {
-        dataDate: tradeDate, rowCount: normalized.length, sourceUrl: source.url, r2Key: raw.key, sha256: raw.sha256,
+        dataDate: tradeDate, rowCount: normalized.length, sourceUrl: source.url,
       });
       results.push({ market: source.market, status: "FINAL", rowCount: normalized.length });
     } catch (error) {
@@ -628,7 +613,6 @@ async function collectMargin(env: Env, tradeDate: string) {
       results.push({ market: source.market, status: "PENDING", error: message });
     }
   }
-  if (combined.length) await putJson(env, `market/tw/daily/${tradeDate}/margin.json`, { tradeDate, rows: combined }, "OFFICIAL");
   return results;
 }
 
@@ -652,9 +636,7 @@ const FINANCIAL_ENDPOINTS: Array<{ market: Market; dataset: string; path: string
 async function saveFundamentalVersion(env: Env, dataset: string, market: Market, asOf: string, body: unknown, sourceUrl: string) {
   const text = JSON.stringify(body);
   const sha256 = await sha256Text(text);
-  const key = `market/tw/fundamentals/${dataset}/${market.toLowerCase()}/${sha256}.json`;
-  const existing = await env.RESEARCH_BUCKET.head(key);
-  if (!existing) await env.RESEARCH_BUCKET.put(key, text, { httpMetadata: { contentType: "application/json; charset=utf-8" }, customMetadata: { source: market, sha256, storedAt: new Date().toISOString() } });
+  const key = `data/market/tw/fundamentals/${dataset}/${market.toLowerCase()}/${sha256}.json`;
   const rowCount = rows(body).length;
   await env.RESEARCH_DB.prepare(`
     INSERT OR IGNORE INTO fundamental_versions (dataset, market, as_of, row_count, sha256, r2_key, updated_at)
@@ -711,7 +693,7 @@ async function collectFundamentalsAndEvents(env: Env, tradeDate: string) {
       allEvents.push(...normalized);
       const raw = await putJson(env, `market/tw/raw/${tradeDate}/${source.market.toLowerCase()}/events.json`, body, source.market);
       await setStatus(env, tradeDate, "events", source.market, "READY", {
-        dataDate: tradeDate, rowCount: normalized.length, sourceUrl: source.url, r2Key: raw.key, sha256: raw.sha256,
+        dataDate: tradeDate, rowCount: normalized.length, sourceUrl: source.url,
       });
       eventResults.push({ market: source.market, status: "READY", rowCount: normalized.length });
     } catch (error) {

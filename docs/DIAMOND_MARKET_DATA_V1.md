@@ -70,7 +70,7 @@ A dedicated investor-conference parser can be added later without changing the V
 
 ## Runtime storage
 
-Cloudflare is the execution path.
+Cloudflare is the execution path. GitHub is the canonical market-data archive.
 
 ### D1 (`RESEARCH_DB`)
 
@@ -84,24 +84,13 @@ Queryable normalized facts and status/index tables:
 - `market_events`
 - `fundamental_versions`
 
-### R2 (`RESEARCH_BUCKET`)
+### GitHub canonical storage
 
-Raw and frozen payloads:
+Raw/normalized daily market facts are written directly to GitHub under `data/market/tw/`. No R2 dependency is used in V1.
 
-```text
-market/tw/raw/YYYY-MM-DD/{twse|tpex}/...
-market/tw/daily/YYYY-MM-DD/manifest.json
-market/tw/daily/YYYY-MM-DD/institutional.json
-market/tw/daily/YYYY-MM-DD/margin.json
-market/tw/daily/YYYY-MM-DD/events.json
-market/tw/fundamentals/<dataset>/<market>/<sha256>.json
-```
+## GitHub canonical daily storage
 
-R2/D1 capture is allowed to succeed even if GitHub is unavailable.
-
-## GitHub daily mirror
-
-For human-readable daily inspection, finalize may mirror the R2 daily snapshot into `keywayk09/tv-papertrader`:
+Finalize writes the frozen daily snapshot directly into `keywayk09/tv-papertrader`:
 
 ```text
 data/market/tw/daily/YYYY/MM/DD/manifest.json
@@ -110,7 +99,7 @@ data/market/tw/daily/YYYY/MM/DD/margin.json
 data/market/tw/daily/YYYY/MM/DD/events.json
 ```
 
-The mirror is non-blocking and uses read-before-write CAS retry. It requires the Cloudflare secret:
+GitHub is the canonical daily archive and uses read-before-write CAS retry. It requires the Cloudflare secret:
 
 `MARKET_DATA_GITHUB_TOKEN`
 
@@ -119,7 +108,7 @@ Optional vars:
 - `MARKET_DATA_GITHUB_REPO` (default `keywayk09/tv-papertrader`)
 - `MARKET_DATA_GITHUB_BRANCH` (default `main`)
 
-Without the secret, mirror status is `PENDING_SECRET`; market capture remains valid in D1/R2.
+Without the secret, archival status is `PENDING_SECRET`; D1 index/status remains available but the day is not canonical-complete.
 
 ## Staged schedule
 

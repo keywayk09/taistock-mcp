@@ -1,5 +1,5 @@
 /**
- * Cloudflare D1/R2 is the runtime execution and market-data layer.
+ * Cloudflare D1 is the runtime query/index layer; GitHub is the canonical market-data archive.
  * GitHub stores code/research history and may receive a non-blocking daily market-data mirror.
  * The Diamond worker must never write or block the independent OHLC production pipeline.
  */
@@ -35,12 +35,6 @@
 		{
 			"binding": "RESEARCH_DB",
 			"database_name": "taistock-research"
-		}
-	],
-	"r2_buckets": [
-		{
-			"binding": "RESEARCH_BUCKET",
-			"bucket_name": "taistock-research-data"
 		}
 	],
 	"migrations": [
