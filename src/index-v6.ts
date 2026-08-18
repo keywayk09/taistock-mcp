@@ -14,7 +14,7 @@ import {
   getStoredCandles,
   isAuthorizedResearchRequest,
   runResearchPipeline,
-} from "./v6/research-pipeline";
+} from "./v6/research-runtime";
 import { registerResearchTools } from "./v6/research-tools";
 
 const MARKET_DATA_PHASES = new Set<MarketDataPhase>([
@@ -50,7 +50,7 @@ export default {
         storage: {
           legacy_d1: env.DB ? "connected" : "pending",
           research_d1: env.RESEARCH_DB ? "connected" : "pending",
-          research_r2: env.RESEARCH_BUCKET ? "connected" : "pending",
+          research_github: env.GITHUB_TOKEN ? "connected" : "pending",
         },
         mcp_endpoint: "/mcp",
         research_status_endpoint: "/research/status",
