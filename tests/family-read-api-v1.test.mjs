@@ -5,18 +5,16 @@ const read = (path) => fs.readFileSync(path, "utf8");
 
 const familyRead = read("src/v10/family-read-api-v1.ts");
 const wrapper = read("src/market-data-production-entry.ts");
+const oauthEntry = read("src/oauth-entry.ts");
 
 assert.match(familyRead, /family-read-api\/v1\.0\.0/);
-assert.match(familyRead, /MOM_GPT_API_KEY/);
 assert.match(familyRead, /SISTER_GPT_API_KEY/);
-assert.match(familyRead, /MCP_API_KEY/);
 assert.match(familyRead, /resolveFamilyReadIdentity/);
 assert.match(familyRead, /constantTimeEqual/);
 assert.match(familyRead, /classifyFamilyReadIntent/);
 assert.match(familyRead, /runFamilyStockSelection/);
 assert.match(familyRead, /runFamilyQuery/);
 assert.match(familyRead, /\/api\/family\/read/);
-assert.match(familyRead, /Taiwan Stock AI Family Read API V1/);
 assert.match(familyRead, /canonical_market_data/);
 assert.match(familyRead, /data\/market\/tw\/daily/);
 assert.match(familyRead, /institutional\.json/);
@@ -32,11 +30,27 @@ assert.match(familyRead, /order placement/);
 assert.doesNotMatch(familyRead, /method:\s*["'](?:PUT|PATCH|DELETE)["']/i);
 assert.doesNotMatch(familyRead, /github.*(?:write|put)/i);
 
+// Shared Custom GPT lane is sister-only. Mother stays on OAuth Family MCP.
+assert.match(wrapper, /SISTER_GPT_API_KEY/);
+assert.match(wrapper, /sisterActionAuthorized/);
+assert.match(wrapper, /taistock-sister-gpt/);
+assert.match(wrapper, /sister_custom_gpt/);
+assert.match(wrapper, /媽媽|Mother access remains on \/family-mcp/);
+assert.doesNotMatch(wrapper, /MOM_GPT_API_KEY/);
 assert.match(wrapper, /familyReadOpenApiSchema/);
 assert.match(wrapper, /handleFamilyReadApi/);
 assert.match(wrapper, /\/family-openapi\.json/);
-assert.match(wrapper, /const familyRead = await handleFamilyReadApi/);
-assert.match(wrapper, /if \(familyRead\) return familyRead/);
+assert.match(wrapper, /url\.pathname === "\/api\/family\/read"/);
+assert.match(wrapper, /if \(!sisterActionAuthorized/);
 assert.match(wrapper, /return productionEntry\.fetch/);
+const gateIndex = wrapper.indexOf('if (url.pathname === "/api/family/read")');
+const readIndex = wrapper.indexOf("const familyRead = await handleFamilyReadApi");
+assert.ok(gateIndex >= 0 && readIndex > gateIndex, "sister auth gate must run before Family Read handler");
 
-console.log("Family Read API V1 read-only shared-access contract passed");
+// Mother remains on OAuth family role with read-only scope.
+assert.match(oauthEntry, /"\/family-mcp": FamilyMCP\.serve/);
+assert.match(oauthEntry, /type OAuthRole = "owner" \| "family"/);
+assert.match(oauthEntry, /role === "owner"\s*\? \["taistock\.read", "taistock\.admin"\]\s*:\s*\["taistock\.read"\]/);
+assert.match(oauthEntry, /userId: role === "owner" \? "taistock-owner" : "taistock-family"/);
+
+console.log("Family access model passed: sister Custom GPT Action + mother OAuth Family MCP");
