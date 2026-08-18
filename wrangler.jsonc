@@ -1,6 +1,7 @@
 /**
- * Cloudflare is the execution and market-data layer.
- * GitHub stores code, reports, cases, hypotheses and decision history only.
+ * Cloudflare D1/R2 is the runtime execution and market-data layer.
+ * GitHub stores code/research history and may receive a non-blocking daily market-data mirror.
+ * The Diamond worker must never write or block the independent OHLC production pipeline.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
@@ -10,12 +11,21 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"vars": {
 		"RESEARCH_MAX_SYMBOLS": "40",
-		"RESEARCH_MAX_ONE_MINUTE": "8"
+		"RESEARCH_MAX_ONE_MINUTE": "8",
+		"MARKET_DATA_GITHUB_REPO": "keywayk09/tv-papertrader",
+		"MARKET_DATA_GITHUB_BRANCH": "main"
 	},
 	"triggers": {
 		"crons": [
 			"40 5 * * 1-5",
-			"55 5 * * 1-5"
+			"55 5 * * 1-5",
+			"10 9 * * 1-5",
+			"10 10 * * 1-5",
+			"10 12 * * 1-5",
+			"10 13 * * 1-5",
+			"30 13 * * 1-5",
+			"10 14 * * 1-5",
+			"30 14 * * 1-5"
 		]
 	},
 	"d1_databases": [
