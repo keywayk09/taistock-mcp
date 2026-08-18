@@ -7,10 +7,18 @@ export type MarketDataPhase =
 
 type Market = "TWSE" | "TPEx";
 type JsonRecord = Record<string, any>;
+type SourceState = {
+  market: Market;
+  status: "READY" | "PRELIMINARY" | "FINAL" | "PENDING" | "FAILED" | "PENDING_SECRET";
+  data_date?: string | null;
+  row_count?: number;
+  source_url?: string;
+  source_sha256?: string;
+  error?: string;
+};
 
 declare global {
   interface Env {
-    RESEARCH_DB: D1Database;
     MARKET_DATA_GITHUB_TOKEN?: string;
     MARKET_DATA_GITHUB_REPO?: string;
     MARKET_DATA_GITHUB_BRANCH?: string;
@@ -21,102 +29,7 @@ const TWSE_OPENAPI = "https://openapi.twse.com.tw/v1";
 const TPEX_OPENAPI = "https://www.tpex.org.tw/openapi/v1";
 const DEFAULT_GITHUB_REPO = "keywayk09/tv-papertrader";
 const DEFAULT_GITHUB_BRANCH = "main";
-
-const MARKET_DATA_SCHEMA_SQL = [
-  `CREATE TABLE IF NOT EXISTS market_data_runs (
-    run_id TEXT PRIMARY KEY,
-    trade_date TEXT NOT NULL,
-    phase TEXT NOT NULL,
-    started_at TEXT NOT NULL,
-    finished_at TEXT,
-    status TEXT NOT NULL,
-    summary_json TEXT,
-    error_json TEXT
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_market_data_runs_date ON market_data_runs(trade_date, started_at DESC)`,
-  `CREATE TABLE IF NOT EXISTS market_data_status (
-    trade_date TEXT NOT NULL,
-    dataset TEXT NOT NULL,
-    market TEXT NOT NULL,
-    status TEXT NOT NULL,
-    data_date TEXT,
-    row_count INTEGER NOT NULL DEFAULT 0,
-    source_url TEXT,
-    r2_key TEXT,
-    sha256 TEXT,
-    fetched_at TEXT NOT NULL,
-    error TEXT,
-    PRIMARY KEY (trade_date, dataset, market)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_market_data_status_date ON market_data_status(trade_date, dataset, market)`,
-  `CREATE TABLE IF NOT EXISTS market_symbols (
-    symbol TEXT NOT NULL,
-    market TEXT NOT NULL,
-    name TEXT,
-    industry TEXT,
-    security_type TEXT NOT NULL DEFAULT 'COMMON_STOCK',
-    active INTEGER NOT NULL DEFAULT 1,
-    payload_json TEXT NOT NULL DEFAULT '{}',
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (symbol, market)
-  )`,
-  `CREATE TABLE IF NOT EXISTS institutional_daily (
-    trade_date TEXT NOT NULL,
-    market TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    name TEXT,
-    foreign_net REAL NOT NULL DEFAULT 0,
-    trust_net REAL NOT NULL DEFAULT 0,
-    dealer_net REAL NOT NULL DEFAULT 0,
-    payload_json TEXT NOT NULL DEFAULT '{}',
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (trade_date, market, symbol)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_institutional_daily_symbol ON institutional_daily(symbol, trade_date DESC)`,
-  `CREATE TABLE IF NOT EXISTS margin_daily (
-    trade_date TEXT NOT NULL,
-    market TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    name TEXT,
-    margin_prev REAL NOT NULL DEFAULT 0,
-    margin_buy REAL NOT NULL DEFAULT 0,
-    margin_sell REAL NOT NULL DEFAULT 0,
-    margin_cash_repay REAL NOT NULL DEFAULT 0,
-    margin_balance REAL NOT NULL DEFAULT 0,
-    short_prev REAL NOT NULL DEFAULT 0,
-    short_sell REAL NOT NULL DEFAULT 0,
-    short_buy REAL NOT NULL DEFAULT 0,
-    short_repay REAL NOT NULL DEFAULT 0,
-    short_balance REAL NOT NULL DEFAULT 0,
-    payload_json TEXT NOT NULL DEFAULT '{}',
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (trade_date, market, symbol)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_margin_daily_symbol ON margin_daily(symbol, trade_date DESC)`,
-  `CREATE TABLE IF NOT EXISTS market_events (
-    event_id TEXT PRIMARY KEY,
-    market TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    event_date TEXT NOT NULL,
-    event_time TEXT,
-    event_type TEXT NOT NULL,
-    title TEXT NOT NULL,
-    source TEXT NOT NULL,
-    payload_json TEXT NOT NULL DEFAULT '{}',
-    updated_at TEXT NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_market_events_symbol_date ON market_events(symbol, event_date DESC)`,
-  `CREATE TABLE IF NOT EXISTS fundamental_versions (
-    dataset TEXT NOT NULL,
-    market TEXT NOT NULL,
-    as_of TEXT NOT NULL,
-    row_count INTEGER NOT NULL DEFAULT 0,
-    sha256 TEXT NOT NULL,
-    r2_key TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (dataset, market, sha256)
-  )`,
-];
+const SCHEMA_VERSION = "DIAMOND_MARKET_DATA_V1";
 
 export type InstitutionalRow = {
   symbol: string;
@@ -125,7 +38,6 @@ export type InstitutionalRow = {
   foreignNet: number;
   trustNet: number;
   dealerNet: number;
-  raw: JsonRecord;
 };
 
 export type MarginRow = {
@@ -142,7 +54,6 @@ export type MarginRow = {
   shortBuy: number;
   shortRepay: number;
   shortBalance: number;
-  raw: JsonRecord;
 };
 
 export type OfficialEvent = {
@@ -153,7 +64,15 @@ export type OfficialEvent = {
   eventTime: string | null;
   eventType: "INVESTOR_CONFERENCE" | "MATERIAL_INFORMATION";
   title: string;
-  raw: JsonRecord;
+};
+
+type DailyManifest = {
+  schema_version: string;
+  trade_date: string;
+  generated_at: string;
+  universe: string;
+  overall: "READY_WITH_PENDING" | "MARKET_DAY_VERIFIED";
+  datasets: Record<string, any>;
 };
 
 function record(value: unknown): JsonRecord {
@@ -165,13 +84,6 @@ function rows(value: unknown): JsonRecord[] {
   const root = record(value);
   if (Array.isArray(root.data)) return root.data.map(record);
   return [];
-}
-
-function numberValue(value: unknown): number {
-  const normalized = String(value ?? "").replaceAll(",", "").replaceAll("+", "").trim();
-  if (!normalized || normalized === "--" || normalized === "---" || normalized === "X") return 0;
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function plainKey(value: string): string {
@@ -188,6 +100,13 @@ function pick(row: JsonRecord, candidates: string[]): unknown {
     if (actual && row[actual] !== undefined && row[actual] !== null && row[actual] !== "") return row[actual];
   }
   return undefined;
+}
+
+function numberValue(value: unknown): number {
+  const normalized = String(value ?? "").replaceAll(",", "").replaceAll("+", "").trim();
+  if (!normalized || normalized === "--" || normalized === "---" || normalized === "X") return 0;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function ordinaryStock(symbol: unknown): boolean {
@@ -212,8 +131,8 @@ export function dateFromUnknown(value: unknown, fallback: string): string {
   if (!raw) return fallback;
   const rocCompact = raw.match(/^(\d{3})(\d{2})(\d{2})$/);
   if (rocCompact) return `${Number(rocCompact[1]) + 1911}-${rocCompact[2]}-${rocCompact[3]}`;
-  const m = raw.match(/^(\d{4})[\/-]?(\d{2})[\/-]?(\d{2})$/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const iso = raw.match(/^(\d{4})[\/-]?(\d{2})[\/-]?(\d{2})$/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
   const roc = raw.match(/^(\d{2,3})[\/-](\d{1,2})[\/-](\d{1,2})$/);
   if (roc) return `${Number(roc[1]) + 1911}-${String(Number(roc[2])).padStart(2, "0")}-${String(Number(roc[3])).padStart(2, "0")}`;
   return fallback;
@@ -253,54 +172,136 @@ async function officialJson(url: string, source: string, attempts = 3): Promise<
   throw lastError instanceof Error ? lastError : new Error(`${source} 取得失敗`);
 }
 
-async function ensureMarketDataSchema(env: Env) {
-  if (!env.RESEARCH_DB) throw new Error("RESEARCH_DB 尚未綁定");
-  await env.RESEARCH_DB.batch(MARKET_DATA_SCHEMA_SQL.map((sql) => env.RESEARCH_DB.prepare(sql)));
-}
-
-async function setStatus(
-  env: Env,
-  tradeDate: string,
-  dataset: string,
-  market: Market,
-  status: string,
-  options: { dataDate?: string | null; rowCount?: number; sourceUrl?: string; r2Key?: string | null; sha256?: string | null; error?: string | null } = {},
-) {
-  await env.RESEARCH_DB.prepare(`
-    INSERT INTO market_data_status (
-      trade_date, dataset, market, status, data_date, row_count, source_url, r2_key, sha256, fetched_at, error
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(trade_date, dataset, market) DO UPDATE SET
-      status=excluded.status, data_date=excluded.data_date, row_count=excluded.row_count,
-      source_url=excluded.source_url, r2_key=excluded.r2_key, sha256=excluded.sha256,
-      fetched_at=excluded.fetched_at, error=excluded.error
-  `).bind(
-    tradeDate,
-    dataset,
-    market,
-    status,
-    options.dataDate ?? null,
-    options.rowCount ?? 0,
-    options.sourceUrl ?? null,
-    options.r2Key ?? null,
-    options.sha256 ?? null,
-    new Date().toISOString(),
-    options.error ?? null,
-  ).run();
-}
-
-function twseTableRows(body: unknown, titleIncludes: string): JsonRecord[] {
-  const root = record(body);
-  for (const rawTable of Array.isArray(root.tables) ? root.tables : []) {
-    const table = record(rawTable);
-    if (!String(table.title ?? "").includes(titleIncludes)) continue;
-    const fields = Array.isArray(table.fields) ? table.fields.map(String) : [];
-    return (Array.isArray(table.data) ? table.data : []).map((row: unknown) => {
-      const values = Array.isArray(row) ? row : [];
-      return Object.fromEntries(fields.map((field, index) => [field, values[index]]));
-    });
+function utf8Base64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
   }
-  return [];
+  return btoa(binary);
+}
+
+function base64Utf8(value: string): string {
+  const binary = atob(value.replaceAll("\n", ""));
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function githubRepo(env: Env): string {
+  return env.MARKET_DATA_GITHUB_REPO || DEFAULT_GITHUB_REPO;
+}
+
+function githubBranch(env: Env): string {
+  return env.MARKET_DATA_GITHUB_BRANCH || DEFAULT_GITHUB_BRANCH;
+}
+
+function githubContentsUrl(env: Env, path: string): string {
+  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+  return `https://api.github.com/repos/${githubRepo(env)}/contents/${encodedPath}`;
+}
+
+function githubHeaders(env: Env): HeadersInit {
+  return {
+    Accept: "application/vnd.github+json",
+    Authorization: `Bearer ${env.MARKET_DATA_GITHUB_TOKEN ?? ""}`,
+    "User-Agent": "Taiwan-Stock-AI-Market-Data/1.0",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+}
+
+async function readGithubFile(env: Env, path: string): Promise<{ exists: boolean; sha?: string; content?: string }> {
+  if (!env.MARKET_DATA_GITHUB_TOKEN) return { exists: false };
+  const response = await fetch(`${githubContentsUrl(env, path)}?ref=${encodeURIComponent(githubBranch(env))}`, {
+    headers: githubHeaders(env),
+  });
+  if (response.status === 404) return { exists: false };
+  if (!response.ok) throw new Error(`GitHub read ${path} HTTP ${response.status}`);
+  const body = record(await response.json());
+  return {
+    exists: true,
+    sha: typeof body.sha === "string" ? body.sha : undefined,
+    content: typeof body.content === "string" ? base64Utf8(body.content) : undefined,
+  };
+}
+
+async function writeGithubFile(env: Env, path: string, content: string, message: string) {
+  if (!env.MARKET_DATA_GITHUB_TOKEN) return { status: "PENDING_SECRET" as const, path };
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const current = await readGithubFile(env, path);
+    if (current.exists && current.content === content) return { status: "UNCHANGED" as const, path, sha: current.sha };
+    const body: JsonRecord = {
+      message,
+      branch: githubBranch(env),
+      content: utf8Base64(content),
+    };
+    if (current.sha) body.sha = current.sha;
+    const response = await fetch(githubContentsUrl(env, path), {
+      method: "PUT",
+      headers: { ...githubHeaders(env), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (response.ok) {
+      const result = record(await response.json());
+      return { status: "READY" as const, path, commit_sha: record(result.commit).sha ?? null };
+    }
+    if ((response.status === 409 || response.status === 422) && attempt < 3) continue;
+    throw new Error(`GitHub write ${path} HTTP ${response.status}: ${(await response.text()).slice(0, 300)}`);
+  }
+  throw new Error(`GitHub write ${path} CAS retry exhausted`);
+}
+
+async function writeGithubImmutable(env: Env, path: string, content: string, message: string) {
+  if (!env.MARKET_DATA_GITHUB_TOKEN) return { status: "PENDING_SECRET" as const, path };
+  const current = await readGithubFile(env, path);
+  if (current.exists) return { status: "EXISTS" as const, path, sha: current.sha };
+  return writeGithubFile(env, path, content, message);
+}
+
+async function readGithubJson(env: Env, path: string): Promise<any | null> {
+  const current = await readGithubFile(env, path);
+  if (!current.exists || !current.content) return null;
+  try { return JSON.parse(current.content); } catch { return null; }
+}
+
+function dailyRoot(tradeDate: string): string {
+  const [year, month, day] = tradeDate.split("-");
+  return `data/market/tw/daily/${year}/${month}/${day}`;
+}
+
+function emptyManifest(tradeDate: string): DailyManifest {
+  return {
+    schema_version: SCHEMA_VERSION,
+    trade_date: tradeDate,
+    generated_at: new Date().toISOString(),
+    universe: "TWSE+TPEx COMMON_STOCK (4-digit, non-zero-leading symbol)",
+    overall: "READY_WITH_PENDING",
+    datasets: {},
+  };
+}
+
+async function loadManifest(env: Env, tradeDate: string): Promise<DailyManifest> {
+  const value = await readGithubJson(env, `${dailyRoot(tradeDate)}/manifest.json`);
+  if (!value || record(value).schema_version !== SCHEMA_VERSION) return emptyManifest(tradeDate);
+  return value as DailyManifest;
+}
+
+function datasetReady(dataset: any, accepted: string[]): boolean {
+  const sources = Array.isArray(record(dataset).sources) ? record(dataset).sources : [];
+  if (sources.length < 2) return false;
+  return sources.every((source: any) => accepted.includes(String(record(source).status ?? "")));
+}
+
+function recalcOverall(manifest: DailyManifest) {
+  const institutionalReady = datasetReady(manifest.datasets.institutional, ["FINAL", "READY"]);
+  const marginReady = datasetReady(manifest.datasets.margin, ["FINAL", "READY"]);
+  manifest.overall = institutionalReady && marginReady ? "MARKET_DAY_VERIFIED" : "READY_WITH_PENDING";
+  manifest.generated_at = new Date().toISOString();
+}
+
+async function saveManifest(env: Env, manifest: DailyManifest) {
+  recalcOverall(manifest);
+  const path = `${dailyRoot(manifest.trade_date)}/manifest.json`;
+  return writeGithubFile(env, path, `${JSON.stringify(manifest, null, 2)}\n`, `data: update Taiwan market manifest ${manifest.trade_date}`);
 }
 
 export function normalizeTwseInstitutional(body: unknown): InstitutionalRow[] {
@@ -318,7 +319,6 @@ export function normalizeTwseInstitutional(body: unknown): InstitutionalRow[] {
       foreignNet: numberValue(pick(raw, ["外陸資買賣超股數(不含外資自營商)", "外陸資買賣超股數", "外資及陸資買賣超股數"])),
       trustNet: numberValue(pick(raw, ["投信買賣超股數", "投信買賣超"])),
       dealerNet: numberValue(pick(raw, ["自營商買賣超股數", "自營商買賣超"])),
-      raw,
     };
   }).filter((row) => ordinaryStock(row.symbol));
 }
@@ -347,7 +347,6 @@ export function normalizeTpexInstitutional(body: unknown): InstitutionalRow[] {
       foreignNet: numberValue(foreignRaw),
       trustNet: numberValue(trustRaw),
       dealerNet: numberValue(dealerRaw),
-      raw,
     }];
   });
 }
@@ -362,25 +361,20 @@ export function normalizeTwseMargin(body: unknown): MarginRow[] {
     const values = Array.isArray(item) ? item : [];
     const raw = Object.fromEntries(fields.map((field, index) => [field, values[index]]));
     const symbol = String(values[0] ?? pick(raw, ["股票代號", "證券代號"]) ?? "").trim();
-    const marginPrev = numberValue(values[5] ?? pick(raw, ["融資前日餘額"]));
-    const marginBalance = numberValue(values[6] ?? pick(raw, ["融資今日餘額", "融資當日餘額"]));
-    const shortPrev = numberValue(values[11] ?? pick(raw, ["融券前日餘額"]));
-    const shortBalance = numberValue(values[12] ?? pick(raw, ["融券今日餘額", "融券當日餘額"]));
     return {
       symbol,
       market: "TWSE" as const,
       name: String(values[1] ?? pick(raw, ["股票名稱", "證券名稱"]) ?? "").trim(),
-      marginPrev,
+      marginPrev: numberValue(values[5] ?? pick(raw, ["融資前日餘額"])),
       marginBuy: numberValue(values[2] ?? pick(raw, ["融資買進"])),
       marginSell: numberValue(values[3] ?? pick(raw, ["融資賣出"])),
       marginCashRepay: numberValue(values[4] ?? pick(raw, ["融資現金償還"])),
-      marginBalance,
-      shortPrev,
+      marginBalance: numberValue(values[6] ?? pick(raw, ["融資今日餘額", "融資當日餘額"])),
+      shortPrev: numberValue(values[11] ?? pick(raw, ["融券前日餘額"])),
       shortSell: numberValue(values[8] ?? pick(raw, ["融券賣出"])),
       shortBuy: numberValue(values[9] ?? pick(raw, ["融券買進"])),
       shortRepay: numberValue(values[10] ?? pick(raw, ["融券現券償還"])),
-      shortBalance,
-      raw,
+      shortBalance: numberValue(values[12] ?? pick(raw, ["融券今日餘額", "融券當日餘額"])),
     };
   }).filter((row) => ordinaryStock(row.symbol));
 }
@@ -416,7 +410,6 @@ export function normalizeTpexMargin(body: unknown): MarginRow[] {
       shortBuy: numberValue(required.shortBuy),
       shortRepay: numberValue(required.shortRepay),
       shortBalance: numberValue(required.shortBalance),
-      raw,
     }];
   });
 }
@@ -426,13 +419,12 @@ export function classifyOfficialEvent(raw: JsonRecord, market: Market, fallbackD
   if (!ordinaryStock(symbol)) return null;
   const title = String(pick(raw, ["主旨", "Title", "Subject", "說明", "Description"]) ?? "").trim();
   const description = String(pick(raw, ["說明", "Description", "內容", "Content"]) ?? "").trim();
-  const joined = `${title} ${description}`;
   const eventDate = dateFromUnknown(pick(raw, ["發言日期", "公告日期", "事實發生日", "Date", "AnnounceDate"]), fallbackDate);
   const eventTimeRaw = String(pick(raw, ["發言時間", "Time", "AnnounceTime"]) ?? "").trim();
-  const eventType = /法人說明會|法說會|業績發表會|investor\s*conference/i.test(joined)
+  const eventType = /法人說明會|法說會|業績發表會|investor\s*conference/i.test(`${title} ${description}`)
     ? "INVESTOR_CONFERENCE"
     : "MATERIAL_INFORMATION";
-  const seed = JSON.stringify([market, symbol, eventDate, eventTimeRaw, title, description]);
+  const seed = `${market}|${symbol}|${eventDate}|${eventTimeRaw}|${title}|${description}`;
   let hash = 2166136261;
   for (let i = 0; i < seed.length; i += 1) hash = Math.imul(hash ^ seed.charCodeAt(i), 16777619);
   return {
@@ -443,7 +435,6 @@ export function classifyOfficialEvent(raw: JsonRecord, market: Market, fallbackD
     eventTime: eventTimeRaw || null,
     eventType,
     title: title || description.slice(0, 160),
-    raw,
   };
 }
 
@@ -455,67 +446,62 @@ function normalizeSymbolMaster(body: unknown, market: Market) {
       market,
       name: String(pick(raw, ["公司名稱", "公司簡稱", "股票名稱", "證券名稱", "CompanyName", "Name"]) ?? "").trim(),
       industry: String(pick(raw, ["產業別", "產業類別", "Industry", "IndustryName"]) ?? "").trim(),
-      securityType: "COMMON_STOCK",
-      raw,
+      security_type: "COMMON_STOCK",
     };
   }).filter((row) => ordinaryStock(row.symbol));
 }
 
-async function saveSymbols(env: Env, normalized: ReturnType<typeof normalizeSymbolMaster>) {
-  const now = new Date().toISOString();
-  const statements = normalized.map((row) => env.RESEARCH_DB.prepare(`
-    INSERT INTO market_symbols (symbol, market, name, industry, security_type, active, payload_json, updated_at)
-    VALUES (?, ?, ?, ?, 'COMMON_STOCK', 1, ?, ?)
-    ON CONFLICT(symbol, market) DO UPDATE SET
-      name=excluded.name, industry=excluded.industry, security_type='COMMON_STOCK', active=1,
-      payload_json=excluded.payload_json, updated_at=excluded.updated_at
-  `).bind(row.symbol, row.market, row.name, row.industry, JSON.stringify(row.raw), now));
-  for (let index = 0; index < statements.length; index += 50) await env.RESEARCH_DB.batch(statements.slice(index, index + 50));
-}
-
-async function saveInstitutional(env: Env, tradeDate: string, data: InstitutionalRow[]) {
-  const now = new Date().toISOString();
-  const statements = data.map((row) => env.RESEARCH_DB.prepare(`
-    INSERT INTO institutional_daily (trade_date, market, symbol, name, foreign_net, trust_net, dealer_net, payload_json, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(trade_date, market, symbol) DO UPDATE SET
-      name=excluded.name, foreign_net=excluded.foreign_net, trust_net=excluded.trust_net,
-      dealer_net=excluded.dealer_net, payload_json=excluded.payload_json, updated_at=excluded.updated_at
-  `).bind(tradeDate, row.market, row.symbol, row.name, row.foreignNet, row.trustNet, row.dealerNet, JSON.stringify(row.raw), now));
-  for (let index = 0; index < statements.length; index += 50) await env.RESEARCH_DB.batch(statements.slice(index, index + 50));
-}
-
-async function saveMargin(env: Env, tradeDate: string, data: MarginRow[]) {
-  const now = new Date().toISOString();
-  const statements = data.map((row) => env.RESEARCH_DB.prepare(`
-    INSERT INTO margin_daily (
-      trade_date, market, symbol, name, margin_prev, margin_buy, margin_sell, margin_cash_repay,
-      margin_balance, short_prev, short_sell, short_buy, short_repay, short_balance, payload_json, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(trade_date, market, symbol) DO UPDATE SET
-      name=excluded.name, margin_prev=excluded.margin_prev, margin_buy=excluded.margin_buy,
-      margin_sell=excluded.margin_sell, margin_cash_repay=excluded.margin_cash_repay,
-      margin_balance=excluded.margin_balance, short_prev=excluded.short_prev, short_sell=excluded.short_sell,
-      short_buy=excluded.short_buy, short_repay=excluded.short_repay, short_balance=excluded.short_balance,
-      payload_json=excluded.payload_json, updated_at=excluded.updated_at
-  `).bind(
-    tradeDate, row.market, row.symbol, row.name, row.marginPrev, row.marginBuy, row.marginSell,
-    row.marginCashRepay, row.marginBalance, row.shortPrev, row.shortSell, row.shortBuy,
-    row.shortRepay, row.shortBalance, JSON.stringify(row.raw), now,
-  ));
-  for (let index = 0; index < statements.length; index += 50) await env.RESEARCH_DB.batch(statements.slice(index, index + 50));
-}
-
-async function saveEvents(env: Env, data: OfficialEvent[]) {
-  const now = new Date().toISOString();
-  const statements = data.map((event) => env.RESEARCH_DB.prepare(`
-    INSERT INTO market_events (event_id, market, symbol, event_date, event_time, event_type, title, source, payload_json, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'OFFICIAL', ?, ?)
-    ON CONFLICT(event_id) DO UPDATE SET
-      event_time=excluded.event_time, event_type=excluded.event_type, title=excluded.title,
-      payload_json=excluded.payload_json, updated_at=excluded.updated_at
-  `).bind(event.eventId, event.market, event.symbol, event.eventDate, event.eventTime, event.eventType, event.title, JSON.stringify(event.raw), now));
-  for (let index = 0; index < statements.length; index += 50) await env.RESEARCH_DB.batch(statements.slice(index, index + 50));
+async function fetchSource<T>(
+  market: Market,
+  url: string,
+  tradeDate: string,
+  normalize: (body: unknown) => T[],
+  options: { requirePayloadDate?: boolean; readyStatus?: SourceState["status"] } = {},
+): Promise<{ state: SourceState; rows: T[] }> {
+  try {
+    const body = await officialJson(url, `${market} market data`);
+    const sourceSha = await sha256Text(JSON.stringify(body));
+    const servedDate = options.requirePayloadDate ? payloadDataDate(body) : tradeDate;
+    if (options.requirePayloadDate && (!servedDate || servedDate !== tradeDate)) {
+      return {
+        state: {
+          market,
+          status: "PENDING",
+          data_date: servedDate || null,
+          row_count: 0,
+          source_url: url,
+          source_sha256: sourceSha,
+          error: `${market} served ${servedDate || "UNKNOWN"}; requested ${tradeDate}`,
+        },
+        rows: [],
+      };
+    }
+    const normalized = normalize(body);
+    if (!normalized.length) throw new Error("normalized ordinary-stock rows = 0");
+    return {
+      state: {
+        market,
+        status: options.readyStatus ?? "READY",
+        data_date: tradeDate,
+        row_count: normalized.length,
+        source_url: url,
+        source_sha256: sourceSha,
+      },
+      rows: normalized,
+    };
+  } catch (error) {
+    return {
+      state: {
+        market,
+        status: "PENDING",
+        data_date: null,
+        row_count: 0,
+        source_url: url,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      rows: [],
+    };
+  }
 }
 
 async function collectSymbolMaster(env: Env, tradeDate: string) {
@@ -523,338 +509,239 @@ async function collectSymbolMaster(env: Env, tradeDate: string) {
     { market: "TWSE", url: `${TWSE_OPENAPI}/opendata/t187ap03_L` },
     { market: "TPEx", url: `${TPEX_OPENAPI}/mopsfin_t187ap03_O` },
   ];
-  const results = [];
+  const allRows: any[] = [];
+  const states: SourceState[] = [];
   for (const source of sources) {
-    try {
-      const body = await officialJson(source.url, `${source.market} symbol master`);
-      const normalized = normalizeSymbolMaster(body, source.market);
-      if (!normalized.length) throw new Error("ordinary-stock rows = 0");
-      await saveSymbols(env, normalized);
-      await setStatus(env, tradeDate, "symbol_master", source.market, "READY", {
-        dataDate: tradeDate, rowCount: normalized.length, sourceUrl: source.url,
-      });
-      results.push({ market: source.market, status: "READY", rowCount: normalized.length });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await setStatus(env, tradeDate, "symbol_master", source.market, "PENDING", { sourceUrl: source.url, error: message });
-      results.push({ market: source.market, status: "PENDING", error: message });
-    }
+    const result = await fetchSource(source.market, source.url, tradeDate, (body) => normalizeSymbolMaster(body, source.market));
+    states.push(result.state);
+    allRows.push(...result.rows);
   }
-  return results;
+  const payload = { schema_version: SCHEMA_VERSION, updated_at: new Date().toISOString(), sources: states, rows: allRows };
+  const archive = await writeGithubFile(env, "data/market/tw/reference/symbol-master.json", `${JSON.stringify(payload, null, 2)}\n`, "data: update Taiwan stock symbol master");
+  return { sources: states, row_count: allRows.length, archive };
 }
 
 async function collectInstitutional(env: Env, tradeDate: string, final: boolean) {
   const compact = compactDate(tradeDate);
-  const sources: Array<{ market: Market; url: string; normalize: (value: unknown) => InstitutionalRow[] }> = [
-    {
-      market: "TWSE",
-      url: `https://www.twse.com.tw/rwd/zh/fund/T86?date=${compact}&selectType=ALLBUT0999&response=json`,
-      normalize: normalizeTwseInstitutional,
-    },
-    { market: "TPEx", url: `${TPEX_OPENAPI}/tpex_3insti_daily_trading`, normalize: normalizeTpexInstitutional },
-  ];
-  const combined: InstitutionalRow[] = [];
-  const results = [];
-  for (const source of sources) {
-    try {
-      const body = await officialJson(source.url, `${source.market} institutional`);
-      if (source.market === "TPEx") {
-        const servedDate = payloadDataDate(body);
-        if (!servedDate || servedDate !== tradeDate) throw new Error(`TPEx institutional served ${servedDate || "UNKNOWN"}; requested ${tradeDate}`);
-      }
-      const normalized = source.normalize(body);
-      if (!normalized.length) throw new Error("institutional ordinary-stock rows = 0");
-      await saveInstitutional(env, tradeDate, normalized);
-      combined.push(...normalized);
-      const suffix = final ? "final" : "preliminary";
-      await setStatus(env, tradeDate, "institutional", source.market, final ? "FINAL" : "PRELIMINARY", {
-        dataDate: tradeDate, rowCount: normalized.length, sourceUrl: source.url,
-      });
-      results.push({ market: source.market, status: final ? "FINAL" : "PRELIMINARY", rowCount: normalized.length });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await setStatus(env, tradeDate, "institutional", source.market, "PENDING", { sourceUrl: source.url, error: message });
-      results.push({ market: source.market, status: "PENDING", error: message });
-    }
-  }
-  return results;
+  const twseUrl = `https://www.twse.com.tw/rwd/zh/fund/T86?date=${compact}&selectType=ALLBUT0999&response=json`;
+  const tpexUrl = `${TPEX_OPENAPI}/tpex_3insti_daily_trading`;
+  const twse = await fetchSource("TWSE", twseUrl, tradeDate, normalizeTwseInstitutional, { readyStatus: final ? "FINAL" : "PRELIMINARY" });
+  const tpex = await fetchSource("TPEx", tpexUrl, tradeDate, normalizeTpexInstitutional, { requirePayloadDate: true, readyStatus: final ? "FINAL" : "PRELIMINARY" });
+  const payload = {
+    schema_version: SCHEMA_VERSION,
+    trade_date: tradeDate,
+    phase: final ? "FINAL" : "PRELIMINARY",
+    fetched_at: new Date().toISOString(),
+    sources: [twse.state, tpex.state],
+    rows: [...twse.rows, ...tpex.rows],
+  };
+  const archive = await writeGithubFile(env, `${dailyRoot(tradeDate)}/institutional.json`, `${JSON.stringify(payload, null, 2)}\n`, `data: ${final ? "final" : "preliminary"} institutional ${tradeDate}`);
+  return { ...payload, archive };
 }
 
 async function collectMargin(env: Env, tradeDate: string) {
   const compact = compactDate(tradeDate);
-  const sources: Array<{ market: Market; url: string; normalize: (value: unknown) => MarginRow[] }> = [
-    {
-      market: "TWSE",
-      url: `https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${compact}&selectType=ALL&response=json`,
-      normalize: normalizeTwseMargin,
-    },
-    { market: "TPEx", url: `${TPEX_OPENAPI}/tpex_mainboard_margin_balance`, normalize: normalizeTpexMargin },
-  ];
-  const combined: MarginRow[] = [];
-  const results = [];
-  for (const source of sources) {
-    try {
-      const body = await officialJson(source.url, `${source.market} margin`);
-      if (source.market === "TPEx") {
-        const servedDate = payloadDataDate(body);
-        if (!servedDate || servedDate !== tradeDate) throw new Error(`TPEx margin served ${servedDate || "UNKNOWN"}; requested ${tradeDate}`);
-      }
-      const normalized = source.normalize(body);
-      if (!normalized.length) throw new Error("margin ordinary-stock rows = 0; official data may not be published yet");
-      await saveMargin(env, tradeDate, normalized);
-      combined.push(...normalized);
-      await setStatus(env, tradeDate, "margin", source.market, "FINAL", {
-        dataDate: tradeDate, rowCount: normalized.length, sourceUrl: source.url,
-      });
-      results.push({ market: source.market, status: "FINAL", rowCount: normalized.length });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await setStatus(env, tradeDate, "margin", source.market, "PENDING", { sourceUrl: source.url, error: message });
-      results.push({ market: source.market, status: "PENDING", error: message });
-    }
-  }
-  return results;
+  const twseUrl = `https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${compact}&selectType=ALL&response=json`;
+  const tpexUrl = `${TPEX_OPENAPI}/tpex_mainboard_margin_balance`;
+  const twse = await fetchSource("TWSE", twseUrl, tradeDate, normalizeTwseMargin, { readyStatus: "FINAL" });
+  const tpex = await fetchSource("TPEx", tpexUrl, tradeDate, normalizeTpexMargin, { requirePayloadDate: true, readyStatus: "FINAL" });
+  const payload = {
+    schema_version: SCHEMA_VERSION,
+    trade_date: tradeDate,
+    fetched_at: new Date().toISOString(),
+    sources: [twse.state, tpex.state],
+    rows: [...twse.rows, ...tpex.rows],
+  };
+  const archive = await writeGithubFile(env, `${dailyRoot(tradeDate)}/margin.json`, `${JSON.stringify(payload, null, 2)}\n`, `data: margin ${tradeDate}`);
+  return { ...payload, archive };
 }
 
-const FINANCIAL_ENDPOINTS: Array<{ market: Market; dataset: string; path: string }> = [
+const FINANCIAL_ENDPOINTS: Array<{ market: Market; dataset: string; url: string }> = [
   ...["basi", "bd", "ci", "fh", "ins", "mim"].flatMap((kind) => [
-    { market: "TWSE" as const, dataset: `income_${kind}`, path: `${TWSE_OPENAPI}/opendata/t187ap06_L_${kind}` },
-    { market: "TWSE" as const, dataset: `balance_${kind}`, path: `${TWSE_OPENAPI}/opendata/t187ap07_L_${kind}` },
+    { market: "TWSE" as const, dataset: `income_${kind}`, url: `${TWSE_OPENAPI}/opendata/t187ap06_L_${kind}` },
+    { market: "TWSE" as const, dataset: `balance_${kind}`, url: `${TWSE_OPENAPI}/opendata/t187ap07_L_${kind}` },
+    { market: "TPEx" as const, dataset: `income_${kind}`, url: `${TPEX_OPENAPI}/mopsfin_t187ap06_O_${kind}` },
+    { market: "TPEx" as const, dataset: `balance_${kind}`, url: `${TPEX_OPENAPI}/mopsfin_t187ap07_O_${kind}` },
   ]),
-  ...["basi", "bd", "ci", "fh", "ins", "mim"].map((kind) => ({
-    market: "TPEx" as const,
-    dataset: `income_${kind}`,
-    path: `${TPEX_OPENAPI}/mopsfin_t187ap06_O_${kind}`,
-  })),
-  ...["basi", "bd", "ci", "fh", "ins", "mim"].map((kind) => ({
-    market: "TPEx" as const,
-    dataset: `balance_${kind}`,
-    path: `${TPEX_OPENAPI}/mopsfin_t187ap07_O_${kind}`,
-  })),
 ];
 
-async function saveFundamentalVersion(env: Env, dataset: string, market: Market, asOf: string, body: unknown, sourceUrl: string) {
-  const text = JSON.stringify(body);
-  const sha256 = await sha256Text(text);
-  const key = `data/market/tw/fundamentals/${dataset}/${market.toLowerCase()}/${sha256}.json`;
-  const rowCount = rows(body).length;
-  await env.RESEARCH_DB.prepare(`
-    INSERT OR IGNORE INTO fundamental_versions (dataset, market, as_of, row_count, sha256, r2_key, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).bind(dataset, market, asOf, rowCount, sha256, key, new Date().toISOString()).run();
-  await setStatus(env, asOf, dataset, market, rowCount ? "READY_AS_OF" : "PENDING", {
-    dataDate: asOf, rowCount, sourceUrl, r2Key: key, sha256,
-    error: rowCount ? null : "rows = 0",
-  });
-  return { dataset, market, rowCount, sha256, r2Key: key };
+async function archiveFundamental(env: Env, dataset: string, market: Market, url: string) {
+  try {
+    const body = await officialJson(url, `${market} ${dataset}`);
+    const rowCount = rows(body).length;
+    if (!rowCount) throw new Error("rows = 0");
+    const sha256 = await sha256Text(JSON.stringify(body));
+    const path = `data/market/tw/fundamentals/${dataset}/${market.toLowerCase()}/${sha256}.json`;
+    const archive = await writeGithubImmutable(env, path, `${JSON.stringify(body, null, 2)}\n`, `data: archive ${market} ${dataset} ${sha256.slice(0, 12)}`);
+    return { market, dataset, status: archive.status === "PENDING_SECRET" ? "PENDING_SECRET" : "READY_AS_OF", row_count: rowCount, source_url: url, sha256, path, archive };
+  } catch (error) {
+    return { market, dataset, status: "PENDING", row_count: 0, source_url: url, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function collectFundamentals(env: Env) {
+  const revenueSources: Array<{ market: Market; dataset: string; url: string }> = [
+    { market: "TWSE", dataset: "revenue", url: `${TWSE_OPENAPI}/opendata/t187ap05_L` },
+    { market: "TPEx", dataset: "revenue", url: `${TPEX_OPENAPI}/mopsfin_t187ap05_O` },
+  ];
+  const results = [];
+  for (const source of [...revenueSources, ...FINANCIAL_ENDPOINTS]) {
+    results.push(await archiveFundamental(env, source.dataset, source.market, source.url));
+  }
+  return { refreshed_at: new Date().toISOString(), datasets: results };
+}
+
+async function collectEvents(env: Env, tradeDate: string) {
+  const sources: Array<{ market: Market; url: string }> = [
+    { market: "TWSE", url: `${TWSE_OPENAPI}/opendata/t187ap04_L` },
+    { market: "TPEx", url: `${TPEX_OPENAPI}/mopsfin_t187ap04_O` },
+  ];
+  const states: SourceState[] = [];
+  const allEvents: OfficialEvent[] = [];
+  for (const source of sources) {
+    try {
+      const body = await officialJson(source.url, `${source.market} events`);
+      const sourceSha = await sha256Text(JSON.stringify(body));
+      const events = rows(body)
+        .map((row) => classifyOfficialEvent(row, source.market, tradeDate))
+        .filter((event): event is OfficialEvent => Boolean(event))
+        .filter((event) => event.eventDate === tradeDate);
+      states.push({ market: source.market, status: "READY", data_date: tradeDate, row_count: events.length, source_url: source.url, source_sha256: sourceSha });
+      allEvents.push(...events);
+    } catch (error) {
+      states.push({ market: source.market, status: "PENDING", data_date: null, row_count: 0, source_url: source.url, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  const payload = { schema_version: SCHEMA_VERSION, trade_date: tradeDate, fetched_at: new Date().toISOString(), sources: states, rows: allEvents };
+  const archive = await writeGithubFile(env, `${dailyRoot(tradeDate)}/events.json`, `${JSON.stringify(payload, null, 2)}\n`, `data: official events ${tradeDate}`);
+  return { ...payload, archive };
 }
 
 async function collectFundamentalsAndEvents(env: Env, tradeDate: string) {
   const symbolMaster = await collectSymbolMaster(env, tradeDate);
-  const revenueSources: Array<{ market: Market; url: string }> = [
-    { market: "TWSE", url: `${TWSE_OPENAPI}/opendata/t187ap05_L` },
-    { market: "TPEx", url: `${TPEX_OPENAPI}/mopsfin_t187ap05_O` },
-  ];
-  const revenue = [];
-  for (const source of revenueSources) {
-    try {
-      const body = await officialJson(source.url, `${source.market} revenue`);
-      revenue.push(await saveFundamentalVersion(env, "revenue", source.market, tradeDate, body, source.url));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await setStatus(env, tradeDate, "revenue", source.market, "PENDING", { sourceUrl: source.url, error: message });
-      revenue.push({ market: source.market, status: "PENDING", error: message });
-    }
-  }
-
-  const financials = [];
-  for (const endpoint of FINANCIAL_ENDPOINTS) {
-    try {
-      const body = await officialJson(endpoint.path, `${endpoint.market} ${endpoint.dataset}`);
-      financials.push(await saveFundamentalVersion(env, endpoint.dataset, endpoint.market, tradeDate, body, endpoint.path));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await setStatus(env, tradeDate, endpoint.dataset, endpoint.market, "PENDING", { sourceUrl: endpoint.path, error: message });
-      financials.push({ dataset: endpoint.dataset, market: endpoint.market, status: "PENDING", error: message });
-    }
-  }
-
-  const eventSources: Array<{ market: Market; url: string }> = [
-    { market: "TWSE", url: `${TWSE_OPENAPI}/opendata/t187ap04_L` },
-    { market: "TPEx", url: `${TPEX_OPENAPI}/mopsfin_t187ap04_O` },
-  ];
-  const allEvents: OfficialEvent[] = [];
-  const eventResults = [];
-  for (const source of eventSources) {
-    try {
-      const body = await officialJson(source.url, `${source.market} events`);
-      const normalized = rows(body).map((row) => classifyOfficialEvent(row, source.market, tradeDate)).filter((event): event is OfficialEvent => Boolean(event));
-      await saveEvents(env, normalized);
-      allEvents.push(...normalized);
-      const raw = await putJson(env, `market/tw/raw/${tradeDate}/${source.market.toLowerCase()}/events.json`, body, source.market);
-      await setStatus(env, tradeDate, "events", source.market, "READY", {
-        dataDate: tradeDate, rowCount: normalized.length, sourceUrl: source.url,
-      });
-      eventResults.push({ market: source.market, status: "READY", rowCount: normalized.length });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await setStatus(env, tradeDate, "events", source.market, "PENDING", { sourceUrl: source.url, error: message });
-      eventResults.push({ market: source.market, status: "PENDING", error: message });
-    }
-  }
-  await putJson(env, `market/tw/daily/${tradeDate}/events.json`, { tradeDate, rows: allEvents }, "OFFICIAL");
-  return { symbolMaster, revenue, financials, events: eventResults };
+  const fundamentals = await collectFundamentals(env);
+  const events = await collectEvents(env, tradeDate);
+  return { symbolMaster, fundamentals, events };
 }
 
-function utf8Base64(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-  return btoa(binary);
-}
-
-function githubContentsUrl(repo: string, path: string) {
-  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-  return `https://api.github.com/repos/${repo}/contents/${encodedPath}`;
-}
-
-async function mirrorGithubFile(env: Env, path: string, content: string, message: string) {
-  if (!env.MARKET_DATA_GITHUB_TOKEN) return { status: "PENDING_SECRET", path };
-  const repo = env.MARKET_DATA_GITHUB_REPO || DEFAULT_GITHUB_REPO;
-  const branch = env.MARKET_DATA_GITHUB_BRANCH || DEFAULT_GITHUB_BRANCH;
-  const url = githubContentsUrl(repo, path);
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const read = await fetch(`${url}?ref=${encodeURIComponent(branch)}`, {
-      headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${env.MARKET_DATA_GITHUB_TOKEN}`, "User-Agent": "Taiwan-Stock-AI-Market-Data/1.0" },
-    });
-    let sha: string | undefined;
-    if (read.ok) {
-      const current = record(await read.json());
-      sha = typeof current.sha === "string" ? current.sha : undefined;
-    } else if (read.status !== 404) {
-      throw new Error(`GitHub read ${path} HTTP ${read.status}`);
-    }
-    const body: JsonRecord = { message, content: utf8Base64(content), branch };
-    if (sha) body.sha = sha;
-    const write = await fetch(url, {
-      method: "PUT",
-      headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${env.MARKET_DATA_GITHUB_TOKEN}`, "Content-Type": "application/json", "User-Agent": "Taiwan-Stock-AI-Market-Data/1.0" },
-      body: JSON.stringify(body),
-    });
-    if (write.ok) return { status: "READY", path };
-    if ((write.status === 409 || write.status === 422) && attempt < 3) continue;
-    throw new Error(`GitHub write ${path} HTTP ${write.status}: ${(await write.text()).slice(0, 300)}`);
+async function applyResultToManifest(env: Env, tradeDate: string, phase: MarketDataPhase, result: any) {
+  const manifest = await loadManifest(env, tradeDate);
+  manifest.generated_at = new Date().toISOString();
+  if (phase === "fundamentals") {
+    manifest.datasets.symbol_master = {
+      updated_at: new Date().toISOString(),
+      sources: result.symbolMaster?.sources ?? [],
+      row_count: result.symbolMaster?.row_count ?? 0,
+      archive: result.symbolMaster?.archive ?? null,
+    };
+    manifest.datasets.fundamentals = {
+      status: "AS_OF_NON_BLOCKING",
+      refreshed_at: result.fundamentals?.refreshed_at ?? null,
+      datasets: result.fundamentals?.datasets ?? [],
+    };
+    manifest.datasets.events = {
+      status: "NON_BLOCKING",
+      sources: result.events?.sources ?? [],
+      row_count: Array.isArray(result.events?.rows) ? result.events.rows.length : 0,
+      archive: result.events?.archive ?? null,
+    };
+  } else if (phase === "institutional_prelim" || phase === "institutional_final") {
+    manifest.datasets.institutional = {
+      phase: result.phase,
+      fetched_at: result.fetched_at,
+      sources: result.sources,
+      row_count: Array.isArray(result.rows) ? result.rows.length : 0,
+      archive: result.archive,
+    };
+  } else if (phase === "margin") {
+    manifest.datasets.margin = {
+      fetched_at: result.fetched_at,
+      sources: result.sources,
+      row_count: Array.isArray(result.rows) ? result.rows.length : 0,
+      archive: result.archive,
+    };
   }
-  throw new Error(`GitHub write ${path} CAS retry exhausted`);
-}
-
-async function readR2Json(env: Env, key: string): Promise<any | null> {
-  const object = await env.RESEARCH_BUCKET.get(key);
-  if (!object) return null;
-  try { return JSON.parse(await object.text()); } catch { return null; }
+  const manifestArchive = await saveManifest(env, manifest);
+  return { manifest, manifestArchive };
 }
 
 export async function buildMarketDayManifest(env: Env, tradeDate: string) {
-  const result = await env.RESEARCH_DB.prepare(`
-    SELECT dataset, market, status, data_date, row_count, source_url, r2_key, sha256, fetched_at, error
-    FROM market_data_status WHERE trade_date = ? ORDER BY dataset, market
-  `).bind(tradeDate).all<any>();
-  const statuses = result.results;
-  const get = (dataset: string, market: Market) => statuses.find((row) => row.dataset === dataset && row.market === market) ?? null;
-  const institutionalReady = (["TWSE", "TPEx"] as Market[]).every((market) => ["FINAL", "READY"].includes(String(get("institutional", market)?.status ?? "")));
-  const marginReady = (["TWSE", "TPEx"] as Market[]).every((market) => String(get("margin", market)?.status ?? "") === "FINAL");
-  const symbolReady = (["TWSE", "TPEx"] as Market[]).every((market) => String(get("symbol_master", market)?.status ?? "") === "READY");
-  const overall = !symbolReady || !institutionalReady ? "READY_WITH_PENDING" : marginReady ? "MARKET_DAY_VERIFIED" : "READY_WITH_PENDING";
-  const manifest = {
-    schema_version: "DIAMOND_MARKET_DATA_V1",
-    trade_date: tradeDate,
-    generated_at: new Date().toISOString(),
-    universe: "TWSE+TPEx COMMON_STOCK (4-digit, non-zero-leading symbol)",
-    overall,
-    gates: {
-      institutional: institutionalReady ? "READY" : "PENDING",
-      margin: marginReady ? "READY" : "PENDING",
-      symbol_master: symbolReady ? "READY" : "PENDING",
-      fundamentals: "AS_OF_NON_BLOCKING",
-      events: "NON_BLOCKING",
-    },
-    statuses,
-  };
-  await putJson(env, `market/tw/daily/${tradeDate}/manifest.json`, manifest, "DIAMOND_MARKET_DATA_V1");
+  const manifest = await loadManifest(env, tradeDate);
+  recalcOverall(manifest);
   return manifest;
 }
 
-async function mirrorDailySnapshot(env: Env, tradeDate: string, manifest: unknown) {
-  const [institutional, margin, events] = await Promise.all([
-    readR2Json(env, `market/tw/daily/${tradeDate}/institutional.json`),
-    readR2Json(env, `market/tw/daily/${tradeDate}/margin.json`),
-    readR2Json(env, `market/tw/daily/${tradeDate}/events.json`),
-  ]);
-  const [year, month, day] = tradeDate.split("-");
-  const root = `data/market/tw/daily/${year}/${month}/${day}`;
-  const files: Array<[string, unknown]> = [
-    [`${root}/manifest.json`, manifest],
-    [`${root}/institutional.json`, institutional],
-    [`${root}/margin.json`, margin],
-    [`${root}/events.json`, events],
-  ];
-  const results = [];
-  for (const [path, value] of files) {
-    if (value === null) continue;
-    try {
-      results.push(await mirrorGithubFile(env, path, `${JSON.stringify(value, null, 2)}\n`, `data: mirror Taiwan market ${tradeDate} ${path.split("/").at(-1)}`));
-    } catch (error) {
-      results.push({ status: "FAILED", path, error: error instanceof Error ? error.message : String(error) });
-    }
-  }
-  return results;
-}
-
 export async function getMarketDataStatus(env: Env, tradeDate = taipeiDate()) {
-  await ensureMarketDataSchema(env);
-  const manifest = await readR2Json(env, `market/tw/daily/${tradeDate}/manifest.json`);
-  const latestRun = await env.RESEARCH_DB.prepare(`
-    SELECT run_id, trade_date, phase, started_at, finished_at, status, summary_json, error_json
-    FROM market_data_runs WHERE trade_date = ? ORDER BY started_at DESC LIMIT 1
-  `).bind(tradeDate).first<any>();
-  return { tradeDate, manifest, latestRun };
+  const manifest = await loadManifest(env, tradeDate);
+  recalcOverall(manifest);
+  return {
+    tradeDate,
+    storage: "GitHub canonical",
+    github_repo: githubRepo(env),
+    github_branch: githubBranch(env),
+    github_token: env.MARKET_DATA_GITHUB_TOKEN ? "configured" : "pending",
+    manifest,
+  };
 }
 
 export async function runMarketDataPipeline(env: Env, phase: MarketDataPhase, scheduledAt = new Date()) {
-  await ensureMarketDataSchema(env);
   const tradeDate = taipeiDate(scheduledAt);
-  const startedAt = new Date().toISOString();
-  const runId = `${tradeDate}:${phase}:${startedAt}`;
-  await env.RESEARCH_DB.prepare(`
-    INSERT INTO market_data_runs (run_id, trade_date, phase, started_at, status)
-    VALUES (?, ?, ?, ?, 'running')
-  `).bind(runId, tradeDate, phase, startedAt).run();
+  const runId = `${tradeDate}:${phase}:${new Date().toISOString()}`;
   try {
-    let result: unknown;
-    if (phase === "fundamentals") result = await collectFundamentalsAndEvents(env, tradeDate);
-    else if (phase === "institutional_prelim") result = await collectInstitutional(env, tradeDate, false);
-    else if (phase === "institutional_final") result = await collectInstitutional(env, tradeDate, true);
-    else if (phase === "margin") result = await collectMargin(env, tradeDate);
-    else {
-      // Finalize is also a repair pass: re-fetch only the time-sensitive datasets so late official publication self-heals.
-      const institutional = await collectInstitutional(env, tradeDate, true);
-      const margin = await collectMargin(env, tradeDate);
-      const manifest = await buildMarketDayManifest(env, tradeDate);
-      const githubMirror = await mirrorDailySnapshot(env, tradeDate, manifest);
-      result = { institutional, margin, manifest, githubMirror };
+    if (!env.MARKET_DATA_GITHUB_TOKEN) {
+      return {
+        runId,
+        tradeDate,
+        phase,
+        status: "PENDING_SECRET",
+        error: "MARKET_DATA_GITHUB_TOKEN 尚未設定；Market Data V1 不使用 R2/Google Drive/D1 作 canonical storage",
+      };
     }
-    const manifest = phase === "finalize" ? record(result).manifest : await buildMarketDayManifest(env, tradeDate);
-    const summary = { phase, result, manifest };
-    await env.RESEARCH_DB.prepare(`
-      UPDATE market_data_runs SET finished_at = ?, status = 'done', summary_json = ? WHERE run_id = ?
-    `).bind(new Date().toISOString(), JSON.stringify(summary), runId).run();
-    return { runId, tradeDate, status: "done", ...summary };
+
+    let result: any;
+    if (phase === "fundamentals") {
+      result = await collectFundamentalsAndEvents(env, tradeDate);
+      const receipt = await applyResultToManifest(env, tradeDate, phase, result);
+      return { runId, tradeDate, phase, status: "done", result, ...receipt };
+    }
+    if (phase === "institutional_prelim") {
+      result = await collectInstitutional(env, tradeDate, false);
+      const receipt = await applyResultToManifest(env, tradeDate, phase, result);
+      return { runId, tradeDate, phase, status: "done", result, ...receipt };
+    }
+    if (phase === "institutional_final") {
+      result = await collectInstitutional(env, tradeDate, true);
+      const receipt = await applyResultToManifest(env, tradeDate, phase, result);
+      return { runId, tradeDate, phase, status: "done", result, ...receipt };
+    }
+    if (phase === "margin") {
+      result = await collectMargin(env, tradeDate);
+      const receipt = await applyResultToManifest(env, tradeDate, phase, result);
+      return { runId, tradeDate, phase, status: "done", result, ...receipt };
+    }
+
+    const institutional = await collectInstitutional(env, tradeDate, true);
+    await applyResultToManifest(env, tradeDate, "institutional_final", institutional);
+    const margin = await collectMargin(env, tradeDate);
+    const receipt = await applyResultToManifest(env, tradeDate, "margin", margin);
+    return {
+      runId,
+      tradeDate,
+      phase,
+      status: "done",
+      institutional,
+      margin,
+      manifest: receipt.manifest,
+      manifestArchive: receipt.manifestArchive,
+    };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    await env.RESEARCH_DB.prepare(`
-      UPDATE market_data_runs SET finished_at = ?, status = 'failed', error_json = ? WHERE run_id = ?
-    `).bind(new Date().toISOString(), JSON.stringify({ message }), runId).run();
-    return { runId, tradeDate, phase, status: "failed", error: message };
+    return {
+      runId,
+      tradeDate,
+      phase,
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
