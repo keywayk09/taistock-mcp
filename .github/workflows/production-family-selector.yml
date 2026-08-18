@@ -20,6 +20,7 @@ jobs:
       - run: npm install
       - run: npm run type-check
       - run: node tests/production-family-selector.test.mjs
+      - run: node tests/family-smart-query-router.test.mjs
       - run: npx wrangler deploy --dry-run --outdir dist
 
   verify-live-production:
@@ -27,7 +28,7 @@ jobs:
     needs: verify-code
     runs-on: ubuntu-latest
     steps:
-      - name: Verify deployed production v1.9, intent engine, and complete market coverage
+      - name: Verify deployed production v1.9, smart router, intent engine, and complete market coverage
         run: |
           set -euo pipefail
           base="https://taistock-mcp.keywayk09.workers.dev"
@@ -36,16 +37,20 @@ jobs:
           for attempt in $(seq 1 36); do
             if curl --silent --show-error --fail --max-time 30 "$base/health" -o /tmp/family-health.json; then
               if grep -q 'family-production-runtime/1.9.0' /tmp/family-health.json && \
+                 grep -q 'family-smart-query-router/v1.0.0' /tmp/family-health.json && \
                  grep -q 'family-stock-selection/production-v1.8.0' /tmp/family-health.json && \
                  grep -q 'family-selection-intent/v1' /tmp/family-health.json; then
                 ready=1
                 break
               fi
             fi
-            echo "waiting for Cloudflare production v1.9 deployment ($attempt/36)"
+            echo "waiting for Cloudflare production smart-router deployment ($attempt/36)"
             sleep 5
           done
           test "$ready" = "1"
+
+          grep -q '"individual_stock_route": "family_query"' /tmp/family-health.json
+          grep -q '"selection_route": "family_stock_selector"' /tmp/family-health.json
 
           curl --silent --show-error --fail --max-time 60 "$base/health/family-cache" -o /tmp/family-cache.json
           grep -q 'family-selection-lkg/v2' /tmp/family-cache.json
