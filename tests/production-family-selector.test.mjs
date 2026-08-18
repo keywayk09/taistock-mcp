@@ -85,8 +85,30 @@ assert.match(entry, /OAUTH_KV\.get/);
 assert.match(entry, /legacyOauthEntry\.fetch/);
 assert.match(entry, /family_stock_selection/);
 
+// Thin production wrapper must route individual-stock/general read questions before selector.
+const smart = read("src/family-smart-production-entry.ts");
+assert.match(smart, /family-smart-query-router\/v1\.0\.0/);
+assert.match(smart, /runFamilyQuery/);
+assert.match(smart, /shouldUseFamilyStockSelector/);
+assert.match(smart, /選股\|選股票\|找股\|找股票/);
+assert.match(smart, /\btop\\s\*\\d\+\b/i);
+assert.match(smart, /symbols\.length > 0/);
+assert.match(smart, /if \(!query \|\| shouldUseFamilyStockSelector\(query\)\) return null/);
+assert.match(smart, /await runFamilyQuery/);
+assert.match(smart, /numbered_sections: "1-11"/);
+assert.match(smart, /section_12_role/);
+assert.match(smart, /不得改拿全市場選股結果冒充指定個股資料/);
+assert.match(smart, /family_smart_query_failed/);
+assert.match(smart, /return productionEntry\.fetch/);
+assert.match(smart, /scheduled/);
+
+// Regression examples locked in comments/regex contract:
+// 2317 => Family Query, 2317 vs 2382 => Family Query, explicit Top N/找股 => selector.
+const classifierSource = smart;
+assert.ok(!/(?:2317).*shouldUseFamilyStockSelector/.test(classifierSource), "classifier must not hard-code a stock symbol");
+
 const wrangler = read("wrangler.jsonc");
-assert.match(wrangler, /"main": "src\/production-entry\.ts"/);
+assert.match(wrangler, /"main": "src\/family-smart-production-entry\.ts"/);
 assert.match(wrangler, /"binding": "OAUTH_KV"/);
 assert.match(wrangler, /"name": "FAMILY_MCP_OBJECT"/);
 assert.match(wrangler, /"new_sqlite_classes": \["FamilyMCP"\]/);
@@ -94,4 +116,4 @@ assert.match(wrangler, /"tag": "v2"/);
 assert.match(wrangler, /"database_id": "18673f52-c286-49f3-a82c-bf67d0593611"/);
 assert.doesNotMatch(wrangler, /RESEARCH_BUCKET/);
 
-console.log("Production family selector v1.8 intent engine + runtime v1.9 intent-matched LKG contract passed");
+console.log("Production family selector + smart family query router contract passed");
