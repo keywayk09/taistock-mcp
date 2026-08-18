@@ -1,0 +1,189 @@
+name: Harden Diamond Market Data TPEx V1
+
+on:
+  push:
+    branches:
+      - feature/diamond-market-data-v1
+    paths:
+      - .github/workflows/harden-market-data-tpex-v1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/diamond-market-data-v1
+      - name: Harden TPEx parsers and date fence
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('src/v6/market-data-pipeline.ts')
+          text = p.read_text()
+
+          # 1) Support compact ROC dates used by TPEx, e.g. 1150818.
+          old = '''function dateFromUnknown(value: unknown, fallback: string): string {
+            const raw = String(value ?? "").trim();
+            if (!raw) return fallback;
+            const m = raw.match(/(\\d{4})[\\/-]?(\\d{2})[\\/-]?(\\d{2})/);
+            if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+            const roc = raw.match(/(\\d{2,3})[\\/-](\\d{1,2})[\\/-](\\d{1,2})/);
+            if (roc) return `${Number(roc[1]) + 1911}-${String(Number(roc[2])).padStart(2, "0")}-${String(Number(roc[3])).padStart(2, "0")}`;
+            return fallback;
+          }'''.replace('            ', '')
+          new = '''export function dateFromUnknown(value: unknown, fallback: string): string {
+            const raw = String(value ?? "").trim();
+            if (!raw) return fallback;
+            const rocCompact = raw.match(/^(\\d{3})(\\d{2})(\\d{2})$/);
+            if (rocCompact) return `${Number(rocCompact[1]) + 1911}-${rocCompact[2]}-${rocCompact[3]}`;
+            const m = raw.match(/^(\\d{4})[\\/-]?(\\d{2})[\\/-]?(\\d{2})$/);
+            if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+            const roc = raw.match(/^(\\d{2,3})[\\/-](\\d{1,2})[\\/-](\\d{1,2})$/);
+            if (roc) return `${Number(roc[1]) + 1911}-${String(Number(roc[2])).padStart(2, "0")}-${String(Number(roc[3])).padStart(2, "0")}`;
+            return fallback;
+          }
+
+          export function payloadDataDate(body: unknown, fallback = ""): string {
+            const first = rows(body)[0];
+            return first ? dateFromUnknown(pick(first, ["Date", "date", "資料日期", "日期"]), fallback) : fallback;
+          }'''.replace('            ', '')
+          if old not in text: raise SystemExit('dateFromUnknown block not found')
+          text = text.replace(old, new)
+
+          # 2) TPEx institutional: exact live official keys, fail-open on missing core fields.
+          start = text.index('export function normalizeTpexInstitutional')
+          end = text.index('\n\nexport function normalizeTwseMargin', start)
+          replacement = '''export function normalizeTpexInstitutional(body: unknown): InstitutionalRow[] {
+            return rows(body).flatMap((raw) => {
+              const symbol = String(pick(raw, ["SecuritiesCompanyCode", "SecurityCode", "Code", "證券代號", "股票代號", "代號"]) ?? "").trim();
+              if (!ordinaryStock(symbol)) return [];
+              const foreignRaw = pick(raw, [
+                "Foreign Investors include Mainland Area Investors (Foreign Dealers excluded)-Difference",
+                "ForeignInvestorsInclude MainlandAreaInvestors-Difference",
+                "ForeignInvestorsNetBuySell",
+                "ForeignAndMainlandAreaInvestorsNetBuySell",
+              ]);
+              const trustRaw = pick(raw, [
+                "SecuritiesInvestmentTrustCompanies-Difference",
+                "InvestmentTrustNetBuySell",
+                "SecuritiesInvestmentTrustCompaniesNetBuySell",
+              ]);
+              const dealerRaw = pick(raw, ["Dealers-Difference", "DealerNetBuySell", "DealersNetBuySell"]);
+              if (foreignRaw === undefined || trustRaw === undefined || dealerRaw === undefined) return [];
+              return [{
+                symbol,
+                market: "TPEx" as const,
+                name: String(pick(raw, ["CompanyName", "SecurityName", "Name", "證券名稱", "股票名稱", "名稱"]) ?? "").trim(),
+                foreignNet: numberValue(foreignRaw),
+                trustNet: numberValue(trustRaw),
+                dealerNet: numberValue(dealerRaw),
+                raw,
+              }];
+            });
+          }'''.replace('            ', '')
+          text = text[:start] + replacement + text[end:]
+
+          # 3) TPEx margin: exact live official keys, fail-open on missing core fields.
+          start = text.index('export function normalizeTpexMargin')
+          end = text.index('\n\nexport function classifyOfficialEvent', start)
+          replacement = '''export function normalizeTpexMargin(body: unknown): MarginRow[] {
+            return rows(body).flatMap((raw) => {
+              const symbol = String(pick(raw, ["SecuritiesCompanyCode", "SecurityCode", "Code", "證券代號", "股票代號", "代號"]) ?? "").trim();
+              if (!ordinaryStock(symbol)) return [];
+              const required = {
+                marginPrev: pick(raw, ["MarginPurchaseBalancePreviousDay", "MarginPurchasePreviousBalance", "MarginPreviousBalance"]),
+                marginBuy: pick(raw, ["MarginPurchase", "MarginBuy"]),
+                marginSell: pick(raw, ["MarginSales", "MarginSale", "MarginSell"]),
+                marginCashRepay: pick(raw, ["CashRedemption", "MarginCashRepay"]),
+                marginBalance: pick(raw, ["MarginPurchaseBalance", "MarginPurchaseCurrentBalance", "MarginBalance"]),
+                shortPrev: pick(raw, ["ShortSaleBalancePreviousDay", "ShortSalePreviousBalance", "ShortPreviousBalance"]),
+                shortSell: pick(raw, ["ShortSale", "ShortSell"]),
+                shortBuy: pick(raw, ["ShortConvering", "ShortCover", "ShortBuy"]),
+                shortRepay: pick(raw, ["StockRedemption", "ShortRepay"]),
+                shortBalance: pick(raw, ["ShortSaleBalance", "ShortSaleCurrentBalance", "ShortBalance"]),
+              };
+              if (Object.values(required).some((value) => value === undefined)) return [];
+              return [{
+                symbol,
+                market: "TPEx" as const,
+                name: String(pick(raw, ["CompanyName", "SecurityName", "Name", "證券名稱", "股票名稱", "名稱"]) ?? "").trim(),
+                marginPrev: numberValue(required.marginPrev),
+                marginBuy: numberValue(required.marginBuy),
+                marginSell: numberValue(required.marginSell),
+                marginCashRepay: numberValue(required.marginCashRepay),
+                marginBalance: numberValue(required.marginBalance),
+                shortPrev: numberValue(required.shortPrev),
+                shortSell: numberValue(required.shortSell),
+                shortBuy: numberValue(required.shortBuy),
+                shortRepay: numberValue(required.shortRepay),
+                shortBalance: numberValue(required.shortBalance),
+                raw,
+              }];
+            });
+          }'''.replace('            ', '')
+          text = text[:start] + replacement + text[end:]
+
+          # 4) Add TPEx latest-snapshot date fence to institutional and margin collection.
+          needle = '''      const body = await officialJson(source.url, `${source.market} institutional`);
+                const normalized = source.normalize(body);'''.replace('                ', '')
+          replace = '''      const body = await officialJson(source.url, `${source.market} institutional`);
+                if (source.market === "TPEx") {
+                  const servedDate = payloadDataDate(body);
+                  if (!servedDate || servedDate !== tradeDate) throw new Error(`TPEx institutional served ${servedDate || "UNKNOWN"}; requested ${tradeDate}`);
+                }
+                const normalized = source.normalize(body);'''.replace('                ', '')
+          if needle not in text: raise SystemExit('institutional collector needle not found')
+          text = text.replace(needle, replace, 1)
+
+          needle = '''      const body = await officialJson(source.url, `${source.market} margin`);
+                const normalized = source.normalize(body);'''.replace('                ', '')
+          replace = '''      const body = await officialJson(source.url, `${source.market} margin`);
+                if (source.market === "TPEx") {
+                  const servedDate = payloadDataDate(body);
+                  if (!servedDate || servedDate !== tradeDate) throw new Error(`TPEx margin served ${servedDate || "UNKNOWN"}; requested ${tradeDate}`);
+                }
+                const normalized = source.normalize(body);'''.replace('                ', '')
+          if needle not in text: raise SystemExit('margin collector needle not found')
+          text = text.replace(needle, replace, 1)
+
+          # 5) Official TPEx Swagger lists balance-sheet endpoints with plain ins/mim suffixes.
+          old = '''  ...([\n    ["basi", "basi"],\n    ["bd", "bd"],\n    ["ci", "ci"],\n    ["fh", "fh"],\n    ["ins", "insA"],\n    ["mim", "mimA"],\n  ] as const).map(([datasetKind, endpointKind]) => ({\n    market: "TPEx" as const,\n    dataset: `balance_${datasetKind}`,\n    path: `${TPEX_OPENAPI}/mopsfin_t187ap07_O_${endpointKind}`,\n  })),'''
+          new = '''  ...["basi", "bd", "ci", "fh", "ins", "mim"].map((kind) => ({\n    market: "TPEx" as const,\n    dataset: `balance_${kind}`,\n    path: `${TPEX_OPENAPI}/mopsfin_t187ap07_O_${kind}`,\n  })),'''
+          if old not in text: raise SystemExit('financial endpoint correction block not found')
+          text = text.replace(old, new)
+
+          p.write_text(text)
+          Path('.github/workflows/harden-market-data-tpex-v1.yml').unlink()
+
+      - name: Patch tests with live TPEx schema contracts
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('tests/market-data-pipeline.test.ts')
+          text = p.read_text()
+          text = text.replace(
+            '  normalizeTwseMargin,\n',
+            '  normalizeTwseMargin,\n  normalizeTpexMargin,\n  payloadDataDate,\n'
+          )
+          old = '''const tpexInstitutional = normalizeTpexInstitutional([\n  {\n    SecuritiesCompanyCode: "6488",\n    CompanyName: "環球晶",\n    ForeignInvestorsNetBuySell: "2,000",\n    InvestmentTrustNetBuySell: "100",\n    DealerNetBuySell: "-50",\n  },\n  { SecuritiesCompanyCode: "00679B", CompanyName: "bond", ForeignInvestorsNetBuySell: "1" },\n]);'''
+          new = '''const tpexInstitutional = normalizeTpexInstitutional([\n  {\n    Date: "1150818",\n    SecuritiesCompanyCode: "6488",\n    CompanyName: "環球晶",\n    "Foreign Investors include Mainland Area Investors (Foreign Dealers excluded)-Difference": "2,000",\n    "SecuritiesInvestmentTrustCompanies-Difference": "100",\n    "Dealers-Difference": "-50",\n  },\n  { Date: "1150818", SecuritiesCompanyCode: "00679B", CompanyName: "bond" },\n]);'''
+          if old not in text: raise SystemExit('old TPEx institutional test block not found')
+          text = text.replace(old, new)
+          insert_before = '''const investorConference = classifyOfficialEvent('''
+          margin_test = '''const tpexMargin = normalizeTpexMargin([{\n  Date: "1150817",\n  SecuritiesCompanyCode: "6488",\n  CompanyName: "環球晶",\n  MarginPurchaseBalancePreviousDay: "4,463",\n  MarginPurchase: "109",\n  MarginSales: "275",\n  CashRedemption: "3",\n  MarginPurchaseBalance: "4,294",\n  ShortSaleBalancePreviousDay: "1",\n  ShortSale: "0",\n  ShortConvering: "1",\n  StockRedemption: "0",\n  ShortSaleBalance: "0",\n}]);\nassert.equal(tpexMargin.length, 1);\nassert.equal(tpexMargin[0].marginPrev, 4463);\nassert.equal(tpexMargin[0].marginBalance, 4294);\nassert.equal(payloadDataDate([{ Date: "1150818" }]), "2026-08-18");\nassert.equal(payloadDataDate([{ Date: "1150817" }]), "2026-08-17");\n\n'''
+          if insert_before not in text: raise SystemExit('test insertion point not found')
+          text = text.replace(insert_before, margin_test + insert_before, 1)
+          p.write_text(text)
+
+      - name: Commit hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/v6/market-data-pipeline.ts tests/market-data-pipeline.test.ts .github/workflows/harden-market-data-tpex-v1.yml
+          git commit -m 'fix: enforce TPEx field and trade-date contracts'
+          git push origin HEAD:feature/diamond-market-data-v1
