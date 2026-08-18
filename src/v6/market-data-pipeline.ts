@@ -291,10 +291,17 @@ function datasetReady(dataset: any, accepted: string[]): boolean {
   return sources.every((source: any) => accepted.includes(String(record(source).status ?? "")));
 }
 
+export function marketDayOverallFromDatasets(datasets: Record<string, any>): DailyManifest["overall"] {
+  const symbolMasterReady = datasetReady(datasets.symbol_master, ["READY"]);
+  const institutionalReady = datasetReady(datasets.institutional, ["FINAL", "READY"]);
+  const marginReady = datasetReady(datasets.margin, ["FINAL", "READY"]);
+  return symbolMasterReady && institutionalReady && marginReady
+    ? "MARKET_DAY_VERIFIED"
+    : "READY_WITH_PENDING";
+}
+
 function recalcOverall(manifest: DailyManifest) {
-  const institutionalReady = datasetReady(manifest.datasets.institutional, ["FINAL", "READY"]);
-  const marginReady = datasetReady(manifest.datasets.margin, ["FINAL", "READY"]);
-  manifest.overall = institutionalReady && marginReady ? "MARKET_DAY_VERIFIED" : "READY_WITH_PENDING";
+  manifest.overall = marketDayOverallFromDatasets(manifest.datasets);
   manifest.generated_at = new Date().toISOString();
 }
 
@@ -560,9 +567,24 @@ const FINANCIAL_ENDPOINTS: Array<{ market: Market; dataset: string; url: string 
   ...["basi", "bd", "ci", "fh", "ins", "mim"].flatMap((kind) => [
     { market: "TWSE" as const, dataset: `income_${kind}`, url: `${TWSE_OPENAPI}/opendata/t187ap06_L_${kind}` },
     { market: "TWSE" as const, dataset: `balance_${kind}`, url: `${TWSE_OPENAPI}/opendata/t187ap07_L_${kind}` },
-    { market: "TPEx" as const, dataset: `income_${kind}`, url: `${TPEX_OPENAPI}/mopsfin_t187ap06_O_${kind}` },
-    { market: "TPEx" as const, dataset: `balance_${kind}`, url: `${TPEX_OPENAPI}/mopsfin_t187ap07_O_${kind}` },
   ]),
+  ...["basi", "bd", "ci", "fh", "ins", "mim"].map((kind) => ({
+    market: "TPEx" as const,
+    dataset: `income_${kind}`,
+    url: `${TPEX_OPENAPI}/mopsfin_t187ap06_O_${kind}`,
+  })),
+  ...([
+    ["basi", "basi"],
+    ["bd", "bd"],
+    ["ci", "ci"],
+    ["fh", "fh"],
+    ["ins", "insA"],
+    ["mim", "mimA"],
+  ] as const).map(([datasetKind, endpointKind]) => ({
+    market: "TPEx" as const,
+    dataset: `balance_${datasetKind}`,
+    url: `${TPEX_OPENAPI}/mopsfin_t187ap07_O_${endpointKind}`,
+  })),
 ];
 
 async function archiveFundamental(env: Env, dataset: string, market: Market, url: string) {
