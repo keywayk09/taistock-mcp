@@ -43,6 +43,6 @@ Result: the staged `PENDING` design is required. A latest-snapshot endpoint must
 - TPEx institutional and margin collectors reject a served date different from the requested trade date.
 - Core institutional/margin fields are parsed by the observed official names.
 - Missing core fields fail open by dropping the row / leaving the dataset pending; they are not silently converted to genuine zero activity.
-- The full raw official response remains available in R2 for audit after deployment.
+- Market Data V1 no longer depends on R2. Canonical normalized/archive output is written to GitHub with source SHA metadata after deployment.
 
-This document records source-shape validation only. The branch remains shadow-only until the full PR CI is green and a manual Cloudflare shadow run is validated.
+This document records source-shape validation only. The branch remains shadow-only until the full PR CI is green and a manual Cloudflare→GitHub shadow run is validated.
