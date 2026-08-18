@@ -135,8 +135,31 @@ async function maybeHandleSmartFamilyQuery(request: Request, env: RuntimeEnv) {
   }
 }
 
+async function smartHealth(request: Request, env: Env, ctx: ExecutionContext) {
+  const response = await productionEntry.fetch(request, env, ctx);
+  if (!response.ok || !(response.headers.get("content-type") ?? "").includes("application/json")) return response;
+  try {
+    const body = await response.clone().json() as Record<string, unknown>;
+    return jsonResponse({
+      ...body,
+      family_smart_query_router: {
+        version: SMART_ROUTER_VERSION,
+        individual_stock_route: "family_query",
+        selection_route: "family_stock_selector",
+        production_safe: true,
+      },
+    }, response.status);
+  } catch {
+    return response;
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    const url = new URL(request.url);
+    if ((url.pathname === "/" || url.pathname === "/health") && request.method === "GET") {
+      return smartHealth(request, env, ctx);
+    }
     const smartQuery = await maybeHandleSmartFamilyQuery(request, env as RuntimeEnv);
     if (smartQuery) return smartQuery;
     return productionEntry.fetch(request, env, ctx);
