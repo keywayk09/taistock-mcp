@@ -17,4 +17,6 @@ jobs:
       - run: npm install
       - run: npm run type-check
       - run: node --experimental-strip-types tests/market-data-pipeline.test.ts
+      - run: node tests/production-family-selector.test.mjs
+      - run: node tests/family-read-api-v1.test.mjs
       - run: npx wrangler deploy --dry-run --outdir dist
