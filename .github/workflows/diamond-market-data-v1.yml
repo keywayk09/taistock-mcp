@@ -1,0 +1,22 @@
+name: Diamond Market Data V1
+
+on:
+  pull_request:
+    branches:
+      - feature/twchips-official-v7
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install
+      - run: npm run type-check
+      - run: node --experimental-strip-types tests/market-data-pipeline.test.ts
+      - run: node tests/production-family-selector.test.mjs
+      - run: node tests/family-read-api-v1.test.mjs
+      - run: npx wrangler deploy --dry-run --outdir dist

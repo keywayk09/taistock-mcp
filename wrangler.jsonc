@@ -1,16 +1,32 @@
 /**
  * Production Cloudflare configuration.
- * Preserve the existing OAuth KV, D1 and Durable Object bindings; family stock
- * selection is routed by production-entry without introducing R2 requirements.
+ * Preserve OAuth KV, D1 and Durable Object bindings while adding the GitHub-only
+ * Diamond Market Data V1 collector. No R2 binding is required.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "taistock-mcp",
-	"main": "src/production-entry.ts",
+	"main": "src/market-data-production-entry.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
+	"secrets": {
+		"required": ["GITHUB_TOKEN"]
+	},
+	"vars": {
+		"MARKET_DATA_GITHUB_REPO": "keywayk09/tv-papertrader",
+		"MARKET_DATA_GITHUB_BRANCH": "main"
+	},
 	"triggers": {
-		"crons": ["40 7 * * 1-5"]
+		"crons": [
+			"40 7 * * 1-5",
+			"10 9 * * 1-5",
+			"10 10 * * 1-5",
+			"10 12 * * 1-5",
+			"10 13 * * 1-5",
+			"30 13 * * 1-5",
+			"10 14 * * 1-5",
+			"30 14 * * 1-5"
+		]
 	},
 	"d1_databases": [
 		{
