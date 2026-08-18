@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   classifyOfficialEvent,
   marketDataPhaseForCron,
+  marketDayOverallFromDatasets,
   normalizeTpexInstitutional,
   normalizeTwseInstitutional,
   normalizeTwseMargin,
@@ -119,5 +120,28 @@ assert.equal(marketDataPhaseForCron("30 13 * * 1-5"), "margin");
 assert.equal(marketDataPhaseForCron("10 14 * * 1-5"), "finalize");
 assert.equal(marketDataPhaseForCron("30 14 * * 1-5"), "finalize");
 assert.equal(marketDataPhaseForCron("40 5 * * 1-5"), null);
+
+const readySources = [
+  { market: "TWSE", status: "READY" },
+  { market: "TPEx", status: "READY" },
+];
+const finalSources = [
+  { market: "TWSE", status: "FINAL" },
+  { market: "TPEx", status: "FINAL" },
+];
+assert.equal(marketDayOverallFromDatasets({
+  symbol_master: { sources: readySources },
+  institutional: { sources: finalSources },
+  margin: { sources: finalSources },
+}), "MARKET_DAY_VERIFIED");
+assert.equal(marketDayOverallFromDatasets({
+  institutional: { sources: finalSources },
+  margin: { sources: finalSources },
+}), "READY_WITH_PENDING");
+assert.equal(marketDayOverallFromDatasets({
+  symbol_master: { sources: readySources },
+  institutional: { sources: finalSources },
+  margin: { sources: [{ market: "TWSE", status: "FINAL" }, { market: "TPEx", status: "PENDING" }] },
+}), "READY_WITH_PENDING");
 
 console.log("market-data-pipeline tests passed");
