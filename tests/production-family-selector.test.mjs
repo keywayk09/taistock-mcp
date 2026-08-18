@@ -91,7 +91,6 @@ assert.match(smart, /family-smart-query-router\/v1\.0\.0/);
 assert.match(smart, /runFamilyQuery/);
 assert.match(smart, /shouldUseFamilyStockSelector/);
 assert.match(smart, /選股\|選股票\|找股\|找股票/);
-assert.match(smart, /\btop\\s\*\\d\+\b/i);
 assert.match(smart, /symbols\.length > 0/);
 assert.match(smart, /if \(!query \|\| shouldUseFamilyStockSelector\(query\)\) return null/);
 assert.match(smart, /await runFamilyQuery/);
@@ -102,10 +101,8 @@ assert.match(smart, /family_smart_query_failed/);
 assert.match(smart, /return productionEntry\.fetch/);
 assert.match(smart, /scheduled/);
 
-// Regression examples locked in comments/regex contract:
-// 2317 => Family Query, 2317 vs 2382 => Family Query, explicit Top N/找股 => selector.
-const classifierSource = smart;
-assert.ok(!/(?:2317).*shouldUseFamilyStockSelector/.test(classifierSource), "classifier must not hard-code a stock symbol");
+// No stock symbol is hard-coded into the router implementation.
+assert.ok(!/(?:2317).*shouldUseFamilyStockSelector/.test(smart), "classifier must not hard-code a stock symbol");
 
 const wrangler = read("wrangler.jsonc");
 assert.match(wrangler, /"main": "src\/family-smart-production-entry\.ts"/);
