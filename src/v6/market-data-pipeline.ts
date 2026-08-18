@@ -593,9 +593,24 @@ const FINANCIAL_ENDPOINTS: Array<{ market: Market; dataset: string; path: string
   ...["basi", "bd", "ci", "fh", "ins", "mim"].flatMap((kind) => [
     { market: "TWSE" as const, dataset: `income_${kind}`, path: `${TWSE_OPENAPI}/opendata/t187ap06_L_${kind}` },
     { market: "TWSE" as const, dataset: `balance_${kind}`, path: `${TWSE_OPENAPI}/opendata/t187ap07_L_${kind}` },
-    { market: "TPEx" as const, dataset: `income_${kind}`, path: `${TPEX_OPENAPI}/mopsfin_t187ap06_O_${kind}` },
-    { market: "TPEx" as const, dataset: `balance_${kind}`, path: `${TPEX_OPENAPI}/mopsfin_t187ap07_O_${kind}` },
   ]),
+  ...["basi", "bd", "ci", "fh", "ins", "mim"].map((kind) => ({
+    market: "TPEx" as const,
+    dataset: `income_${kind}`,
+    path: `${TPEX_OPENAPI}/mopsfin_t187ap06_O_${kind}`,
+  })),
+  ...([
+    ["basi", "basi"],
+    ["bd", "bd"],
+    ["ci", "ci"],
+    ["fh", "fh"],
+    ["ins", "insA"],
+    ["mim", "mimA"],
+  ] as const).map(([datasetKind, endpointKind]) => ({
+    market: "TPEx" as const,
+    dataset: `balance_${datasetKind}`,
+    path: `${TPEX_OPENAPI}/mopsfin_t187ap07_O_${endpointKind}`,
+  })),
 ];
 
 async function saveFundamentalVersion(env: Env, dataset: string, market: Market, asOf: string, body: unknown, sourceUrl: string) {
