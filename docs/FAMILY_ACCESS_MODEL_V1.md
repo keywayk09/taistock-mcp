@@ -2,20 +2,24 @@
 
 ## Locked access lanes
 
-The family-facing Taiwan Stock AI uses one shared backend/data plane but two different client lanes.
+The Taiwan Stock AI uses one shared backend/data plane but separates the shared Custom GPT lane from the mother's Family MCP lane.
 
-### Sister — 台股引擎 Custom GPT
+### Shared `台股引擎` Custom GPT
 
 - Client: shared Custom GPT `台股引擎`
+- Intended users: anyone the owner chooses to share the GPT link with
 - Integration: GPT Action / OpenAPI
 - Schema: `GET /family-openapi.json`
 - Read endpoint: `POST /api/family/read`
-- Authentication: dedicated Worker secret `SISTER_GPT_API_KEY` as Bearer API key
-- Scope: read-only stock analysis, comparison, fundamentals, institutional flow, margin/short, events, industry/supply-chain context, and family swing selection
+- Authentication: Worker secret `TAISTOCK_GPT_READ_KEY` as the GPT Action Bearer API key
+- Meaning of the key: authenticate the shared GPT client, not identify a specific human user
+- Scope: read-only stock analysis, comparison, fundamentals, institutional flow, margin/short, events, industry/supply-chain context, and swing selection
 - Canonical enrichment: frozen GitHub Market Data under `keywayk09/tv-papertrader/data/market/tw/...` when available
 - Forbidden: Market Data ingestion, GitHub writes, OHLC writes, research writes, strategy promotion, order placement, admin functions
 
-The Action lane fails closed when `SISTER_GPT_API_KEY` is not configured. It does not accept `MOM_GPT_API_KEY` at the production wrapper.
+The Action lane fails closed when `TAISTOCK_GPT_READ_KEY` is not configured. Human users do not need to know or type this key; the Custom GPT Action carries it server-to-server.
+
+`SISTER_GPT_API_KEY` is no longer an external Cloudflare secret contract. The current Family Read implementation may retain that old field name behind an internal compatibility adapter during V1 rollout, but the production wrapper maps it from `TAISTOCK_GPT_READ_KEY` and does not require a separate sister secret.
 
 ### Mother — Family MCP
 
@@ -28,7 +32,7 @@ The Action lane fails closed when `SISTER_GPT_API_KEY` is not configured. It doe
 - Scope: read-only Taiwan Stock AI MCP tools
 - Forbidden: owner/admin scope and write/admin operations
 
-Mother does not need the Custom GPT Action key and is not migrated to the sister Action lane.
+Mother does not need the shared Custom GPT Action key and is not migrated away from Family MCP.
 
 ## Shared backend rule
 
@@ -44,14 +48,16 @@ TWSE / TPEx / MOPS / OHLC
           |
     +-----+----------------+
     |                      |
-Sister Custom GPT       Mother MCP
-SISTER_GPT_API_KEY      OAuth family role
-Action / read-only      taistock.read
+Shared 台股引擎 GPT      Mother MCP
+TAISTOCK_GPT_READ_KEY    OAuth family role
+Action / read-only       taistock.read
 ```
 
 ## Secret boundary
 
-`GITHUB_TOKEN` remains Worker-side only. It is never configured in either family client. `SISTER_GPT_API_KEY`, mother OAuth credentials, owner credentials, and GitHub credentials are separate security domains.
+`GITHUB_TOKEN` remains Worker-side only and is never configured in the Custom GPT. `TAISTOCK_GPT_READ_KEY`, mother OAuth credentials, owner/admin credentials, and GitHub credentials are separate security domains.
+
+The GPT read key does not grant `/market-data/run`, owner MCP, research writes, strategy promotion, OHLC writes, or order placement.
 
 ## Rollout rule
 
