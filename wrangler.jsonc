@@ -9,6 +9,9 @@
 	"main": "src/market-data-production-entry.ts",
 	"compatibility_date": "2025-03-10",
 	"compatibility_flags": ["nodejs_compat"],
+	"secrets": {
+		"required": ["GITHUB_TOKEN"]
+	},
 	"vars": {
 		"MARKET_DATA_GITHUB_REPO": "keywayk09/tv-papertrader",
 		"MARKET_DATA_GITHUB_BRANCH": "main"
