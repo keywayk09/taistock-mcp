@@ -131,14 +131,22 @@ function rowSymbol(value: unknown) {
   return String(row.symbol ?? row.stock_id ?? row.ticker ?? row.code ?? "").trim();
 }
 
-function symbolsFromSelection(value: unknown) {
-  const candidates = Array.isArray(record(value).candidates) ? record(value).candidates : [];
-  return [...new Set(candidates.map(rowSymbol).filter((symbol) => /^\d{4}$/.test(symbol)))].slice(0, 10);
+function symbolsFromSelection(value: unknown): string[] {
+  const rawCandidates: unknown = record(value).candidates;
+  const candidates: unknown[] = Array.isArray(rawCandidates) ? rawCandidates : [];
+  const symbols = candidates
+    .map(rowSymbol)
+    .filter((symbol: string) => /^\d{4}$/.test(symbol));
+  return [...new Set<string>(symbols)].slice(0, 10);
 }
 
-function symbolsFromQueryResult(value: unknown) {
-  const resolved = Array.isArray(record(value).resolved_symbols) ? record(value).resolved_symbols : [];
-  return [...new Set(resolved.map(String).filter((symbol) => /^\d{4}$/.test(symbol)))].slice(0, 10);
+function symbolsFromQueryResult(value: unknown): string[] {
+  const rawResolved: unknown = record(value).resolved_symbols;
+  const resolved: unknown[] = Array.isArray(rawResolved) ? rawResolved : [];
+  const symbols = resolved
+    .map((symbol: unknown) => String(symbol))
+    .filter((symbol: string) => /^\d{4}$/.test(symbol));
+  return [...new Set<string>(symbols)].slice(0, 10);
 }
 
 function filterRowsForSymbols(value: unknown, symbols: string[]) {
