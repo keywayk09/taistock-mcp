@@ -8,7 +8,7 @@ import {
   marketDataPhaseForCron,
   runMarketDataPipeline,
   type MarketDataPhase,
-} from "./v6/market-data-pipeline";
+} from "./v6/market-data-runtime";
 import {
   getResearchStatus,
   getStoredCandles,
