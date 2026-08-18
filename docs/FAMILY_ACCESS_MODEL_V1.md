@@ -59,6 +59,10 @@ Action / read-only       taistock.read
 
 The GPT read key does not grant `/market-data/run`, owner MCP, research writes, strategy promotion, OHLC writes, or order placement.
 
+## Feedback / learning boundary
+
+The shared GPT may later record privacy-conscious product telemetry or explicit user feedback so the research system can improve, but that is a separate opt-in research feature. Family Access V1 itself does not treat a user's identity as part of the access key and does not grant write access merely because the GPT is shared.
+
 ## Rollout rule
 
 Keep the current mother MCP path intact. Update the shared `台股引擎` GPT Action only after the backend branch has passed TypeScript, regression tests, Wrangler dry-run, Cloudflare version upload, and live read-only validation.
