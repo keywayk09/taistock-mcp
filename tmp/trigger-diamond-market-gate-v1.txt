@@ -1,0 +1,1 @@
+Trigger isolated Market Data V1 verification-gate patch.
