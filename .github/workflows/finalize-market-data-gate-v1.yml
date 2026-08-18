@@ -1,11 +1,15 @@
 name: Finalize Diamond Market Data V1 gate
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - feature/diamond-market-data-v1
     paths:
       - .github/workflows/finalize-market-data-gate-v1.yml
+  workflow_dispatch:
 
 permissions:
   contents: write
