@@ -38,6 +38,15 @@ Taipei weekday schedule:
 
 The existing 15:40 family prewarm schedule remains unchanged and is not run for Market Data crons.
 
+## Shared read clients
+
+The same frozen Market Data may be consumed by two separate read-only access lanes:
+
+- shared `台股引擎` Custom GPT Action, authenticated with `TAISTOCK_GPT_READ_KEY`;
+- mother's existing Family MCP, authenticated through OAuth family role with `taistock.read`.
+
+These access credentials are separate from `GITHUB_TOKEN` and from owner/admin credentials. See `docs/FAMILY_ACCESS_MODEL_V1.md`.
+
 ## Verification gates
 
 `MARKET_DAY_VERIFIED` requires:
@@ -55,5 +64,6 @@ TPEx same-day datasets use ROC-date fencing. A prior-day response remains `PENDI
 - no 1m/5m universe expansion
 - GitHub writes use read-before-write and 409/422 CAS retry
 - existing Family/OAuth production behavior remains delegated to the original production entry
+- shared Custom GPT is read-only and cannot trigger ingestion/admin/write operations
 
-Before merge, require GitHub CI + Wrangler dry-run + Cloudflare preview/version upload + actual GitHub Shadow output validation.
+Before merge, require GitHub CI + Wrangler dry-run + Cloudflare version upload + actual GitHub Shadow output validation + shared GPT read validation + mother MCP regression validation.
