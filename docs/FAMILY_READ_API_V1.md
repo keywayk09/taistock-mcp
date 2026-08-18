@@ -2,7 +2,7 @@
 
 ## Goal
 
-Provide one shared read-only Taiwan-stock backend for the owner's GPT, the mother's GPT and the sister's GPT without duplicating market data or granting family clients write/admin credentials.
+Provide one shared read-only Taiwan-stock backend for the `台股引擎` Custom GPT without duplicating market data or exposing owner/admin credentials. The mother's ChatGPT access remains on the separate Family MCP/OAuth lane.
 
 ## Endpoint
 
@@ -26,17 +26,30 @@ Canonical path:
 
 `keywayk09/tv-papertrader/data/market/tw/daily/YYYY/MM/DD/...`
 
-## Identity and secrets
+## Shared GPT authentication
 
-Accepted bearer identities are deliberately separate:
+The external production contract is one Worker secret:
 
-- owner: `MCP_API_KEY`
-- mother: `MOM_GPT_API_KEY`
-- sister: `SISTER_GPT_API_KEY`
+- `TAISTOCK_GPT_READ_KEY`
+
+This key identifies the shared `台股引擎` GPT Action as an approved read-only client. It does **not** identify an individual human user. Anyone the owner shares the GPT with uses the same GPT Action invisibly; users do not type or receive the key.
+
+The Custom GPT read lane does not accept the mother's OAuth credentials or owner/admin credentials as substitutes.
 
 The family clients never receive `GITHUB_TOKEN`. The Worker alone uses `GITHUB_TOKEN` to read canonical GitHub data.
 
-`SISTER_GPT_API_KEY` is optional at code level so the existing production deployment is not blocked before the secret is provisioned. Until it is configured in the `taistock-mcp` Worker, sister access returns `401` and no fallback identity is granted.
+During V1 rollout the underlying Family Read module retains the old `SISTER_GPT_API_KEY` field name as an internal compatibility alias only. The production wrapper maps `TAISTOCK_GPT_READ_KEY` into that legacy field. A separate `SISTER_GPT_API_KEY` Cloudflare secret is not required.
+
+## Mother access remains MCP
+
+The mother's access is unchanged:
+
+- endpoint: `/family-mcp`
+- authentication: OAuth `family` role
+- scope: `taistock.read`
+- Durable Object: `FAMILY_MCP_OBJECT` / `FamilyMCP`
+
+Mother does not use `TAISTOCK_GPT_READ_KEY` directly.
 
 ## Read-only boundary
 
@@ -49,11 +62,11 @@ Family Read API V1 cannot:
 - place orders;
 - modify OHLC data.
 
-The existing owner/admin endpoints remain separate. The existing legacy `/api/family/query` route is left intact to avoid breaking the mother's current GPT while `/api/family/read` is introduced and validated.
+The existing owner/admin endpoints remain separate. The existing legacy `/api/family/query` route is left intact during rollout to avoid breaking older clients.
 
 ## Data-degradation behavior
 
-The main family query does not fail merely because canonical Market Data V1 is unavailable.
+The main read query does not fail merely because canonical Market Data V1 is unavailable.
 
 - If `GITHUB_TOKEN` is missing, `canonical_market_data.status = PENDING_GITHUB_TOKEN`.
 - If the requested daily snapshot has not been frozen yet, status is `NOT_READY`.
@@ -63,9 +76,10 @@ No prior-day institutional or margin data is silently substituted as same-day ca
 
 ## Rollout
 
-1. CI: TypeScript type-check, Market Data tests, existing family selector contract, Family Read V1 contract, Wrangler dry-run.
+1. CI: TypeScript type-check, Market Data tests, existing family selector contract, shared GPT Read contract, Wrangler dry-run.
 2. Keep PR Draft.
-3. Provision a distinct `SISTER_GPT_API_KEY` in the `taistock-mcp` Worker.
-4. Shadow-test `/api/family/read` with owner key, mother key and sister key.
-5. Verify the family clients cannot access `/market-data/run` or owner/admin MCP tools.
-6. Update the mother's and sister's custom GPT Action schema from `/family-openapi.json` only after shadow validation.
+3. Provision `TAISTOCK_GPT_READ_KEY` in the `taistock-mcp` Worker.
+4. Cloudflare version-upload and live-test the read endpoint with the shared key.
+5. Verify the shared GPT cannot access `/market-data/run`, owner/admin MCP tools, research writes, strategy changes, OHLC writes or order placement.
+6. Keep the mother's `/family-mcp` OAuth regression green.
+7. Update the existing `台股引擎` Custom GPT Action only after live read-only validation.
