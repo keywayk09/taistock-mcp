@@ -86,7 +86,12 @@ assert.match(entry, /legacyOauthEntry\.fetch/);
 assert.match(entry, /family_stock_selection/);
 
 const wrangler = read("wrangler.jsonc");
-assert.match(wrangler, /"main": "src\/production-entry\.ts"/);
+const wrapper = read("src/market-data-production-entry.ts");
+assert.match(wrangler, /"main": "src\/market-data-production-entry\.ts"/);
+assert.match(wrapper, /import productionEntry from "\.\/production-entry"/);
+assert.match(wrapper, /export \{ FamilyMCP, MyMCP \} from "\.\/production-entry"/);
+assert.match(wrapper, /return productionEntry\.fetch\(request, env, ctx\)/);
+assert.match(wrapper, /\.scheduled/);
 assert.match(wrangler, /"binding": "OAUTH_KV"/);
 assert.match(wrangler, /"name": "FAMILY_MCP_OBJECT"/);
 assert.match(wrangler, /"new_sqlite_classes": \["FamilyMCP"\]/);
