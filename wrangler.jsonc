@@ -1,7 +1,7 @@
 /**
  * Cloudflare remains the execution layer.
- * Existing research D1/R2 bindings are preserved unchanged.
- * Diamond Market Data V1 writes its canonical market-data archive to GitHub only.
+ * Diamond research metadata stays in D1 while research blobs and Market Data V1
+ * are persisted to GitHub. No R2 binding is required by this Worker.
  * The Diamond worker must never write or block the independent OHLC production pipeline.
  */
 {
@@ -36,12 +36,6 @@
 		{
 			"binding": "RESEARCH_DB",
 			"database_name": "taistock-research"
-		}
-	],
-	"r2_buckets": [
-		{
-			"binding": "RESEARCH_BUCKET",
-			"bucket_name": "taistock-research-data"
 		}
 	],
 	"migrations": [
