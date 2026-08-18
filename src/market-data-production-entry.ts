@@ -19,6 +19,7 @@ const MARKET_DATA_PHASES = new Set<MarketDataPhase>([
 
 type MarketDataEnv = Env & {
   MCP_API_KEY?: string;
+  SISTER_GPT_API_KEY?: string;
 };
 
 function constantTimeEqual(left: string, right: string) {
@@ -31,14 +32,40 @@ function constantTimeEqual(left: string, right: string) {
   return diff === 0;
 }
 
+function bearerToken(request: Request) {
+  const authorization = request.headers.get("authorization") ?? "";
+  return authorization.replace(/^Bearer\s+/i, "").trim();
+}
+
+function sisterActionAuthorized(request: Request, env: MarketDataEnv) {
+  const expected = env.SISTER_GPT_API_KEY?.trim();
+  const supplied = bearerToken(request);
+  return Boolean(expected && supplied && constantTimeEqual(supplied, expected));
+}
+
 function marketDataAuthorized(request: Request, env: MarketDataEnv) {
   const expected = env.MCP_API_KEY?.trim();
   if (!expected) return false;
   const apiKey = request.headers.get("x-api-key")?.trim() ?? "";
-  const authorization = request.headers.get("authorization") ?? "";
-  const bearer = authorization.replace(/^Bearer\s+/i, "").trim();
+  const bearer = bearerToken(request);
   return (apiKey.length > 0 && constantTimeEqual(apiKey, expected))
     || (bearer.length > 0 && constantTimeEqual(bearer, expected));
+}
+
+function sisterActionOpenApiSchema(origin: string) {
+  const schema = familyReadOpenApiSchema(origin) as Record<string, any>;
+  schema.info = {
+    ...schema.info,
+    title: "台股引擎 Sister Read API V1",
+    description: "台股引擎 Custom GPT 專用的只讀台股查詢入口。媽媽使用獨立 Family MCP/OAuth，不使用此 Action。",
+  };
+  const operation = schema.paths?.["/api/family/read"]?.post;
+  if (operation) {
+    operation.summary = "台股引擎智慧查詢（妹妹專用 Action）";
+    operation.description = "把台股引擎使用者的原始問題完整送出。只讀；不可觸發資料抓取、研究寫入、策略變更或下單。";
+    if (operation.responses?.["401"]) operation.responses["401"].description = "SISTER_GPT_API_KEY 錯誤或缺少";
+  }
+  return schema;
 }
 
 async function handleMarketData(request: Request, env: Env) {
@@ -71,15 +98,26 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
 
-    // Family Read API V1 is intentionally placed above the legacy production entry.
-    // It is a separate read-only lane for the owner's, mother's and sister's GPTs.
+    // Custom GPT lane: the user's shared "台股引擎" uses a dedicated sister-only
+    // Bearer key. Mother access remains on /family-mcp through OAuth family role.
     if (url.pathname === "/family-openapi.json" && request.method === "GET") {
-      return Response.json(familyReadOpenApiSchema(url.origin), {
+      return Response.json(sisterActionOpenApiSchema(url.origin), {
         headers: { "cache-control": "public, max-age=300" },
       });
     }
-    const familyRead = await handleFamilyReadApi(request, env);
-    if (familyRead) return familyRead;
+    if (url.pathname === "/api/family/read") {
+      if (!sisterActionAuthorized(request, env as MarketDataEnv)) {
+        return Response.json(
+          { error: "unauthorized", access_lane: "sister_custom_gpt" },
+          {
+            status: 401,
+            headers: { "www-authenticate": 'Bearer realm="taistock-sister-gpt"' },
+          },
+        );
+      }
+      const familyRead = await handleFamilyReadApi(request, env);
+      if (familyRead) return familyRead;
+    }
 
     const marketData = await handleMarketData(request, env);
     if (marketData) return marketData;
