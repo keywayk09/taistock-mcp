@@ -6,6 +6,7 @@ const read = (path) => fs.readFileSync(path, "utf8");
 const familyRead = read("src/v10/family-read-api-v1.ts");
 const wrapper = read("src/market-data-production-entry.ts");
 const oauthEntry = read("src/oauth-entry.ts");
+const smartInstructions = read("docs/TAISTOCK_CUSTOM_GPT_SMART_INSTRUCTIONS_V1.md");
 
 assert.match(familyRead, /family-read-api\/v1\.0\.0/);
 assert.match(familyRead, /resolveFamilyReadIdentity/);
@@ -51,10 +52,23 @@ const gateIndex = wrapper.indexOf('if (url.pathname === "/api/family/read")');
 const readIndex = wrapper.indexOf("const familyRead = await handleFamilyReadApi");
 assert.ok(gateIndex >= 0 && readIndex > gateIndex, "shared GPT auth gate must run before Family Read handler");
 
+// Smart presentation contract: broad individual-stock questions use exactly 11 numbered sections.
+assert.match(smartInstructions, /個股 11 大項/);
+for (let section = 1; section <= 11; section += 1) {
+  assert.match(smartInstructions, new RegExp(`\\n${section}\\. \\*\\*`), `missing individual-stock section ${section}`);
+}
+assert.doesNotMatch(smartInstructions, /\n12\. \*\*/);
+assert.match(smartInstructions, /操作結論／失敗條件（不另算第 12 項）/);
+assert.match(smartInstructions, /\[debug\] Calling HTTP endpoint/);
+assert.match(smartInstructions, /\[debug\] Response received/);
+assert.match(smartInstructions, /不得在成品回答中重述、引用或解釋/);
+assert.match(smartInstructions, /個股單一面向/);
+assert.match(smartInstructions, /不要為了形式硬塞完整 11 大項/);
+
 // Mother remains on OAuth family role with read-only scope.
 assert.match(oauthEntry, /"\/family-mcp": FamilyMCP\.serve/);
 assert.match(oauthEntry, /type OAuthRole = "owner" \| "family"/);
 assert.match(oauthEntry, /role === "owner"\s*\? \["taistock\.read", "taistock\.admin"\]\s*:\s*\["taistock\.read"\]/);
 assert.match(oauthEntry, /userId: role === "owner" \? "taistock-owner" : "taistock-family"/);
 
-console.log("Family access model passed: shared 台股引擎 Action + mother OAuth Family MCP");
+console.log("Family access model passed: shared 台股引擎 Action + smart 11-section stock presentation + mother OAuth Family MCP");
