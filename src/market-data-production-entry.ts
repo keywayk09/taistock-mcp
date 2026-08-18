@@ -5,6 +5,7 @@ import {
   runMarketDataPipeline,
   type MarketDataPhase,
 } from "./v6/market-data-runtime";
+import { familyReadOpenApiSchema, handleFamilyReadApi } from "./v10/family-read-api-v1";
 
 export { FamilyMCP, MyMCP } from "./production-entry";
 
@@ -68,6 +69,18 @@ async function handleMarketData(request: Request, env: Env) {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    const url = new URL(request.url);
+
+    // Family Read API V1 is intentionally placed above the legacy production entry.
+    // It is a separate read-only lane for the owner's, mother's and sister's GPTs.
+    if (url.pathname === "/family-openapi.json" && request.method === "GET") {
+      return Response.json(familyReadOpenApiSchema(url.origin), {
+        headers: { "cache-control": "public, max-age=300" },
+      });
+    }
+    const familyRead = await handleFamilyReadApi(request, env);
+    if (familyRead) return familyRead;
+
     const marketData = await handleMarketData(request, env);
     if (marketData) return marketData;
     return productionEntry.fetch(request, env, ctx);
