@@ -1,0 +1,47 @@
+name: Verify P18.6 Production Backfill
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for 8/19 four-layer READY
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS='https://taistock-mcp.keywayk09.workers.dev/market-data/status?trade_date=2026-08-19'
+          HEALTH='https://taistock-mcp.keywayk09.workers.dev/health'
+          for i in $(seq 1 30); do
+            echo "=== attempt $i ==="
+            curl -fsS --connect-timeout 10 --max-time 30 "$HEALTH" -o health.json || true
+            cat health.json 2>/dev/null || true
+            echo
+            code=$(curl -sS -o status.json -w '%{http_code}' --connect-timeout 10 --max-time 30 "$STATUS" || true)
+            echo "status_http=$code"
+            cat status.json 2>/dev/null || true
+            echo
+            if [ "$code" = "200" ]; then
+              ready=$(python - <<'PY'
+          import json
+          try:
+              x=json.load(open('status.json'))
+              print(x.get('ready_count',0))
+          except Exception:
+              print(0)
+          PY
+          )
+              if [ "$ready" = "4" ]; then
+                echo 'P18.6_PRODUCTION_4_OF_4_READY'
+                exit 0
+              fi
+            fi
+            sleep 10
+          done
+          echo 'P18.6 production did not reach 4/4 READY within probe window.' >&2
+          exit 1
