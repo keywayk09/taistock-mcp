@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - diag/check-market-data-20260819
+  pull_request:
+    branches:
+      - main
 
 jobs:
   probe:
