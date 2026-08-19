@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Pack source
-        run: tar -czf p19-source.tgz src tests migrations .github wrangler.jsonc package.json package-lock.json tsconfig.json worker-configuration.d.ts README.md 2>/dev/null || tar -czf p19-source.tgz src tests migrations .github wrangler.jsonc package.json package-lock.json tsconfig.json worker-configuration.d.ts
+        run: tar -czf p19-source.tgz src tests migrations .github wrangler.jsonc package.json tsconfig.json worker-configuration.d.ts README.md 2>/dev/null || tar -czf p19-source.tgz src tests migrations .github wrangler.jsonc package.json tsconfig.json worker-configuration.d.ts
       - uses: actions/upload-artifact@v4
         with:
           name: p19-source
