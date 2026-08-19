@@ -58,5 +58,11 @@ assert.match(index, /Promise\.allSettled/);
 assert.match(index, /TPEX_DIRECT_THEN_GITHUB_OFFICIAL_RELAY/);
 assert.match(index, /relay_capture_taipei: \["18:15", "20:15"\]/);
 assert.doesNotMatch(index, /runTwMarketDataDaily\(env, tradeDate\)/);
+assert.doesNotMatch(index, /BACKFILL_20260819|temporary_backfill/);
 
-console.log("P18.8 TPEx official relay governance tests passed");
+const wrangler = read("wrangler.jsonc");
+assert.match(wrangler, /"30 10 \* \* 1-5"/);
+assert.match(wrangler, /"30 12 \* \* 1-5"/);
+assert.doesNotMatch(wrangler, /17-18 19 8|20260819/);
+
+console.log("P18.9 TPEx official relay governance and cleanup tests passed");
