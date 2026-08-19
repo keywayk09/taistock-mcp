@@ -23,8 +23,6 @@ function taipeiDateFromMs(ms: number) {
 }
 
 const MARKET_DATA_CRONS = new Set(["30 10 * * 1-5", "30 12 * * 1-5"]);
-const BACKFILL_20260819_CRON = "*/5 17-18 19 8 *";
-const BACKFILL_20260819_DATE = "2026-08-19";
 
 async function getTwMarketDataStatus(env: Env, tradeDate: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(tradeDate)) {
@@ -181,7 +179,6 @@ export default {
           },
           relay_capture_taipei: ["18:15", "20:15"],
           status_endpoint: "/market-data/status?trade_date=YYYY-MM-DD",
-          temporary_backfill: "2026-08-19 TPEx-only until 4/4 READY",
         },
         mcp_endpoint: "/mcp",
         research_status_endpoint: "/research/status",
@@ -216,10 +213,6 @@ export default {
   },
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    if (controller.cron === BACKFILL_20260819_CRON) {
-      ctx.waitUntil(runTpexMarketDataBackfill(env, BACKFILL_20260819_DATE));
-      return;
-    }
     if (!MARKET_DATA_CRONS.has(controller.cron)) return;
     const tradeDate = taipeiDateFromMs(controller.scheduledTime);
     ctx.waitUntil(Promise.allSettled([
