@@ -10,9 +10,22 @@ import {
   runResearchPipeline,
 } from "./v6/research-pipeline";
 import { registerResearchTools } from "./v6/research-tools";
+import { runTwMarketDataDaily } from "./v6/tw-market-data";
+import { registerTwMarketDataTools } from "./v6/tw-market-data-tools";
+
+function taipeiDateFromMs(ms: number) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(ms));
+}
+
+const MARKET_DATA_CRONS = new Set(["30 10 * * 1-5", "30 12 * * 1-5"]);
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "6.15.1" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "6.16.0" });
 
   async init() {
     await super.init();
@@ -20,6 +33,7 @@ export class MyMCP extends BaseMCP {
     registerDailyReportFormatTool(this.server);
     registerResearchTools(this.server, this.env);
     registerFamilyStockSelectionTools(this.server, this.env);
+    registerTwMarketDataTools(this.server, this.env);
   }
 }
 
@@ -32,15 +46,21 @@ export default {
       return Response.json({
         service: "Taiwan Stock AI MCP",
         status: "ok",
-        version: "6.15.1",
+        version: "6.16.0",
         storage: {
           legacy_d1: env.DB ? "connected" : "pending",
           research_d1: env.RESEARCH_DB ? "connected" : "pending",
           research_r2: env.RESEARCH_BUCKET ? "connected" : "pending",
         },
+        market_data: {
+          version: "diamond-tw-market-data/v1.0.0",
+          policy: "official_first_layer_degradation",
+          ohlc_gateway: "OHLC_MCP_ONLY",
+          scheduled_capture_taipei: ["18:30", "20:30 retry/finalize"],
+        },
         mcp_endpoint: "/mcp",
         research_status_endpoint: "/research/status",
-        tools: 106,
+        tools: 111,
       });
     }
 
@@ -71,6 +91,11 @@ export default {
   },
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    if (MARKET_DATA_CRONS.has(controller.cron)) {
+      const tradeDate = taipeiDateFromMs(controller.scheduledTime);
+      ctx.waitUntil(runTwMarketDataDaily(env, tradeDate));
+      return;
+    }
     const mode = controller.cron === "55 5 * * 1-5" ? "repair" : "close";
     ctx.waitUntil(runResearchPipeline(env, mode, new Date(controller.scheduledTime)));
   },
