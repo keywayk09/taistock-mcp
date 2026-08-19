@@ -3,7 +3,7 @@ import {
   getDiamondResearchLabP16,
   getDiamondToolRegistryP16,
 } from "./diamond-capability-p16";
-import { TW_MARKET_DATA_VERSION } from "./tw-market-data";
+import { TW_MARKET_DATA_VERSION } from "./tw-market-data-d1";
 
 const MARKET_CAPABILITIES = [
   {
@@ -23,7 +23,7 @@ const MARKET_CAPABILITIES = [
     direct_provider_access: false as const,
     read_only_research: true,
     production_write: false as const,
-    notes: "TWSE/TPEx official daily institutional data is the primary truth. Immutable Diamond snapshots are joined with FinMind history only as fallback; 1/3/5/10/20-day aggregates are exposed without writing OHLC.",
+    notes: "TWSE/TPEx official daily institutional data is the primary truth. Immutable D1 snapshots are joined with FinMind history only as fallback; 1/3/5/10/20-day aggregates are exposed without writing OHLC.",
   },
   {
     id: "tw_margin_short",
@@ -54,8 +54,8 @@ export function getDiamondToolRegistryP18() {
       status: "ACTIVE_INTERNAL" as const,
       version: TW_MARKET_DATA_VERSION,
       owner: "Diamond Market Data Plane",
-      source_priority: ["TWSE/TPEx official", "Diamond immutable archive", "FinMind fallback/history"],
-      storage: "RESEARCH_DB_INDEX_PLUS_RESEARCH_BUCKET_IMMUTABLE_SNAPSHOT",
+      source_priority: ["TWSE/TPEx official", "Diamond immutable D1 snapshot", "FinMind fallback/history"],
+      storage: "D1_ONLY_NO_R2",
       tools: [
         "get_tw_market_data_contract",
         "get_tw_institutional_flow",
@@ -78,7 +78,7 @@ export function getDiamondArchitectureStatusP18() {
   const base = getDiamondArchitectureStatusP16();
   return {
     ...base,
-    architecture_version: "diamond-architecture/2026-08-p18",
+    architecture_version: "diamond-architecture/2026-08-p18.1",
     tw_market_data_layer: {
       status: "ACTIVE_INTERNAL" as const,
       engine_version: TW_MARKET_DATA_VERSION,
@@ -92,8 +92,9 @@ export function getDiamondArchitectureStatusP18() {
         listed_margin: "TWSE MI_MARGN",
         otc_margin: "TPEx tpex_mainboard_margin_balance",
       },
-      source_priority: "OFFICIAL_ARCHIVE_BEFORE_FINMIND_HISTORY",
-      archive_model: "D1_INDEX_PLUS_R2_IMMUTABLE_PAYLOAD",
+      source_priority: "OFFICIAL_D1_BEFORE_FINMIND_HISTORY",
+      archive_model: "D1_IMMUTABLE_METADATA_PLUS_ROWS",
+      storage_policy: "D1_ONLY_NO_R2",
       capture_schedule_taipei: ["18:30 weekdays", "20:30 weekdays retry/finalize"],
       rolling_windows: [1,3,5,10,20],
       layer_degradation: true,
@@ -107,6 +108,7 @@ export function getDiamondArchitectureStatusP18() {
       market_data_ohlc_write: "FORBIDDEN",
       market_data_failure_blocks_ohlc: "FORBIDDEN",
       finmind_price_as_formal_ohlc: "FORBIDDEN",
+      r2_usage: "FORBIDDEN",
       formal_market_data_source_priority: "OFFICIAL_BEFORE_FALLBACK",
       formal_swing_legacy_analyze_swing_candidate: "FORBIDDEN",
     },
