@@ -89,7 +89,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const read = (p:string) => fs.readFileSync(path.join(root,p),"utf8");
 
-const source = read("src/v6/tw-market-data.ts");
+const source = read("src/v6/tw-market-data-d1.ts");
 assert.match(source, /TWSE_T86/);
 assert.match(source, /TWSE_MI_MARGN/);
 assert.match(source, /TPEX_3INSTI_DAILY_TRADING/);
@@ -97,27 +97,42 @@ assert.match(source, /TPEX_MAINBOARD_MARGIN_BALANCE/);
 assert.match(source, /TaiwanStockInstitutionalInvestorsBuySell/);
 assert.match(source, /TaiwanStockMarginPurchaseShortSale/);
 assert.doesNotMatch(source, /TaiwanStockPrice/);
+assert.doesNotMatch(source, /RESEARCH_BUCKET|R2Bucket|r2_key/);
 assert.match(source, /market_data_failure_blocks_ohlc:false/);
+assert.match(source, /storage:"D1_ONLY"/);
 
 const tools = read("src/v6/tw-market-data-tools.ts");
 for (const name of ["get_tw_market_data_contract","get_tw_institutional_flow","get_tw_margin_short","get_tw_market_data_bundle","get_tw_market_data_status"]) {
   assert.match(tools, new RegExp(`registerTool\\(\\"${name}\\"`));
 }
+assert.match(tools, /D1 only/);
+assert.match(tools, /r2_usage: "FORBIDDEN"/);
 
 const index = read("src/index-v6.ts");
 assert.match(index, /registerTwMarketDataTools\(this\.server, this\.env\)/);
-assert.match(index, /version: "6\.16\.0"/);
+assert.match(index, /version: "6\.16\.1"/);
 assert.match(index, /tools: 111/);
 assert.match(index, /MARKET_DATA_CRONS/);
+assert.match(index, /D1_ONLY_NO_R2/);
+assert.doesNotMatch(index, /runResearchPipeline/);
+assert.doesNotMatch(index, /getStoredCandles/);
 
 const wrangler = read("wrangler.jsonc");
 assert.match(wrangler, /"30 10 \* \* 1-5"/);
 assert.match(wrangler, /"30 12 \* \* 1-5"/);
+assert.doesNotMatch(wrangler, /r2_buckets|RESEARCH_BUCKET|taistock-research-data/);
+assert.doesNotMatch(wrangler, /"40 5 \* \* 1-5"|"55 5 \* \* 1-5"/);
+
+const migration = read("migrations/0006_tw_market_data.sql");
+assert.match(migration, /tw_market_data_snapshot_d1/);
+assert.match(migration, /tw_market_data_row_d1/);
+assert.doesNotMatch(migration, /r2_key|R2/);
 
 const capability = read("src/v6/diamond-capability-p18.ts");
 assert.match(capability, /market_data_ohlc_write: "FORBIDDEN"/);
 assert.match(capability, /market_data_failure_blocks_ohlc: "FORBIDDEN"/);
 assert.match(capability, /finmind_price_as_formal_ohlc: "FORBIDDEN"/);
+assert.match(capability, /r2_usage: "FORBIDDEN"/);
 assert.match(capability, /COMPATIBILITY_ONLY_NOT_FORMAL_SWING_SOURCE/);
 
-console.log("P18 official-first Taiwan market data contract tests passed");
+console.log("P18 official-first D1-only Taiwan market data contract tests passed");
