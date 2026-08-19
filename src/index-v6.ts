@@ -5,12 +5,10 @@ import { registerAdvancedTools } from "./v6/register";
 import { registerFamilyStockSelectionTools } from "./v6/family-stock-selection";
 import {
   getResearchStatus,
-  getStoredCandles,
   isAuthorizedResearchRequest,
-  runResearchPipeline,
 } from "./v6/research-pipeline";
 import { registerResearchTools } from "./v6/research-tools";
-import { runTwMarketDataDaily } from "./v6/tw-market-data";
+import { runTwMarketDataDaily } from "./v6/tw-market-data-d1";
 import { registerTwMarketDataTools } from "./v6/tw-market-data-tools";
 
 function taipeiDateFromMs(ms: number) {
@@ -25,7 +23,7 @@ function taipeiDateFromMs(ms: number) {
 const MARKET_DATA_CRONS = new Set(["30 10 * * 1-5", "30 12 * * 1-5"]);
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "6.16.0" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "6.16.1" });
 
   async init() {
     await super.init();
@@ -46,14 +44,15 @@ export default {
       return Response.json({
         service: "Taiwan Stock AI MCP",
         status: "ok",
-        version: "6.16.0",
+        version: "6.16.1",
         storage: {
           legacy_d1: env.DB ? "connected" : "pending",
           research_d1: env.RESEARCH_DB ? "connected" : "pending",
-          research_r2: env.RESEARCH_BUCKET ? "connected" : "pending",
+          policy: "D1_ONLY_NO_R2",
         },
         market_data: {
-          version: "diamond-tw-market-data/v1.0.0",
+          version: "diamond-tw-market-data/v1.1.0-d1",
+          storage: "D1_ONLY",
           policy: "official_first_layer_degradation",
           ohlc_gateway: "OHLC_MCP_ONLY",
           scheduled_capture_taipei: ["18:30", "20:30 retry/finalize"],
@@ -71,18 +70,13 @@ export default {
       if (url.pathname === "/research/status" && request.method === "GET") {
         return Response.json(await getResearchStatus(env));
       }
-      if (url.pathname === "/research/run" && request.method === "POST") {
-        const mode = url.searchParams.get("mode") === "repair" ? "repair" : "close";
-        return Response.json(await runResearchPipeline(env, mode));
-      }
-      if (url.pathname.startsWith("/research/candles/") && request.method === "GET") {
-        const symbol = url.pathname.split("/").at(-1) ?? "";
-        const date = url.searchParams.get("date") ?? "";
-        const timeframe = url.searchParams.get("timeframe") === "1m" ? "1m" : "5m";
-        if (!/^\d{4,6}$/.test(symbol) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-          return Response.json({ error: "invalid symbol or date" }, { status: 400 });
-        }
-        return Response.json(await getStoredCandles(env, date, symbol, timeframe));
+      if ((url.pathname === "/research/run" && request.method === "POST") || url.pathname.startsWith("/research/candles/")) {
+        return Response.json({
+          error: "legacy_research_ohlc_path_disabled",
+          policy: "OHLC_MCP_ONLY",
+          storage_policy: "D1_ONLY_NO_R2",
+          message: "舊 Fugle/R2 research candle path 已停用；正式 OHLC 請走 OHLC MCP。",
+        }, { status: 410 });
       }
       return Response.json({ error: "not found" }, { status: 404 });
     }
@@ -91,12 +85,8 @@ export default {
   },
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    if (MARKET_DATA_CRONS.has(controller.cron)) {
-      const tradeDate = taipeiDateFromMs(controller.scheduledTime);
-      ctx.waitUntil(runTwMarketDataDaily(env, tradeDate));
-      return;
-    }
-    const mode = controller.cron === "55 5 * * 1-5" ? "repair" : "close";
-    ctx.waitUntil(runResearchPipeline(env, mode, new Date(controller.scheduledTime)));
+    if (!MARKET_DATA_CRONS.has(controller.cron)) return;
+    const tradeDate = taipeiDateFromMs(controller.scheduledTime);
+    ctx.waitUntil(runTwMarketDataDaily(env, tradeDate));
   },
 };
