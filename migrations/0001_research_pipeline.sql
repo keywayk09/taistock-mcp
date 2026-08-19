@@ -42,13 +42,22 @@ CREATE TABLE IF NOT EXISTS research_candle_sets (
   missing_count INTEGER NOT NULL DEFAULT 0,
   duplicate_count INTEGER NOT NULL DEFAULT 0,
   invalid_ohlc_count INTEGER NOT NULL DEFAULT 0,
-  r2_key TEXT,
   status TEXT NOT NULL,
   error TEXT,
   updated_at TEXT NOT NULL,
   PRIMARY KEY (trade_date, symbol, timeframe)
 );
 CREATE INDEX IF NOT EXISTS idx_research_candles_status ON research_candle_sets(trade_date, timeframe, status);
+
+CREATE TABLE IF NOT EXISTS research_candle_payload_d1 (
+  trade_date TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  timeframe TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  content_sha256 TEXT,
+  stored_at TEXT NOT NULL,
+  PRIMARY KEY(trade_date, symbol, timeframe)
+);
 
 CREATE TABLE IF NOT EXISTS engine_labels (
   id TEXT PRIMARY KEY,
