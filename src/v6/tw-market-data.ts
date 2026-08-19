@@ -76,7 +76,7 @@ function findValue(row: Record<string, any>, aliases: string[]): unknown {
     if (map.has(key)) return map.get(key);
   }
   for (const [key, value] of map) {
-    if (aliases.some((alias) => key.includes(normalizeKey(alias)) || normalizeKey(alias).includes(key))) return value;
+    if (aliases.some((alias) => key.includes(normalizeKey(alias)))) return value;
   }
   return undefined;
 }
