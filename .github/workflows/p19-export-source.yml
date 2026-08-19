@@ -3,6 +3,8 @@ name: P19 Source Export
 on:
   push:
     branches: [p19/github-only-storage]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
