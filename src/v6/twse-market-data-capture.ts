@@ -1,52 +1,36 @@
 import {
   normalizeTradeDate,
-  normalizeTpexInstitutional,
-  normalizeTpexMargin,
+  normalizeTwseInstitutional,
+  normalizeTwseMargin,
   type InstitutionalRow,
   type MarginRow,
   type TwMarketDataKind,
 } from "./tw-market-data";
 import { ensureTwMarketDataD1Schema } from "./tw-market-data-d1";
-import { fetchTpexOfficialPayload } from "./tpex-official-relay";
 
-const VERSION = "diamond-tw-market-data/v1.1.2-d1";
+const VERSION = "diamond-tw-market-data/v1.1.1-d1";
+const TWSE_T86 = "https://www.twse.com.tw/rwd/zh/fund/T86";
+const TWSE_MARGIN = "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN";
+const FETCH_TIMEOUT_MS = 12_000;
 
 type OfficialRow = InstitutionalRow | MarginRow;
 
-type BackfillJob = {
+type ListedJob = {
   kind: TwMarketDataKind;
-  label: string;
-  failureSource: string;
+  source: string;
 };
 
-const JOBS: BackfillJob[] = [
-  {
-    kind: "institutional",
-    label: "TPEX_3INSTI",
-    failureSource: "TPEX_3INSTI_DAILY_TRADING",
-  },
-  {
-    kind: "margin",
-    label: "TPEX_MARGIN",
-    failureSource: "TPEX_MAINBOARD_MARGIN_BALANCE",
-  },
+const JOBS: ListedJob[] = [
+  { kind: "institutional", source: "TWSE_T86" },
+  { kind: "margin", source: "TWSE_MI_MARGN" },
 ];
+
+function compactDate(date: string) {
+  return date.replace(/-/g, "");
+}
 
 function rec(value: unknown): Record<string, any> {
   return value !== null && typeof value === "object" ? value as Record<string, any> : {};
-}
-
-function sourceDateFromBody(body: unknown): string | null {
-  const root = rec(body);
-  const direct = normalizeTradeDate(root.date ?? root.Date ?? root["資料日期"] ?? root["日期"]);
-  if (direct) return direct;
-  const rows = Array.isArray(body) ? body : Array.isArray(root.data) ? root.data : [];
-  for (const value of rows) {
-    const row = rec(value);
-    const date = normalizeTradeDate(row.Date ?? row.date ?? row["資料日期"] ?? row["日期"] ?? row.TradeDate);
-    if (date) return date;
-  }
-  return null;
 }
 
 function stableValue(value: unknown): unknown {
@@ -66,6 +50,55 @@ async function sha256(value: unknown) {
   return Array.from(new Uint8Array(digest)).map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
+async function fetchJson(url: URL, label: string) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "Diamond-Market-Data-D1/1.1",
+      },
+    });
+    const text = await response.text();
+    if (!response.ok) throw new Error(`${label}_http_${response.status}:${text.slice(0, 180)}`);
+    try {
+      return text ? JSON.parse(text) : null;
+    } catch {
+      throw new Error(`${label}_invalid_json:${text.slice(0, 180)}`);
+    }
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(`${label}_timeout_${FETCH_TIMEOUT_MS}ms`);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchListed(job: ListedJob, tradeDate: string) {
+  if (job.kind === "institutional") {
+    const url = new URL(TWSE_T86);
+    url.searchParams.set("date", compactDate(tradeDate));
+    url.searchParams.set("selectType", "ALLBUT0999");
+    url.searchParams.set("response", "json");
+    const body = await fetchJson(url, "TWSE_T86");
+    const sourceDate = normalizeTradeDate(rec(body).date);
+    const rows = normalizeTwseInstitutional(body, tradeDate);
+    return { sourceDate, rows };
+  }
+
+  const url = new URL(TWSE_MARGIN);
+  url.searchParams.set("date", compactDate(tradeDate));
+  url.searchParams.set("selectType", "ALL");
+  url.searchParams.set("response", "json");
+  const body = await fetchJson(url, "TWSE_MI_MARGN");
+  const sourceDate = normalizeTradeDate(rec(body).date);
+  const rows = normalizeTwseMargin(body, tradeDate);
+  return { sourceDate, rows };
+}
+
 async function archiveReady(env: Env, input: {
   trade_date: string;
   kind: TwMarketDataKind;
@@ -73,11 +106,11 @@ async function archiveReady(env: Env, input: {
   rows: OfficialRow[];
 }) {
   const rows = [...input.rows].sort((a, b) => a.symbol.localeCompare(b.symbol));
-  if (!rows.length) throw new Error(`official_rows_empty:${input.kind}:otc:${input.trade_date}`);
+  if (!rows.length) throw new Error(`official_rows_empty:${input.kind}:listed:${input.trade_date}`);
   const content = {
     schema_version: VERSION,
     trade_date: input.trade_date,
-    market: "otc",
+    market: "listed",
     kind: input.kind,
     source: input.source,
     rows,
@@ -102,7 +135,7 @@ async function archiveReady(env: Env, input: {
   ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(
     datasetVersion,
     input.trade_date,
-    "otc",
+    "listed",
     input.kind,
     input.source,
     1,
@@ -125,7 +158,7 @@ async function archiveFailure(env: Env, input: {
   const content = {
     schema_version: VERSION,
     trade_date: input.trade_date,
-    market: "otc",
+    market: "listed",
     kind: input.kind,
     source: input.source,
     status: "DEGRADED",
@@ -139,7 +172,7 @@ async function archiveFailure(env: Env, input: {
   ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).bind(
     datasetVersion,
     input.trade_date,
-    "otc",
+    "listed",
     input.kind,
     input.source,
     0,
@@ -152,34 +185,27 @@ async function archiveFailure(env: Env, input: {
   return { dataset_version: datasetVersion, captured_at: capturedAt };
 }
 
-export async function runTpexMarketDataBackfill(env: Env, tradeDate: string) {
+export async function runTwseMarketDataCapture(env: Env, tradeDate: string) {
   await ensureTwMarketDataD1Schema(env);
   const results: any[] = [];
   for (const job of JOBS) {
     try {
-      const fetched = await fetchTpexOfficialPayload(job.kind, tradeDate);
-      const sourceDate = sourceDateFromBody(fetched.body);
-      if (sourceDate !== tradeDate) {
-        throw new Error(`${job.label}_source_date_mismatch:expected=${tradeDate}:actual=${sourceDate ?? "unknown"}`);
+      const fetched = await fetchListed(job, tradeDate);
+      if (fetched.sourceDate !== tradeDate) {
+        throw new Error(`${job.source}_source_date_mismatch:expected=${tradeDate}:actual=${fetched.sourceDate ?? "unknown"}`);
       }
-      const rows = job.kind === "institutional"
-        ? normalizeTpexInstitutional(fetched.body, tradeDate)
-        : normalizeTpexMargin(fetched.body, tradeDate);
       const archived = await archiveReady(env, {
         trade_date: tradeDate,
         kind: job.kind,
-        source: fetched.source,
-        rows,
+        source: job.source,
+        rows: fetched.rows,
       });
       results.push({
         kind: job.kind,
-        market: "otc",
+        market: "listed",
         status: "READY",
-        rows: rows.length,
-        source: fetched.source,
-        transport: fetched.transport,
-        direct_error: fetched.direct_error,
-        relay_sha256: "relay_sha256" in fetched ? fetched.relay_sha256 : null,
+        rows: fetched.rows.length,
+        source: job.source,
         ...archived,
       });
     } catch (error) {
@@ -189,7 +215,7 @@ export async function runTpexMarketDataBackfill(env: Env, tradeDate: string) {
         receipt = await archiveFailure(env, {
           trade_date: tradeDate,
           kind: job.kind,
-          source: job.failureSource,
+          source: job.source,
           error: message,
         });
       } catch (receiptError) {
@@ -197,10 +223,10 @@ export async function runTpexMarketDataBackfill(env: Env, tradeDate: string) {
       }
       results.push({
         kind: job.kind,
-        market: "otc",
+        market: "listed",
         status: "DEGRADED",
         rows: 0,
-        source: job.failureSource,
+        source: job.source,
         error: message,
         ...receipt,
       });
@@ -209,7 +235,7 @@ export async function runTpexMarketDataBackfill(env: Env, tradeDate: string) {
   return {
     ok: true,
     version: VERSION,
-    mode: "TPEX_ONLY_BACKFILL_WITH_OFFICIAL_RELAY",
+    mode: "TWSE_ONLY_CAPTURE",
     trade_date: tradeDate,
     blocking: false,
     market_data_failure_blocks_ohlc: false,
