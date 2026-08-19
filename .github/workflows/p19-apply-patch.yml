@@ -5,6 +5,9 @@ on:
     branches: [p19/github-only-storage]
     paths:
       - '.p19.patch.part*'
+      - '.github/workflows/p19-apply-patch.yml'
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
@@ -15,6 +18,7 @@ concurrency:
 
 jobs:
   apply:
+    if: github.head_ref == 'p19/github-only-storage' || github.ref == 'refs/heads/p19/github-only-storage'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
