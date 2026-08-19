@@ -9,6 +9,7 @@ import {
   isAuthorizedResearchRequest,
 } from "./v6/research-pipeline";
 import { registerResearchTools } from "./v6/research-tools";
+import { runTpexMarketDataBackfill } from "./v6/tpex-market-data-backfill";
 import { runTwMarketDataDaily } from "./v6/tw-market-data-d1";
 import { registerTwMarketDataTools } from "./v6/tw-market-data-tools";
 
@@ -22,7 +23,7 @@ function taipeiDateFromMs(ms: number) {
 }
 
 const MARKET_DATA_CRONS = new Set(["30 10 * * 1-5", "30 12 * * 1-5"]);
-const BACKFILL_20260819_CRON = "*/5 17 19 8 *";
+const BACKFILL_20260819_CRON = "*/5 17-18 19 8 *";
 const BACKFILL_20260819_DATE = "2026-08-19";
 
 async function getTwMarketDataStatus(env: Env, tradeDate: string) {
@@ -175,6 +176,7 @@ export default {
           ohlc_gateway: "OHLC_MCP_ONLY",
           scheduled_capture_taipei: ["18:30", "20:30 retry/finalize"],
           status_endpoint: "/market-data/status?trade_date=YYYY-MM-DD",
+          temporary_backfill: "2026-08-19 TPEx-only with timeout/error receipt",
         },
         mcp_endpoint: "/mcp",
         research_status_endpoint: "/research/status",
@@ -210,7 +212,7 @@ export default {
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     if (controller.cron === BACKFILL_20260819_CRON) {
-      ctx.waitUntil(runTwMarketDataDaily(env, BACKFILL_20260819_DATE));
+      ctx.waitUntil(runTpexMarketDataBackfill(env, BACKFILL_20260819_DATE));
       return;
     }
     if (!MARKET_DATA_CRONS.has(controller.cron)) return;
