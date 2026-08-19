@@ -22,6 +22,86 @@ function taipeiDateFromMs(ms: number) {
 }
 
 const MARKET_DATA_CRONS = new Set(["30 10 * * 1-5", "30 12 * * 1-5"]);
+const BACKFILL_20260819_CRON = "*/5 17 19 8 *";
+const BACKFILL_20260819_DATE = "2026-08-19";
+
+async function getTwMarketDataStatus(env: Env, tradeDate: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(tradeDate)) {
+    return { ok: false, error: "invalid_trade_date", trade_date: tradeDate };
+  }
+  if (!env.RESEARCH_DB) {
+    return { ok: false, error: "RESEARCH_DB_binding_required", trade_date: tradeDate };
+  }
+  try {
+    const result = await env.RESEARCH_DB.prepare(`
+      SELECT dataset_version,trade_date,market,kind,source,row_count,status,captured_at,error
+      FROM tw_market_data_snapshot_d1
+      WHERE trade_date=?
+      ORDER BY captured_at DESC
+    `).bind(tradeDate).all<any>();
+    const latest = new Map<string, any>();
+    for (const row of result.results ?? []) {
+      const key = `${row.kind}|${row.market}`;
+      if (!latest.has(key)) latest.set(key, row);
+    }
+    const expected = [
+      ["institutional", "listed"],
+      ["institutional", "otc"],
+      ["margin", "listed"],
+      ["margin", "otc"],
+    ] as const;
+    const layers = expected.map(([kind, market]) => {
+      const row = latest.get(`${kind}|${market}`);
+      return row ? {
+        kind,
+        market,
+        status: row.status,
+        rows: row.row_count,
+        source: row.source,
+        captured_at: row.captured_at,
+        dataset_version: row.dataset_version,
+        error: row.error ?? null,
+      } : {
+        kind,
+        market,
+        status: "MISSING",
+        rows: 0,
+        source: null,
+        captured_at: null,
+        dataset_version: null,
+        error: null,
+      };
+    });
+    const ready = layers.filter((layer) => layer.status === "READY").length;
+    return {
+      ok: true,
+      trade_date: tradeDate,
+      storage: "D1_ONLY",
+      status: ready === 4 ? "READY" : ready ? "DEGRADED" : "MISSING",
+      ready_count: ready,
+      total_count: 4,
+      blocking: false,
+      market_data_failure_blocks_ohlc: false,
+      layers,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/no such table/i.test(message)) {
+      return {
+        ok: true,
+        trade_date: tradeDate,
+        storage: "D1_ONLY",
+        status: "MISSING",
+        ready_count: 0,
+        total_count: 4,
+        blocking: false,
+        market_data_failure_blocks_ohlc: false,
+        layers: [],
+      };
+    }
+    return { ok: false, trade_date: tradeDate, error: message };
+  }
+}
 
 export class MyMCP extends BaseMCP {
   server = new McpServer({ name: "Taiwan Stock AI", version: "6.16.1" });
@@ -94,11 +174,17 @@ export default {
           policy: "official_first_layer_degradation",
           ohlc_gateway: "OHLC_MCP_ONLY",
           scheduled_capture_taipei: ["18:30", "20:30 retry/finalize"],
+          status_endpoint: "/market-data/status?trade_date=YYYY-MM-DD",
         },
         mcp_endpoint: "/mcp",
         research_status_endpoint: "/research/status",
         tools: 111,
       });
+    }
+
+    if (url.pathname === "/market-data/status" && request.method === "GET") {
+      const tradeDate = url.searchParams.get("trade_date")?.trim() || taipeiDateFromMs(Date.now());
+      return Response.json(await getTwMarketDataStatus(env, tradeDate));
     }
 
     if (url.pathname.startsWith("/research/")) {
@@ -123,6 +209,10 @@ export default {
   },
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    if (controller.cron === BACKFILL_20260819_CRON) {
+      ctx.waitUntil(runTwMarketDataDaily(env, BACKFILL_20260819_DATE));
+      return;
+    }
     if (!MARKET_DATA_CRONS.has(controller.cron)) return;
     const tradeDate = taipeiDateFromMs(controller.scheduledTime);
     ctx.waitUntil(runTwMarketDataDaily(env, tradeDate));
