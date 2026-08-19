@@ -1,0 +1,29 @@
+name: Diagnose 2026-08-19 Market Data
+
+on:
+  push:
+    branches:
+      - diag/check-market-data-20260819
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe production status
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://taistock-mcp.keywayk09.workers.dev/market-data/status?trade_date=2026-08-19'
+          for i in $(seq 1 12); do
+            echo "attempt=$i"
+            code=$(curl -sS -o status.json -w '%{http_code}' --connect-timeout 10 --max-time 30 "$URL" || true)
+            echo "http=$code"
+            if [ "$code" = "200" ]; then
+              cat status.json
+              exit 0
+            fi
+            cat status.json 2>/dev/null || true
+            sleep 10
+          done
+          echo 'Production status endpoint did not return HTTP 200 after retries.' >&2
+          exit 1
