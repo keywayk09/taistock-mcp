@@ -53,6 +53,8 @@ export function normalizeTradeDate(value: unknown): string | null {
   const raw = String(value ?? "").replace(/<[^>]*>/g, "").trim();
   if (!raw) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const rocCompact = raw.match(/^(\d{3})(\d{2})(\d{2})$/);
+  if (rocCompact) return `${Number(rocCompact[1]) + 1911}-${rocCompact[2]}-${rocCompact[3]}`;
   if (/^\d{8}$/.test(raw)) return `${raw.slice(0,4)}-${raw.slice(4,6)}-${raw.slice(6,8)}`;
   const parts = raw.match(/^(\d{2,4})[\/.-](\d{1,2})[\/.-](\d{1,2})$/);
   if (parts) {
@@ -60,8 +62,6 @@ export function normalizeTradeDate(value: unknown): string | null {
     if (year < 1911) year += 1911;
     if (year >= 1900 && year <= 2200) return `${year}-${pad2(parts[2])}-${pad2(parts[3])}`;
   }
-  const rocCompact = raw.match(/^(\d{3})(\d{2})(\d{2})$/);
-  if (rocCompact) return `${Number(rocCompact[1]) + 1911}-${rocCompact[2]}-${rocCompact[3]}`;
   return null;
 }
 
@@ -76,7 +76,7 @@ function findValue(row: Record<string, any>, aliases: string[]): unknown {
     if (map.has(key)) return map.get(key);
   }
   for (const [key, value] of map) {
-    if (aliases.some((alias) => key.includes(normalizeKey(alias)) || normalizeKey(alias).includes(key))) return value;
+    if (aliases.some((alias) => key.includes(normalizeKey(alias)))) return value;
   }
   return undefined;
 }
@@ -130,6 +130,7 @@ export function normalizeTpexInstitutional(body: unknown, requestedDate: string)
     const foreign = marketNumber(findValue(row, [
       "Foreign Investors include Mainland Area Investors (Foreign Dealers excluded)-Difference",
       "ForeignInvestorsincludeMainlandAreaInvestorsForeignDealersexcludedDifference",
+      "ForeignInvestorsInclude MainlandAreaInvestors-Difference",
       "外資及陸資買賣超股數", "外陸資買賣超股數",
     ]));
     const trust = marketNumber(findValue(row, ["Securities Investment Trust Companies-Difference", "SecuritiesInvestmentTrustCompaniesDifference", "投信買賣超股數"]));
@@ -168,10 +169,10 @@ function findTwseMarginTable(body: unknown): Record<string, any>[] {
 function normalizeMarginRow(row: Record<string, any>, market: TwMarket, tradeDate: string, source: string): MarginRow | null {
   const symbol = rowSymbol(row);
   if (!/^\d{4,6}$/.test(symbol)) return null;
-  const marginPrev = nullableMarketNumber(findValue(row, ["融資前日餘額", "融資前日餘額張數", "MarginPurchaseYesterdayBalance", "MarginPurchasePreviousBalance"]));
+  const marginPrev = nullableMarketNumber(findValue(row, ["融資前日餘額", "融資前日餘額張數", "MarginPurchaseYesterdayBalance", "MarginPurchasePreviousBalance", "MarginPurchaseBalancePreviousDay"]));
   const marginNow = nullableMarketNumber(findValue(row, ["融資今日餘額", "融資今日餘額張數", "MarginPurchaseTodayBalance", "MarginPurchaseBalance"]));
   const marginChangeRaw = nullableMarketNumber(findValue(row, ["融資增減", "融資餘額增減", "MarginPurchaseChange", "MarginPurchaseBalanceChange"]));
-  const shortPrev = nullableMarketNumber(findValue(row, ["融券前日餘額", "融券前日餘額張數", "ShortSaleYesterdayBalance", "ShortSalePreviousBalance"]));
+  const shortPrev = nullableMarketNumber(findValue(row, ["融券前日餘額", "融券前日餘額張數", "ShortSaleYesterdayBalance", "ShortSalePreviousBalance", "ShortSaleBalancePreviousDay"]));
   const shortNow = nullableMarketNumber(findValue(row, ["融券今日餘額", "融券今日餘額張數", "ShortSaleTodayBalance", "ShortSaleBalance"]));
   const shortChangeRaw = nullableMarketNumber(findValue(row, ["融券增減", "融券餘額增減", "ShortSaleChange", "ShortSaleBalanceChange"]));
   return {

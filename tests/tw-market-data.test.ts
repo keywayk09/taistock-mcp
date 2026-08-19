@@ -15,6 +15,7 @@ import {
 } from "../src/v6/tw-market-data.ts";
 
 assert.equal(normalizeTradeDate("115/08/19"), "2026-08-19");
+assert.equal(normalizeTradeDate("1150819"), "2026-08-19");
 assert.equal(normalizeTradeDate("20260819"), "2026-08-19");
 assert.equal(normalizeTradeDate("2026-08-19"), "2026-08-19");
 
@@ -32,16 +33,19 @@ assert.deepEqual(twseInstitutional[0], {
 });
 
 const tpexInstitutional = normalizeTpexInstitutional([{
-  Date:"115/08/19",
+  Date:"1150819",
   SecuritiesCompanyCode:"6488",
-  SecuritiesCompanyName:"環球晶",
+  CompanyName:"環球晶",
   "Foreign Investors include Mainland Area Investors (Foreign Dealers excluded)-Difference":"2,000",
-  "Securities Investment Trust Companies-Difference":"-100",
+  "ForeignInvestorsInclude MainlandAreaInvestors-Difference":"2,000",
+  "SecuritiesInvestmentTrustCompanies-Difference":"-100",
   "Dealers-Difference":"50",
-  "Total Difference":"1,950",
+  "TotalDifference":"1,950",
 }], "2026-08-19");
 assert.equal(tpexInstitutional[0].trade_date, "2026-08-19");
 assert.equal(tpexInstitutional[0].market, "otc");
+assert.equal(tpexInstitutional[0].name, "環球晶");
+assert.equal(tpexInstitutional[0].foreign_net_shares, 2000);
 assert.equal(tpexInstitutional[0].total_net_shares, 1950);
 
 const twseMargin = normalizeTwseMargin({
@@ -56,12 +60,16 @@ assert.equal(twseMargin[0].margin_balance_change_lots, 500);
 assert.equal(twseMargin[0].short_balance_change_lots, -50);
 
 const tpexMargin = normalizeTpexMargin([{
-  Date:"115/08/19", SecuritiesCompanyCode:"6488", SecuritiesCompanyName:"環球晶",
-  MarginPurchaseYesterdayBalance:"1,000", MarginPurchaseTodayBalance:"1,100",
-  ShortSaleYesterdayBalance:"90", ShortSaleTodayBalance:"120",
+  Date:"1150819", SecuritiesCompanyCode:"6488", CompanyName:"環球晶",
+  MarginPurchaseBalancePreviousDay:"1,000", MarginPurchaseBalance:"1,100",
+  ShortSaleBalancePreviousDay:"90", ShortSaleBalance:"120",
 }], "2026-08-19");
 assert.equal(tpexMargin[0].market, "otc");
+assert.equal(tpexMargin[0].margin_previous_balance_lots, 1000);
+assert.equal(tpexMargin[0].margin_balance_lots, 1100);
 assert.equal(tpexMargin[0].margin_balance_change_lots, 100);
+assert.equal(tpexMargin[0].short_previous_balance_lots, 90);
+assert.equal(tpexMargin[0].short_balance_lots, 120);
 assert.equal(tpexMargin[0].short_balance_change_lots, 30);
 
 const institutionalRows: InstitutionalRow[] = Array.from({length:20},(_,i)=>({
@@ -94,6 +102,9 @@ assert.match(source, /TWSE_T86/);
 assert.match(source, /TWSE_MI_MARGN/);
 assert.match(source, /TPEX_3INSTI_DAILY_TRADING/);
 assert.match(source, /TPEX_MAINBOARD_MARGIN_BALANCE/);
+assert.match(source, /Mozilla\/5\.0/);
+assert.match(source, /cache: "no-store"/);
+assert.match(source, /diamond-tw-market-data\/v1\.1\.1-d1/);
 assert.match(source, /TaiwanStockInstitutionalInvestorsBuySell/);
 assert.match(source, /TaiwanStockMarginPurchaseShortSale/);
 assert.doesNotMatch(source, /TaiwanStockPrice/);
