@@ -22,3 +22,30 @@ jobs:
       - run: npm run type-check
       - run: npm run test:research
       - run: npx wrangler deploy --dry-run --outdir dist
+      - name: Temporary TPEx payload diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '===== production status ====='
+          curl -sS 'https://taistock-mcp.keywayk09.workers.dev/market-data/status?trade_date=2026-08-19'
+          echo
+          for spec in \
+            'institutional|https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading' \
+            'margin|https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance'; do
+            label=${spec%%|*}
+            url=${spec#*|}
+            echo "===== $label ====="
+            curl -sS --connect-timeout 10 --max-time 30 "$url" -o "$label.json"
+            python - "$label.json" <<'PY'
+import json,sys
+p=sys.argv[1]
+with open(p,encoding='utf-8-sig') as f: data=json.load(f)
+print('type=',type(data).__name__,'len=',len(data) if hasattr(data,'__len__') else None)
+if isinstance(data,list) and data:
+ print('keys=',list(data[0].keys()))
+ print('first=',json.dumps(data[0],ensure_ascii=False))
+elif isinstance(data,dict):
+ print('keys=',list(data.keys()))
+ print('sample=',json.dumps(data,ensure_ascii=False)[:3000])
+PY
+          done
