@@ -1,0 +1,23 @@
+{
+  "captured_at_utc": "2026-08-19T18:11:50.001983Z",
+  "datasets": {
+    "institutional": {
+      "endpoint": "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading",
+      "file": "institutional.json",
+      "row_count": 892,
+      "sha256": "f9e1ac6458c92aff84703e39ab7bc47ad2831ed44d8b542108d1cc574857d410",
+      "source_date": "2026-08-19"
+    },
+    "margin": {
+      "endpoint": "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance",
+      "file": "margin.json",
+      "row_count": 918,
+      "sha256": "5f00e3ca9213dd9fc3926c895c9a6ac15e6e21f38ad62ff0c5f1fe88d2ac83f4",
+      "source_date": "2026-08-19"
+    }
+  },
+  "schema": "TPEX_OFFICIAL_RELAY_V1",
+  "source_owner": "TPEx",
+  "trade_date": "2026-08-19",
+  "transport": "GitHub Actions official endpoint relay"
+}
