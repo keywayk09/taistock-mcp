@@ -1,9 +1,6 @@
 name: Diagnose 2026-08-19 Market Data
 
 on:
-  push:
-    branches:
-      - diag/check-market-data-20260819
   pull_request:
     branches:
       - main
@@ -17,16 +14,31 @@ jobs:
         run: |
           set -euo pipefail
           URL='https://taistock-mcp.keywayk09.workers.dev/market-data/status?trade_date=2026-08-19'
-          for i in $(seq 1 12); do
-            echo "attempt=$i"
-            code=$(curl -sS -o status.json -w '%{http_code}' --connect-timeout 10 --max-time 30 "$URL" || true)
-            echo "http=$code"
-            if [ "$code" = "200" ]; then
-              cat status.json
-              exit 0
-            fi
-            cat status.json 2>/dev/null || true
-            sleep 10
+          code=$(curl -sS -o status.json -w '%{http_code}' --connect-timeout 10 --max-time 30 "$URL")
+          echo "http=$code"
+          cat status.json
+          test "$code" = "200"
+      - name: Probe TPEx official payload shapes
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            'institutional|https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading' \
+            'margin|https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance'; do
+            label=${spec%%|*}
+            url=${spec#*|}
+            echo "===== $label ====="
+            curl -sS --connect-timeout 10 --max-time 30 "$url" -o "$label.json"
+            python - "$label.json" <<'PY'
+import json,sys
+p=sys.argv[1]
+with open(p,encoding='utf-8-sig') as f: data=json.load(f)
+print('type=',type(data).__name__,'len=',len(data) if hasattr(data,'__len__') else None)
+if isinstance(data,list) and data:
+ print('keys=',list(data[0].keys()))
+ print('first=',json.dumps(data[0],ensure_ascii=False))
+elif isinstance(data,dict):
+ print('keys=',list(data.keys()))
+ print('sample=',json.dumps(data,ensure_ascii=False)[:3000])
+PY
           done
-          echo 'Production status endpoint did not return HTTP 200 after retries.' >&2
-          exit 1
