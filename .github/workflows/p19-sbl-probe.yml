@@ -1,0 +1,49 @@
+name: P19 SBL Public Endpoint Probe
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe official public endpoints
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, urllib.request, urllib.error
+          urls = {
+            'twse_twt72u_rwd':'https://www.twse.com.tw/rwd/zh/products/sbl/twt72u?date=20260819&selectType=SLBNLB&response=json',
+            'twse_twt72u_legacy':'https://www.twse.com.tw/exchangeReport/TWT72U?date=20260819&selectType=SLBNLB&response=json',
+            'twse_twt93u_rwd':'https://www.twse.com.tw/rwd/zh/marginTrading/TWT93U?date=20260819&response=json',
+            'twse_twt93u_legacy':'https://www.twse.com.tw/exchangeReport/TWT93U?date=20260819&response=json',
+            'tpex_margin_sbl':'https://www.tpex.org.tw/openapi/v1/tpex_margin_sbl',
+            'tpex_short_sell':'https://www.tpex.org.tw/openapi/v1/tpex_short_sell',
+          }
+          headers={'User-Agent':'Mozilla/5.0','Accept':'application/json,text/plain,*/*'}
+          for name,url in urls.items():
+            print('\n===',name,url,'===')
+            try:
+              req=urllib.request.Request(url,headers=headers)
+              with urllib.request.urlopen(req,timeout=30) as r:
+                raw=r.read(); print('HTTP',r.status,'bytes',len(raw),'final',r.geturl())
+              body=json.loads(raw.decode('utf-8-sig'))
+              if isinstance(body,list):
+                print('list rows',len(body)); print('first',json.dumps(body[0] if body else None,ensure_ascii=False)[:3000])
+              elif isinstance(body,dict):
+                print('dict keys',list(body.keys()))
+                print('date',body.get('date'),'stat',body.get('stat'))
+                print('fields',json.dumps(body.get('fields'),ensure_ascii=False)[:3000])
+                data=body.get('data')
+                print('data rows',len(data) if isinstance(data,list) else type(data).__name__)
+                print('first data',json.dumps(data[0] if isinstance(data,list) and data else None,ensure_ascii=False)[:3000])
+                tables=body.get('tables')
+                if isinstance(tables,list):
+                  for i,t in enumerate(tables[:5]): print('table',i,'title',t.get('title'),'fields',json.dumps(t.get('fields'),ensure_ascii=False)[:1500],'first',json.dumps((t.get('data') or [None])[0],ensure_ascii=False)[:1500])
+            except Exception as e:
+              print('ERROR',repr(e))
+          PY
