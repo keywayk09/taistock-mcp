@@ -37,7 +37,7 @@ assert.match(source, /configured: Boolean\(env\.FINMIND_TOKEN\)/);
 
 const index = read("src/index-v6.ts");
 assert.match(index, /registerFamilyStockSelectionTools\(this\.server, this\.env\)/);
-assert.match(index, /version: "6\.16\.0"/);
+assert.match(index, /version: "6\.16\.1"/);
 assert.match(index, /tools: 111/);
 
 const instructions = read("docs/family-custom-gpt-instructions.md");
