@@ -1,0 +1,23 @@
+name: Snapshot P18.7 Production Status
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read production health and 8/19 status
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '=== health ==='
+          curl -fsS --connect-timeout 10 --max-time 30 'https://taistock-mcp.keywayk09.workers.dev/health' || true
+          echo
+          echo '=== 8/19 status ==='
+          curl -fsS --connect-timeout 10 --max-time 30 'https://taistock-mcp.keywayk09.workers.dev/market-data/status?trade_date=2026-08-19' || true
+          echo
