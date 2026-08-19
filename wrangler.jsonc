@@ -3,6 +3,7 @@
  * Project policy: D1 only for Diamond persistence; R2 is forbidden.
  * OHLC/K-line remains owned by OHLC MCP.
  * Durable Object lifecycle uses declarative exports; production deploys must use `wrangler deploy`.
+ * Existing Durable Object namespaces are preserved as live exports; deletion tombstones are forbidden without explicit review.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
@@ -33,6 +34,10 @@
 		"MyMCP": {
 			"type": "durable-object",
 			"storage": "sqlite"
+		},
+		"FamilyMCP": {
+			"type": "durable-object",
+			"storage": "sqlite"
 		}
 	},
 	"durable_objects": {
@@ -40,6 +45,10 @@
 			{
 				"class_name": "MyMCP",
 				"name": "MCP_OBJECT"
+			},
+			{
+				"class_name": "FamilyMCP",
+				"name": "FAMILY_MCP_OBJECT"
 			}
 		]
 	},
