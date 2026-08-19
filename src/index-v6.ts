@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpAgent } from "agents/mcp";
 import { MyMCP as BaseMCP } from "./index";
 import { registerDailyReportFormatTool } from "./v6/daily-report-format";
 import { registerAdvancedTools } from "./v6/register";
@@ -35,6 +36,39 @@ export class MyMCP extends BaseMCP {
   }
 }
 
+/**
+ * Compatibility class for the already-provisioned FamilyMCP Durable Object namespace.
+ *
+ * The historical family runtime has been retired from the active production router,
+ * but its Durable Object namespace must remain live so Cloudflare declarative exports
+ * do not retire or delete existing namespace data. This class intentionally exposes
+ * only a read-only compatibility status tool and performs no storage mutation.
+ */
+export class FamilyMCP extends McpAgent<Env> {
+  server = new McpServer({
+    name: "Taiwan Stock AI Family Namespace Compatibility",
+    version: "6.16.1",
+  });
+
+  async init() {
+    this.server.registerTool("familyNamespaceStatus", {
+      description: "唯讀確認舊 FamilyMCP Durable Object namespace 仍被保留；不寫入、不刪除、不重設任何資料。",
+      inputSchema: {},
+    }, async () => ({
+      content: [{
+        type: "text" as const,
+        text: JSON.stringify({
+          status: "PRESERVED_READ_ONLY",
+          namespace: "FamilyMCP",
+          storage: "sqlite",
+          active_family_runtime: "MyMCP family tools",
+          destructive_actions: false,
+        }, null, 2),
+      }],
+    }));
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
@@ -49,6 +83,10 @@ export default {
           legacy_d1: env.DB ? "connected" : "pending",
           research_d1: env.RESEARCH_DB ? "connected" : "pending",
           policy: "D1_ONLY_NO_R2",
+        },
+        durable_objects: {
+          primary: "MyMCP",
+          legacy_family_namespace: "PRESERVED_READ_ONLY",
         },
         market_data: {
           version: "diamond-tw-market-data/v1.1.0-d1",
