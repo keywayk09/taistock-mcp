@@ -22,12 +22,12 @@ const ok = (value: unknown) => ({
 
 export function registerResearchTools(server: McpServer, env: Env) {
   server.registerTool("get_research_pipeline_status", {
-    description: "查詢 Cloudflare TRAI 盤後資料管線狀態、綁定與最近一次執行結果。",
+    description: "查詢 Diamond 舊研究資料狀態。舊直抓行情流程已停用，正式 OHLC 一律走 OHLC MCP。",
     inputSchema: {},
   }, async () => ok(await getResearchStatus(env)));
 
   server.registerTool("get_research_universe", {
-    description: "查詢指定交易日由成交值、波動與漲跌幅篩出的研究候選池。",
+    description: "查詢指定交易日既有研究候選池；此工具只讀 D1 歷史資料。",
     inputSchema: {
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       limit: z.number().int().min(1).max(100).optional().default(40),
@@ -38,11 +38,11 @@ export function registerResearchTools(server: McpServer, env: Env) {
              trade_value, range_percent, selected_rank, selected_reasons_json, updated_at
       FROM research_universe WHERE trade_date=? ORDER BY selected_rank LIMIT ?
     `).bind(date, limit).all();
-    return ok({ date, count: result.results.length, data: result.results });
+    return ok({ date, count: result.results.length, data: result.results, storage:"D1_ONLY", policy:"LEGACY_DATA_ONLY" });
   });
 
   server.registerTool("get_stored_intraday_candles", {
-    description: "從 Cloudflare D1 索引與 R2 讀取已保存的台股富果1分K或5分K及資料品質統計；TXF 必須透過 OHLC MCP read_txf_ohlc，不混用台股 storage path。",
+    description: "讀取 D1 中既有的舊研究 candle payload/品質統計；僅供歷史相容查閱，正式台股/TXF OHLC 必須透過 OHLC MCP。",
     inputSchema: {
       symbol: z.string().trim().regex(/^\d{4,6}$/),
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

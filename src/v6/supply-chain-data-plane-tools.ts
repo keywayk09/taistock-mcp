@@ -57,7 +57,7 @@ export function registerSupplyChainDataPlaneTools(server: McpServer, env: Env) {
   })));
 
   server.registerTool("archive_supply_chain_snapshot", {
-    description: "P13b 將已驗證 Supply Chain Snapshot 以 immutable dataset_version 存入 Research D1 index + R2 archive。需要 human_approved=true；append-only，不寫 OHLC。",
+    description: "P13b 將已驗證 Supply Chain Snapshot 以 immutable dataset_version 存入 Research D1。需要 human_approved=true；append-only，不寫 OHLC，不使用 R2。",
     inputSchema: {
       snapshot: z.object(snapshotShape),
       archive_actor: z.string().trim().min(1).max(200),
@@ -73,7 +73,7 @@ export function registerSupplyChainDataPlaneTools(server: McpServer, env: Env) {
   })));
 
   server.registerTool("find_supply_chain_datasets", {
-    description: "依 symbol/market/as_of/formal eligibility 查找已封存的跨市場供應鏈 dataset。",
+    description: "依 symbol/market/as_of/formal eligibility 查找已封存於 D1 的跨市場供應鏈 dataset。",
     inputSchema: {
       symbol: z.string().trim().min(1).max(40).optional(),
       market: z.string().trim().min(1).max(40).optional(),
@@ -85,13 +85,13 @@ export function registerSupplyChainDataPlaneTools(server: McpServer, env: Env) {
   }, async (input) => out(await findSupplyChainDatasets(env, input)));
 
   server.registerTool("get_archived_supply_chain_snapshot", {
-    description: "用 dataset_version 讀取已封存 Supply Chain Snapshot；讀取時重新驗證 hash/version，偵測 R2/D1 漂移或損壞。",
+    description: "用 dataset_version 從 D1 讀取已封存 Supply Chain Snapshot；讀取時重新驗證 hash/version。",
     inputSchema: { dataset_version: z.string().regex(/^sha256:[0-9a-f]{64}$/) },
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
   }, async ({ dataset_version }) => out(await loadArchivedSupplyChainSnapshot(env, dataset_version)));
 
   server.registerTool("query_archived_supply_chain", {
-    description: "對已封存 dataset 查任一台股/海外標的的 upstream/downstream 供應鏈；預設排除 Candidate edge。",
+    description: "對已封存 D1 dataset 查任一台股/海外標的的 upstream/downstream 供應鏈；預設排除 Candidate edge。",
     inputSchema: {
       dataset_version: z.string().regex(/^sha256:[0-9a-f]{64}$/),
       anchor: z.string().trim().min(1).max(160),
