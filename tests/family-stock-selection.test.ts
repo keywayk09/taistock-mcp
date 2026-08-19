@@ -37,8 +37,8 @@ assert.match(source, /configured: Boolean\(env\.FINMIND_TOKEN\)/);
 
 const index = read("src/index-v6.ts");
 assert.match(index, /registerFamilyStockSelectionTools\(this\.server, this\.env\)/);
-assert.match(index, /version: "6\.15\.1"/);
-assert.match(index, /tools: 106/);
+assert.match(index, /version: "6\.16\.0"/);
+assert.match(index, /tools: 111/);
 
 const instructions = read("docs/family-custom-gpt-instructions.md");
 assert.match(instructions, /必須優先呼叫 MCP 工具 `screen_family_swing_candidates`/);
