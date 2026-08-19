@@ -7,33 +7,28 @@ import {
   type TwMarketDataKind,
 } from "./tw-market-data";
 import { ensureTwMarketDataD1Schema } from "./tw-market-data-d1";
+import { fetchTpexOfficialPayload } from "./tpex-official-relay";
 
-const VERSION = "diamond-tw-market-data/v1.1.1-d1";
-const TPEX_INSTITUTIONAL = "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading";
-const TPEX_MARGIN = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance";
-const FETCH_TIMEOUT_MS = 12_000;
+const VERSION = "diamond-tw-market-data/v1.1.2-d1";
 
 type OfficialRow = InstitutionalRow | MarginRow;
 
 type BackfillJob = {
   kind: TwMarketDataKind;
-  url: string;
   label: string;
-  source: string;
+  failureSource: string;
 };
 
 const JOBS: BackfillJob[] = [
   {
     kind: "institutional",
-    url: TPEX_INSTITUTIONAL,
     label: "TPEX_3INSTI",
-    source: "TPEX_3INSTI_DAILY_TRADING",
+    failureSource: "TPEX_3INSTI_DAILY_TRADING",
   },
   {
     kind: "margin",
-    url: TPEX_MARGIN,
     label: "TPEX_MARGIN",
-    source: "TPEX_MAINBOARD_MARGIN_BALANCE",
+    failureSource: "TPEX_MAINBOARD_MARGIN_BALANCE",
   },
 ];
 
@@ -69,35 +64,6 @@ async function sha256(value: unknown) {
     new TextEncoder().encode(JSON.stringify(stableValue(value))),
   );
   return Array.from(new Uint8Array(digest)).map((x) => x.toString(16).padStart(2, "0")).join("");
-}
-
-async function fetchTpexJson(job: BackfillJob) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const response = await fetch(job.url, {
-      cache: "no-store",
-      signal: controller.signal,
-      headers: {
-        Accept: "application/json,text/plain,*/*",
-        "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
-        Referer: "https://www.tpex.org.tw/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-      },
-    });
-    const text = await response.text();
-    if (!response.ok) throw new Error(`${job.label}_http_${response.status}:${text.slice(0, 160)}`);
-    try {
-      return text ? JSON.parse(text) : null;
-    } catch {
-      throw new Error(`${job.label}_invalid_json:${text.slice(0, 160)}`);
-    }
-  } catch (error) {
-    if (controller.signal.aborted) throw new Error(`${job.label}_timeout_${FETCH_TIMEOUT_MS}ms`);
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 async function archiveReady(env: Env, input: {
@@ -191,21 +157,31 @@ export async function runTpexMarketDataBackfill(env: Env, tradeDate: string) {
   const results: any[] = [];
   for (const job of JOBS) {
     try {
-      const body = await fetchTpexJson(job);
-      const sourceDate = sourceDateFromBody(body);
+      const fetched = await fetchTpexOfficialPayload(job.kind, tradeDate);
+      const sourceDate = sourceDateFromBody(fetched.body);
       if (sourceDate !== tradeDate) {
         throw new Error(`${job.label}_source_date_mismatch:expected=${tradeDate}:actual=${sourceDate ?? "unknown"}`);
       }
       const rows = job.kind === "institutional"
-        ? normalizeTpexInstitutional(body, tradeDate)
-        : normalizeTpexMargin(body, tradeDate);
+        ? normalizeTpexInstitutional(fetched.body, tradeDate)
+        : normalizeTpexMargin(fetched.body, tradeDate);
       const archived = await archiveReady(env, {
         trade_date: tradeDate,
         kind: job.kind,
-        source: job.source,
+        source: fetched.source,
         rows,
       });
-      results.push({ kind: job.kind, market: "otc", status: "READY", rows: rows.length, source: job.source, ...archived });
+      results.push({
+        kind: job.kind,
+        market: "otc",
+        status: "READY",
+        rows: rows.length,
+        source: fetched.source,
+        transport: fetched.transport,
+        direct_error: fetched.direct_error,
+        relay_sha256: "relay_sha256" in fetched ? fetched.relay_sha256 : null,
+        ...archived,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       let receipt: any = null;
@@ -213,19 +189,27 @@ export async function runTpexMarketDataBackfill(env: Env, tradeDate: string) {
         receipt = await archiveFailure(env, {
           trade_date: tradeDate,
           kind: job.kind,
-          source: job.source,
+          source: job.failureSource,
           error: message,
         });
       } catch (receiptError) {
         receipt = { receipt_error: receiptError instanceof Error ? receiptError.message : String(receiptError) };
       }
-      results.push({ kind: job.kind, market: "otc", status: "DEGRADED", rows: 0, source: job.source, error: message, ...receipt });
+      results.push({
+        kind: job.kind,
+        market: "otc",
+        status: "DEGRADED",
+        rows: 0,
+        source: job.failureSource,
+        error: message,
+        ...receipt,
+      });
     }
   }
   return {
     ok: true,
     version: VERSION,
-    mode: "TPEX_ONLY_BACKFILL",
+    mode: "TPEX_ONLY_BACKFILL_WITH_OFFICIAL_RELAY",
     trade_date: tradeDate,
     blocking: false,
     market_data_failure_blocks_ohlc: false,
