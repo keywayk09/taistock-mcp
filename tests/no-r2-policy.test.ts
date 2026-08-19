@@ -36,9 +36,13 @@ for (const file of targets) {
 
 const wrangler = fs.readFileSync(path.join(root, "wrangler.jsonc"), "utf8");
 assert.match(wrangler, /D1 only for Diamond persistence; R2 is forbidden/);
+assert.match(wrangler, /"exports"\s*:\s*\{/);
+assert.match(wrangler, /"MyMCP"\s*:\s*\{[\s\S]*?"type"\s*:\s*"durable-object"[\s\S]*?"storage"\s*:\s*"sqlite"/);
+assert.doesNotMatch(wrangler, /"migrations"\s*:/, "Legacy Durable Object migration tags must not return; production uses declarative exports");
+assert.match(wrangler, /production deploys must use `wrangler deploy`/);
 
 const p18 = fs.readFileSync(path.join(root, "docs/p18-official-market-data.md"), "utf8");
 assert.match(p18, /R2 禁止使用/);
 assert.match(p18, /不得因功能擴充重新引入 R2/);
 
-console.log("Permanent no-R2 project policy tests passed");
+console.log("Permanent no-R2 and Durable Object deploy policy tests passed");
