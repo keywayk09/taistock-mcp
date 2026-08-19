@@ -1,0 +1,39 @@
+name: Diagnose TPEx Official Payloads
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect TPEx OpenAPI payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, urllib.request
+          urls = {
+            'institutional': 'https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading',
+            'margin': 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance',
+          }
+          for name, url in urls.items():
+              req = urllib.request.Request(url, headers={'User-Agent':'Mozilla/5.0','Accept':'application/json'})
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  raw = r.read()
+                  print('===', name, 'http', r.status, 'bytes', len(raw), 'content-type', r.headers.get('content-type'))
+              body = json.loads(raw.decode('utf-8-sig'))
+              print('type=', type(body).__name__, 'len=', len(body) if isinstance(body,list) else 'n/a')
+              if isinstance(body, list) and body:
+                  print('first=', json.dumps(body[0], ensure_ascii=False, sort_keys=True))
+                  print('last=', json.dumps(body[-1], ensure_ascii=False, sort_keys=True))
+              elif isinstance(body, dict):
+                  print('keys=', sorted(body.keys()))
+                  data = body.get('data')
+                  if isinstance(data,list) and data:
+                      print('first_data=', json.dumps(data[0], ensure_ascii=False, sort_keys=True))
+          PY
