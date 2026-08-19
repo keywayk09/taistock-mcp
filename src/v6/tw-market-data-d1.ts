@@ -12,7 +12,7 @@ import {
   type TwMarketDataKind,
 } from "./tw-market-data";
 
-export const TW_MARKET_DATA_VERSION = "diamond-tw-market-data/v1.1.0-d1";
+export const TW_MARKET_DATA_VERSION = "diamond-tw-market-data/v1.1.1-d1";
 
 const TWSE_T86 = "https://www.twse.com.tw/rwd/zh/fund/T86";
 const TWSE_MARGIN = "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN";
@@ -95,13 +95,25 @@ function sourceDateFromBody(body: unknown): string | null {
 }
 
 async function fetchJson(url: URL | string, label: string) {
+  const target = String(url);
+  const isTpex = target.includes("tpex.org.tw/");
   const response = await fetch(url, {
-    headers: { Accept: "application/json", "User-Agent": "Diamond-Market-Data-D1/1.1" },
+    cache: "no-store",
+    headers: isTpex ? {
+      Accept: "application/json,text/plain,*/*",
+      "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+      Referer: "https://www.tpex.org.tw/",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+    } : {
+      Accept: "application/json",
+      "User-Agent": "Diamond-Market-Data-D1/1.1",
+    },
   });
   const text = await response.text();
   let body: unknown = text;
   try { body = text ? JSON.parse(text) : null; } catch {}
   if (!response.ok) throw new Error(`${label}_http_${response.status}:${text.slice(0, 200)}`);
+  if (typeof body === "string") throw new Error(`${label}_invalid_json:${text.slice(0, 200)}`);
   return body;
 }
 
