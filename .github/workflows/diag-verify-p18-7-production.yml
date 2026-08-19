@@ -1,4 +1,4 @@
-name: Snapshot P18.7 Production Status
+name: Verify P18.8 Production Relay Backfill
 
 on:
   pull_request:
@@ -11,13 +11,33 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Read production health and 8/19 status
+      - name: Wait for 8/19 production 4-of-4 READY
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== health ==='
-          curl -fsS --connect-timeout 10 --max-time 30 'https://taistock-mcp.keywayk09.workers.dev/health' || true
-          echo
-          echo '=== 8/19 status ==='
-          curl -fsS --connect-timeout 10 --max-time 30 'https://taistock-mcp.keywayk09.workers.dev/market-data/status?trade_date=2026-08-19' || true
-          echo
+          URL='https://taistock-mcp.keywayk09.workers.dev/market-data/status?trade_date=2026-08-19'
+          for i in $(seq 1 36); do
+            echo "=== attempt=$i ==="
+            code=$(curl -sS -o status.json -w '%{http_code}' --connect-timeout 10 --max-time 30 "$URL" || true)
+            echo "http=$code"
+            cat status.json 2>/dev/null || true
+            echo
+            if [ "$code" = "200" ]; then
+              ready=$(python - <<'PY'
+          import json
+          try:
+              x=json.load(open('status.json'))
+              print(x.get('ready_count',0))
+          except Exception:
+              print(0)
+          PY
+          )
+              if [ "$ready" = "4" ]; then
+                echo 'P18.8_PRODUCTION_4_OF_4_READY'
+                exit 0
+              fi
+            fi
+            sleep 10
+          done
+          echo 'P18.8 did not reach 4/4 within diagnostic window.' >&2
+          exit 1
