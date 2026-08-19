@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS tw_market_data_snapshot_index (
+CREATE TABLE IF NOT EXISTS tw_market_data_snapshot_d1 (
   dataset_version TEXT PRIMARY KEY,
   trade_date TEXT NOT NULL,
   market TEXT NOT NULL,
@@ -7,14 +7,20 @@ CREATE TABLE IF NOT EXISTS tw_market_data_snapshot_index (
   source_date_verified INTEGER NOT NULL,
   row_count INTEGER NOT NULL,
   status TEXT NOT NULL,
-  r2_key TEXT NOT NULL UNIQUE,
   content_sha256 TEXT NOT NULL,
-  archived_at TEXT NOT NULL,
+  captured_at TEXT NOT NULL,
   error TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_tw_market_data_date_kind
-  ON tw_market_data_snapshot_index(kind, trade_date, market, archived_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tw_market_data_d1_date_kind
+  ON tw_market_data_snapshot_d1(kind, trade_date, market, captured_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_tw_market_data_status
-  ON tw_market_data_snapshot_index(status, trade_date, kind);
+CREATE TABLE IF NOT EXISTS tw_market_data_row_d1 (
+  dataset_version TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  PRIMARY KEY(dataset_version, symbol)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tw_market_data_d1_symbol
+  ON tw_market_data_row_d1(symbol, dataset_version);

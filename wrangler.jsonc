@@ -1,6 +1,7 @@
 /**
  * Cloudflare is the execution and market-data layer.
- * GitHub stores code, reports, cases, hypotheses and decision history only.
+ * Project policy: D1 only for Diamond persistence; R2 is forbidden.
+ * OHLC/K-line remains owned by OHLC MCP.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
@@ -14,8 +15,6 @@
 	},
 	"triggers": {
 		"crons": [
-			"40 5 * * 1-5",
-			"55 5 * * 1-5",
 			"30 10 * * 1-5",
 			"30 12 * * 1-5"
 		]
@@ -27,12 +26,6 @@
 		{
 			"binding": "RESEARCH_DB",
 			"database_name": "taistock-research"
-		}
-	],
-	"r2_buckets": [
-		{
-			"binding": "RESEARCH_BUCKET",
-			"bucket_name": "taistock-research-data"
 		}
 	],
 	"migrations": [
