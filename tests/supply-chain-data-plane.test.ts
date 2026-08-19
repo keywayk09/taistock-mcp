@@ -57,10 +57,16 @@ assert.doesNotMatch(sourceAdapter, /method:"POST"|Authorization|Bearer /);
 
 const archiveSource = fs.readFileSync(new URL("../src/v6/supply-chain-data-plane.ts", import.meta.url), "utf8");
 assert.match(archiveSource, /HUMAN_APPROVAL_REQUIRED/);
-assert.match(archiveSource, /ORPHAN_R2_CONFLICT/);
 assert.match(archiveSource, /ARCHIVE_HASH_MISMATCH/);
-assert.match(archiveSource, /await env\.RESEARCH_BUCKET\.delete\(r2Key\)/);
-assert.match(archiveSource, /supply-chain\/snapshots\/\$\{validated\.as_of\}/);
+assert.match(archiveSource, /supply_chain_snapshot_d1/);
+assert.match(archiveSource, /payload_json/);
+assert.match(archiveSource, /storage:"D1_ONLY"/);
+assert.doesNotMatch(archiveSource, /RESEARCH_BUCKET|R2Bucket|r2_key|ORPHAN_R2_CONFLICT/);
 assert.doesNotMatch(archiveSource, /OHLC|Fugle|github\.com\/repos/i);
 
-console.log("P13b supply-chain data plane tests passed");
+const migration = fs.readFileSync(new URL("../migrations/0004_supply_chain_data_plane.sql", import.meta.url), "utf8");
+assert.match(migration, /supply_chain_snapshot_d1/);
+assert.match(migration, /payload_json/);
+assert.doesNotMatch(migration, /r2_key|R2/);
+
+console.log("P13b D1-only supply-chain data plane tests passed");
