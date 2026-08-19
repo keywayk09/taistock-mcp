@@ -13,6 +13,13 @@
 - **R2 禁止使用**，不得加入 R2 binding、bucket、archive 或任何以 R2 為必要條件的正式資料流程。
 - 未來新增功能若需要持久化，優先評估既有 D1 或 GitHub；不得因功能擴充重新引入 R2。
 
+## Cloudflare deployment policy
+
+- `MyMCP` Durable Object lifecycle 使用 declarative `exports`，storage 固定為 `sqlite`；不再維護 legacy migration tag chain。
+- Production Workers Builds 的 deploy command 必須是 `npx wrangler deploy`，不得用 `npx wrangler versions upload`。
+- 此 Worker 不使用 Cloudflare preview version build 作為支線驗證；支線驗證由 GitHub CI / Wrangler dry-run 負責，Production trigger 僅接受 `main`。
+- 原因：Durable Object lifecycle reconciliation 只能在完整 deploy 套用，不能透過 version-only upload 套用。
+
 ## Official-first sources
 
 | Layer | Listed | OTC |

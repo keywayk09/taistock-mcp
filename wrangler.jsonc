@@ -2,6 +2,7 @@
  * Cloudflare is the execution and market-data layer.
  * Project policy: D1 only for Diamond persistence; R2 is forbidden.
  * OHLC/K-line remains owned by OHLC MCP.
+ * Durable Object lifecycle uses declarative exports; production deploys must use `wrangler deploy`.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
@@ -28,12 +29,12 @@
 			"database_name": "taistock-research"
 		}
 	],
-	"migrations": [
-		{
-			"new_sqlite_classes": ["MyMCP"],
-			"tag": "v1"
+	"exports": {
+		"MyMCP": {
+			"type": "durable-object",
+			"storage": "sqlite"
 		}
-	],
+	},
 	"durable_objects": {
 		"bindings": [
 			{
