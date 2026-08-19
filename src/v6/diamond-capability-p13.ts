@@ -21,7 +21,7 @@ const SUPPLY_CHAIN_CAPABILITY = Object.freeze({
   direct_provider_access: false as const,
   read_only_research: true,
   production_write: false as const,
-  notes: "P13/P13b entity-first graph, guarded official evidence intake, deterministic cross-verification, and immutable D1/R2 archive are active. Formal eligibility remains dataset-specific; no LLM/provider relationship is trusted automatically and nothing writes OHLC.",
+  notes: "P13/P13b entity-first graph, guarded official evidence intake, deterministic cross-verification, and immutable D1-only archive are active. Formal eligibility remains dataset-specific; no LLM/provider relationship is trusted automatically and nothing writes OHLC.",
 });
 
 export function getDiamondToolRegistryP13() {
@@ -35,7 +35,8 @@ export function getDiamondToolRegistryP13() {
       data_population: "GUARDED_OFFICIAL_EVIDENCE_TO_VERSIONED_ARCHIVE",
       official_source_adapter: SUPPLY_CHAIN_OFFICIAL_SOURCE_VERSION,
       cross_verification_engine: SUPPLY_CHAIN_CROSS_VERIFY_VERSION,
-      archive_plane: "RESEARCH_DB_INDEX_PLUS_R2_IMMUTABLE_SNAPSHOT",
+      archive_plane: "D1_ONLY_IMMUTABLE_SNAPSHOT",
+      storage_policy: "D1_ONLY_NO_R2",
       default_candidate_edges_excluded: true,
       formal_research_eligibility: "PER_SNAPSHOT",
       archive_human_gate: true,
@@ -49,7 +50,7 @@ export function getDiamondArchitectureStatusP13() {
   const base = getDiamondArchitectureStatusP12();
   return {
     ...base,
-    architecture_version: "diamond-architecture/2026-08-p13b",
+    architecture_version: "diamond-architecture/2026-08-p13b-d1",
     supply_chain_intelligence: {
       status: "ACTIVE_INTERNAL",
       engine_version: SUPPLY_CHAIN_GRAPH_VERSION,
@@ -66,7 +67,8 @@ export function getDiamondArchitectureStatusP13() {
       truth_model: "EVIDENCE_BACKED_TIME_SAFE_VERSIONED_SNAPSHOT",
       source_model: "SEC_OR_MOPS_ALLOWLISTED_OFFICIAL_EVIDENCE_PLUS_REVIEWED_SECONDARY_EVIDENCE",
       cross_verification_model: "PRIMARY_SOURCE_AND_INDEPENDENT_SOURCE_COUNT",
-      archive_model: "D1_INDEX_PLUS_R2_IMMUTABLE_PAYLOAD",
+      archive_model: "D1_ONLY_IMMUTABLE_PAYLOAD",
+      storage_policy: "D1_ONLY_NO_R2",
       entity_first: true,
       cross_market_instrument_mapping: true,
       llm_can_verify_edges: false,
@@ -85,6 +87,7 @@ export function getDiamondArchitectureStatusP13() {
       supply_chain_archive_mutability: "APPEND_ONLY",
       supply_chain_archive_human_gate: "REQUIRED",
       supply_chain_ohlc_write: "FORBIDDEN",
+      r2_usage: "FORBIDDEN",
     },
     counts: {
       ...base.counts,
