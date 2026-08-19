@@ -1,0 +1,54 @@
+name: Verify P18.9 Production Cleanup
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for cleanup health and preserved 8/19 READY
+        shell: bash
+        run: |
+          set -euo pipefail
+          HEALTH='https://taistock-mcp.keywayk09.workers.dev/health'
+          STATUS='https://taistock-mcp.keywayk09.workers.dev/market-data/status?trade_date=2026-08-19'
+          for i in $(seq 1 30); do
+            echo "=== attempt=$i ==="
+            hcode=$(curl -sS -o health.json -w '%{http_code}' --connect-timeout 10 --max-time 30 "$HEALTH" || true)
+            scode=$(curl -sS -o status.json -w '%{http_code}' --connect-timeout 10 --max-time 30 "$STATUS" || true)
+            echo "health_http=$hcode status_http=$scode"
+            cat health.json 2>/dev/null || true; echo
+            cat status.json 2>/dev/null || true; echo
+            ok=$(python - <<'PY'
+          import json
+          try:
+              h=json.load(open('health.json'))
+              s=json.load(open('status.json'))
+              market=h.get('market_data',{})
+              good=(
+                  h.get('status')=='ok' and
+                  market.get('source_lanes',{}).get('listed')=='TWSE_DIRECT' and
+                  market.get('source_lanes',{}).get('otc')=='TPEX_DIRECT_THEN_GITHUB_OFFICIAL_RELAY' and
+                  market.get('relay_capture_taipei')==['18:15','20:15'] and
+                  market.get('scheduled_capture_taipei')==['18:30','20:30 retry/finalize'] and
+                  'temporary_backfill' not in market and
+                  s.get('status')=='READY' and s.get('ready_count')==4 and s.get('total_count')==4
+              )
+              print('1' if good else '0')
+          except Exception:
+              print('0')
+          PY
+          )
+            if [ "$ok" = "1" ]; then
+              echo 'P18.9_PRODUCTION_CLEANUP_VERIFIED'
+              exit 0
+            fi
+            sleep 10
+          done
+          echo 'P18.9 cleanup verification timed out.' >&2
+          exit 1
