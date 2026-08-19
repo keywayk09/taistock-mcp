@@ -25,12 +25,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f .p19.patch.part1
-          test -f .p19.patch.part2
-          test -f .p19.patch.part3
-          cat .p19.patch.part1 .p19.patch.part2 .p19.patch.part3 | base64 -d | gzip -d > /tmp/p19.patch
+          ls .p19.patch.part* >/dev/null
+          cat .p19.patch.part* | base64 -d | gzip -d > /tmp/p19.patch
           patch -p1 --forward < /tmp/p19.patch
-          rm -f .p19.patch.part1 .p19.patch.part2 .p19.patch.part3
+          rm -f .p19.patch.part*
           rm -f .github/workflows/p19-apply-patch.yml
           rm -f .github/workflows/p19-sbl-probe.yml
           rm -f .github/workflows/p19-export-source.yml
