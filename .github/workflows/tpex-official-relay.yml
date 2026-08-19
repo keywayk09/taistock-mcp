@@ -7,6 +7,10 @@ on:
       - '.github/workflows/tpex-official-relay.yml'
       - 'src/v6/tpex-official-relay.ts'
       - 'src/v6/tpex-market-data-backfill.ts'
+      - 'src/v6/twse-market-data-capture.ts'
+      - 'src/index-v6.ts'
+  pull_request:
+    branches: [main]
   schedule:
     - cron: '15 10 * * 1-5'
     - cron: '15 12 * * 1-5'
@@ -15,7 +19,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: tpex-official-relay
+  group: tpex-official-relay-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -117,6 +121,7 @@ jobs:
           PY
 
       - name: Commit immutable relay snapshot to relay branch
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
