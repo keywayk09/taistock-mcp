@@ -169,7 +169,7 @@ export default {
           legacy_family_namespace: "PRESERVED_READ_ONLY",
         },
         market_data: {
-          version: "diamond-tw-market-data/v1.1.0-d1",
+          version: "diamond-tw-market-data/v1.1.1-d1",
           storage: "D1_ONLY",
           policy: "official_first_layer_degradation",
           ohlc_gateway: "OHLC_MCP_ONLY",
