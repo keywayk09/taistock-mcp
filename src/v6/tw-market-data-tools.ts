@@ -8,7 +8,7 @@ import {
   getTwMarketDataBundle,
   getTwSecuritiesLending,
   getTwSblShortSale,
-} from "./tw-market-data-github";
+} from "./tw-market-data-github-live";
 
 const out = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
