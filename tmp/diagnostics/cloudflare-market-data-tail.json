@@ -1,5 +1,5 @@
 {
-  "tail_rc": 1,
+  "tail_rc": 124,
   "events": [],
-  "stderr_tail": "\u001b[31m\u2718 \u001b[41;31m[\u001b[41;97mERROR\u001b[41;31m]\u001b[0m \u001b[1mA sampling rate must be between 0 and 1 in order to have any effect.\u001b[0m\n\n  For example, a sampling rate of 0.25 means 25% of events will be logged.\n\n\n\ud83e\udeb5  Logs were written to \"/home/runner/.config/.wrangler/logs/wrangler-2026-08-20_17-08-09_286.log\"\n"
+  "stderr_tail": ""
 }
