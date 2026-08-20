@@ -1,4 +1,5 @@
 name: Diagnose Cloudflare Worker Invocation Analytics
+# refresh after subrequest-safe production deploy
 
 on:
   push:
