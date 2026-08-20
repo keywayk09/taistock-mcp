@@ -11,6 +11,7 @@
 declare global {
   interface Env {
     GITHUB_DATA_TOKEN?: string;
+    GITHUB_TOKEN?: string;
     GITHUB_DATA_REPO?: string;
     GITHUB_DATA_BRANCH?: string;
   }
@@ -49,7 +50,7 @@ function config(env: Env) {
   return {
     repo: String(env.GITHUB_DATA_REPO || DEFAULT_GITHUB_DATA_REPO).trim(),
     branch: String(env.GITHUB_DATA_BRANCH || DEFAULT_GITHUB_DATA_BRANCH).trim(),
-    token: String(env.GITHUB_DATA_TOKEN || "").trim(),
+    token: String(env.GITHUB_DATA_TOKEN || env.GITHUB_TOKEN || "").trim(),
   };
 }
 
@@ -110,7 +111,7 @@ function githubHeaders(env: Env, write = false): HeadersInit {
   if (write && !token) {
     throw new GitHubDataStoreError(
       "GITHUB_DATA_TOKEN_REQUIRED",
-      "GITHUB_DATA_TOKEN is required for GitHub canonical-data writes",
+      "GITHUB_DATA_TOKEN or GITHUB_TOKEN is required for GitHub canonical-data writes",
     );
   }
   return {
@@ -332,7 +333,7 @@ export async function listIndexedRecords<T>(env: Env, collection: string, predic
   const index = await readCollectionIndex(env, collection);
   const selected = index.records.filter(predicate).sort((a, b) => b.recorded_at.localeCompare(a.recorded_at)).slice(0, Math.max(1, Math.min(500, limit)));
   const records = await Promise.all(selected.map(async (entry) => (await readGitHubJson<T>(env, entry.path)).value));
-  return records.filter((value): value is T => value !== null);
+  return records.filter((value) => value !== null) as T[];
 }
 
 export function githubDataStoreHealth(env: Env) {
