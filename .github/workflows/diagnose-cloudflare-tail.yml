@@ -29,7 +29,7 @@ jobs:
         run: |
           set +e
           mkdir -p tmp/diagnostics
-          timeout 150s npx wrangler tail taistock-mcp --format json --sampling-rate 1 > /tmp/tail.jsonl 2>/tmp/tail.stderr
+          timeout 150s npx wrangler tail taistock-mcp --format json --sampling-rate 0.99 > /tmp/tail.jsonl 2>/tmp/tail.stderr
           tail_rc=$?
           TAIL_RC=$tail_rc python - <<'PY'
           import json, os, re
