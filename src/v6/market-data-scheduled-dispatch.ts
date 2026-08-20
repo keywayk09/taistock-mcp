@@ -1,4 +1,4 @@
-import { runMarketDataCloudflareCapture } from "./market-data-cloudflare-runner";
+import { runMarketDataCloudflareCapture } from "./market-data-cloudflare-runner.ts";
 
 function taipeiParts(now: Date) {
   const parts = new Intl.DateTimeFormat("en-CA", {
