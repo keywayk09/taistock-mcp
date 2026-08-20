@@ -1,213 +1,29 @@
-import {
-  querySupplyChainSnapshot,
-  validateSupplyChainSnapshot,
-  type SupplyChainSnapshotInput,
-} from "./supply-chain-graph";
+import { GitHubDataStoreError, listIndexedRecords, putIndexedImmutableRecord, readIndexedRecord } from "./github-data-store.ts";
+import { querySupplyChainSnapshot, validateSupplyChainSnapshot, type SupplyChainSnapshotInput } from "./supply-chain-graph.ts";
 
-export const SUPPLY_CHAIN_DATA_PLANE_VERSION = "diamond-supply-chain-data-plane/v1.1.0-d1";
-
-const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS supply_chain_snapshot_d1 (
-    dataset_version TEXT PRIMARY KEY,
-    dataset_id TEXT NOT NULL,
-    as_of TEXT NOT NULL,
-    source_dataset TEXT,
-    formal_research_eligible INTEGER NOT NULL,
-    entity_count INTEGER NOT NULL,
-    instrument_count INTEGER NOT NULL,
-    evidence_count INTEGER NOT NULL,
-    edge_count INTEGER NOT NULL,
-    verified_edge_count INTEGER NOT NULL,
-    candidate_edge_count INTEGER NOT NULL,
-    payload_json TEXT NOT NULL,
-    content_sha256 TEXT NOT NULL,
-    archived_at TEXT NOT NULL,
-    archive_actor TEXT NOT NULL,
-    review_note TEXT
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_supply_chain_snapshot_d1_asof ON supply_chain_snapshot_d1(as_of, archived_at)`,
-  `CREATE INDEX IF NOT EXISTS idx_supply_chain_snapshot_d1_eligible ON supply_chain_snapshot_d1(formal_research_eligible, as_of)`,
-  `CREATE TABLE IF NOT EXISTS supply_chain_instrument_d1 (
-    dataset_version TEXT NOT NULL,
-    entity_id TEXT NOT NULL,
-    instrument_id TEXT NOT NULL,
-    market TEXT NOT NULL,
-    symbol TEXT NOT NULL,
-    exchange TEXT,
-    primary_listing INTEGER NOT NULL,
-    PRIMARY KEY(dataset_version, instrument_id)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_supply_chain_instrument_d1_symbol ON supply_chain_instrument_d1(symbol, market, dataset_version)`,
-  `CREATE TABLE IF NOT EXISTS supply_chain_edge_d1 (
-    dataset_version TEXT NOT NULL,
-    edge_id TEXT NOT NULL,
-    source_entity_id TEXT NOT NULL,
-    target_entity_id TEXT NOT NULL,
-    relation TEXT NOT NULL,
-    verification_status TEXT NOT NULL,
-    confidence REAL,
-    effective_from TEXT,
-    effective_to TEXT,
-    PRIMARY KEY(dataset_version, edge_id)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_supply_chain_edge_d1_source ON supply_chain_edge_d1(source_entity_id, dataset_version)`,
-  `CREATE INDEX IF NOT EXISTS idx_supply_chain_edge_d1_target ON supply_chain_edge_d1(target_entity_id, dataset_version)`,
-] as const;
+export const SUPPLY_CHAIN_DATA_PLANE_VERSION = "diamond-supply-chain-data-plane/v2.0.0-github";
 
 export class SupplyChainDataPlaneError extends Error {
-  readonly code: string;
-  readonly detail?: Record<string, unknown>;
-  constructor(code: string, message: string, detail?: Record<string, unknown>) {
-    super(message);
-    this.name = "SupplyChainDataPlaneError";
-    this.code = code;
-    this.detail = detail;
-  }
+  readonly code:string; readonly detail?:Record<string,unknown>;
+  constructor(code:string,message:string,detail?:Record<string,unknown>){super(message);this.name="SupplyChainDataPlaneError";this.code=code;this.detail=detail;}
+}
+function requiredText(value:unknown,field:string,max=1000){const text=String(value??"").trim();if(!text)throw new SupplyChainDataPlaneError("INVALID_INPUT",`${field} is required`);if(text.length>max)throw new SupplyChainDataPlaneError("INVALID_INPUT",`${field} is too long`);return text;}
+function hashFromVersion(datasetVersion:string){const match=/^sha256:([0-9a-f]{64})$/.exec(datasetVersion);if(!match)throw new SupplyChainDataPlaneError("INVALID_DATASET_VERSION","dataset_version must be sha256:<64 hex>");return match[1];}
+function wrapStore(error:unknown):never{if(error instanceof GitHubDataStoreError)throw new SupplyChainDataPlaneError(error.code,error.message,error.detail);throw error;}
+export async function ensureSupplyChainDataPlaneSchema(_env:Env){ /* GitHub-only persistence. */ }
+
+export async function archiveSupplyChainSnapshot(env:Env,input:{snapshot:SupplyChainSnapshotInput;archive_actor:string;review_note?:string;human_approved:boolean}){
+  if(!input?.human_approved)throw new SupplyChainDataPlaneError("HUMAN_APPROVAL_REQUIRED","archiving a research supply-chain snapshot requires explicit human approval");
+  const actor=requiredText(input.archive_actor,"archive_actor",200),review_note=input.review_note?requiredText(input.review_note,"review_note",2000):null,validated=await validateSupplyChainSnapshot(input.snapshot),hash=hashFromVersion(validated.dataset_version),archived_at=new Date().toISOString();
+  const snapshot={as_of:validated.as_of,source_dataset:validated.source_dataset??undefined,entities:validated.entities,evidence:validated.evidence,edges:validated.edges};
+  const record={archive_schema:SUPPLY_CHAIN_DATA_PLANE_VERSION,snapshot,dataset_id:validated.dataset_id,dataset_version:validated.dataset_version,content_sha256:hash,formal_research_eligible:validated.formal_research_eligible,entity_count:validated.entity_count,instrument_count:validated.instrument_count,evidence_count:validated.evidence_count,edge_count:validated.edge_count,verified_edge_count:validated.verified_or_corroborated_edge_count,candidate_edge_count:validated.candidate_edge_count,archived_at,archive_actor:actor,review_note,storage:"GITHUB_ONLY"};
+  const symbols=[...new Set(validated.entities.flatMap((e)=>e.instruments.map((i)=>String(i.symbol).toUpperCase())))];
+  const markets=[...new Set(validated.entities.flatMap((e)=>e.instruments.map((i)=>String(i.market).toUpperCase())))];
+  try{const w=await putIndexedImmutableRecord(env,{collection:"research/supply-chain",key:validated.dataset_version,record,metadata:{dataset_version:validated.dataset_version,dataset_id:validated.dataset_id,as_of:validated.as_of,source_dataset:validated.source_dataset??null,formal_research_eligible:validated.formal_research_eligible,symbols,markets}});return{ok:true as const,idempotent:w.idempotent,dataset_id:validated.dataset_id,dataset_version:validated.dataset_version,storage:"GITHUB_ONLY" as const,formal_research_eligible:validated.formal_research_eligible,archived_at};}catch(e){wrapStore(e);}
 }
 
-function requiredText(value: unknown, field: string, max = 1000) {
-  const text = String(value ?? "").trim();
-  if (!text) throw new SupplyChainDataPlaneError("INVALID_INPUT", `${field} is required`);
-  if (text.length > max) throw new SupplyChainDataPlaneError("INVALID_INPUT", `${field} is too long`);
-  return text;
-}
+export async function loadArchivedSupplyChainSnapshot(env:Env,datasetVersion:string){const version=requiredText(datasetVersion,"dataset_version",80);hashFromVersion(version);const row=await readIndexedRecord<any>(env,"research/supply-chain",version);if(!row)throw new SupplyChainDataPlaneError("DATASET_NOT_FOUND","supply-chain dataset_version is not archived",{dataset_version:version});const validated=await validateSupplyChainSnapshot(row.snapshot as SupplyChainSnapshotInput);if(validated.dataset_version!==version||validated.dataset_id!==String(row.dataset_id)||String(row.content_sha256)!==hashFromVersion(version))throw new SupplyChainDataPlaneError("ARCHIVE_HASH_MISMATCH","archived payload no longer matches indexed immutable identity",{dataset_version:version});return{index:row,snapshot:validated,storage:"GITHUB_ONLY" as const};}
 
-function hashFromVersion(datasetVersion: string) {
-  const match = /^sha256:([0-9a-f]{64})$/.exec(datasetVersion);
-  if (!match) throw new SupplyChainDataPlaneError("INVALID_DATASET_VERSION", "dataset_version must be sha256:<64 hex>");
-  return match[1];
-}
+export async function queryArchivedSupplyChain(env:Env,input:{dataset_version:string;anchor:string;direction?:"UPSTREAM"|"DOWNSTREAM"|"BOTH";max_depth?:number;include_candidates?:boolean}){const loaded=await loadArchivedSupplyChainSnapshot(env,input.dataset_version);return querySupplyChainSnapshot({as_of:loaded.snapshot.as_of,source_dataset:loaded.snapshot.source_dataset??undefined,entities:loaded.snapshot.entities,evidence:loaded.snapshot.evidence,edges:loaded.snapshot.edges,anchor:input.anchor,direction:input.direction,max_depth:input.max_depth,include_candidates:input.include_candidates});}
 
-export async function ensureSupplyChainDataPlaneSchema(env: Env) {
-  if (!env.RESEARCH_DB) throw new SupplyChainDataPlaneError("RESEARCH_DB_UNAVAILABLE", "RESEARCH_DB binding is required");
-  await env.RESEARCH_DB.batch(SCHEMA.map((sql) => env.RESEARCH_DB.prepare(sql)));
-}
-
-export async function archiveSupplyChainSnapshot(env: Env, input: {
-  snapshot: SupplyChainSnapshotInput;
-  archive_actor: string;
-  review_note?: string;
-  human_approved: boolean;
-}) {
-  if (!input?.human_approved) {
-    throw new SupplyChainDataPlaneError("HUMAN_APPROVAL_REQUIRED", "archiving a research supply-chain snapshot requires explicit human approval");
-  }
-  await ensureSupplyChainDataPlaneSchema(env);
-  const actor = requiredText(input.archive_actor, "archive_actor", 200);
-  const reviewNote = input.review_note ? requiredText(input.review_note, "review_note", 2000) : null;
-  const validated = await validateSupplyChainSnapshot(input.snapshot);
-  const hash = hashFromVersion(validated.dataset_version);
-  const payload = JSON.stringify({
-    archive_schema: SUPPLY_CHAIN_DATA_PLANE_VERSION,
-    snapshot: {
-      as_of: validated.as_of,
-      source_dataset: validated.source_dataset ?? undefined,
-      entities: validated.entities,
-      evidence: validated.evidence,
-      edges: validated.edges,
-    },
-    dataset_id: validated.dataset_id,
-    dataset_version: validated.dataset_version,
-    formal_research_eligible: validated.formal_research_eligible,
-  });
-
-  const existing = await env.RESEARCH_DB.prepare(
-    `SELECT dataset_id, content_sha256 FROM supply_chain_snapshot_d1 WHERE dataset_version=?`
-  ).bind(validated.dataset_version).first<Record<string, unknown>>();
-  if (existing) {
-    if (String(existing.dataset_id) !== validated.dataset_id || String(existing.content_sha256) !== hash) {
-      throw new SupplyChainDataPlaneError("ARCHIVE_CONFLICT", "dataset_version already exists with different immutable metadata", { dataset_version: validated.dataset_version });
-    }
-    return {
-      ok:true as const,
-      idempotent:true as const,
-      dataset_id:validated.dataset_id,
-      dataset_version:validated.dataset_version,
-      storage:"D1_ONLY" as const,
-      formal_research_eligible:validated.formal_research_eligible,
-    };
-  }
-
-  const archivedAt = new Date().toISOString();
-  await env.RESEARCH_DB.batch([
-    env.RESEARCH_DB.prepare(`INSERT INTO supply_chain_snapshot_d1(
-      dataset_version,dataset_id,as_of,source_dataset,formal_research_eligible,entity_count,instrument_count,evidence_count,edge_count,verified_edge_count,candidate_edge_count,payload_json,content_sha256,archived_at,archive_actor,review_note
-    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
-      validated.dataset_version, validated.dataset_id, validated.as_of, validated.source_dataset ?? null,
-      validated.formal_research_eligible ? 1 : 0, validated.entity_count, validated.instrument_count,
-      validated.evidence_count, validated.edge_count, validated.verified_or_corroborated_edge_count,
-      validated.candidate_edge_count, payload, hash, archivedAt, actor, reviewNote,
-    ),
-    ...validated.entities.flatMap((entity) => entity.instruments.map((instrument) => env.RESEARCH_DB.prepare(`INSERT INTO supply_chain_instrument_d1(
-      dataset_version,entity_id,instrument_id,market,symbol,exchange,primary_listing
-    ) VALUES(?,?,?,?,?,?,?)`).bind(validated.dataset_version, entity.entity_id, instrument.instrument_id, instrument.market, instrument.symbol, instrument.exchange ?? null, instrument.primary_listing ? 1 : 0))),
-    ...validated.edges.map((edge) => env.RESEARCH_DB.prepare(`INSERT INTO supply_chain_edge_d1(
-      dataset_version,edge_id,source_entity_id,target_entity_id,relation,verification_status,confidence,effective_from,effective_to
-    ) VALUES(?,?,?,?,?,?,?,?,?)`).bind(validated.dataset_version, edge.edge_id, edge.source_entity_id, edge.target_entity_id, edge.relation, edge.verification_status, edge.confidence ?? null, edge.effective_from ?? null, edge.effective_to ?? null)),
-  ]);
-
-  return {
-    ok:true as const,
-    idempotent:false as const,
-    dataset_id:validated.dataset_id,
-    dataset_version:validated.dataset_version,
-    storage:"D1_ONLY" as const,
-    formal_research_eligible:validated.formal_research_eligible,
-    archived_at:archivedAt,
-  };
-}
-
-export async function loadArchivedSupplyChainSnapshot(env: Env, datasetVersion: string) {
-  await ensureSupplyChainDataPlaneSchema(env);
-  const version = requiredText(datasetVersion, "dataset_version", 80);
-  hashFromVersion(version);
-  const row = await env.RESEARCH_DB.prepare(`SELECT * FROM supply_chain_snapshot_d1 WHERE dataset_version=?`).bind(version).first<Record<string, unknown>>();
-  if (!row) throw new SupplyChainDataPlaneError("DATASET_NOT_FOUND", "supply-chain dataset_version is not archived", { dataset_version:version });
-  let parsed: { snapshot: SupplyChainSnapshotInput; dataset_version:string; dataset_id:string };
-  try {
-    parsed = JSON.parse(String(row.payload_json));
-  } catch (error) {
-    throw new SupplyChainDataPlaneError("ARCHIVE_CORRUPTED", "D1 payload JSON is invalid", { dataset_version:version, error:String(error) });
-  }
-  const validated = await validateSupplyChainSnapshot(parsed.snapshot);
-  if (validated.dataset_version !== version || validated.dataset_id !== String(row.dataset_id) || String(row.content_sha256) !== hashFromVersion(version)) {
-    throw new SupplyChainDataPlaneError("ARCHIVE_HASH_MISMATCH", "archived payload no longer matches indexed immutable identity", { dataset_version:version });
-  }
-  return { index:row, snapshot:validated, storage:"D1_ONLY" as const };
-}
-
-export async function queryArchivedSupplyChain(env: Env, input: {
-  dataset_version: string;
-  anchor: string;
-  direction?: "UPSTREAM" | "DOWNSTREAM" | "BOTH";
-  max_depth?: number;
-  include_candidates?: boolean;
-}) {
-  const loaded = await loadArchivedSupplyChainSnapshot(env, input.dataset_version);
-  return querySupplyChainSnapshot({
-    as_of: loaded.snapshot.as_of,
-    source_dataset: loaded.snapshot.source_dataset ?? undefined,
-    entities: loaded.snapshot.entities,
-    evidence: loaded.snapshot.evidence,
-    edges: loaded.snapshot.edges,
-    anchor: input.anchor,
-    direction: input.direction,
-    max_depth: input.max_depth,
-    include_candidates: input.include_candidates,
-  });
-}
-
-export async function findSupplyChainDatasets(env: Env, input: { symbol?:string; market?:string; as_of_lte?:string; formal_only?:boolean; limit?:number }) {
-  await ensureSupplyChainDataPlaneSchema(env);
-  const limit = Math.max(1, Math.min(100, Math.floor(Number(input.limit ?? 20))));
-  const clauses:string[] = [];
-  const args:unknown[] = [];
-  if (input.as_of_lte) { clauses.push("s.as_of<=?"); args.push(requiredText(input.as_of_lte,"as_of_lte",10)); }
-  if (input.formal_only) clauses.push("s.formal_research_eligible=1");
-  if (input.symbol) { clauses.push("i.symbol=?"); args.push(requiredText(input.symbol,"symbol",40).toUpperCase()); }
-  if (input.market) { clauses.push("i.market=?"); args.push(requiredText(input.market,"market",40).toUpperCase()); }
-  const join = input.symbol || input.market ? "JOIN supply_chain_instrument_d1 i ON i.dataset_version=s.dataset_version" : "";
-  const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-  const result = await env.RESEARCH_DB.prepare(`SELECT DISTINCT s.dataset_version,s.dataset_id,s.as_of,s.source_dataset,s.formal_research_eligible,s.entity_count,s.instrument_count,s.evidence_count,s.edge_count,s.verified_edge_count,s.candidate_edge_count,s.content_sha256,s.archived_at,s.archive_actor,s.review_note FROM supply_chain_snapshot_d1 s ${join} ${where} ORDER BY s.as_of DESC, s.archived_at DESC LIMIT ?`).bind(...args, limit).all();
-  return { ok:true as const, storage:"D1_ONLY" as const, count:result.results.length, datasets:result.results };
-}
+export async function findSupplyChainDatasets(env:Env,input:{symbol?:string;market?:string;as_of_lte?:string;formal_only?:boolean;limit?:number}){const symbol=input.symbol?requiredText(input.symbol,"symbol",40).toUpperCase():undefined,market=input.market?requiredText(input.market,"market",40).toUpperCase():undefined,asOf=input.as_of_lte?requiredText(input.as_of_lte,"as_of_lte",10):undefined,limit=Math.max(1,Math.min(100,Math.floor(Number(input.limit??20))));const datasets=await listIndexedRecords<any>(env,"research/supply-chain",(e)=>(!asOf||String(e.as_of)<=asOf)&&(!input.formal_only||e.formal_research_eligible===true)&&(!symbol||Array.isArray(e.symbols)&&e.symbols.includes(symbol))&&(!market||Array.isArray(e.markets)&&e.markets.includes(market)),limit);datasets.sort((a,b)=>String(b.as_of).localeCompare(String(a.as_of))||String(b.archived_at).localeCompare(String(a.archived_at)));return{ok:true as const,storage:"GITHUB_ONLY" as const,count:datasets.length,datasets};}
