@@ -1,0 +1,75 @@
+name: P19 Archive Bootstrap 2026-08-19
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/p19-archive-bootstrap-20260819.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p19-archive-bootstrap-20260819
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    if: github.head_ref == 'p19/archive-bootstrap-20260819'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout P19 runtime code
+        uses: actions/checkout@v4
+        with:
+          ref: p19/archive-bootstrap-20260819
+          path: code
+
+      - name: Checkout canonical data branch
+        uses: actions/checkout@v4
+        with:
+          ref: diamond-data
+          path: archive
+          fetch-depth: 0
+
+      - name: Capture exact 2026-08-19 official market data
+        env:
+          DIAMOND_DATA_ROOT: ${{ github.workspace }}/archive
+          TRADE_DATE: '2026-08-19'
+        run: node --experimental-strip-types code/scripts/capture-tw-market-data.ts --date 2026-08-19 --out "$DIAMOND_DATA_ROOT"
+
+      - name: Verify 8-of-8 manifest before canonical write
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const p = 'archive/data/market-data/daily/2026/08/19/manifest.json';
+          const m = JSON.parse(fs.readFileSync(p, 'utf8'));
+          const ready = m.layers.filter(x => x.status === 'READY');
+          if (m.trade_date !== '2026-08-19' || m.storage !== 'GITHUB_ONLY' || ready.length !== 8 || m.layers.length !== 8) {
+            console.error(JSON.stringify(m, null, 2));
+            process.exit(1);
+          }
+          console.log(JSON.stringify({trade_date:m.trade_date, storage:m.storage, ready_count:ready.length, layers:ready.map(x=>({kind:x.kind,market:x.market,rows:x.row_count,source:x.source,sha:x.content_sha256}))}, null, 2));
+          NODE
+
+      - name: Commit canonical archive with strict push CAS
+        working-directory: archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'diamond-market-data-bot'
+          git config user.email 'diamond-market-data-bot@users.noreply.github.com'
+          git add data/market-data
+          if git diff --cached --quiet; then
+            echo '8/19 archive already canonical; nothing to write.'
+            exit 0
+          fi
+          git commit -m 'data(market): bootstrap official 2026-08-19 GitHub-only archive'
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:diamond-data; then exit 0; fi
+            echo "CAS race attempt $attempt; re-read and re-merge diamond-data"
+            git fetch origin diamond-data
+            git rebase origin/diamond-data
+          done
+          echo 'Canonical archive CAS retries exhausted' >&2
+          exit 1
