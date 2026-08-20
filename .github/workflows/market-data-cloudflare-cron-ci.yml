@@ -10,6 +10,7 @@ on:
       - 'src/index-v6.ts'
       - 'wrangler.jsonc'
       - 'tests/market-data-cloudflare-cron.test.ts'
+      - 'tests/tw-market-data.test.ts'
       - 'package.json'
       - '.github/workflows/market-data-cloudflare-cron-ci.yml'
   pull_request:
@@ -19,6 +20,7 @@ on:
       - 'src/index-v6.ts'
       - 'wrangler.jsonc'
       - 'tests/market-data-cloudflare-cron.test.ts'
+      - 'tests/tw-market-data.test.ts'
       - 'package.json'
       - '.github/workflows/market-data-cloudflare-cron-ci.yml'
 
