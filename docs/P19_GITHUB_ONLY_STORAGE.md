@@ -9,6 +9,7 @@ P19 makes GitHub the only canonical persistence layer for Diamond application da
 - Application D1 persistence: forbidden
 - R2 persistence: forbidden
 - Durable Object lifecycle namespaces remain preserved and are not application data storage.
+- Worker writes prefer `GITHUB_DATA_TOKEN` when present and otherwise reuse the existing `GITHUB_TOKEN`; a second token is not required.
 
 ## Market data archive
 
