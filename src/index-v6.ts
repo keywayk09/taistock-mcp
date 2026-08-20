@@ -21,7 +21,7 @@ function taipeiDateFromMs(ms: number) {
 }
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "6.17.1" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "6.17.0" });
 
   async init() {
     await super.init();
@@ -40,7 +40,7 @@ export class MyMCP extends BaseMCP {
 export class FamilyMCP extends McpAgent<Env> {
   server = new McpServer({
     name: "Taiwan Stock AI Family Namespace Compatibility",
-    version: "6.17.1",
+    version: "6.17.0",
   });
 
   async init() {
@@ -71,7 +71,7 @@ export default {
       return Response.json({
         service: "Taiwan Stock AI MCP",
         status: "ok",
-        version: "6.17.1",
+        version: "6.17.0",
         storage: {
           policy: "GITHUB_ONLY_NO_D1_NO_R2",
           github: githubDataStoreHealth(env),
