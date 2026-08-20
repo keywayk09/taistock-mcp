@@ -1,0 +1,54 @@
+name: Diagnose Cloudflare Worker Invocation Analytics
+
+on:
+  push:
+    branches:
+      - diag/cloudflare-market-data-runtime
+    paths:
+      - '.github/workflows/diagnose-cloudflare-analytics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Query recent taistock-mcp invocations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/diagnostics
+          python - <<'PY' > /tmp/query.json
+          import json, time
+          now=int(time.time()*1000)
+          start=now-30*60*1000
+          q='''query GetWorkersAnalytics($accountTag: string, $datetimeStart: string, $datetimeEnd: string, $scriptName: string) { viewer { accounts(filter: {accountTag: $accountTag}) { workersInvocationsAdaptive(limit: 200, filter: {scriptName: $scriptName, datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd}) { sum { requests errors subrequests } dimensions { datetime scriptName status } } } } }'''
+          from datetime import datetime, timezone
+          def iso(ms): return datetime.fromtimestamp(ms/1000, timezone.utc).isoformat(timespec='milliseconds').replace('+00:00','Z')
+          print(json.dumps({'query':q,'variables':{'accountTag':'__ACCOUNT__','datetimeStart':iso(start),'datetimeEnd':iso(now),'scriptName':'taistock-mcp'}}))
+          PY
+          sed -i "s/__ACCOUNT__/${CLOUDFLARE_ACCOUNT_ID}/g" /tmp/query.json
+          code=$(curl -sS -o /tmp/result.json -w '%{http_code}' \
+            'https://api.cloudflare.com/client/v4/graphql' \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/query.json)
+          HTTP_CODE=$code python - <<'PY'
+          import json, os
+          from pathlib import Path
+          try: raw=json.loads(Path('/tmp/result.json').read_text())
+          except Exception: raw={'parse_error': True}
+          out={'http_code':os.environ['HTTP_CODE'],'errors':raw.get('errors') if isinstance(raw,dict) else None,'data':raw.get('data') if isinstance(raw,dict) else None}
+          Path('tmp/diagnostics/cloudflare-worker-invocations.json').write_text(json.dumps(out,indent=2)+'\n')
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/diagnostics/cloudflare-worker-invocations.json
+          git commit -m 'diag: record recent Cloudflare worker invocations' || exit 0
+          git push origin HEAD:${GITHUB_REF_NAME}
