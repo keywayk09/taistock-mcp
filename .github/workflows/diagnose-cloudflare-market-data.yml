@@ -20,8 +20,7 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      - name: Inspect runtime safely
-        id: inspect
+      - name: Build safe runtime receipt
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -46,69 +45,16 @@ jobs:
           schedules_rc=$?
           if [ ! -s /tmp/schedules.json ]; then echo '{}' > /tmp/schedules.json; fi
 
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          try:
-              health = json.loads(Path('/tmp/health.json').read_text())
-          except Exception:
-              health = {'parse_error': True}
-          try:
-              sched = json.loads(Path('/tmp/schedules.json').read_text())
-          except Exception:
-              sched = {'parse_error': True}
-          result = sched.get('result') if isinstance(sched, dict) else None
-          crons = []
-          if isinstance(result, list):
-              for item in result:
-                  if isinstance(item, dict) and isinstance(item.get('cron'), str):
-                      crons.append(item['cron'])
-          out = {
-              'health_status': os.environ.get('HEALTH_STATUS'),
-              'health_rc': int(os.environ.get('HEALTH_RC','0')),
-              'deployed_capture_owner': ((health.get('market_data') or {}).get('capture_owner') if isinstance(health, dict) else None),
-              'deployed_execution_policy': ((health.get('market_data') or {}).get('execution_policy') if isinstance(health, dict) else None),
-              'worker_secret_list_rc': int(os.environ.get('SECRET_RC','0')),
-              'github_data_token_configured': os.environ.get('HAS_GITHUB_DATA_TOKEN') == 'true',
-              'github_token_configured': os.environ.get('HAS_GITHUB_TOKEN') == 'true',
-              'schedules_status': os.environ.get('SCHEDULES_STATUS'),
-              'schedules_rc': int(os.environ.get('SCHEDULES_RC','0')),
-              'cron_triggers': crons,
-              'schedules_success': bool(sched.get('success')) if isinstance(sched, dict) else False,
-          }
-          Path('tmp/diagnostics/cloudflare-market-data-runtime.json').write_text(json.dumps(out, indent=2) + '\n')
-          PY
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          HEALTH_STATUS: ${{ env.HEALTH_STATUS }}
-      - name: Build safe receipt
-        if: always()
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        shell: bash
-        run: |
-          set +e
-          mkdir -p tmp/diagnostics
-          npx wrangler secret list > /tmp/worker-secrets.txt 2>&1
-          secret_rc=$?
-          if grep -q 'GITHUB_DATA_TOKEN' /tmp/worker-secrets.txt; then has_github_data_token=true; else has_github_data_token=false; fi
-          if grep -q 'GITHUB_TOKEN' /tmp/worker-secrets.txt; then has_github_token=true; else has_github_token=false; fi
-          health_status=$(curl -L -sS -o /tmp/health.json -w '%{http_code}' --max-time 30 'https://taistock-mcp.keywayk09.workers.dev/health')
-          health_rc=$?
-          schedules_status=$(curl -sS -o /tmp/schedules.json -w '%{http_code}' --max-time 30 \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H 'Content-Type: application/json' \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/taistock-mcp/schedules")
-          schedules_rc=$?
           SECRET_RC=$secret_rc HAS_GITHUB_DATA_TOKEN=$has_github_data_token HAS_GITHUB_TOKEN=$has_github_token HEALTH_STATUS=$health_status HEALTH_RC=$health_rc SCHEDULES_STATUS=$schedules_status SCHEDULES_RC=$schedules_rc python - <<'PY'
           import json, os
           from pathlib import Path
           def load(path):
-              try: return json.loads(Path(path).read_text())
-              except Exception: return {}
-          health=load('/tmp/health.json'); sched=load('/tmp/schedules.json')
+              try:
+                  return json.loads(Path(path).read_text())
+              except Exception:
+                  return {}
+          health=load('/tmp/health.json')
+          sched=load('/tmp/schedules.json')
           result=sched.get('result') if isinstance(sched,dict) else None
           crons=[]
           if isinstance(result,list):
@@ -128,6 +74,7 @@ jobs:
           }
           Path('tmp/diagnostics/cloudflare-market-data-runtime.json').write_text(json.dumps(out,indent=2)+'\n')
           PY
+
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add tmp/diagnostics/cloudflare-market-data-runtime.json
