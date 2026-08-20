@@ -41,7 +41,12 @@ jobs:
         run: npm run type-check
       - id: marketdata
         continue-on-error: true
-        run: npm run test:market-data
+        shell: bash
+        run: |
+          set +e
+          npm run test:market-data 2>&1 | tee /tmp/market-data-tests.log
+          code=${PIPESTATUS[0]}
+          exit $code
       - id: wrangler
         continue-on-error: true
         run: npx wrangler deploy --dry-run --outdir dist-market-data-cron
@@ -57,9 +62,12 @@ jobs:
             "wrangler_dry_run": "${{ steps.wrangler.outcome }}"
           }
           EOF
+          if [ -f /tmp/market-data-tests.log ]; then
+            cp /tmp/market-data-tests.log tmp/ci-receipts/market-data-cloudflare-cron-tests.log
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add tmp/ci-receipts/market-data-cloudflare-cron.json
+          git add tmp/ci-receipts/market-data-cloudflare-cron.json tmp/ci-receipts/market-data-cloudflare-cron-tests.log || true
           git commit -m 'test(market-data): record Cloudflare cron CI result' || exit 0
           git push origin HEAD:${GITHUB_REF_NAME}
       - name: Enforce focused CI
