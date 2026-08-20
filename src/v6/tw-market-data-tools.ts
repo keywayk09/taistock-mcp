@@ -1,11 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { getTwMarketDataDayStatus } from "./market-data-day-status";
 import {
   TW_MARKET_DATA_VERSION,
   getTwInstitutionalFlow,
   getTwMarginShort,
   getTwMarketDataBundle,
-  getTwMarketDataStatus,
   getTwSecuritiesLending,
   getTwSblShortSale,
 } from "./tw-market-data-github";
@@ -45,7 +45,7 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
       securities_lending: "OFFICIAL_ONLY",
       sbl_short_sale: "OFFICIAL_ONLY",
     },
-    storage: "GitHub diamond-data only; D1/R2 forbidden for app data",
+    storage: "GitHub canonical only: keywayk09/tv-papertrader main/data; D1/R2 forbidden for app data",
     rolling_windows: [1,3,5,10,20],
     hard_boundaries: {
       ohlc_gateway: "OHLC_MCP_ONLY",
@@ -89,8 +89,11 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
   }, async (input) => out(await getTwMarketDataBundle(env, input)));
 
   server.registerTool("get_tw_market_data_status", {
-    description: "查詢 Diamond GitHub canonical market-data 八層 readiness（四種類 × 上市/上櫃）；永遠不作為 OHLC 全域 blocker。",
+    description: "查詢 Diamond GitHub canonical market-data 日狀態：交易日回傳八層 readiness，正式休市日回傳 NO_TRADING_DAY；永遠不作為 OHLC 全域 blocker。",
     inputSchema: { trade_date: dateSchema.optional() },
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
-  }, async ({ trade_date }) => out(await getTwMarketDataStatus(env, trade_date)));
+  }, async ({ trade_date }) => {
+    const date = trade_date ?? new Intl.DateTimeFormat("en-CA", { timeZone:"Asia/Taipei", year:"numeric", month:"2-digit", day:"2-digit" }).format(new Date());
+    return out(await getTwMarketDataDayStatus(env, date));
+  });
 }
