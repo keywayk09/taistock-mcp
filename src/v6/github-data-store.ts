@@ -18,8 +18,8 @@ declare global {
 }
 
 export const GITHUB_DATA_STORE_VERSION = "diamond-github-store/v1";
-export const DEFAULT_GITHUB_DATA_REPO = "keywayk09/taistock-mcp";
-export const DEFAULT_GITHUB_DATA_BRANCH = "diamond-data";
+export const DEFAULT_GITHUB_DATA_REPO = "keywayk09/tv-papertrader";
+export const DEFAULT_GITHUB_DATA_BRANCH = "main";
 
 export class GitHubDataStoreError extends Error {
   readonly code: string;

@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { updateGitHubJson } from "../src/v6/github-data-store.ts";
+import {
+  DEFAULT_GITHUB_DATA_BRANCH,
+  DEFAULT_GITHUB_DATA_REPO,
+  updateGitHubJson,
+} from "../src/v6/github-data-store.ts";
+
+assert.equal(DEFAULT_GITHUB_DATA_REPO, "keywayk09/tv-papertrader");
+assert.equal(DEFAULT_GITHUB_DATA_BRANCH, "main");
 
 const originalFetch = globalThis.fetch;
 const calls: Array<{ method: string; authorization: string | null }> = [];
@@ -27,8 +34,8 @@ globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
 try {
   const env = {
     GITHUB_TOKEN: "existing-cloudflare-token",
-    GITHUB_DATA_REPO: "keywayk09/taistock-mcp",
-    GITHUB_DATA_BRANCH: "diamond-data",
+    GITHUB_DATA_REPO: "keywayk09/tv-papertrader",
+    GITHUB_DATA_BRANCH: "main",
   } as unknown as Env;
 
   const result = await updateGitHubJson(env, {
@@ -41,7 +48,7 @@ try {
   assert.equal(result.ok, true);
   const put = calls.find((call) => call.method === "PUT");
   assert.equal(put?.authorization, "Bearer existing-cloudflare-token");
-  console.log("github-data-store token fallback: ok");
+  console.log("github-data-store canonical location + token fallback: ok");
 } finally {
   globalThis.fetch = originalFetch;
 }
