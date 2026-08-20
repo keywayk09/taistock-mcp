@@ -1,4 +1,5 @@
 name: Diagnose Cloudflare Market Data Tail
+# retrigger 2026-08-21T01:04+08:00
 
 on:
   push:
