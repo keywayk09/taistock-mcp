@@ -31,6 +31,22 @@ jobs:
           path: archive
           fetch-depth: 0
 
+      - name: Inspect live TWSE MI_MARGN contract
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const url='https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=20260819&selectType=ALL&response=json';
+          const r=await fetch(url,{headers:{Accept:'application/json,text/plain,*/*','User-Agent':'Diamond-P19-Diagnostic/1.0'}});
+          const body=await r.json();
+          console.log('HTTP',r.status,'date',body.date,'keys',Object.keys(body));
+          console.log('tables',Array.isArray(body.tables)?body.tables.length:0);
+          for (const [i,t] of (body.tables||[]).entries()) {
+            console.log(JSON.stringify({i,title:t.title,fields:t.fields,rows:Array.isArray(t.data)?t.data.length:null,first:Array.isArray(t.data)?t.data[0]:null},null,2));
+          }
+          console.log('root fields',JSON.stringify(body.fields||null));
+          console.log('root rows',Array.isArray(body.data)?body.data.length:null,'root first',JSON.stringify(Array.isArray(body.data)?body.data[0]:null));
+          NODE
+
       - name: Capture exact 2026-08-19 official market data
         env:
           DIAMOND_DATA_ROOT: ${{ github.workspace }}/archive
