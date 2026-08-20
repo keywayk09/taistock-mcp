@@ -1,4 +1,5 @@
 name: Deploy taistock-mcp to Cloudflare
+# 2026-08-21: intentional retrigger after repository Cloudflare secrets were configured.
 
 on:
   push:
