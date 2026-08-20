@@ -5,6 +5,7 @@ import { decideExtendedMarketDataSchedule } from "../src/v6/market-data-schedule
 
 const legacyRunner = fs.readFileSync("src/v6/market-data-cloudflare-runner.ts", "utf8");
 const runner = fs.readFileSync("src/v6/market-data-cloudflare-chunked-runner.ts", "utf8");
+const tpexTransport = fs.readFileSync("src/v6/tpex-cloudflare-transport.ts", "utf8");
 const dispatcher = fs.readFileSync("src/v6/market-data-scheduled-dispatch.ts", "utf8");
 const schedule = fs.readFileSync("src/v6/market-data-schedule.ts", "utf8");
 const fastGateway = fs.readFileSync("src/v6/market-data-fast-gateway.ts", "utf8");
@@ -26,6 +27,11 @@ assert.match(runner, /dueAll\.slice\(0, MARKET_DATA_CAPTURE_BATCH_SIZE\)/);
 assert.match(runner, /processIndexBatch/);
 assert.match(runner, /completed_prefixes/);
 assert.match(runner, /retries: 2/);
+assert.match(runner, /getTpexJson/);
+assert.match(tpexTransport, /Accept-Language/);
+assert.match(tpexTransport, /Referer/);
+assert.match(tpexTransport, /Mozilla\/5\.0/);
+assert.match(tpexTransport, /redirect: "follow"/);
 assert.match(fastGateway, /PREFIX_MONTH_READ_MODEL_PLUS_DAILY_SNAPSHOT_OVERLAY/);
 assert.match(fastGateway, /symbol\.slice\(0, 2\)/);
 assert.match(fastGateway, /institutional/);
@@ -86,4 +92,4 @@ assert.equal(parsed[0]?.open, false);
 assert.equal(parsed[1]?.date, "2026-02-23");
 assert.equal(parsed[1]?.open, true);
 
-console.log("market-data Cloudflare subrequest-safe cron and fast read gateway tests passed");
+console.log("market-data Cloudflare cron, TPEx transport, and fast read gateway tests passed");
