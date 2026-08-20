@@ -8,6 +8,18 @@
           "workersInvocationsAdaptive": [
             {
               "dimensions": {
+                "datetime": "2026-08-20T17:25:37Z",
+                "scriptName": "taistock-mcp",
+                "status": "scriptThrewException"
+              },
+              "sum": {
+                "errors": 1,
+                "requests": 1,
+                "subrequests": 50
+              }
+            },
+            {
+              "dimensions": {
                 "datetime": "2026-08-20T17:10:37Z",
                 "scriptName": "taistock-mcp",
                 "status": "exceededResources"
