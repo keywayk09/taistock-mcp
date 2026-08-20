@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { getTwMarketChipSummaryFast } from "./market-data-fast-gateway";
 import { getTwMarketDataDayStatus } from "./market-data-day-status";
 import {
   TW_MARKET_DATA_VERSION,
@@ -21,6 +22,12 @@ const querySchema = {
   as_of: dateSchema.optional(),
   calendar_days: z.number().int().min(30).max(180).optional().default(60),
 };
+const fastSummarySchema = {
+  ...querySchema,
+  reference_price: z.number().positive().optional(),
+  estimated_financing_cost: z.number().positive().optional(),
+  financing_ratio: z.number().min(0.1).max(0.9).optional().default(0.6),
+};
 
 export function registerTwMarketDataTools(server: McpServer, env: Env) {
   server.registerTool("get_tw_market_data_contract", {
@@ -30,6 +37,8 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
   }, async () => out({
     version: TW_MARKET_DATA_VERSION,
     owner: "Diamond Market Data Plane",
+    preferred_symbol_read_tool: "get_tw_market_chip_summary",
+    read_model: "prefix-month materialized index + exact-day snapshot overlay",
     official_sources: {
       listed_institutional: "TWSE T86",
       otc_institutional: "TPEx tpex_3insti_daily_trading",
@@ -39,6 +48,7 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
       listed_sbl_short_sale: "TWSE TWT93U",
       otc_sbl_short_sale: "TPEx tpex_margin_sbl + tpex_short_sell",
     },
+    semantic_layers: ["institutional", "margin", "securities_lending", "sbl_short_sale", "maintenance_risk"],
     fallback: {
       institutional: "FinMind history only",
       margin: "FinMind history only",
@@ -51,12 +61,19 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
       ohlc_gateway: "OHLC_MCP_ONLY",
       market_data_ohlc_write: "FORBIDDEN",
       finmind_price_as_formal_ohlc: "FORBIDDEN",
+      official_account_maintenance_ratio_reconstruction: "FORBIDDEN_WITHOUT_BROKER_ACCOUNT_DATA",
       d1_app_persistence: "FORBIDDEN",
       r2_usage: "FORBIDDEN",
       market_data_failure_blocks_ohlc: false,
       market_data_failure_blocks_unrelated_swing_layers: false,
     },
   }));
+
+  server.registerTool("get_tw_market_chip_summary", {
+    description: "最快速個股籌碼入口：按股票代號 prefix 一次讀取 materialized index，再覆蓋尚未完成 index compaction 的當日 snapshots；整合法人、融資融券、借券、借券賣出與估算維持率風險契約。一般個股分析優先使用此工具。",
+    inputSchema: fastSummarySchema,
+    annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
+  }, async (input) => out(await getTwMarketChipSummaryFast(env, input)));
 
   server.registerTool("get_tw_institutional_flow", {
     description: "查詢台股個股三大法人 1/3/5/10/20 日累積。GitHub 官方封存資料優先，FinMind 僅補歷史/降級。",
@@ -83,7 +100,7 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
   }, async (input) => out(await getTwSblShortSale(env, input)));
 
   server.registerTool("get_tw_market_data_bundle", {
-    description: "正式 Swing/研究籌碼 bundle：法人＋融資融券＋借券/還券＋借券賣出分層回傳 readiness；缺一層只降級該層，不封鎖 OHLC。",
+    description: "相容型 Swing/研究籌碼 bundle：法人＋融資融券＋借券/還券＋借券賣出分層回傳 readiness；需要 FinMind 歷史 fallback 時使用。一般個股讀取優先 get_tw_market_chip_summary。",
     inputSchema: querySchema,
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:true },
   }, async (input) => out(await getTwMarketDataBundle(env, input)));
