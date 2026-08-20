@@ -5,6 +5,7 @@ import { registerDailyReportFormatTool } from "./v6/daily-report-format";
 import { registerAdvancedTools } from "./v6/register";
 import { registerFamilyStockSelectionTools } from "./v6/family-stock-selection";
 import { githubDataStoreHealth } from "./v6/github-data-store";
+import { runScheduledMarketDataController } from "./v6/market-data-cloudflare-runner";
 import { getTwMarketDataDayStatus } from "./v6/market-data-day-status";
 import { getResearchStatus, isAuthorizedResearchRequest } from "./v6/research-pipeline";
 import { registerResearchTools } from "./v6/research-tools";
@@ -93,7 +94,8 @@ export default {
           calendar_root: "data/market-calendar/",
           policy: "incremental_ready_monotonic_missing_only_retry",
           ohlc_gateway: "OHLC_MCP_ONLY",
-          capture_owner: "TV_PAPERTRADER_GITHUB_ACTIONS_CANONICAL_WRITER",
+          capture_owner: "CLOUDFLARE_CRON_CANONICAL_WRITER",
+          execution_policy: "FIVE_MINUTE_WAKE; DUE_LAYER_ONLY; NO_PRIVATE_GITHUB_ACTIONS_DEPENDENCY",
           expected_layers: 8,
           kinds: ["institutional", "margin", "securities_lending", "sbl_short_sale"],
           source_lanes: {
@@ -134,5 +136,9 @@ export default {
     }
 
     return new Response("Not found", { status: 404 });
+  },
+
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(runScheduledMarketDataController(env, controller.scheduledTime));
   },
 };

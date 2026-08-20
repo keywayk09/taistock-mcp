@@ -17,6 +17,9 @@
 		"GITHUB_DATA_REPO": "keywayk09/tv-papertrader",
 		"GITHUB_DATA_BRANCH": "main"
 	},
+	"triggers": {
+		"crons": ["*/5 * * * *"]
+	},
 	"exports": {
 		"MyMCP": {
 			"type": "durable-object",

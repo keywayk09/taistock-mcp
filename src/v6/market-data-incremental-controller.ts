@@ -88,7 +88,30 @@ function looksOpenEvent(text: string) {
   return /開始交易|最後交易|補行交易|恢復交易|照常交易|開始買賣/.test(text);
 }
 
-export function parseTwseHolidayCsv(text: string): TradingCalendarEntry[] {
+function normalizeCalendarDate(text: string, yearHint?: string | number) {
+  const gregorian = text.match(/\b(20\d{2})[-\/.年](\d{1,2})[-\/.月](\d{1,2})(?:日)?\b/);
+  if (gregorian) {
+    return `${gregorian[1]}-${gregorian[2].padStart(2, "0")}-${gregorian[3].padStart(2, "0")}`;
+  }
+
+  const roc = text.match(/(?:民國)?\s*(\d{2,3})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+  if (roc) {
+    const year = Number(roc[1]) + 1911;
+    return `${year}-${roc[2].padStart(2, "0")}-${roc[3].padStart(2, "0")}`;
+  }
+
+  const monthDay = text.match(/(?:^|\s)(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+  if (monthDay && yearHint) {
+    const year = Number(yearHint);
+    if (Number.isFinite(year) && year >= 2000 && year <= 2100) {
+      return `${year}-${monthDay[1].padStart(2, "0")}-${monthDay[2].padStart(2, "0")}`;
+    }
+  }
+
+  return null;
+}
+
+export function parseTwseHolidayCsv(text: string, yearHint?: string | number): TradingCalendarEntry[] {
   const entries: TradingCalendarEntry[] = [];
   const seen = new Set<string>();
   for (const rawLine of String(text || "").replace(/^\uFEFF/, "").split(/\r?\n/)) {
@@ -96,11 +119,12 @@ export function parseTwseHolidayCsv(text: string): TradingCalendarEntry[] {
     if (!line) continue;
     const cells = parseCsvLine(line);
     const joined = cells.join(" ");
-    const match = joined.match(/\b(20\d{2})[-\/]?(\d{2})[-\/]?(\d{2})\b/);
-    if (!match) continue;
-    const date = `${match[1]}-${match[2]}-${match[3]}`;
-    const name = cells.find((cell) => cell && !cell.includes(match[0])) ?? "";
-    const description = cells.filter((cell) => cell && !cell.includes(match[0]) && cell !== name).join(" ");
+    const date = normalizeCalendarDate(joined, yearHint);
+    if (!date) continue;
+    const dateCell = cells.find((cell) => normalizeCalendarDate(cell, yearHint) === date) ?? "";
+    const nonDateCells = cells.filter((cell) => cell && cell !== dateCell);
+    const name = nonDateCells[0] ?? "";
+    const description = nonDateCells.slice(1).join(" ");
     const key = `${date}|${name}|${description}`;
     if (seen.has(key)) continue;
     seen.add(key);

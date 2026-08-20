@@ -1,0 +1,34 @@
+
+> taistock-mcp@0.0.0 test:market-data
+> node --experimental-strip-types tests/market-data-incremental-controller.test.ts && node --experimental-strip-types tests/market-data-day-status.test.ts && node --experimental-strip-types tests/market-data-cloudflare-cron.test.ts && node --experimental-strip-types tests/tw-market-data.test.ts && node --experimental-strip-types tests/tpex-official-relay.test.ts && node --experimental-strip-types tests/twse-mi-margin-official.test.ts
+
+market-data incremental controller tests passed
+(node:2322) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/taistock-mcp/taistock-mcp/tests/market-data-incremental-controller.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/runner/work/taistock-mcp/taistock-mcp/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+market-data day status v2.1 tests passed
+(node:2329) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/taistock-mcp/taistock-mcp/tests/market-data-day-status.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/runner/work/taistock-mcp/taistock-mcp/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+market-data-cloudflare-cron tests passed
+(node:2336) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/taistock-mcp/taistock-mcp/tests/market-data-cloudflare-cron.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/runner/work/taistock-mcp/taistock-mcp/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+P19.3 incremental official-first GitHub-only Taiwan market data contract tests passed
+(node:2343) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/taistock-mcp/taistock-mcp/tests/tw-market-data.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/runner/work/taistock-mcp/taistock-mcp/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+P19 unified official incremental market-data source + tv-papertrader canonical store tests passed
+(node:2350) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/taistock-mcp/taistock-mcp/tests/tpex-official-relay.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/runner/work/taistock-mcp/taistock-mcp/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+TWSE MI_MARGN official positional parser: ok
+(node:2357) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/taistock-mcp/taistock-mcp/tests/twse-mi-margin-official.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/runner/work/taistock-mcp/taistock-mcp/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
