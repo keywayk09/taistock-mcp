@@ -1,5 +1,6 @@
 name: Diamond GitHub Market Data Archive
 
+# P19 bootstrap trigger: keep the GitHub-only canonical archive path live after migration.
 on:
   schedule:
     # 18:15 / 20:15 Asia/Taipei, weekdays.
