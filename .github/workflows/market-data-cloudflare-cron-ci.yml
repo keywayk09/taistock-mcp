@@ -1,6 +1,9 @@
 name: Market Data Cloudflare Cron CI
 
 on:
+  push:
+    branches:
+      - feat/market-data-cloudflare-cron-v1
   pull_request:
     paths:
       - 'src/v6/market-data-cloudflare-runner.ts'
