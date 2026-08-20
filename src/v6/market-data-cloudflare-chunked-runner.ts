@@ -30,10 +30,10 @@ import {
 } from "./tw-market-data";
 import { normalizeTwseMiMargnOfficial } from "./twse-mi-margin-official";
 
-const VERSION = "diamond-tw-market-data/v2.3.0-cloudflare-subrequest-safe";
-const USER_AGENT = "Diamond-Cloudflare-Market-Data/2.3";
-export const MARKET_DATA_CAPTURE_BATCH_SIZE = 4;
-export const MARKET_DATA_INDEX_PREFIX_BATCH_SIZE = 8;
+const VERSION = "diamond-tw-market-data/v2.3.1-cloudflare-one-layer-resumable";
+const USER_AGENT = "Diamond-Cloudflare-Market-Data/2.3.1";
+export const MARKET_DATA_CAPTURE_BATCH_SIZE = 1;
+export const MARKET_DATA_INDEX_PREFIX_BATCH_SIZE = 1;
 
 type IndexState = {
   status: "PENDING" | "READY";
