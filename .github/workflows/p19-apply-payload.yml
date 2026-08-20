@@ -1,0 +1,53 @@
+name: P19 Apply GitHub-Only Migration
+
+on:
+  push:
+    branches: [p19/github-only-storage]
+    paths:
+      - '.p19/payload.b64'
+      - '.github/workflows/p19-apply-payload.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: p19-apply-github-only
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: p19/github-only-storage
+          fetch-depth: 0
+      - name: Verify and apply P19 payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .p19/payload.b64
+          base64 -d .p19/payload.b64 > /tmp/p19-changes.tgz
+          echo 'ca6f70c4b69647b2a835054a91c6af27e15ed54abfd55052ece61b0b2f49ec2d  /tmp/p19-changes.tgz' | sha256sum -c -
+          tar -xzf /tmp/p19-changes.tgz -C .
+
+          rm -f \
+            src/v6/tw-market-data-d1.ts \
+            src/v6/twse-market-data-capture.ts \
+            src/v6/tpex-market-data-backfill.ts \
+            src/v6/tpex-official-relay.ts \
+            .github/workflows/tpex-official-relay.yml \
+            .github/workflows/p19-export-source.yml \
+            .github/workflows/p19-sbl-probe.yml \
+            .github/workflows/p19-probe-sbl.yml \
+            .github/workflows/p19-apply-payload.yml
+          rm -rf .p19
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m 'P19: migrate application persistence to GitHub canonical storage'
+          git pull --rebase origin p19/github-only-storage
+          git push origin HEAD:p19/github-only-storage
