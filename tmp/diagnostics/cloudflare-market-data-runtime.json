@@ -1,0 +1,13 @@
+{
+  "health_status": "200",
+  "health_rc": 0,
+  "deployed_capture_owner": "CLOUDFLARE_CRON_CANONICAL_WRITER",
+  "deployed_execution_policy": "FIVE_MINUTE_WAKE; DUE_LAYER_ONLY; NO_PRIVATE_GITHUB_ACTIONS_DEPENDENCY; NO_2230_HARD_STOP",
+  "worker_secret_list_rc": 0,
+  "github_data_token_configured": false,
+  "github_token_configured": true,
+  "schedules_status": "200",
+  "schedules_rc": 0,
+  "cron_triggers": [],
+  "schedules_success": true
+}
