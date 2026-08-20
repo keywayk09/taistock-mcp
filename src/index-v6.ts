@@ -5,6 +5,7 @@ import { registerDailyReportFormatTool } from "./v6/daily-report-format";
 import { registerAdvancedTools } from "./v6/register";
 import { registerFamilyStockSelectionTools } from "./v6/family-stock-selection";
 import { githubDataStoreHealth } from "./v6/github-data-store";
+import { CANONICAL_SYNC_VERSION, syncDiamondCanonicalBatch } from "./v6/github-canonical-sync";
 import { getResearchStatus, isAuthorizedResearchRequest } from "./v6/research-pipeline";
 import { registerResearchTools } from "./v6/research-tools";
 import { getTwMarketDataStatus, TW_MARKET_DATA_VERSION } from "./v6/tw-market-data-github";
@@ -74,6 +75,9 @@ export default {
         storage: {
           policy: "GITHUB_ONLY_NO_D1_NO_R2",
           github: githubDataStoreHealth(env),
+          canonical_repository: env.GITHUB_DATA_REPO || "keywayk09/tv-papertrader",
+          canonical_branch: env.GITHUB_DATA_BRANCH || "main",
+          canonical_root: "data/",
         },
         durable_objects: {
           primary: "MyMCP",
@@ -83,18 +87,25 @@ export default {
         market_data: {
           version: TW_MARKET_DATA_VERSION,
           storage: "GITHUB_ONLY",
-          canonical_branch: env.GITHUB_DATA_BRANCH || "diamond-data",
+          canonical_repository: env.GITHUB_DATA_REPO || "keywayk09/tv-papertrader",
+          canonical_branch: env.GITHUB_DATA_BRANCH || "main",
+          canonical_root: "data/market-data/",
+          source_transport_repository: "keywayk09/taistock-mcp",
+          source_transport_branch: "diamond-data",
           policy: "official_first_layer_degradation",
           ohlc_gateway: "OHLC_MCP_ONLY",
-          capture_owner: "GITHUB_ACTIONS",
-          scheduled_capture_taipei: ["18:15", "20:15 retry/finalize"],
+          capture_owner: "GITHUB_ACTIONS_SOURCE_TRANSPORT__CLOUDFLARE_GITHUB_CAS_CANONICAL_WRITE",
           expected_layers: 8,
           kinds: ["institutional", "margin", "securities_lending", "sbl_short_sale"],
           source_lanes: {
-            listed: "TWSE_OFFICIAL_TO_GITHUB",
-            otc: "TPEX_OFFICIAL_TO_GITHUB",
+            listed: "TWSE_OFFICIAL_TO_SOURCE_TRANSPORT_TO_CANONICAL_GITHUB",
+            otc: "TPEX_OFFICIAL_TO_SOURCE_TRANSPORT_TO_CANONICAL_GITHUB",
           },
           status_endpoint: "/market-data/status?trade_date=YYYY-MM-DD",
+          canonical_sync: {
+            version: CANONICAL_SYNC_VERSION,
+            migration_mode: "BATCHED_CAS",
+          },
         },
         mcp_endpoint: "/mcp",
         research_status_endpoint: "/research/status",
@@ -126,5 +137,9 @@ export default {
     }
 
     return new Response("Not found", { status: 404 });
+  },
+
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(syncDiamondCanonicalBatch(env));
   },
 };
