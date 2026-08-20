@@ -18,8 +18,8 @@ function taipei(isoLocal: string) {
 assert.match(legacyRunner, /dueLayerKeys/);
 assert.match(runner, /dueLayerKeys/);
 assert.match(runner, /mergeReadyMonotonic/);
-assert.match(runner, /MARKET_DATA_CAPTURE_BATCH_SIZE = 4/);
-assert.match(runner, /MARKET_DATA_INDEX_PREFIX_BATCH_SIZE = 8/);
+assert.match(runner, /MARKET_DATA_CAPTURE_BATCH_SIZE = 1/);
+assert.match(runner, /MARKET_DATA_INDEX_PREFIX_BATCH_SIZE = 1/);
 assert.match(runner, /dueAll\.slice\(0, MARKET_DATA_CAPTURE_BATCH_SIZE\)/);
 assert.match(runner, /processIndexBatch/);
 assert.match(runner, /completed_prefixes/);
