@@ -39,10 +39,6 @@
 			}
 		]
 	},
-	"triggers": {
-		// 18:30 / 20:30 Asia/Taipei on weekdays; GitHub archive capture runs at 18:15 / 20:15.
-		"crons": ["30 10 * * 1-5", "30 12 * * 1-5"]
-	},
 	"observability": {
 		"enabled": true
 	}
