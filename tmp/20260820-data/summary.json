@@ -1,0 +1,973 @@
+{
+  "date": "2026-08-20",
+  "status": {
+    "mi_index": "OK",
+    "bfi82u": "OK",
+    "t86": "OK",
+    "mi_margn": "很抱歉，沒有符合條件的資料"
+  },
+  "index": {
+    "指數": "發行量加權股價指數",
+    "收盤指數": "44,933.74",
+    "漲跌(+/-)": "<p style ='color:red'>+</p>",
+    "漲跌點數": "214.39",
+    "漲跌百分比(%)": "0.48",
+    "特殊處理註記": ""
+  },
+  "market_stats": [
+    {
+      "成交統計": "1.一般股票",
+      "成交金額(元)": "784,512,346,516",
+      "成交股數(股)": "4,257,880,234",
+      "成交筆數": "3,413,177"
+    },
+    {
+      "成交統計": "2.台灣存託憑證",
+      "成交金額(元)": "134,862,091",
+      "成交股數(股)": "15,896,262",
+      "成交筆數": "4,395"
+    },
+    {
+      "成交統計": "3.受益憑證",
+      "成交金額(元)": "0",
+      "成交股數(股)": "0",
+      "成交筆數": "0"
+    },
+    {
+      "成交統計": "4.ETF",
+      "成交金額(元)": "44,994,812,040",
+      "成交股數(股)": "2,103,787,358",
+      "成交筆數": "630,497"
+    },
+    {
+      "成交統計": "5.受益證券",
+      "成交金額(元)": "2,753,493",
+      "成交股數(股)": "228,600",
+      "成交筆數": "121"
+    },
+    {
+      "成交統計": "6.變更交易股票",
+      "成交金額(元)": "15,538,382",
+      "成交股數(股)": "437,106",
+      "成交筆數": "502"
+    },
+    {
+      "成交統計": "7.認購(售)權證",
+      "成交金額(元)": "3,060,220,200",
+      "成交股數(股)": "2,686,629,000",
+      "成交筆數": "84,277"
+    },
+    {
+      "成交統計": "8.轉換公司債",
+      "成交金額(元)": "0",
+      "成交股數(股)": "0",
+      "成交筆數": "0"
+    },
+    {
+      "成交統計": "9.附認股權特別股",
+      "成交金額(元)": "0",
+      "成交股數(股)": "0",
+      "成交筆數": "0"
+    },
+    {
+      "成交統計": "10.附認股權公司債",
+      "成交金額(元)": "0",
+      "成交股數(股)": "0",
+      "成交筆數": "0"
+    },
+    {
+      "成交統計": "11.認股權憑證",
+      "成交金額(元)": "0",
+      "成交股數(股)": "0",
+      "成交筆數": "0"
+    },
+    {
+      "成交統計": "12.公司債",
+      "成交金額(元)": "0",
+      "成交股數(股)": "0",
+      "成交筆數": "0"
+    },
+    {
+      "成交統計": "13.ETN",
+      "成交金額(元)": "16,474,840",
+      "成交股數(股)": "238,000",
+      "成交筆數": "80"
+    },
+    {
+      "成交統計": "14.創新板股票",
+      "成交金額(元)": "1,675,506,479",
+      "成交股數(股)": "3,829,862",
+      "成交筆數": "7,797"
+    },
+    {
+      "成交統計": "15.創新板-變更交易方法股票",
+      "成交金額(元)": "0",
+      "成交股數(股)": "0",
+      "成交筆數": "0"
+    },
+    {
+      "成交統計": "證券合計(1+6+14+15)",
+      "成交金額(元)": "786,203,391,377",
+      "成交股數(股)": "4,262,147,202",
+      "成交筆數": "3,421,476"
+    },
+    {
+      "成交統計": "總計(1~15)",
+      "成交金額(元)": "834,412,514,041",
+      "成交股數(股)": "9,068,926,422",
+      "成交筆數": "4,140,846"
+    }
+  ],
+  "institution_totals": [
+    {
+      "單位名稱": "自營商(自行買賣)",
+      "買進金額": "6,662,488,218",
+      "賣出金額": "8,854,335,152",
+      "買賣差額": "-2,191,846,934"
+    },
+    {
+      "單位名稱": "自營商(避險)",
+      "買進金額": "24,879,617,912",
+      "賣出金額": "28,795,981,275",
+      "買賣差額": "-3,916,363,363"
+    },
+    {
+      "單位名稱": "投信",
+      "買進金額": "22,322,529,083",
+      "賣出金額": "23,533,675,143",
+      "買賣差額": "-1,211,146,060"
+    },
+    {
+      "單位名稱": "外資及陸資(不含外資自營商)",
+      "買進金額": "331,437,364,771",
+      "賣出金額": "327,655,485,943",
+      "買賣差額": "3,781,878,828"
+    },
+    {
+      "單位名稱": "外資自營商",
+      "買進金額": "0",
+      "賣出金額": "0",
+      "買賣差額": "0"
+    },
+    {
+      "單位名稱": "合計",
+      "買進金額": "385,301,999,984",
+      "賣出金額": "388,839,477,513",
+      "買賣差額": "-3,537,477,529"
+    }
+  ],
+  "foreign_buy_top20": [
+    {
+      "code": "2609",
+      "name": "陽明",
+      "foreign_shares": 54758664.0,
+      "trust_shares": -15000.0,
+      "dealer_shares": 2063215.0,
+      "close": "60.30",
+      "change": "1.30",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2002",
+      "name": "中鋼",
+      "foreign_shares": 36279787.0,
+      "trust_shares": 0.0,
+      "dealer_shares": 1849444.0,
+      "close": "19.35",
+      "change": "0.40",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2303",
+      "name": "聯電",
+      "foreign_shares": 26734247.0,
+      "trust_shares": -28075072.0,
+      "dealer_shares": 436130.0,
+      "close": "115.50",
+      "change": "0.00",
+      "sign": "<p> </p>"
+    },
+    {
+      "code": "2408",
+      "name": "南亞科",
+      "foreign_shares": 26277613.0,
+      "trust_shares": 809000.0,
+      "dealer_shares": 202565.0,
+      "close": "517.00",
+      "change": "36.00",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2344",
+      "name": "華邦電",
+      "foreign_shares": 23136416.0,
+      "trust_shares": -3069065.0,
+      "dealer_shares": -230548.0,
+      "close": "176.50",
+      "change": "8.50",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "1101",
+      "name": "台泥",
+      "foreign_shares": 21766556.0,
+      "trust_shares": 0.0,
+      "dealer_shares": 53277.0,
+      "close": "24.80",
+      "change": "0.75",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2634",
+      "name": "漢翔",
+      "foreign_shares": 21029655.0,
+      "trust_shares": 0.0,
+      "dealer_shares": 810689.0,
+      "close": "72.30",
+      "change": "3.70",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2886",
+      "name": "兆豐金",
+      "foreign_shares": 18678105.0,
+      "trust_shares": -2387000.0,
+      "dealer_shares": 286005.0,
+      "close": "46.40",
+      "change": "0.65",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2615",
+      "name": "萬海",
+      "foreign_shares": 17722690.0,
+      "trust_shares": -11000.0,
+      "dealer_shares": 1644126.0,
+      "close": "113.50",
+      "change": "7.00",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "1402",
+      "name": "遠東新",
+      "foreign_shares": 17384707.0,
+      "trust_shares": 5788000.0,
+      "dealer_shares": 1070392.0,
+      "close": "29.20",
+      "change": "1.20",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2603",
+      "name": "長榮",
+      "foreign_shares": 16311964.0,
+      "trust_shares": 728980.0,
+      "dealer_shares": 2649.0,
+      "close": "246.00",
+      "change": "5.50",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "1102",
+      "name": "亞泥",
+      "foreign_shares": 16096660.0,
+      "trust_shares": -7000.0,
+      "dealer_shares": -339878.0,
+      "close": "34.70",
+      "change": "0.90",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "1216",
+      "name": "統一",
+      "foreign_shares": 13733329.0,
+      "trust_shares": -43000.0,
+      "dealer_shares": -36734.0,
+      "close": "78.20",
+      "change": "0.70",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2892",
+      "name": "第一金",
+      "foreign_shares": 12013286.0,
+      "trust_shares": -1346000.0,
+      "dealer_shares": -29467.0,
+      "close": "33.30",
+      "change": "0.30",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "3045",
+      "name": "台灣大",
+      "foreign_shares": 8575685.0,
+      "trust_shares": 1906000.0,
+      "dealer_shares": -344000.0,
+      "close": "115.00",
+      "change": "1.50",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2313",
+      "name": "華通",
+      "foreign_shares": 8051360.0,
+      "trust_shares": 1476000.0,
+      "dealer_shares": 146794.0,
+      "close": "217.50",
+      "change": "10.00",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "6505",
+      "name": "台塑化",
+      "foreign_shares": 7878491.0,
+      "trust_shares": -5000.0,
+      "dealer_shares": 242927.0,
+      "close": "73.00",
+      "change": "2.80",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2618",
+      "name": "長榮航",
+      "foreign_shares": 7698484.0,
+      "trust_shares": -303000.0,
+      "dealer_shares": -368154.0,
+      "close": "42.25",
+      "change": "0.65",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "9904",
+      "name": "寶成",
+      "foreign_shares": 7213429.0,
+      "trust_shares": -125000.0,
+      "dealer_shares": 78898.0,
+      "close": "25.05",
+      "change": "0.35",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "1326",
+      "name": "台化",
+      "foreign_shares": 6553412.0,
+      "trust_shares": -15000.0,
+      "dealer_shares": 185869.0,
+      "close": "58.40",
+      "change": "1.70",
+      "sign": "<p style= color:red>+</p>"
+    }
+  ],
+  "foreign_sell_top20": [
+    {
+      "code": "6770",
+      "name": "力積電",
+      "foreign_shares": -35015871.0,
+      "trust_shares": -290000.0,
+      "dealer_shares": -645674.0,
+      "close": "67.30",
+      "change": "0.70",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2887",
+      "name": "台新新光金",
+      "foreign_shares": -19448816.0,
+      "trust_shares": 5342000.0,
+      "dealer_shares": 958599.0,
+      "close": "35.95",
+      "change": "0.45",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2492",
+      "name": "華新科",
+      "foreign_shares": -18542533.0,
+      "trust_shares": 0.0,
+      "dealer_shares": -585688.0,
+      "close": "272.50",
+      "change": "25.50",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2891",
+      "name": "中信金",
+      "foreign_shares": -14856713.0,
+      "trust_shares": -528000.0,
+      "dealer_shares": 255236.0,
+      "close": "63.40",
+      "change": "1.50",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2409",
+      "name": "友達",
+      "foreign_shares": -13403186.0,
+      "trust_shares": -11000.0,
+      "dealer_shares": -4195633.0,
+      "close": "25.80",
+      "change": "0.35",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2324",
+      "name": "仁寶",
+      "foreign_shares": -11641679.0,
+      "trust_shares": -180000.0,
+      "dealer_shares": -2565843.0,
+      "close": "38.50",
+      "change": "0.80",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2884",
+      "name": "玉山金",
+      "foreign_shares": -10516258.0,
+      "trust_shares": 2245000.0,
+      "dealer_shares": -28420.0,
+      "close": "37.35",
+      "change": "0.45",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "6116",
+      "name": "彩晶",
+      "foreign_shares": -8564534.0,
+      "trust_shares": 0.0,
+      "dealer_shares": -675731.0,
+      "close": "13.80",
+      "change": "0.45",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "1303",
+      "name": "南亞",
+      "foreign_shares": -8559385.0,
+      "trust_shares": 3674000.0,
+      "dealer_shares": -3017145.0,
+      "close": "186.00",
+      "change": "1.50",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2301",
+      "name": "光寶科",
+      "foreign_shares": -7749600.0,
+      "trust_shares": 2259900.0,
+      "dealer_shares": -315989.0,
+      "close": "267.00",
+      "change": "6.50",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2312",
+      "name": "金寶",
+      "foreign_shares": -6290000.0,
+      "trust_shares": 0.0,
+      "dealer_shares": -335443.0,
+      "close": "31.35",
+      "change": "0.90",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2883",
+      "name": "凱基金",
+      "foreign_shares": -5426381.0,
+      "trust_shares": 4698000.0,
+      "dealer_shares": -119553.0,
+      "close": "30.40",
+      "change": "0.00",
+      "sign": "<p> </p>"
+    },
+    {
+      "code": "3231",
+      "name": "緯創",
+      "foreign_shares": -5306739.0,
+      "trust_shares": 820000.0,
+      "dealer_shares": -77436.0,
+      "close": "180.00",
+      "change": "2.00",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "3042",
+      "name": "晶技",
+      "foreign_shares": -5123259.0,
+      "trust_shares": 0.0,
+      "dealer_shares": -48290.0,
+      "close": "188.50",
+      "change": "2.50",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "8039",
+      "name": "台虹",
+      "foreign_shares": -4951764.0,
+      "trust_shares": 1000.0,
+      "dealer_shares": -534852.0,
+      "close": "283.00",
+      "change": "11.50",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2327",
+      "name": "國巨*",
+      "foreign_shares": -4860506.0,
+      "trust_shares": -967232.0,
+      "dealer_shares": -166594.0,
+      "close": "562.00",
+      "change": "14.00",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "3702",
+      "name": "大聯大",
+      "foreign_shares": -4345718.0,
+      "trust_shares": -1926000.0,
+      "dealer_shares": 153206.0,
+      "close": "104.50",
+      "change": "2.00",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2317",
+      "name": "鴻海",
+      "foreign_shares": -4241267.0,
+      "trust_shares": 1342000.0,
+      "dealer_shares": -65993.0,
+      "close": "246.50",
+      "change": "1.50",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "5608",
+      "name": "四維航",
+      "foreign_shares": -4162539.0,
+      "trust_shares": 0.0,
+      "dealer_shares": -52043.0,
+      "close": "17.05",
+      "change": "0.45",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2455",
+      "name": "全新",
+      "foreign_shares": -4116464.0,
+      "trust_shares": 471000.0,
+      "dealer_shares": -224904.0,
+      "close": "412.00",
+      "change": "15.50",
+      "sign": "<p style= color:red>+</p>"
+    }
+  ],
+  "trust_buy_top20": [
+    {
+      "code": "1402",
+      "name": "遠東新",
+      "foreign_shares": 17384707.0,
+      "trust_shares": 5788000.0,
+      "dealer_shares": 1070392.0,
+      "close": "29.20",
+      "change": "1.20",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2887",
+      "name": "台新新光金",
+      "foreign_shares": -19448816.0,
+      "trust_shares": 5342000.0,
+      "dealer_shares": 958599.0,
+      "close": "35.95",
+      "change": "0.45",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2883",
+      "name": "凱基金",
+      "foreign_shares": -5426381.0,
+      "trust_shares": 4698000.0,
+      "dealer_shares": -119553.0,
+      "close": "30.40",
+      "change": "0.00",
+      "sign": "<p> </p>"
+    },
+    {
+      "code": "2478",
+      "name": "大毅",
+      "foreign_shares": -3817401.0,
+      "trust_shares": 3767000.0,
+      "dealer_shares": -57608.0,
+      "close": "128.50",
+      "change": "6.00",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "1303",
+      "name": "南亞",
+      "foreign_shares": -8559385.0,
+      "trust_shares": 3674000.0,
+      "dealer_shares": -3017145.0,
+      "close": "186.00",
+      "change": "1.50",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "3090",
+      "name": "日電貿",
+      "foreign_shares": -3340442.0,
+      "trust_shares": 2864000.0,
+      "dealer_shares": -80013.0,
+      "close": "172.00",
+      "change": "5.50",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "5880",
+      "name": "合庫金",
+      "foreign_shares": -667425.0,
+      "trust_shares": 2756000.0,
+      "dealer_shares": 36936.0,
+      "close": "24.80",
+      "change": "0.05",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "8422",
+      "name": "可寧衛*",
+      "foreign_shares": -283434.0,
+      "trust_shares": 2559000.0,
+      "dealer_shares": -17800.0,
+      "close": "27.10",
+      "change": "0.40",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2301",
+      "name": "光寶科",
+      "foreign_shares": -7749600.0,
+      "trust_shares": 2259900.0,
+      "dealer_shares": -315989.0,
+      "close": "267.00",
+      "change": "6.50",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2884",
+      "name": "玉山金",
+      "foreign_shares": -10516258.0,
+      "trust_shares": 2245000.0,
+      "dealer_shares": -28420.0,
+      "close": "37.35",
+      "change": "0.45",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "3045",
+      "name": "台灣大",
+      "foreign_shares": 8575685.0,
+      "trust_shares": 1906000.0,
+      "dealer_shares": -344000.0,
+      "close": "115.00",
+      "change": "1.50",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2428",
+      "name": "興勤",
+      "foreign_shares": -849199.0,
+      "trust_shares": 1904000.0,
+      "dealer_shares": 33756.0,
+      "close": "267.00",
+      "change": "10.50",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2845",
+      "name": "遠東銀",
+      "foreign_shares": 4480084.0,
+      "trust_shares": 1847000.0,
+      "dealer_shares": 10000.0,
+      "close": "13.60",
+      "change": "0.10",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2458",
+      "name": "義隆",
+      "foreign_shares": -1160000.0,
+      "trust_shares": 1613000.0,
+      "dealer_shares": 109734.0,
+      "close": "146.00",
+      "change": "0.50",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2313",
+      "name": "華通",
+      "foreign_shares": 8051360.0,
+      "trust_shares": 1476000.0,
+      "dealer_shares": 146794.0,
+      "close": "217.50",
+      "change": "10.00",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2317",
+      "name": "鴻海",
+      "foreign_shares": -4241267.0,
+      "trust_shares": 1342000.0,
+      "dealer_shares": -65993.0,
+      "close": "246.50",
+      "change": "1.50",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "4904",
+      "name": "遠傳",
+      "foreign_shares": 1807035.0,
+      "trust_shares": 1214000.0,
+      "dealer_shares": -19175.0,
+      "close": "102.00",
+      "change": "0.50",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2382",
+      "name": "廣達",
+      "foreign_shares": -1550766.0,
+      "trust_shares": 1109000.0,
+      "dealer_shares": -119141.0,
+      "close": "327.00",
+      "change": "4.00",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2049",
+      "name": "上銀",
+      "foreign_shares": -1939379.0,
+      "trust_shares": 1090000.0,
+      "dealer_shares": 2246.0,
+      "close": "366.50",
+      "change": "0.50",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "6214",
+      "name": "精誠",
+      "foreign_shares": -976376.0,
+      "trust_shares": 866000.0,
+      "dealer_shares": -17738.0,
+      "close": "180.00",
+      "change": "1.50",
+      "sign": "<p style= color:red>+</p>"
+    }
+  ],
+  "trust_sell_top20": [
+    {
+      "code": "2303",
+      "name": "聯電",
+      "foreign_shares": 26734247.0,
+      "trust_shares": -28075072.0,
+      "dealer_shares": 436130.0,
+      "close": "115.50",
+      "change": "0.00",
+      "sign": "<p> </p>"
+    },
+    {
+      "code": "8070",
+      "name": "長華*",
+      "foreign_shares": 561047.0,
+      "trust_shares": -3100000.0,
+      "dealer_shares": 9244.0,
+      "close": "50.20",
+      "change": "0.80",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2344",
+      "name": "華邦電",
+      "foreign_shares": 23136416.0,
+      "trust_shares": -3069065.0,
+      "dealer_shares": -230548.0,
+      "close": "176.50",
+      "change": "8.50",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "3711",
+      "name": "日月光投控",
+      "foreign_shares": 1070594.0,
+      "trust_shares": -3004155.0,
+      "dealer_shares": 286703.0,
+      "close": "590.00",
+      "change": "2.00",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2880",
+      "name": "華南金",
+      "foreign_shares": 2622924.0,
+      "trust_shares": -2452000.0,
+      "dealer_shares": 142991.0,
+      "close": "38.80",
+      "change": "0.20",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2886",
+      "name": "兆豐金",
+      "foreign_shares": 18678105.0,
+      "trust_shares": -2387000.0,
+      "dealer_shares": 286005.0,
+      "close": "46.40",
+      "change": "0.65",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "3702",
+      "name": "大聯大",
+      "foreign_shares": -4345718.0,
+      "trust_shares": -1926000.0,
+      "dealer_shares": 153206.0,
+      "close": "104.50",
+      "change": "2.00",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2377",
+      "name": "微星",
+      "foreign_shares": -3166058.0,
+      "trust_shares": -1719000.0,
+      "dealer_shares": -1891634.0,
+      "close": "140.00",
+      "change": "0.00",
+      "sign": "<p>X</p>"
+    },
+    {
+      "code": "6257",
+      "name": "矽格",
+      "foreign_shares": 139341.0,
+      "trust_shares": -1666871.0,
+      "dealer_shares": -1432.0,
+      "close": "199.50",
+      "change": "0.00",
+      "sign": "<p> </p>"
+    },
+    {
+      "code": "2337",
+      "name": "旺宏",
+      "foreign_shares": -14789.0,
+      "trust_shares": -1456000.0,
+      "dealer_shares": -455330.0,
+      "close": "122.00",
+      "change": "3.00",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2892",
+      "name": "第一金",
+      "foreign_shares": 12013286.0,
+      "trust_shares": -1346000.0,
+      "dealer_shares": -29467.0,
+      "close": "33.30",
+      "change": "0.30",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2454",
+      "name": "聯發科",
+      "foreign_shares": -259125.0,
+      "trust_shares": -1222012.0,
+      "dealer_shares": -300669.0,
+      "close": "3,700.00",
+      "change": "145.00",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2316",
+      "name": "楠梓電",
+      "foreign_shares": 851043.0,
+      "trust_shares": -1181000.0,
+      "dealer_shares": 6230.0,
+      "close": "155.50",
+      "change": "0.00",
+      "sign": "<p> </p>"
+    },
+    {
+      "code": "6531",
+      "name": "愛普*",
+      "foreign_shares": 1530812.0,
+      "trust_shares": -1142932.0,
+      "dealer_shares": -19356.0,
+      "close": "882.00",
+      "change": "45.00",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "2327",
+      "name": "國巨*",
+      "foreign_shares": -4860506.0,
+      "trust_shares": -967232.0,
+      "dealer_shares": -166594.0,
+      "close": "562.00",
+      "change": "14.00",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "3481",
+      "name": "群創",
+      "foreign_shares": 6180958.0,
+      "trust_shares": -934000.0,
+      "dealer_shares": -6606739.0,
+      "close": "46.00",
+      "change": "0.75",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "8016",
+      "name": "矽創",
+      "foreign_shares": 716770.0,
+      "trust_shares": -907000.0,
+      "dealer_shares": -25539.0,
+      "close": "291.50",
+      "change": "4.50",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "2351",
+      "name": "順德",
+      "foreign_shares": -1216329.0,
+      "trust_shares": -825000.0,
+      "dealer_shares": -27627.0,
+      "close": "183.50",
+      "change": "1.50",
+      "sign": "<p style= color:green>-</p>"
+    },
+    {
+      "code": "6278",
+      "name": "台表科",
+      "foreign_shares": 1532469.0,
+      "trust_shares": -813000.0,
+      "dealer_shares": 38241.0,
+      "close": "180.00",
+      "change": "5.50",
+      "sign": "<p style= color:red>+</p>"
+    },
+    {
+      "code": "4958",
+      "name": "臻鼎-KY",
+      "foreign_shares": 656444.0,
+      "trust_shares": -776000.0,
+      "dealer_shares": -117500.0,
+      "close": "463.00",
+      "change": "6.00",
+      "sign": "<p style= color:red>+</p>"
+    }
+  ],
+  "margin_totals": null,
+  "margin_count": 0,
+  "margin_increase_top20": [],
+  "margin_decrease_top20": [],
+  "short_increase_top20": [],
+  "short_decrease_top20": []
+}
