@@ -29,7 +29,7 @@ import {
   type TwMarketDataKind,
 } from "./tw-market-data";
 import { normalizeTwseMiMargnOfficial } from "./twse-mi-margin-official";
-import { getTpexJson } from "./tpex-cloudflare-transport";
+import { getTpexInstitutionalPayload, getTpexJson, getTpexMarginPayload } from "./tpex-cloudflare-transport";
 
 const VERSION = "diamond-tw-market-data/v2.3.1-cloudflare-one-layer-resumable";
 const USER_AGENT = "Diamond-Cloudflare-Market-Data/2.3.1";
@@ -212,7 +212,7 @@ async function captureOfficialLayers(tradeDate: string, selected: Set<string>) {
 
   if (isDue("institutional", "otc")) {
     try {
-      const body = await getTpexJson("https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading", "TPEX_3INSTI");
+      const body = await getTpexInstitutionalPayload(tradeDate);
       validateDate(body, tradeDate, "TPEX_3INSTI");
       addReady({ kind: "institutional", market: "otc", source: "TPEX_3INSTI_DAILY_TRADING", rows: normalizeTpexInstitutional(body, tradeDate), raw: [{ source: "TPEX_3INSTI_DAILY_TRADING", body }] });
     } catch (error) { fail("institutional", "otc", "TPEX_3INSTI_DAILY_TRADING", error); }
@@ -228,7 +228,7 @@ async function captureOfficialLayers(tradeDate: string, selected: Set<string>) {
 
   if (isDue("margin", "otc")) {
     try {
-      const body = await getTpexJson("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance", "TPEX_MARGIN");
+      const body = await getTpexMarginPayload(tradeDate);
       validateDate(body, tradeDate, "TPEX_MARGIN");
       addReady({ kind: "margin", market: "otc", source: "TPEX_MAINBOARD_MARGIN_BALANCE", rows: normalizeTpexMargin(body, tradeDate), raw: [{ source: "TPEX_MAINBOARD_MARGIN_BALANCE", body }] });
     } catch (error) { fail("margin", "otc", "TPEX_MAINBOARD_MARGIN_BALANCE", error); }
