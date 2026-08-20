@@ -1,6 +1,6 @@
 {
-  "head_sha": "0f66c52f4ad0e91520ad7490e4192ae2680ed7fb",
+  "head_sha": "b95d8990f14fcc74d5f7e876a300fb0bc635d270",
   "typecheck": "success",
-  "market_data_tests": "failure",
+  "market_data_tests": "success",
   "wrangler_dry_run": "success"
 }
