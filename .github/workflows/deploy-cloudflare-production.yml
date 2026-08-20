@@ -30,6 +30,22 @@ jobs:
         with:
           node-version: 22
       - run: npm install
+      - name: Inspect deployment credential presence
+        id: auth
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo 'token_configured=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'token_configured=false' >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo 'account_id_configured=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'account_id_configured=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Deploy production Worker
         id: deploy
         continue-on-error: true
@@ -48,10 +64,20 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p tmp/deploy-receipts
+          if [ "${{ steps.auth.outputs.token_configured }}" != 'true' ]; then
+            reason='MISSING_CLOUDFLARE_API_TOKEN'
+          elif [ "${{ steps.deploy.outcome }}" != 'success' ]; then
+            reason='WRANGLER_DEPLOY_FAILED'
+          else
+            reason='DEPLOYED'
+          fi
           cat > tmp/deploy-receipts/taistock-mcp-cloudflare.json <<EOF
           {
             "source_sha": "${GITHUB_SHA}",
             "deploy_outcome": "${{ steps.deploy.outcome }}",
+            "reason": "${reason}",
+            "token_configured": ${{ steps.auth.outputs.token_configured }},
+            "account_id_configured": ${{ steps.auth.outputs.account_id_configured }},
             "recorded_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           EOF
