@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - feat/market-data-cloudflare-cron-v1
+    paths:
+      - 'src/v6/market-data-cloudflare-runner.ts'
+      - 'src/v6/market-data-incremental-controller.ts'
+      - 'src/index-v6.ts'
+      - 'wrangler.jsonc'
+      - 'tests/market-data-cloudflare-cron.test.ts'
+      - 'package.json'
+      - '.github/workflows/market-data-cloudflare-cron-ci.yml'
   pull_request:
     paths:
       - 'src/v6/market-data-cloudflare-runner.ts'
@@ -15,17 +23,45 @@ on:
       - '.github/workflows/market-data-cloudflare-cron-ci.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref_name || '' }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm install
-      - run: npm run type-check
-      - run: npm run test:market-data
-      - run: npx wrangler deploy --dry-run --outdir dist-market-data-cron
+      - id: typecheck
+        continue-on-error: true
+        run: npm run type-check
+      - id: marketdata
+        continue-on-error: true
+        run: npm run test:market-data
+      - id: wrangler
+        continue-on-error: true
+        run: npx wrangler deploy --dry-run --outdir dist-market-data-cron
+      - name: Persist branch CI receipt
+        if: always() && github.event_name == 'push'
+        run: |
+          mkdir -p tmp/ci-receipts
+          cat > tmp/ci-receipts/market-data-cloudflare-cron.json <<EOF
+          {
+            "head_sha": "${GITHUB_SHA}",
+            "typecheck": "${{ steps.typecheck.outcome }}",
+            "market_data_tests": "${{ steps.marketdata.outcome }}",
+            "wrangler_dry_run": "${{ steps.wrangler.outcome }}"
+          }
+          EOF
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/ci-receipts/market-data-cloudflare-cron.json
+          git commit -m 'test(market-data): record Cloudflare cron CI result' || exit 0
+          git push origin HEAD:${GITHUB_REF_NAME}
+      - name: Enforce focused CI
+        if: steps.typecheck.outcome != 'success' || steps.marketdata.outcome != 'success' || steps.wrangler.outcome != 'success'
+        run: exit 1
