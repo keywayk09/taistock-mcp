@@ -25,30 +25,46 @@ function subtractDays(date: string, days: number) {
 
 export function decideExtendedMarketDataSchedule(now = new Date()) {
   const p = taipeiParts(now);
-  const tradeDate = `${p.year}-${p.month}-${p.day}`;
+  const date = `${p.year}-${p.month}-${p.day}`;
   const hour = Number(p.hour);
   const minute = Number(p.minute);
-  const dow = dayOfWeek(tradeDate);
+  const dow = dayOfWeek(date);
   const weekday = dow >= 1 && dow <= 5;
 
-  // Previous trading-day audit. This remains a separate safety net even when
-  // the prior evening already completed successfully (which becomes a NOOP).
-  if (hour === 8 && minute === 30 && dow >= 2 && dow <= 6) {
+  const previousDate = subtractDays(date, 1);
+  const previousDow = dayOfWeek(previousDate);
+  const previousWeekday = previousDow >= 1 && previousDow <= 5;
+
+  // Keep retrying the previous trading day overnight. This removes the old
+  // midnight gap: a Worker deploy/restart or a very late official release can
+  // still be reconciled immediately instead of waiting until the next morning.
+  // READY layers and COMPLETE days are idempotent NOOPs, so these wakes only
+  // fetch layers that are still due.
+  const overnightCatchup = hour < 8 || (hour === 8 && minute < 30);
+  if (previousWeekday && overnightCatchup) {
     return {
-      tradeDate: subtractDays(tradeDate, 1),
+      tradeDate: previousDate,
+      finalAudit: false,
+      reason: "PREVIOUS_DAY_OVERNIGHT_CATCHUP" as const,
+    };
+  }
+
+  // 08:30 is the explicit final audit safety net for the previous weekday.
+  if (hour === 8 && minute === 30 && previousWeekday) {
+    return {
+      tradeDate: previousDate,
       finalAudit: true,
       reason: "PREVIOUS_DAY_FINAL_AUDIT" as const,
     };
   }
 
-  // Do not impose a 22:30 hard stop. From 18:15 through 23:55, wake every
-  // five minutes and let the incremental controller decide whether anything
-  // is actually due. READY layers remain monotonic and complete days NOOP.
+  // From 18:15 through 23:55, wake every five minutes and let the incremental
+  // controller decide whether anything is due. READY layers remain monotonic.
   const eveningWindow = weekday && ((hour === 18 && minute >= 15) || (hour >= 19 && hour <= 23));
   if (eveningWindow) {
     return {
-      tradeDate,
-      finalAudit: hour === 23 && minute === 55,
+      tradeDate: date,
+      finalAudit: false,
       reason: "TRADING_EVENING_EXTENDED" as const,
     };
   }
@@ -56,7 +72,7 @@ export function decideExtendedMarketDataSchedule(now = new Date()) {
   // Weekend preflight writes the terminal no-trading-day receipt once.
   if (!weekday && hour === 18 && minute === 15) {
     return {
-      tradeDate,
+      tradeDate: date,
       finalAudit: false,
       reason: "WEEKEND_PREFLIGHT" as const,
     };
