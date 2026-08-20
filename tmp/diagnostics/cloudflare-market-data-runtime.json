@@ -8,6 +8,8 @@
   "github_token_configured": true,
   "schedules_status": "200",
   "schedules_rc": 0,
-  "cron_triggers": [],
+  "cron_triggers": [
+    "*/5 * * * *"
+  ],
   "schedules_success": true
 }
