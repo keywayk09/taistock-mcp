@@ -1,10 +1,10 @@
-name: P19 Apply Local Migration Patch
+name: P19 Apply GitHub-Only Migration
 
 on:
   push:
     branches: [p19/github-only-storage]
     paths:
-      - '.p19.patch.part*'
+      - '.p19/payload.b64'
       - '.github/workflows/p19-apply-patch.yml'
   pull_request:
     branches: [main]
@@ -13,7 +13,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: p19-apply-local-patch
+  group: p19-apply-github-only
   cancel-in-progress: false
 
 jobs:
@@ -25,21 +25,33 @@ jobs:
         with:
           fetch-depth: 0
           ref: p19/github-only-storage
-      - name: Apply migration patch and self-clean
+      - name: Verify, apply, and self-clean
         shell: bash
         run: |
           set -euo pipefail
-          ls .p19.patch.part* >/dev/null
-          cat .p19.patch.part* | base64 -d | gzip -d > /tmp/p19.patch
-          patch -p1 --forward < /tmp/p19.patch
-          rm -f .p19.patch.part*
-          rm -f .github/workflows/p19-apply-patch.yml
-          rm -f .github/workflows/p19-sbl-probe.yml
-          rm -f .github/workflows/p19-export-source.yml
-          rm -rf scripts/__pycache__
-          git status --short
+          test -f .p19/payload.b64
+          base64 -d .p19/payload.b64 > /tmp/p19-changes.tgz
+          echo 'ca6f70c4b69647b2a835054a91c6af27e15ed54abfd55052ece61b0b2f49ec2d  /tmp/p19-changes.tgz' | sha256sum -c -
+          tar -xzf /tmp/p19-changes.tgz -C .
+
+          rm -f \
+            src/v6/tw-market-data-d1.ts \
+            src/v6/twse-market-data-capture.ts \
+            src/v6/tpex-market-data-backfill.ts \
+            src/v6/tpex-official-relay.ts \
+            .github/workflows/tpex-official-relay.yml \
+            .github/workflows/p19-export-source.yml \
+            .github/workflows/p19-sbl-probe.yml \
+            .github/workflows/p19-probe-sbl.yml \
+            .github/workflows/p19-apply-payload.yml \
+            .github/workflows/p19-apply-patch.yml
+          rm -rf .p19 scripts/__pycache__
+
           git config user.name 'p19-github-storage-migration'
           git config user.email 'actions@users.noreply.github.com'
           git add -A
-          git commit -m 'P19: migrate canonical persistence from D1 to GitHub'
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m 'P19: migrate application persistence to GitHub canonical storage'
+          git pull --rebase origin p19/github-only-storage
           git push origin HEAD:p19/github-only-storage
