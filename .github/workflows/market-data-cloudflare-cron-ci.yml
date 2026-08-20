@@ -1,0 +1,28 @@
+name: Market Data Cloudflare Cron CI
+
+on:
+  pull_request:
+    paths:
+      - 'src/v6/market-data-cloudflare-runner.ts'
+      - 'src/v6/market-data-incremental-controller.ts'
+      - 'src/index-v6.ts'
+      - 'wrangler.jsonc'
+      - 'tests/market-data-cloudflare-cron.test.ts'
+      - 'package.json'
+      - '.github/workflows/market-data-cloudflare-cron-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run type-check
+      - run: npm run test:market-data
+      - run: npx wrangler deploy --dry-run --outdir dist-market-data-cron
