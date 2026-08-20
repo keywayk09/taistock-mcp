@@ -56,9 +56,10 @@ jobs:
           health=load('/tmp/health.json')
           sched=load('/tmp/schedules.json')
           result=sched.get('result') if isinstance(sched,dict) else None
+          schedules=(result.get('schedules') if isinstance(result,dict) else None)
           crons=[]
-          if isinstance(result,list):
-              crons=[x.get('cron') for x in result if isinstance(x,dict) and isinstance(x.get('cron'),str)]
+          if isinstance(schedules,list):
+              crons=[x.get('cron') for x in schedules if isinstance(x,dict) and isinstance(x.get('cron'),str)]
           out={
             'health_status': os.environ['HEALTH_STATUS'],
             'health_rc': int(os.environ['HEALTH_RC']),
