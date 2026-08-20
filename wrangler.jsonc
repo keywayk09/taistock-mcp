@@ -1,7 +1,7 @@
 /**
  * Cloudflare is the execution/MCP layer only.
- * Application persistence is GitHub-only on the diamond-data branch; D1 and R2 are forbidden for app data.
- * OHLC/K-line remains owned by OHLC MCP.
+ * Application persistence is GitHub-only under keywayk09/tv-papertrader main/data; D1 and R2 are forbidden for app data.
+ * OHLC/K-line remains owned by OHLC MCP even though canonical files share one GitHub repository.
  * Durable Object lifecycle uses declarative exports; production deploys must use `wrangler deploy`.
  * Existing MyMCP/FamilyMCP namespaces are preserved as live exports; deletion tombstones are forbidden without explicit review.
  */
@@ -14,8 +14,8 @@
 	"vars": {
 		"RESEARCH_MAX_SYMBOLS": "40",
 		"RESEARCH_MAX_ONE_MINUTE": "8",
-		"GITHUB_DATA_REPO": "keywayk09/taistock-mcp",
-		"GITHUB_DATA_BRANCH": "diamond-data"
+		"GITHUB_DATA_REPO": "keywayk09/tv-papertrader",
+		"GITHUB_DATA_BRANCH": "main"
 	},
 	"exports": {
 		"MyMCP": {
@@ -38,6 +38,9 @@
 				"name": "FAMILY_MCP_OBJECT"
 			}
 		]
+	},
+	"triggers": {
+		"crons": ["* * * * *"]
 	},
 	"observability": {
 		"enabled": true
