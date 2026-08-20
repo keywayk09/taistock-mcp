@@ -3,29 +3,132 @@
 > node --experimental-strip-types tests/market-data-incremental-controller.test.ts && node --experimental-strip-types tests/market-data-day-status.test.ts && node --experimental-strip-types tests/market-data-cloudflare-cron.test.ts && node --experimental-strip-types tests/tw-market-data.test.ts && node --experimental-strip-types tests/tpex-official-relay.test.ts && node --experimental-strip-types tests/twse-mi-margin-official.test.ts
 
 market-data incremental controller tests passed
-(node:2440) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/taistock-mcp/taistock-mcp/tests/market-data-incremental-controller.test.ts is not specified and it doesn't parse as CommonJS.
+(node:2374) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/taistock-mcp/taistock-mcp/tests/market-data-incremental-controller.test.ts is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/taistock-mcp/taistock-mcp/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
 market-data day status v2.1 tests passed
-(node:2447) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/taistock-mcp/taistock-mcp/tests/market-data-day-status.test.ts is not specified and it doesn't parse as CommonJS.
+(node:2381) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/taistock-mcp/taistock-mcp/tests/market-data-day-status.test.ts is not specified and it doesn't parse as CommonJS.
 Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
 To eliminate this warning, add "type": "module" to /home/runner/work/taistock-mcp/taistock-mcp/package.json.
 (Use `node --trace-warnings ...` to show where the warning was created)
-node:internal/modules/esm/resolve:275
-    throw new ERR_MODULE_NOT_FOUND(
-          ^
+market-data-cloudflare-cron tests passed
+(node:2388) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///home/runner/work/taistock-mcp/taistock-mcp/tests/market-data-cloudflare-cron.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /home/runner/work/taistock-mcp/taistock-mcp/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
 
-Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/runner/work/taistock-mcp/taistock-mcp/src/v6/github-data-store' imported from /home/runner/work/taistock-mcp/taistock-mcp/src/v6/market-data-cloudflare-runner.ts
-    at finalizeResolution (node:internal/modules/esm/resolve:275:11)
-    at moduleResolve (node:internal/modules/esm/resolve:861:10)
-    at defaultResolve (node:internal/modules/esm/resolve:985:11)
-    at #cachedDefaultResolve (node:internal/modules/esm/loader:747:20)
-    at ModuleLoader.resolve (node:internal/modules/esm/loader:724:38)
-    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:320:38)
-    at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {
-  code: 'ERR_MODULE_NOT_FOUND',
-  url: 'file:///home/runner/work/taistock-mcp/taistock-mcp/src/v6/github-data-store'
+AssertionError [ERR_ASSERTION]: The input was expected to not match the regular expression /"crons"|"triggers"/. Input:
+
+'/**\n' +
+  ' * Cloudflare is the execution/MCP layer only.\n' +
+  ' * Application persistence is GitHub-only under keywayk09/tv-papertrader main/data; D1 and R2 are forbidden for app data.\n' +
+  ' * OHLC/K-line remains owned by OHLC MCP even though canonical files share one GitHub repository.\n' +
+  ' * Durable Object lifecycle uses declarative exports; production deploys must use `wrangler deploy`.\n' +
+  ' * Existing MyMCP/FamilyMCP namespaces are preserved as live exports; deletion tombstones are forbidden without explicit review.\n' +
+  ' */\n' +
+  '{\n' +
+  '\t"$schema": "node_modules/wrangler/config-schema.json",\n' +
+  '\t"name": "taistock-mcp",\n' +
+  '\t"main": "src/index-v6.ts",\n' +
+  '\t"compatibility_date": "2025-03-10",\n' +
+  '\t"compatibility_flags": ["nodejs_compat"],\n' +
+  '\t"vars": {\n' +
+  '\t\t"RESEARCH_MAX_SYMBOLS": "40",\n' +
+  '\t\t"RESEARCH_MAX_ONE_MINUTE": "8",\n' +
+  '\t\t"GITHUB_DATA_REPO": "keywayk09/tv-papertrader",\n' +
+  '\t\t"GITHUB_DATA_BRANCH": "main"\n' +
+  '\t},\n' +
+  '\t"triggers": {\n' +
+  '\t\t"crons": ["*/5 * * * *"]\n' +
+  '\t},\n' +
+  '\t"exports": {\n' +
+  '\t\t"MyMCP": {\n' +
+  '\t\t\t"type": "durable-object",\n' +
+  '\t\t\t"storage": "sqlite"\n' +
+  '\t\t},\n' +
+  '\t\t"FamilyMCP": {\n' +
+  '\t\t\t"type": "durable-object",\n' +
+  '\t\t\t"storage": "sqlite"\n' +
+  '\t\t}\n' +
+  '\t},\n' +
+  '\t"durable_objects": {\n' +
+  '\t\t"bindings": [\n' +
+  '\t\t\t{\n' +
+  '\t\t\t\t"class_name": "MyMCP",\n' +
+  '\t\t\t\t"name": "MCP_OBJECT"\n' +
+  '\t\t\t},\n' +
+  '\t\t\t{\n' +
+  '\t\t\t\t"class_name": "FamilyMCP",\n' +
+  '\t\t\t\t"name": "FAMILY_MCP_OBJECT"\n' +
+  '\t\t\t}\n' +
+  '\t\t]\n' +
+  '\t},\n' +
+  '\t"observability": {\n' +
+  '\t\t"enabled": true\n' +
+  '\t}\n' +
+  '}\n'
+
+    at file:///home/runner/work/taistock-mcp/taistock-mcp/tests/tw-market-data.test.ts:25:283
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:681:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: '/**\n' +
+    ' * Cloudflare is the execution/MCP layer only.\n' +
+    ' * Application persistence is GitHub-only under keywayk09/tv-papertrader main/data; D1 and R2 are forbidden for app data.\n' +
+    ' * OHLC/K-line remains owned by OHLC MCP even though canonical files share one GitHub repository.\n' +
+    ' * Durable Object lifecycle uses declarative exports; production deploys must use `wrangler deploy`.\n' +
+    ' * Existing MyMCP/FamilyMCP namespaces are preserved as live exports; deletion tombstones are forbidden without explicit review.\n' +
+    ' */\n' +
+    '{\n' +
+    '\t"$schema": "node_modules/wrangler/config-schema.json",\n' +
+    '\t"name": "taistock-mcp",\n' +
+    '\t"main": "src/index-v6.ts",\n' +
+    '\t"compatibility_date": "2025-03-10",\n' +
+    '\t"compatibility_flags": ["nodejs_compat"],\n' +
+    '\t"vars": {\n' +
+    '\t\t"RESEARCH_MAX_SYMBOLS": "40",\n' +
+    '\t\t"RESEARCH_MAX_ONE_MINUTE": "8",\n' +
+    '\t\t"GITHUB_DATA_REPO": "keywayk09/tv-papertrader",\n' +
+    '\t\t"GITHUB_DATA_BRANCH": "main"\n' +
+    '\t},\n' +
+    '\t"triggers": {\n' +
+    '\t\t"crons": ["*/5 * * * *"]\n' +
+    '\t},\n' +
+    '\t"exports": {\n' +
+    '\t\t"MyMCP": {\n' +
+    '\t\t\t"type": "durable-object",\n' +
+    '\t\t\t"storage": "sqlite"\n' +
+    '\t\t},\n' +
+    '\t\t"FamilyMCP": {\n' +
+    '\t\t\t"type": "durable-object",\n' +
+    '\t\t\t"storage": "sqlite"\n' +
+    '\t\t}\n' +
+    '\t},\n' +
+    '\t"durable_objects": {\n' +
+    '\t\t"bindings": [\n' +
+    '\t\t\t{\n' +
+    '\t\t\t\t"class_name": "MyMCP",\n' +
+    '\t\t\t\t"name": "MCP_OBJECT"\n' +
+    '\t\t\t},\n' +
+    '\t\t\t{\n' +
+    '\t\t\t\t"class_name": "FamilyMCP",\n' +
+    '\t\t\t\t"name": "FAMILY_MCP_OBJECT"\n' +
+    '\t\t\t}\n' +
+    '\t\t]\n' +
+    '\t},\n' +
+    '\t"observability": {\n' +
+    '\t\t"enabled": true\n' +
+    '\t}\n' +
+    '}\n',
+  expected: /"crons"|"triggers"/,
+  operator: 'doesNotMatch',
+  diff: 'simple'
 }
 
 Node.js v22.23.2
