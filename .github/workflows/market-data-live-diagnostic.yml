@@ -1,0 +1,29 @@
+name: Market Data Live Diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/market-data-live-diagnostic.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  live-capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Capture 2026-08-20 into runner temp only
+        env:
+          DIAMOND_DATA_ROOT: ${{ runner.temp }}/market-data-diag
+          TRADE_DATE: '2026-08-20'
+          MARKET_DATA_FINAL_AUDIT: 'false'
+        run: |
+          set -euxo pipefail
+          node --version
+          node --experimental-strip-types scripts/capture-tw-market-data.ts --date "$TRADE_DATE" --out "$DIAMOND_DATA_ROOT"
+          cat "$DIAMOND_DATA_ROOT/data/market-data/daily/2026/08/20/manifest.json"
