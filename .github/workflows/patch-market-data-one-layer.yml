@@ -1,0 +1,44 @@
+name: Apply one-layer Market Data patch
+
+on:
+  push:
+    branches:
+      - fix/market-data-one-layer-per-tick
+    paths:
+      - '.github/workflows/patch-market-data-one-layer.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/market-data-one-layer-per-tick
+          fetch-depth: 0
+      - name: Reduce per-invocation work unit
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/v6/market-data-cloudflare-chunked-runner.ts')
+          s=p.read_text()
+          s=s.replace('const VERSION = "diamond-tw-market-data/v2.3.0-cloudflare-subrequest-safe";', 'const VERSION = "diamond-tw-market-data/v2.3.1-cloudflare-one-layer-resumable";')
+          s=s.replace('const USER_AGENT = "Diamond-Cloudflare-Market-Data/2.3";', 'const USER_AGENT = "Diamond-Cloudflare-Market-Data/2.3.1";')
+          s=s.replace('export const MARKET_DATA_CAPTURE_BATCH_SIZE = 4;', 'export const MARKET_DATA_CAPTURE_BATCH_SIZE = 1;')
+          s=s.replace('export const MARKET_DATA_INDEX_PREFIX_BATCH_SIZE = 8;', 'export const MARKET_DATA_INDEX_PREFIX_BATCH_SIZE = 1;')
+          p.write_text(s)
+
+          t=Path('tests/market-data-cloudflare-cron.test.ts')
+          s=t.read_text()
+          s=s.replace('MARKET_DATA_CAPTURE_BATCH_SIZE = 4', 'MARKET_DATA_CAPTURE_BATCH_SIZE = 1')
+          s=s.replace('MARKET_DATA_INDEX_PREFIX_BATCH_SIZE = 8', 'MARKET_DATA_INDEX_PREFIX_BATCH_SIZE = 1')
+          t.write_text(s)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/v6/market-data-cloudflare-chunked-runner.ts tests/market-data-cloudflare-cron.test.ts
+          git commit -m 'fix(market-data): use one resumable layer per cron tick'
+          git push origin HEAD:fix/market-data-one-layer-per-tick
