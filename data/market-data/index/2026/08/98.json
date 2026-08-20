@@ -1,0 +1,74 @@
+{
+  "month": "2026-08",
+  "prefix": "98",
+  "schema_version": "diamond-market-data-symbol-shard/v2",
+  "symbols": {
+    "9802": {
+      "institutional": [
+        {
+          "dealer_net_shares": 1371,
+          "foreign_net_shares": -59000,
+          "market": "listed",
+          "name": "鈺齊-KY",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "9802",
+          "total_net_shares": -57629,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 0,
+          "margin_balance_lots": 2133,
+          "margin_previous_balance_lots": 2133,
+          "market": "listed",
+          "name": "鈺齊-KY",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 7,
+          "short_previous_balance_lots": 7,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "9802",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 233898,
+          "balance_shares": 9034849,
+          "market": "listed",
+          "name": "鈺齊-KY",
+          "previous_balance_shares": 9030849,
+          "returned_shares": 13000,
+          "sold_amount": null,
+          "sold_shares": 17000,
+          "sold_volume_shares": 17000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "9802",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 9798000,
+          "balance_value": 688799400,
+          "borrowed_shares": 10000,
+          "close_price": 70.3,
+          "market": "listed",
+          "name": "鈺齊-KY",
+          "previous_balance_shares": 9936000,
+          "returned_shares": 148000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "9802",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    }
+  },
+  "updated_at": "2026-08-20T05:23:06.148Z"
+}

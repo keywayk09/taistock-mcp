@@ -1,0 +1,212 @@
+{
+  "month": "2026-08",
+  "prefix": "57",
+  "schema_version": "diamond-market-data-symbol-shard/v2",
+  "symbols": {
+    "5701": {
+      "margin": [
+        {
+          "margin_balance_change_lots": 0,
+          "margin_balance_lots": 0,
+          "margin_previous_balance_lots": 0,
+          "market": "otc",
+          "name": "劍湖山",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 0,
+          "short_previous_balance_lots": 0,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "5701",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 0,
+          "balance_shares": 0,
+          "market": "otc",
+          "name": "劍湖山",
+          "previous_balance_shares": 0,
+          "returned_shares": 0,
+          "sold_amount": 0,
+          "sold_shares": 0,
+          "sold_volume_shares": 0,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "5701",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "5703": {
+      "margin": [
+        {
+          "margin_balance_change_lots": 0,
+          "margin_balance_lots": 0,
+          "margin_previous_balance_lots": 0,
+          "market": "otc",
+          "name": "亞都",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 0,
+          "short_previous_balance_lots": 0,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "5703",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 0,
+          "balance_shares": 0,
+          "market": "otc",
+          "name": "亞都",
+          "previous_balance_shares": 0,
+          "returned_shares": 0,
+          "sold_amount": 0,
+          "sold_shares": 0,
+          "sold_volume_shares": 0,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "5703",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "5704": {
+      "institutional": [
+        {
+          "dealer_net_shares": 115,
+          "foreign_net_shares": 11000,
+          "market": "otc",
+          "name": "老爺知",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "5704",
+          "total_net_shares": 11115,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 0,
+          "margin_balance_lots": 56,
+          "margin_previous_balance_lots": 56,
+          "market": "otc",
+          "name": "老爺知",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 0,
+          "short_previous_balance_lots": 0,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "5704",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 6556,
+          "balance_shares": 85177,
+          "market": "otc",
+          "name": "老爺知",
+          "previous_balance_shares": 85177,
+          "returned_shares": 0,
+          "sold_amount": 0,
+          "sold_shares": 0,
+          "sold_volume_shares": 0,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "5704",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 115000,
+          "balance_value": 2576000,
+          "borrowed_shares": 0,
+          "close_price": 22.4,
+          "market": "otc",
+          "name": "老爺知",
+          "previous_balance_shares": 115000,
+          "returned_shares": 0,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "5704",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "5706": {
+      "institutional": [
+        {
+          "dealer_net_shares": 0,
+          "foreign_net_shares": 72000,
+          "market": "listed",
+          "name": "鳳凰",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "5706",
+          "total_net_shares": 72000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 0,
+          "margin_balance_lots": 683,
+          "margin_previous_balance_lots": 683,
+          "market": "listed",
+          "name": "鳳凰",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 20,
+          "short_previous_balance_lots": 20,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "5706",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 53557,
+          "balance_shares": 1348993,
+          "market": "listed",
+          "name": "鳳凰",
+          "previous_balance_shares": 1348993,
+          "returned_shares": 0,
+          "sold_amount": null,
+          "sold_shares": 0,
+          "sold_volume_shares": 0,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "5706",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 1500000,
+          "balance_value": 68100000,
+          "borrowed_shares": 0,
+          "close_price": 45.4,
+          "market": "listed",
+          "name": "鳳凰",
+          "previous_balance_shares": 1500000,
+          "returned_shares": 0,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "5706",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    }
+  },
+  "updated_at": "2026-08-20T05:23:06.148Z"
+}

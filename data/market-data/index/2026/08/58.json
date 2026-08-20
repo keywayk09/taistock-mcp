@@ -1,0 +1,272 @@
+{
+  "month": "2026-08",
+  "prefix": "58",
+  "schema_version": "diamond-market-data-symbol-shard/v2",
+  "symbols": {
+    "5864": {
+      "institutional": [
+        {
+          "dealer_net_shares": 0,
+          "foreign_net_shares": -241458,
+          "market": "otc",
+          "name": "致和證",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "5864",
+          "total_net_shares": -241458,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": -163,
+          "margin_balance_lots": 8997,
+          "margin_previous_balance_lots": 9160,
+          "market": "otc",
+          "name": "致和證",
+          "short_balance_change_lots": 2,
+          "short_balance_lots": 114,
+          "short_previous_balance_lots": 112,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "5864",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 1155019,
+          "balance_shares": 9832751,
+          "market": "otc",
+          "name": "致和證",
+          "previous_balance_shares": 9670751,
+          "returned_shares": 76000,
+          "sold_amount": 7777800,
+          "sold_shares": 238000,
+          "sold_volume_shares": 238000,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "5864",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 10612000,
+          "balance_value": 347012400,
+          "borrowed_shares": 299000,
+          "close_price": 32.7,
+          "market": "otc",
+          "name": "致和證",
+          "previous_balance_shares": 10389000,
+          "returned_shares": 76000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "5864",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "5871": {
+      "institutional": [
+        {
+          "dealer_net_shares": -131316,
+          "foreign_net_shares": 547225,
+          "market": "listed",
+          "name": "中租-KY",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "5871",
+          "total_net_shares": 402909,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": -13000
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": -53,
+          "margin_balance_lots": 4322,
+          "margin_previous_balance_lots": 4375,
+          "market": "listed",
+          "name": "中租-KY",
+          "short_balance_change_lots": 1,
+          "short_balance_lots": 3,
+          "short_previous_balance_lots": 2,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "5871",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 2443984,
+          "balance_shares": 91226080,
+          "market": "listed",
+          "name": "中租-KY",
+          "previous_balance_shares": 90337080,
+          "returned_shares": 77000,
+          "sold_amount": null,
+          "sold_shares": 966000,
+          "sold_volume_shares": 966000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "5871",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 100814000,
+          "balance_value": 11039133000,
+          "borrowed_shares": 963000,
+          "close_price": 109.5,
+          "market": "listed",
+          "name": "中租-KY",
+          "previous_balance_shares": 100308000,
+          "returned_shares": 457000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "5871",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "5876": {
+      "institutional": [
+        {
+          "dealer_net_shares": -227799,
+          "foreign_net_shares": 2051391,
+          "market": "listed",
+          "name": "上海商銀",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "5876",
+          "total_net_shares": 2008592,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 185000
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": -41,
+          "margin_balance_lots": 704,
+          "margin_previous_balance_lots": 745,
+          "market": "listed",
+          "name": "上海商銀",
+          "short_balance_change_lots": 5,
+          "short_balance_lots": 6,
+          "short_previous_balance_lots": 1,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "5876",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 3808650,
+          "balance_shares": 101388897,
+          "market": "listed",
+          "name": "上海商銀",
+          "previous_balance_shares": 103414897,
+          "returned_shares": 4085000,
+          "sold_amount": null,
+          "sold_shares": 2059000,
+          "sold_volume_shares": 2059000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "5876",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 122667000,
+          "balance_value": 5336014500,
+          "borrowed_shares": 1646000,
+          "close_price": 43.5,
+          "market": "listed",
+          "name": "上海商銀",
+          "previous_balance_shares": 125108000,
+          "returned_shares": 4087000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "5876",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "5880": {
+      "institutional": [
+        {
+          "dealer_net_shares": -890663,
+          "foreign_net_shares": -9964193,
+          "market": "listed",
+          "name": "合庫金",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "5880",
+          "total_net_shares": 1042144,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 11897000
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": -9,
+          "margin_balance_lots": 2498,
+          "margin_previous_balance_lots": 2507,
+          "market": "listed",
+          "name": "合庫金",
+          "short_balance_change_lots": 3,
+          "short_balance_lots": 14,
+          "short_previous_balance_lots": 11,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "5880",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 7972279,
+          "balance_shares": 30416475,
+          "market": "listed",
+          "name": "合庫金",
+          "previous_balance_shares": 29447475,
+          "returned_shares": 921000,
+          "sold_amount": null,
+          "sold_shares": 1890000,
+          "sold_volume_shares": 1890000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "5880",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 88022000,
+          "balance_value": 2187346700,
+          "borrowed_shares": 1908000,
+          "close_price": 24.85,
+          "market": "listed",
+          "name": "合庫金",
+          "previous_balance_shares": 89735000,
+          "returned_shares": 3621000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "5880",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    }
+  },
+  "updated_at": "2026-08-20T05:23:06.148Z"
+}

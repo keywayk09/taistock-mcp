@@ -1,0 +1,1130 @@
+{
+  "month": "2026-08",
+  "prefix": "82",
+  "schema_version": "diamond-market-data-symbol-shard/v2",
+  "symbols": {
+    "8201": {
+      "institutional": [
+        {
+          "dealer_net_shares": 0,
+          "foreign_net_shares": -2000,
+          "market": "listed",
+          "name": "無敵",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "8201",
+          "total_net_shares": -2000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 0,
+          "margin_balance_lots": 0,
+          "margin_previous_balance_lots": 0,
+          "market": "listed",
+          "name": "無敵",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 0,
+          "short_previous_balance_lots": 0,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "8201",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 0,
+          "balance_shares": 0,
+          "market": "listed",
+          "name": "無敵",
+          "previous_balance_shares": 0,
+          "returned_shares": 0,
+          "sold_amount": null,
+          "sold_shares": 0,
+          "sold_volume_shares": 0,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8201",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8210": {
+      "institutional": [
+        {
+          "dealer_net_shares": -8500,
+          "foreign_net_shares": -264715,
+          "market": "listed",
+          "name": "勤誠",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "8210",
+          "total_net_shares": -291215,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": -18000
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 190,
+          "margin_balance_lots": 3340,
+          "margin_previous_balance_lots": 3150,
+          "market": "listed",
+          "name": "勤誠",
+          "short_balance_change_lots": 51,
+          "short_balance_lots": 67,
+          "short_previous_balance_lots": 16,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "8210",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 415694,
+          "balance_shares": 1927000,
+          "market": "listed",
+          "name": "勤誠",
+          "previous_balance_shares": 1759000,
+          "returned_shares": 18000,
+          "sold_amount": null,
+          "sold_shares": 186000,
+          "sold_volume_shares": 186000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8210",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 2597000,
+          "balance_value": 2558045000,
+          "borrowed_shares": 184000,
+          "close_price": 985,
+          "market": "listed",
+          "name": "勤誠",
+          "previous_balance_shares": 2457000,
+          "returned_shares": 44000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8210",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8213": {
+      "institutional": [
+        {
+          "dealer_net_shares": -21279,
+          "foreign_net_shares": -27000,
+          "market": "listed",
+          "name": "志超",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "8213",
+          "total_net_shares": -48279,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": -99,
+          "margin_balance_lots": 3526,
+          "margin_previous_balance_lots": 3625,
+          "market": "listed",
+          "name": "志超",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 0,
+          "short_previous_balance_lots": 0,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "8213",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 194528,
+          "balance_shares": 1537000,
+          "market": "listed",
+          "name": "志超",
+          "previous_balance_shares": 1533000,
+          "returned_shares": 0,
+          "sold_amount": null,
+          "sold_shares": 4000,
+          "sold_volume_shares": 4000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8213",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 4292000,
+          "balance_value": 139490000,
+          "borrowed_shares": 2000,
+          "close_price": 32.5,
+          "market": "listed",
+          "name": "志超",
+          "previous_balance_shares": 4299000,
+          "returned_shares": 9000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8213",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8215": {
+      "institutional": [
+        {
+          "dealer_net_shares": -4779,
+          "foreign_net_shares": -20000,
+          "market": "listed",
+          "name": "明基材",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "8215",
+          "total_net_shares": -24779,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 6,
+          "margin_balance_lots": 3079,
+          "margin_previous_balance_lots": 3073,
+          "market": "listed",
+          "name": "明基材",
+          "short_balance_change_lots": 3,
+          "short_balance_lots": 33,
+          "short_previous_balance_lots": 30,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "8215",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 234897,
+          "balance_shares": 7061000,
+          "market": "listed",
+          "name": "明基材",
+          "previous_balance_shares": 7170000,
+          "returned_shares": 126000,
+          "sold_amount": null,
+          "sold_shares": 17000,
+          "sold_volume_shares": 17000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8215",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 7133000,
+          "balance_value": 170478700,
+          "borrowed_shares": 17000,
+          "close_price": 23.9,
+          "market": "listed",
+          "name": "明基材",
+          "previous_balance_shares": 7267000,
+          "returned_shares": 151000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8215",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8222": {
+      "institutional": [
+        {
+          "dealer_net_shares": -11000,
+          "foreign_net_shares": -134000,
+          "market": "listed",
+          "name": "寶一",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "8222",
+          "total_net_shares": -145000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 0,
+          "margin_balance_lots": 3341,
+          "margin_previous_balance_lots": 3341,
+          "market": "listed",
+          "name": "寶一",
+          "short_balance_change_lots": -14,
+          "short_balance_lots": 12,
+          "short_previous_balance_lots": 26,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "8222",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 520641,
+          "balance_shares": 2162000,
+          "market": "listed",
+          "name": "寶一",
+          "previous_balance_shares": 2146000,
+          "returned_shares": 25000,
+          "sold_amount": null,
+          "sold_shares": 41000,
+          "sold_volume_shares": 41000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8222",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 2162000,
+          "balance_value": 85290900,
+          "borrowed_shares": 41000,
+          "close_price": 39.45,
+          "market": "listed",
+          "name": "寶一",
+          "previous_balance_shares": 2146000,
+          "returned_shares": 25000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8222",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8227": {
+      "institutional": [
+        {
+          "dealer_net_shares": 2361,
+          "foreign_net_shares": 12000,
+          "market": "otc",
+          "name": "巨有科技",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "8227",
+          "total_net_shares": 14361,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 3,
+          "margin_balance_lots": 2018,
+          "margin_previous_balance_lots": 2015,
+          "market": "otc",
+          "name": "巨有科技",
+          "short_balance_change_lots": 1,
+          "short_balance_lots": 4,
+          "short_previous_balance_lots": 3,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "8227",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 202314,
+          "balance_shares": 1512716,
+          "market": "otc",
+          "name": "巨有科技",
+          "previous_balance_shares": 1506716,
+          "returned_shares": 6000,
+          "sold_amount": 1780500,
+          "sold_shares": 12000,
+          "sold_volume_shares": 12000,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "8227",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 1831000,
+          "balance_value": 270988000,
+          "borrowed_shares": 10000,
+          "close_price": 148,
+          "market": "otc",
+          "name": "巨有科技",
+          "previous_balance_shares": 1827000,
+          "returned_shares": 6000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8227",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8234": {
+      "institutional": [
+        {
+          "dealer_net_shares": 22288,
+          "foreign_net_shares": 26180,
+          "market": "otc",
+          "name": "新漢",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "8234",
+          "total_net_shares": 48468,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 24,
+          "margin_balance_lots": 4254,
+          "margin_previous_balance_lots": 4230,
+          "market": "otc",
+          "name": "新漢",
+          "short_balance_change_lots": 2,
+          "short_balance_lots": 11,
+          "short_previous_balance_lots": 9,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "8234",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 336122,
+          "balance_shares": 5210000,
+          "market": "otc",
+          "name": "新漢",
+          "previous_balance_shares": 5221000,
+          "returned_shares": 24000,
+          "sold_amount": 900100,
+          "sold_shares": 13000,
+          "sold_volume_shares": 13000,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "8234",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 6065000,
+          "balance_value": 428189000,
+          "borrowed_shares": 0,
+          "close_price": 70.6,
+          "market": "otc",
+          "name": "新漢",
+          "previous_balance_shares": 6089000,
+          "returned_shares": 24000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8234",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8240": {
+      "institutional": [
+        {
+          "dealer_net_shares": 54,
+          "foreign_net_shares": 16000,
+          "market": "otc",
+          "name": "華宏",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "8240",
+          "total_net_shares": 16054,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 1,
+          "margin_balance_lots": 1775,
+          "margin_previous_balance_lots": 1774,
+          "market": "otc",
+          "name": "華宏",
+          "short_balance_change_lots": -1,
+          "short_balance_lots": 3,
+          "short_previous_balance_lots": 4,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "8240",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 83189,
+          "balance_shares": 1804000,
+          "market": "otc",
+          "name": "華宏",
+          "previous_balance_shares": 1801000,
+          "returned_shares": 0,
+          "sold_amount": 124800,
+          "sold_shares": 3000,
+          "sold_volume_shares": 3000,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "8240",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 2390000,
+          "balance_value": 99185000,
+          "borrowed_shares": 3000,
+          "close_price": 41.5,
+          "market": "otc",
+          "name": "華宏",
+          "previous_balance_shares": 2387000,
+          "returned_shares": 0,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8240",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8249": {
+      "institutional": [
+        {
+          "dealer_net_shares": 1000,
+          "foreign_net_shares": 24000,
+          "market": "listed",
+          "name": "菱光",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "8249",
+          "total_net_shares": 25000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": -1,
+          "margin_balance_lots": 3811,
+          "margin_previous_balance_lots": 3812,
+          "market": "listed",
+          "name": "菱光",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 20,
+          "short_previous_balance_lots": 20,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "8249",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 85682,
+          "balance_shares": 5424000,
+          "market": "listed",
+          "name": "菱光",
+          "previous_balance_shares": 5460000,
+          "returned_shares": 40000,
+          "sold_amount": null,
+          "sold_shares": 4000,
+          "sold_volume_shares": 4000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8249",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 5438000,
+          "balance_value": 216160500,
+          "borrowed_shares": 4000,
+          "close_price": 39.75,
+          "market": "listed",
+          "name": "菱光",
+          "previous_balance_shares": 5474000,
+          "returned_shares": 40000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8249",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8255": {
+      "institutional": [
+        {
+          "dealer_net_shares": 4734,
+          "foreign_net_shares": -63263,
+          "market": "otc",
+          "name": "朋程",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "8255",
+          "total_net_shares": -58529,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 37,
+          "margin_balance_lots": 2396,
+          "margin_previous_balance_lots": 2359,
+          "market": "otc",
+          "name": "朋程",
+          "short_balance_change_lots": -1,
+          "short_balance_lots": 2,
+          "short_previous_balance_lots": 3,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "8255",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 211669,
+          "balance_shares": 3799865,
+          "market": "otc",
+          "name": "朋程",
+          "previous_balance_shares": 3786865,
+          "returned_shares": 5000,
+          "sold_amount": 2644000,
+          "sold_shares": 18000,
+          "sold_volume_shares": 18000,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "8255",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 3981000,
+          "balance_value": 581226000,
+          "borrowed_shares": 23000,
+          "close_price": 146,
+          "market": "otc",
+          "name": "朋程",
+          "previous_balance_shares": 3963000,
+          "returned_shares": 5000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8255",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8261": {
+      "institutional": [
+        {
+          "dealer_net_shares": -2122,
+          "foreign_net_shares": -336130,
+          "market": "listed",
+          "name": "富鼎",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "8261",
+          "total_net_shares": -342252,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": -4000
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 151,
+          "margin_balance_lots": 7734,
+          "margin_previous_balance_lots": 7583,
+          "market": "listed",
+          "name": "富鼎",
+          "short_balance_change_lots": -5,
+          "short_balance_lots": 27,
+          "short_previous_balance_lots": 32,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "8261",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 2057477,
+          "balance_shares": 4114000,
+          "market": "listed",
+          "name": "富鼎",
+          "previous_balance_shares": 3912000,
+          "returned_shares": 5000,
+          "sold_amount": null,
+          "sold_shares": 207000,
+          "sold_volume_shares": 207000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8261",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 6435000,
+          "balance_value": 1180822500,
+          "borrowed_shares": 344000,
+          "close_price": 183.5,
+          "market": "listed",
+          "name": "富鼎",
+          "previous_balance_shares": 6591000,
+          "returned_shares": 500000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8261",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8271": {
+      "institutional": [
+        {
+          "dealer_net_shares": -87648,
+          "foreign_net_shares": 94397,
+          "market": "listed",
+          "name": "宇瞻",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "8271",
+          "total_net_shares": 6749,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": -136,
+          "margin_balance_lots": 5916,
+          "margin_previous_balance_lots": 6052,
+          "market": "listed",
+          "name": "宇瞻",
+          "short_balance_change_lots": -50,
+          "short_balance_lots": 507,
+          "short_previous_balance_lots": 557,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "8271",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 2016849,
+          "balance_shares": 4697000,
+          "market": "listed",
+          "name": "宇瞻",
+          "previous_balance_shares": 4629000,
+          "returned_shares": 4000,
+          "sold_amount": null,
+          "sold_shares": 72000,
+          "sold_volume_shares": 72000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8271",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 7310000,
+          "balance_value": 1604545000,
+          "borrowed_shares": 69000,
+          "close_price": 219.5,
+          "market": "listed",
+          "name": "宇瞻",
+          "previous_balance_shares": 7258000,
+          "returned_shares": 17000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8271",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8272": {
+      "institutional": [
+        {
+          "dealer_net_shares": 0,
+          "foreign_net_shares": -1000,
+          "market": "otc",
+          "name": "全景軟體",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "8272",
+          "total_net_shares": -1000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "8277": {
+      "institutional": [
+        {
+          "dealer_net_shares": 0,
+          "foreign_net_shares": 6000,
+          "market": "otc",
+          "name": "商丞",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "8277",
+          "total_net_shares": 6000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 0,
+          "margin_balance_lots": 0,
+          "margin_previous_balance_lots": 0,
+          "market": "otc",
+          "name": "商丞",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 0,
+          "short_previous_balance_lots": 0,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "8277",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 0,
+          "balance_shares": 0,
+          "market": "otc",
+          "name": "商丞",
+          "previous_balance_shares": 0,
+          "returned_shares": 0,
+          "sold_amount": 0,
+          "sold_shares": 0,
+          "sold_volume_shares": 0,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "8277",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8279": {
+      "institutional": [
+        {
+          "dealer_net_shares": 0,
+          "foreign_net_shares": -3000,
+          "market": "otc",
+          "name": "生展",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "8279",
+          "total_net_shares": -3000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": -4,
+          "margin_balance_lots": 122,
+          "margin_previous_balance_lots": 126,
+          "market": "otc",
+          "name": "生展",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 5,
+          "short_previous_balance_lots": 5,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "8279",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 3469,
+          "balance_shares": 50000,
+          "market": "otc",
+          "name": "生展",
+          "previous_balance_shares": 50000,
+          "returned_shares": 0,
+          "sold_amount": 0,
+          "sold_shares": 0,
+          "sold_volume_shares": 0,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "8279",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 68000,
+          "balance_value": 5752800,
+          "borrowed_shares": 0,
+          "close_price": 84.6,
+          "market": "otc",
+          "name": "生展",
+          "previous_balance_shares": 68000,
+          "returned_shares": 0,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8279",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8284": {
+      "institutional": [
+        {
+          "dealer_net_shares": 4000,
+          "foreign_net_shares": -2000,
+          "market": "otc",
+          "name": "三竹",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "8284",
+          "total_net_shares": 2000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 1,
+          "margin_balance_lots": 11,
+          "margin_previous_balance_lots": 10,
+          "market": "otc",
+          "name": "三竹",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 0,
+          "short_previous_balance_lots": 0,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "8284",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 12154,
+          "balance_shares": 22000,
+          "market": "otc",
+          "name": "三竹",
+          "previous_balance_shares": 22000,
+          "returned_shares": 0,
+          "sold_amount": 0,
+          "sold_shares": 0,
+          "sold_volume_shares": 0,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "8284",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 76000,
+          "balance_value": 5061600,
+          "borrowed_shares": 0,
+          "close_price": 66.6,
+          "market": "otc",
+          "name": "三竹",
+          "previous_balance_shares": 76000,
+          "returned_shares": 0,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8284",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8289": {
+      "institutional": [
+        {
+          "dealer_net_shares": 8106,
+          "foreign_net_shares": 178041,
+          "market": "otc",
+          "name": "泰藝",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "8289",
+          "total_net_shares": 186147,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": -63,
+          "margin_balance_lots": 3218,
+          "margin_previous_balance_lots": 3281,
+          "market": "otc",
+          "name": "泰藝",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 49,
+          "short_previous_balance_lots": 49,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "8289",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 297238,
+          "balance_shares": 1859000,
+          "market": "otc",
+          "name": "泰藝",
+          "previous_balance_shares": 1858000,
+          "returned_shares": 13000,
+          "sold_amount": 651500,
+          "sold_shares": 14000,
+          "sold_volume_shares": 14000,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "8289",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 2184000,
+          "balance_value": 102648000,
+          "borrowed_shares": 14000,
+          "close_price": 47,
+          "market": "otc",
+          "name": "泰藝",
+          "previous_balance_shares": 2206000,
+          "returned_shares": 36000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8289",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "8291": {
+      "institutional": [
+        {
+          "dealer_net_shares": 0,
+          "foreign_net_shares": 1000,
+          "market": "otc",
+          "name": "尚茂",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "8291",
+          "total_net_shares": 1000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "8299": {
+      "institutional": [
+        {
+          "dealer_net_shares": -114322,
+          "foreign_net_shares": 149353,
+          "market": "otc",
+          "name": "群聯",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "8299",
+          "total_net_shares": -443969,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": -479000
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 5,
+          "margin_balance_lots": 11816,
+          "margin_previous_balance_lots": 11811,
+          "market": "otc",
+          "name": "群聯",
+          "short_balance_change_lots": 13,
+          "short_balance_lots": 64,
+          "short_previous_balance_lots": 51,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "8299",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 1604585,
+          "balance_shares": 14191000,
+          "market": "otc",
+          "name": "群聯",
+          "previous_balance_shares": 13621000,
+          "returned_shares": 0,
+          "sold_amount": 1108935000,
+          "sold_shares": 570000,
+          "sold_volume_shares": 570000,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "8299",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 18555000,
+          "balance_value": 36460575000,
+          "borrowed_shares": 986000,
+          "close_price": 1965,
+          "market": "otc",
+          "name": "群聯",
+          "previous_balance_shares": 17708000,
+          "returned_shares": 139000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "8299",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    }
+  },
+  "updated_at": "2026-08-20T05:23:06.148Z"
+}

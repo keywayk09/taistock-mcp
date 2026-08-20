@@ -1,0 +1,206 @@
+{
+  "month": "2026-08",
+  "prefix": "75",
+  "schema_version": "diamond-market-data-symbol-shard/v2",
+  "symbols": {
+    "7547": {
+      "institutional": [
+        {
+          "dealer_net_shares": 0,
+          "foreign_net_shares": -1000,
+          "market": "otc",
+          "name": "碩網",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "7547",
+          "total_net_shares": -1000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 0,
+          "margin_balance_lots": 303,
+          "margin_previous_balance_lots": 303,
+          "market": "otc",
+          "name": "碩網",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 0,
+          "short_previous_balance_lots": 0,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "7547",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 5950,
+          "balance_shares": 29000,
+          "market": "otc",
+          "name": "碩網",
+          "previous_balance_shares": 29000,
+          "returned_shares": 0,
+          "sold_amount": 0,
+          "sold_shares": 0,
+          "sold_volume_shares": 0,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "7547",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 29000,
+          "balance_value": 1551500,
+          "borrowed_shares": 0,
+          "close_price": 53.5,
+          "market": "otc",
+          "name": "碩網",
+          "previous_balance_shares": 29000,
+          "returned_shares": 0,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "7547",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "7556": {
+      "institutional": [
+        {
+          "dealer_net_shares": 616,
+          "foreign_net_shares": -19704,
+          "market": "otc",
+          "name": "意德士",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "7556",
+          "total_net_shares": -19088,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 1,
+          "margin_balance_lots": 545,
+          "margin_previous_balance_lots": 544,
+          "market": "otc",
+          "name": "意德士",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 38,
+          "short_previous_balance_lots": 38,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "7556",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 15404,
+          "balance_shares": 223803,
+          "market": "otc",
+          "name": "意德士",
+          "previous_balance_shares": 221000,
+          "returned_shares": 197,
+          "sold_amount": 738500,
+          "sold_shares": 3000,
+          "sold_volume_shares": 3000,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "7556",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 272000,
+          "balance_value": 66232000,
+          "borrowed_shares": 3000,
+          "close_price": 243.5,
+          "market": "otc",
+          "name": "意德士",
+          "previous_balance_shares": 306000,
+          "returned_shares": 37000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "7556",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "7584": {
+      "institutional": [
+        {
+          "dealer_net_shares": -10,
+          "foreign_net_shares": 0,
+          "market": "otc",
+          "name": "樂意",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "7584",
+          "total_net_shares": -10,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 0,
+          "margin_balance_lots": 26,
+          "margin_previous_balance_lots": 26,
+          "market": "otc",
+          "name": "樂意",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 0,
+          "short_previous_balance_lots": 0,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "7584",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 11413,
+          "balance_shares": 19000,
+          "market": "otc",
+          "name": "樂意",
+          "previous_balance_shares": 19000,
+          "returned_shares": 0,
+          "sold_amount": 0,
+          "sold_shares": 0,
+          "sold_volume_shares": 0,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "7584",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 23000,
+          "balance_value": 629050,
+          "borrowed_shares": 0,
+          "close_price": 27.35,
+          "market": "otc",
+          "name": "樂意",
+          "previous_balance_shares": 23000,
+          "returned_shares": 0,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "7584",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    }
+  },
+  "updated_at": "2026-08-20T05:23:06.148Z"
+}

@@ -1,0 +1,216 @@
+{
+  "month": "2026-08",
+  "prefix": "02",
+  "schema_version": "diamond-market-data-symbol-shard/v2",
+  "symbols": {
+    "020000": {
+      "institutional": [
+        {
+          "dealer_net_shares": -2000,
+          "foreign_net_shares": 0,
+          "market": "listed",
+          "name": "富邦特選蘋果N",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "020000",
+          "total_net_shares": -2000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "020025": {
+      "institutional": [
+        {
+          "dealer_net_shares": -1000,
+          "foreign_net_shares": 0,
+          "market": "otc",
+          "name": "統一亞洲半導體N",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "020025",
+          "total_net_shares": -1000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "020028": {
+      "institutional": [
+        {
+          "dealer_net_shares": 2000,
+          "foreign_net_shares": 0,
+          "market": "listed",
+          "name": "元大特選電動車N",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "020028",
+          "total_net_shares": 2000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "020029": {
+      "institutional": [
+        {
+          "dealer_net_shares": -1000,
+          "foreign_net_shares": 0,
+          "market": "listed",
+          "name": "元大ESG高股息N",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "020029",
+          "total_net_shares": -1000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "020030": {
+      "institutional": [
+        {
+          "dealer_net_shares": 2000,
+          "foreign_net_shares": 0,
+          "market": "listed",
+          "name": "統一智慧電動車N",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "020030",
+          "total_net_shares": 2000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "020031": {
+      "institutional": [
+        {
+          "dealer_net_shares": 0,
+          "foreign_net_shares": 0,
+          "market": "listed",
+          "name": "統一IC設計臺灣N",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "020031",
+          "total_net_shares": 0,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "020033": {
+      "institutional": [
+        {
+          "dealer_net_shares": 3000,
+          "foreign_net_shares": 0,
+          "market": "otc",
+          "name": "統一恒生科期N",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "020033",
+          "total_net_shares": 3000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "020034": {
+      "institutional": [
+        {
+          "dealer_net_shares": -4000,
+          "foreign_net_shares": 0,
+          "market": "listed",
+          "name": "元大IC設計N",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "020034",
+          "total_net_shares": -4000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "020035": {
+      "institutional": [
+        {
+          "dealer_net_shares": -865000,
+          "foreign_net_shares": 0,
+          "market": "otc",
+          "name": "元大上櫃ESG高息N",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "020035",
+          "total_net_shares": -865000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "020037": {
+      "institutional": [
+        {
+          "dealer_net_shares": -1000,
+          "foreign_net_shares": 0,
+          "market": "listed",
+          "name": "元大金融高股息N",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "020037",
+          "total_net_shares": -1000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "020039": {
+      "institutional": [
+        {
+          "dealer_net_shares": 4000,
+          "foreign_net_shares": 0,
+          "market": "listed",
+          "name": "元大加權N",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "020039",
+          "total_net_shares": 4000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "020040": {
+      "institutional": [
+        {
+          "dealer_net_shares": -741000,
+          "foreign_net_shares": 0,
+          "market": "otc",
+          "name": "元大上櫃ESG龍頭N",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "020040",
+          "total_net_shares": -741000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "020041": {
+      "institutional": [
+        {
+          "dealer_net_shares": -31000,
+          "foreign_net_shares": 0,
+          "market": "otc",
+          "name": "兆豐半導體氣候N",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "020041",
+          "total_net_shares": -31000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    }
+  },
+  "updated_at": "2026-08-20T05:23:06.148Z"
+}

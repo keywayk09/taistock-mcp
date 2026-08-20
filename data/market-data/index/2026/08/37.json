@@ -1,0 +1,1064 @@
+{
+  "month": "2026-08",
+  "prefix": "37",
+  "schema_version": "diamond-market-data-symbol-shard/v2",
+  "symbols": {
+    "3701": {
+      "institutional": [
+        {
+          "dealer_net_shares": -2291,
+          "foreign_net_shares": 52050,
+          "market": "listed",
+          "name": "大眾控",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "3701",
+          "total_net_shares": 49759,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 3,
+          "margin_balance_lots": 5928,
+          "margin_previous_balance_lots": 5925,
+          "market": "listed",
+          "name": "大眾控",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 59,
+          "short_previous_balance_lots": 59,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "3701",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 323172,
+          "balance_shares": 3534000,
+          "market": "listed",
+          "name": "大眾控",
+          "previous_balance_shares": 3557000,
+          "returned_shares": 26000,
+          "sold_amount": null,
+          "sold_shares": 3000,
+          "sold_volume_shares": 3000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3701",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 3629000,
+          "balance_value": 142438250,
+          "borrowed_shares": 3000,
+          "close_price": 39.25,
+          "market": "listed",
+          "name": "大眾控",
+          "previous_balance_shares": 3677000,
+          "returned_shares": 51000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3701",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3702": {
+      "institutional": [
+        {
+          "dealer_net_shares": 159607,
+          "foreign_net_shares": -3166125,
+          "market": "listed",
+          "name": "大聯大",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "3702",
+          "total_net_shares": -4835518,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": -1829000
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 578,
+          "margin_balance_lots": 9075,
+          "margin_previous_balance_lots": 8497,
+          "market": "listed",
+          "name": "大聯大",
+          "short_balance_change_lots": -51,
+          "short_balance_lots": 86,
+          "short_previous_balance_lots": 137,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "3702",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 3695019,
+          "balance_shares": 13840492,
+          "market": "listed",
+          "name": "大聯大",
+          "previous_balance_shares": 13420492,
+          "returned_shares": 19000,
+          "sold_amount": null,
+          "sold_shares": 439000,
+          "sold_volume_shares": 439000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3702",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 102737000,
+          "balance_value": 10941490500,
+          "borrowed_shares": 859000,
+          "close_price": 106.5,
+          "market": "listed",
+          "name": "大聯大",
+          "previous_balance_shares": 104869000,
+          "returned_shares": 2991000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3702",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3703": {
+      "institutional": [
+        {
+          "dealer_net_shares": 6,
+          "foreign_net_shares": 328000,
+          "market": "listed",
+          "name": "欣陸",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "3703",
+          "total_net_shares": 324006,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": -4000
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 25,
+          "margin_balance_lots": 1464,
+          "margin_previous_balance_lots": 1439,
+          "market": "listed",
+          "name": "欣陸",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 3,
+          "short_previous_balance_lots": 3,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "3703",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 453413,
+          "balance_shares": 13005888,
+          "market": "listed",
+          "name": "欣陸",
+          "previous_balance_shares": 12698888,
+          "returned_shares": 0,
+          "sold_amount": null,
+          "sold_shares": 307000,
+          "sold_volume_shares": 307000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3703",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 19402000,
+          "balance_value": 379309100,
+          "borrowed_shares": 101000,
+          "close_price": 19.55,
+          "market": "listed",
+          "name": "欣陸",
+          "previous_balance_shares": 19301000,
+          "returned_shares": 0,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3703",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3704": {
+      "institutional": [
+        {
+          "dealer_net_shares": -3009,
+          "foreign_net_shares": -905000,
+          "market": "listed",
+          "name": "合勤控",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "3704",
+          "total_net_shares": -908009,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 48,
+          "margin_balance_lots": 9075,
+          "margin_previous_balance_lots": 9027,
+          "market": "listed",
+          "name": "合勤控",
+          "short_balance_change_lots": -9,
+          "short_balance_lots": 22,
+          "short_previous_balance_lots": 31,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "3704",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 1352784,
+          "balance_shares": 3060000,
+          "market": "listed",
+          "name": "合勤控",
+          "previous_balance_shares": 3151000,
+          "returned_shares": 118000,
+          "sold_amount": null,
+          "sold_shares": 27000,
+          "sold_volume_shares": 27000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3704",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 6250000,
+          "balance_value": 259375000,
+          "borrowed_shares": 27000,
+          "close_price": 41.5,
+          "market": "listed",
+          "name": "合勤控",
+          "previous_balance_shares": 6341000,
+          "returned_shares": 118000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3704",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3705": {
+      "institutional": [
+        {
+          "dealer_net_shares": 0,
+          "foreign_net_shares": -22840,
+          "market": "listed",
+          "name": "永信",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "3705",
+          "total_net_shares": -22840,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": -1,
+          "margin_balance_lots": 369,
+          "margin_previous_balance_lots": 370,
+          "market": "listed",
+          "name": "永信",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 0,
+          "short_previous_balance_lots": 0,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "3705",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 63554,
+          "balance_shares": 1328000,
+          "market": "listed",
+          "name": "永信",
+          "previous_balance_shares": 1320000,
+          "returned_shares": 11000,
+          "sold_amount": null,
+          "sold_shares": 19000,
+          "sold_volume_shares": 19000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3705",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 1414000,
+          "balance_value": 77345800,
+          "borrowed_shares": 19000,
+          "close_price": 54.7,
+          "market": "listed",
+          "name": "永信",
+          "previous_balance_shares": 1406000,
+          "returned_shares": 11000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3705",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3706": {
+      "institutional": [
+        {
+          "dealer_net_shares": 2475682,
+          "foreign_net_shares": -2282520,
+          "market": "listed",
+          "name": "神達",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "3706",
+          "total_net_shares": 182162,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": -11000
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": -163,
+          "margin_balance_lots": 27866,
+          "margin_previous_balance_lots": 28029,
+          "market": "listed",
+          "name": "神達",
+          "short_balance_change_lots": 2,
+          "short_balance_lots": 168,
+          "short_previous_balance_lots": 166,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "3706",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 3893349,
+          "balance_shares": 92572500,
+          "market": "listed",
+          "name": "神達",
+          "previous_balance_shares": 92474500,
+          "returned_shares": 254000,
+          "sold_amount": null,
+          "sold_shares": 352000,
+          "sold_volume_shares": 352000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3706",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 101786000,
+          "balance_value": 9231990200,
+          "borrowed_shares": 1371000,
+          "close_price": 90.7,
+          "market": "listed",
+          "name": "神達",
+          "previous_balance_shares": 101434000,
+          "returned_shares": 1019000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3706",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3707": {
+      "institutional": [
+        {
+          "dealer_net_shares": 246,
+          "foreign_net_shares": -76398,
+          "market": "otc",
+          "name": "漢磊",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "3707",
+          "total_net_shares": -76152,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": -163,
+          "margin_balance_lots": 11718,
+          "margin_previous_balance_lots": 11881,
+          "market": "otc",
+          "name": "漢磊",
+          "short_balance_change_lots": -2,
+          "short_balance_lots": 335,
+          "short_previous_balance_lots": 337,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "3707",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 2367744,
+          "balance_shares": 15258763,
+          "market": "otc",
+          "name": "漢磊",
+          "previous_balance_shares": 15317763,
+          "returned_shares": 153000,
+          "sold_amount": 5792100,
+          "sold_shares": 94000,
+          "sold_volume_shares": 94000,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "3707",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 16178000,
+          "balance_value": 993329200,
+          "borrowed_shares": 103000,
+          "close_price": 61.4,
+          "market": "otc",
+          "name": "漢磊",
+          "previous_balance_shares": 16228000,
+          "returned_shares": 153000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3707",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3708": {
+      "institutional": [
+        {
+          "dealer_net_shares": 6887,
+          "foreign_net_shares": -352608,
+          "market": "listed",
+          "name": "上緯投控",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "3708",
+          "total_net_shares": -345721,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 25,
+          "margin_balance_lots": 2973,
+          "margin_previous_balance_lots": 2948,
+          "market": "listed",
+          "name": "上緯投控",
+          "short_balance_change_lots": -286,
+          "short_balance_lots": 1045,
+          "short_previous_balance_lots": 1331,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "3708",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 179292,
+          "balance_shares": 4608000,
+          "market": "listed",
+          "name": "上緯投控",
+          "previous_balance_shares": 4697000,
+          "returned_shares": 112000,
+          "sold_amount": null,
+          "sold_shares": 23000,
+          "sold_volume_shares": 23000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3708",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 6603000,
+          "balance_value": 670204500,
+          "borrowed_shares": 23000,
+          "close_price": 101.5,
+          "market": "listed",
+          "name": "上緯投控",
+          "previous_balance_shares": 6750000,
+          "returned_shares": 170000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3708",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3709": {
+      "institutional": [
+        {
+          "dealer_net_shares": -10676,
+          "foreign_net_shares": -127000,
+          "market": "otc",
+          "name": "鑫聯大投控",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "3709",
+          "total_net_shares": -137676,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 32,
+          "margin_balance_lots": 4326,
+          "margin_previous_balance_lots": 4294,
+          "market": "otc",
+          "name": "鑫聯大投控",
+          "short_balance_change_lots": 1,
+          "short_balance_lots": 3,
+          "short_previous_balance_lots": 2,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "3709",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 401743,
+          "balance_shares": 1299859,
+          "market": "otc",
+          "name": "鑫聯大投控",
+          "previous_balance_shares": 1276859,
+          "returned_shares": 0,
+          "sold_amount": 1562900,
+          "sold_shares": 23000,
+          "sold_volume_shares": 23000,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "3709",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 1429000,
+          "balance_value": 97172000,
+          "borrowed_shares": 80000,
+          "close_price": 68,
+          "market": "otc",
+          "name": "鑫聯大投控",
+          "previous_balance_shares": 1349000,
+          "returned_shares": 0,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3709",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3710": {
+      "institutional": [
+        {
+          "dealer_net_shares": 0,
+          "foreign_net_shares": 22000,
+          "market": "otc",
+          "name": "連展投控",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "3710",
+          "total_net_shares": 22000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 0,
+          "margin_balance_lots": 0,
+          "margin_previous_balance_lots": 0,
+          "market": "otc",
+          "name": "連展投控",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 0,
+          "short_previous_balance_lots": 0,
+          "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+          "source_priority": "OFFICIAL",
+          "symbol": "3710",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 0,
+          "balance_shares": 0,
+          "market": "otc",
+          "name": "連展投控",
+          "previous_balance_shares": 0,
+          "returned_shares": 0,
+          "sold_amount": 0,
+          "sold_shares": 0,
+          "sold_volume_shares": 0,
+          "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+          "source_priority": "OFFICIAL",
+          "symbol": "3710",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3711": {
+      "institutional": [
+        {
+          "dealer_net_shares": -127734,
+          "foreign_net_shares": 2323531,
+          "market": "listed",
+          "name": "日月光投控",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "3711",
+          "total_net_shares": -1128203,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": -3324000
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 180,
+          "margin_balance_lots": 11861,
+          "margin_previous_balance_lots": 11681,
+          "market": "listed",
+          "name": "日月光投控",
+          "short_balance_change_lots": 73,
+          "short_balance_lots": 256,
+          "short_previous_balance_lots": 183,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "3711",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 6944272,
+          "balance_shares": 26609529,
+          "market": "listed",
+          "name": "日月光投控",
+          "previous_balance_shares": 25483529,
+          "returned_shares": 5000,
+          "sold_amount": null,
+          "sold_shares": 1131000,
+          "sold_volume_shares": 1131000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3711",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 69372000,
+          "balance_value": 40790736000,
+          "borrowed_shares": 1133000,
+          "close_price": 588,
+          "market": "listed",
+          "name": "日月光投控",
+          "previous_balance_shares": 70145000,
+          "returned_shares": 1906000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3711",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3712": {
+      "institutional": [
+        {
+          "dealer_net_shares": -10000,
+          "foreign_net_shares": -20000,
+          "market": "listed",
+          "name": "永崴投控",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "3712",
+          "total_net_shares": -30000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": -48,
+          "margin_balance_lots": 2252,
+          "margin_previous_balance_lots": 2300,
+          "market": "listed",
+          "name": "永崴投控",
+          "short_balance_change_lots": -3,
+          "short_balance_lots": 19,
+          "short_previous_balance_lots": 22,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "3712",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 386289,
+          "balance_shares": 9009000,
+          "market": "listed",
+          "name": "永崴投控",
+          "previous_balance_shares": 9014000,
+          "returned_shares": 23000,
+          "sold_amount": null,
+          "sold_shares": 18000,
+          "sold_volume_shares": 18000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3712",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 9067000,
+          "balance_value": 185873500,
+          "borrowed_shares": 51000,
+          "close_price": 20.5,
+          "market": "listed",
+          "name": "永崴投控",
+          "previous_balance_shares": 9039000,
+          "returned_shares": 23000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3712",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3713": {
+      "institutional": [
+        {
+          "dealer_net_shares": 0,
+          "foreign_net_shares": 1000,
+          "market": "otc",
+          "name": "新晶投控",
+          "source": "TPEX_3INSTI_DAILY_TRADING",
+          "source_priority": "OFFICIAL",
+          "symbol": "3713",
+          "total_net_shares": 1000,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ]
+    },
+    "3714": {
+      "institutional": [
+        {
+          "dealer_net_shares": 27560,
+          "foreign_net_shares": -58555,
+          "market": "listed",
+          "name": "富采",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "3714",
+          "total_net_shares": -30995,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 31,
+          "margin_balance_lots": 23434,
+          "margin_previous_balance_lots": 23403,
+          "market": "listed",
+          "name": "富采",
+          "short_balance_change_lots": -16,
+          "short_balance_lots": 166,
+          "short_previous_balance_lots": 182,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "3714",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 2254916,
+          "balance_shares": 34132000,
+          "market": "listed",
+          "name": "富采",
+          "previous_balance_shares": 34378000,
+          "returned_shares": 483000,
+          "sold_amount": null,
+          "sold_shares": 237000,
+          "sold_volume_shares": 237000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3714",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 46254000,
+          "balance_value": 2553220800,
+          "borrowed_shares": 611000,
+          "close_price": 55.2,
+          "market": "listed",
+          "name": "富采",
+          "previous_balance_shares": 46494000,
+          "returned_shares": 851000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3714",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3715": {
+      "institutional": [
+        {
+          "dealer_net_shares": -4566,
+          "foreign_net_shares": 207842,
+          "market": "listed",
+          "name": "定穎投控",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "3715",
+          "total_net_shares": 203276,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": -7,
+          "margin_balance_lots": 20638,
+          "margin_previous_balance_lots": 20645,
+          "market": "listed",
+          "name": "定穎投控",
+          "short_balance_change_lots": 10,
+          "short_balance_lots": 588,
+          "short_previous_balance_lots": 578,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "3715",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 1943114,
+          "balance_shares": 22899050,
+          "market": "listed",
+          "name": "定穎投控",
+          "previous_balance_shares": 23469050,
+          "returned_shares": 732000,
+          "sold_amount": null,
+          "sold_shares": 162000,
+          "sold_volume_shares": 162000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3715",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 25984000,
+          "balance_value": 2793280000,
+          "borrowed_shares": 154000,
+          "close_price": 107.5,
+          "market": "listed",
+          "name": "定穎投控",
+          "previous_balance_shares": 26762000,
+          "returned_shares": 932000,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3715",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3716": {
+      "institutional": [
+        {
+          "dealer_net_shares": 0,
+          "foreign_net_shares": 45750,
+          "market": "listed",
+          "name": "中化控股",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "3716",
+          "total_net_shares": 45750,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 10,
+          "margin_balance_lots": 487,
+          "margin_previous_balance_lots": 477,
+          "market": "listed",
+          "name": "中化控股",
+          "short_balance_change_lots": 0,
+          "short_balance_lots": 0,
+          "short_previous_balance_lots": 0,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "3716",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 96783,
+          "balance_shares": 796000,
+          "market": "listed",
+          "name": "中化控股",
+          "previous_balance_shares": 796000,
+          "returned_shares": 0,
+          "sold_amount": null,
+          "sold_shares": 0,
+          "sold_volume_shares": 0,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3716",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 1122000,
+          "balance_value": 38877300,
+          "borrowed_shares": 0,
+          "close_price": 34.65,
+          "market": "listed",
+          "name": "中化控股",
+          "previous_balance_shares": 1122000,
+          "returned_shares": 0,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3716",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    },
+    "3717": {
+      "institutional": [
+        {
+          "dealer_net_shares": -2387,
+          "foreign_net_shares": -422260,
+          "market": "listed",
+          "name": "聯嘉投控",
+          "source": "TWSE_T86",
+          "source_priority": "OFFICIAL",
+          "symbol": "3717",
+          "total_net_shares": -424647,
+          "trade_date": "2026-08-19",
+          "trust_net_shares": 0
+        }
+      ],
+      "margin": [
+        {
+          "margin_balance_change_lots": 110,
+          "margin_balance_lots": 12473,
+          "margin_previous_balance_lots": 12363,
+          "market": "listed",
+          "name": "聯嘉投控",
+          "short_balance_change_lots": -5,
+          "short_balance_lots": 564,
+          "short_previous_balance_lots": 569,
+          "source": "TWSE_MI_MARGN",
+          "source_priority": "OFFICIAL",
+          "symbol": "3717",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "sbl_short_sale": [
+        {
+          "adjustment_shares": 0,
+          "available_shares": 985402,
+          "balance_shares": 6202000,
+          "market": "listed",
+          "name": "聯嘉投控",
+          "previous_balance_shares": 6103000,
+          "returned_shares": 0,
+          "sold_amount": null,
+          "sold_shares": 99000,
+          "sold_volume_shares": 99000,
+          "source": "TWSE_TWT93U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3717",
+          "trade_date": "2026-08-19"
+        }
+      ],
+      "securities_lending": [
+        {
+          "balance_shares": 7995000,
+          "balance_value": 177489000,
+          "borrowed_shares": 61000,
+          "close_price": 22.2,
+          "market": "listed",
+          "name": "聯嘉投控",
+          "previous_balance_shares": 7934000,
+          "returned_shares": 0,
+          "source": "TWSE_TWT72U",
+          "source_priority": "OFFICIAL",
+          "symbol": "3717",
+          "trade_date": "2026-08-19"
+        }
+      ]
+    }
+  },
+  "updated_at": "2026-08-20T05:23:06.148Z"
+}

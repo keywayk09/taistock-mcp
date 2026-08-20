@@ -1,0 +1,129 @@
+{
+  "layers": [
+    {
+      "captured_at": "2026-08-20T05:23:06.148Z",
+      "content_sha256": "84c6a4b7625646a61fe6318cf7598cbc1d7f9b15c2a49c461618e366981edd9c",
+      "dataset_version": "sha256:84c6a4b7625646a61fe6318cf7598cbc1d7f9b15c2a49c461618e366981edd9c",
+      "error": null,
+      "kind": "institutional",
+      "market": "listed",
+      "raw_paths": [
+        "data/market-data/raw/2026/08/19/twse_t86-9af3aef4a1bc9ba7de39a238e7e7ede653ecc67dbc92e3abda59684f54600044.json"
+      ],
+      "row_count": 1231,
+      "snapshot_path": "data/market-data/daily/2026/08/19/snapshots/institutional-listed/84c6a4b7625646a61fe6318cf7598cbc1d7f9b15c2a49c461618e366981edd9c.json",
+      "source": "TWSE_T86",
+      "status": "READY"
+    },
+    {
+      "captured_at": "2026-08-20T05:23:06.148Z",
+      "content_sha256": "cd304d96d5a8b9ed8599fc52a921b27ab998b443ee6d5219bc7a294d73898420",
+      "dataset_version": "sha256:cd304d96d5a8b9ed8599fc52a921b27ab998b443ee6d5219bc7a294d73898420",
+      "error": null,
+      "kind": "institutional",
+      "market": "otc",
+      "raw_paths": [
+        "data/market-data/raw/2026/08/19/tpex_3insti_daily_trading-9905b3f9bfff3ac30323def5aa61852b9fca5d2e5c296ad0795d12c45a7f5236.json"
+      ],
+      "row_count": 790,
+      "snapshot_path": "data/market-data/daily/2026/08/19/snapshots/institutional-otc/cd304d96d5a8b9ed8599fc52a921b27ab998b443ee6d5219bc7a294d73898420.json",
+      "source": "TPEX_3INSTI_DAILY_TRADING",
+      "status": "READY"
+    },
+    {
+      "captured_at": "2026-08-20T05:23:06.148Z",
+      "content_sha256": "5d69d8d8633f98040ddfc31d19b4cdd200963b10249ed00fe2b3f4f3c066e3da",
+      "dataset_version": "sha256:5d69d8d8633f98040ddfc31d19b4cdd200963b10249ed00fe2b3f4f3c066e3da",
+      "error": null,
+      "kind": "margin",
+      "market": "listed",
+      "raw_paths": [
+        "data/market-data/raw/2026/08/19/twse_mi_margn-76eb768a4699d297270a93168ce09cd0ef0c463cc7c67530bacd388b7a8cd73b.json"
+      ],
+      "row_count": 1205,
+      "snapshot_path": "data/market-data/daily/2026/08/19/snapshots/margin-listed/5d69d8d8633f98040ddfc31d19b4cdd200963b10249ed00fe2b3f4f3c066e3da.json",
+      "source": "TWSE_MI_MARGN",
+      "status": "READY"
+    },
+    {
+      "captured_at": "2026-08-20T05:23:06.148Z",
+      "content_sha256": "65a53d3e7ce0cc3f8654ba0d8ba1f7834e55480f7a4cd7b4aaeca4d988a67fb6",
+      "dataset_version": "sha256:65a53d3e7ce0cc3f8654ba0d8ba1f7834e55480f7a4cd7b4aaeca4d988a67fb6",
+      "error": null,
+      "kind": "margin",
+      "market": "otc",
+      "raw_paths": [
+        "data/market-data/raw/2026/08/19/tpex_mainboard_margin_balance-abd59f266daba16cf4ea0bd1e8b10834646c7894f436cb5b8ee5d2596de7c6bb.json"
+      ],
+      "row_count": 817,
+      "snapshot_path": "data/market-data/daily/2026/08/19/snapshots/margin-otc/65a53d3e7ce0cc3f8654ba0d8ba1f7834e55480f7a4cd7b4aaeca4d988a67fb6.json",
+      "source": "TPEX_MAINBOARD_MARGIN_BALANCE",
+      "status": "READY"
+    },
+    {
+      "captured_at": "2026-08-20T05:23:06.148Z",
+      "content_sha256": "7eb4a6f5fbb5dafb4a2f9fd82864223571a6ad08d2b9df450339a51c59e9b311",
+      "dataset_version": "sha256:7eb4a6f5fbb5dafb4a2f9fd82864223571a6ad08d2b9df450339a51c59e9b311",
+      "error": null,
+      "kind": "securities_lending",
+      "market": "listed",
+      "raw_paths": [
+        "data/market-data/raw/2026/08/19/twse_twt72u-725d7171fa36f5bc6af231ab6dec7af7e2e18cb00f52ec157119c434c7376da4.json"
+      ],
+      "row_count": 1142,
+      "snapshot_path": "data/market-data/daily/2026/08/19/snapshots/securities_lending-listed/7eb4a6f5fbb5dafb4a2f9fd82864223571a6ad08d2b9df450339a51c59e9b311.json",
+      "source": "TWSE_TWT72U",
+      "status": "READY"
+    },
+    {
+      "captured_at": "2026-08-20T05:23:06.148Z",
+      "content_sha256": "f477289fda1ad517e7afed07e23b3ffa8f4f8b144ad78d7258a24a5db3a43674",
+      "dataset_version": "sha256:f477289fda1ad517e7afed07e23b3ffa8f4f8b144ad78d7258a24a5db3a43674",
+      "error": null,
+      "kind": "securities_lending",
+      "market": "otc",
+      "raw_paths": [
+        "data/market-data/raw/2026/08/19/twse_twt72u-725d7171fa36f5bc6af231ab6dec7af7e2e18cb00f52ec157119c434c7376da4.json"
+      ],
+      "row_count": 744,
+      "snapshot_path": "data/market-data/daily/2026/08/19/snapshots/securities_lending-otc/f477289fda1ad517e7afed07e23b3ffa8f4f8b144ad78d7258a24a5db3a43674.json",
+      "source": "TWSE_TWT72U",
+      "status": "READY"
+    },
+    {
+      "captured_at": "2026-08-20T05:23:06.148Z",
+      "content_sha256": "1306c8d028e107db4ba46965495b2caedfd38f15a2b0f0706419fcdee1d0e0dd",
+      "dataset_version": "sha256:1306c8d028e107db4ba46965495b2caedfd38f15a2b0f0706419fcdee1d0e0dd",
+      "error": null,
+      "kind": "sbl_short_sale",
+      "market": "listed",
+      "raw_paths": [
+        "data/market-data/raw/2026/08/19/twse_twt93u-274795bc52fc2e64c5e290126e6b5ad31b5b8ad8c4cf58eb97866c734618a2ee.json"
+      ],
+      "row_count": 1208,
+      "snapshot_path": "data/market-data/daily/2026/08/19/snapshots/sbl_short_sale-listed/1306c8d028e107db4ba46965495b2caedfd38f15a2b0f0706419fcdee1d0e0dd.json",
+      "source": "TWSE_TWT93U",
+      "status": "READY"
+    },
+    {
+      "captured_at": "2026-08-20T05:23:06.148Z",
+      "content_sha256": "a8448698f3dc9cb77fdb495fb2c3f0e9928089300417e5ec7a6fc012a4ae4af8",
+      "dataset_version": "sha256:a8448698f3dc9cb77fdb495fb2c3f0e9928089300417e5ec7a6fc012a4ae4af8",
+      "error": null,
+      "kind": "sbl_short_sale",
+      "market": "otc",
+      "raw_paths": [
+        "data/market-data/raw/2026/08/19/tpex_margin_sbl-d96e0adefeb3edd94e184a8066d100aab965bd6b653a50167ecfe0941e0efdad.json",
+        "data/market-data/raw/2026/08/19/tpex_short_sell-1f92abed3f896ae4f0ec740928eda671827f504ed1807aaf23c1d9705a69dc24.json"
+      ],
+      "row_count": 828,
+      "snapshot_path": "data/market-data/daily/2026/08/19/snapshots/sbl_short_sale-otc/a8448698f3dc9cb77fdb495fb2c3f0e9928089300417e5ec7a6fc012a4ae4af8.json",
+      "source": "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+      "status": "READY"
+    }
+  ],
+  "schema_version": "diamond-market-data-manifest/v2",
+  "storage": "GITHUB_ONLY",
+  "trade_date": "2026-08-19",
+  "updated_at": "2026-08-20T05:23:06.148Z"
+}
