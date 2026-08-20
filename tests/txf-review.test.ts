@@ -74,7 +74,7 @@ assert.doesNotMatch(engineSource,/0\.0004|cost_rate_round_trip/);
 assert.match(engineSource,/formal_research_result:false/);
 assert.match(engineSource,/original_5m_result_preserved:true/);
 const ledgerSource=fs.readFileSync(new URL("../src/v6/txf-signal-ledger.ts",import.meta.url),"utf8");
-assert.match(ledgerSource,/txf_signal_ledger/);assert.doesNotMatch(ledgerSource,/taipeiDateFromEpoch|TRADE_DATE_MISMATCH/);
+assert.match(ledgerSource,/research\/txf-signal-ledger/);assert.match(ledgerSource,/GITHUB_ONLY/);assert.doesNotMatch(ledgerSource,/D1Database|RESEARCH_DB|taipeiDateFromEpoch|TRADE_DATE_MISMATCH/);
 const capabilitySource=fs.readFileSync(new URL("../src/v6/diamond-capability-p14.ts",import.meta.url),"utf8");
 assert.match(capabilitySource,/read_txf_ohlc/);assert.match(capabilitySource,/txf_stock_cost_profile_reuse:\"FORBIDDEN\"/);assert.match(capabilitySource,/build_stock_txf_context/);
 console.log("P14 TXF signal/review/replay/context regression passed");

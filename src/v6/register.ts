@@ -4,7 +4,6 @@ import {
   arr,
   concurrencyMap,
   dateSchema,
-  ensureSchema,
   fail,
   fetchJson,
   finmind,
@@ -13,7 +12,6 @@ import {
   normalizeQuote,
   num,
   ok,
-  parseJson,
   rec,
   returnPct,
   round,
@@ -24,6 +22,21 @@ import {
   type DailyBar,
   type Obj,
 } from "./common";
+
+import {
+  findEventPatterns as findStoredEventPatterns,
+  getPortfolio,
+  getWatchlistChanges as loadWatchlistChanges,
+  listStockEvents as listStoredStockEvents,
+  loadWatchlist,
+  probeGitHubDataRead,
+  recordStockEvent as appendStockEvent,
+  removeWatchlistItems as removeStoredWatchlistItems,
+  saveEventOutcome,
+  savePortfolio as saveStoredPortfolio,
+  saveWatchlist as saveStoredWatchlist,
+  saveWatchlistSnapshot,
+} from "./github-user-data";
 
 const FINMIND_START_3Y = () => taipeiDate(1_150);
 const TWSE_EVENTS = "https://openapi.twse.com.tw/v1/opendata/t187ap04_L";
@@ -173,14 +186,6 @@ function correlation(a: number[], b: number[]) {
 }
 function logReturns(bars: DailyBar[]) { return bars.slice(1).map((x, i) => Math.log(x.close / bars[i].close)); }
 
-async function loadWatchlist(env: Env, name: string) {
-  const db = await ensureSchema(env);
-  const list = await db.prepare("SELECT * FROM watchlists WHERE name = ?").bind(name).first<any>();
-  if (!list) throw new Error(`找不到觀察清單：${name}`);
-  const items = await db.prepare("SELECT * FROM watchlist_items WHERE watchlist_name = ? ORDER BY added_at").bind(name).all<any>();
-  return { ...list, items: items.results.map((x: any) => ({ ...x, tags: parseJson<string[]>(x.tags_json, []) })) };
-}
-
 async function scanSymbols(env: Env, symbols: string[], includeSwingScore: boolean) {
   const settled = await concurrencyMap(symbols, 5, async (symbol) => {
     const quote = normalizeQuote(await fugle(env, `/intraday/quote/${encodeURIComponent(symbol)}`), symbol);
@@ -225,141 +230,28 @@ export function registerAdvancedTools(server: McpServer, env: Env) {
   });
 
   server.registerTool("save_watchlist", {
-    description: "建立或更新永久觀察清單，資料儲存在Cloudflare D1，跨聊天與裝置保留。",
-    inputSchema: {
-      name: watchlistNameSchema.optional().default("我的觀察清單"),
-      description: z.string().max(500).optional().default(""),
-      mode: z.enum(["merge", "replace"]).optional().default("merge"),
-      items: z.array(watchItem).min(1).max(300),
-    },
-  }, async ({ name, description, mode, items }) => {
-    try {
-      const db = await ensureSchema(env), now = nowIso();
-      await db.prepare("INSERT INTO watchlists(name,description,created_at,updated_at) VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET description=excluded.description,updated_at=excluded.updated_at").bind(name, description, now, now).run();
-      if (mode === "replace") await db.prepare("DELETE FROM watchlist_items WHERE watchlist_name = ?").bind(name).run();
-      const statements = items.map((item: { symbol: string; note: string; tags: string[]; target_price?: number; stop_price?: number }) => db.prepare("INSERT INTO watchlist_items(watchlist_name,symbol,note,tags_json,target_price,stop_price,added_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(watchlist_name,symbol) DO UPDATE SET note=excluded.note,tags_json=excluded.tags_json,target_price=excluded.target_price,stop_price=excluded.stop_price,updated_at=excluded.updated_at").bind(name, item.symbol, item.note, JSON.stringify(item.tags), item.target_price ?? null, item.stop_price ?? null, now, now));
-      await db.batch(statements);
-      return ok({ storage: "Cloudflare D1", name, mode, saved: items.length, watchlist: await loadWatchlist(env, name) });
-    } catch (e) { return fail(e); }
-  });
+    description: "建立或更新永久觀察清單；GitHub diamond-data 為唯一長期保存層。",
+    inputSchema: { name: watchlistNameSchema.optional().default("我的觀察清單"), description: z.string().max(500).optional().default(""), mode: z.enum(["merge","replace"]).optional().default("merge"), items: z.array(watchItem).min(1).max(300) },
+  }, async ({name,description,mode,items}) => { try { const watchlist=await saveStoredWatchlist(env,{name,description,mode,items}); return ok({storage:"GITHUB_ONLY",name,mode,saved:items.length,watchlist}); } catch(e){return fail(e);} });
 
-  server.registerTool("get_watchlist", {
-    description: "讀取永久觀察清單。",
-    inputSchema: { name: watchlistNameSchema.optional().default("我的觀察清單") },
-  }, async ({ name }) => { try { return ok({ storage: "Cloudflare D1", watchlist: await loadWatchlist(env, name) }); } catch (e) { return fail(e); } });
+  server.registerTool("get_watchlist", { description:"讀取 GitHub 永久觀察清單。", inputSchema:{name:watchlistNameSchema.optional().default("我的觀察清單")} }, async ({name})=>{try{return ok({storage:"GITHUB_ONLY",watchlist:await loadWatchlist(env,name)});}catch(e){return fail(e);}});
 
-  server.registerTool("remove_watchlist_items", {
-    description: "從永久觀察清單移除股票。",
-    inputSchema: { name: watchlistNameSchema.optional().default("我的觀察清單"), symbols: z.array(stockSchema).min(1).max(300) },
-  }, async ({ name, symbols }) => {
-    try {
-      const db = await ensureSchema(env);
-      await db.batch(symbols.map((symbol: string) => db.prepare("DELETE FROM watchlist_items WHERE watchlist_name = ? AND symbol = ?").bind(name, symbol)));
-      return ok({ name, removed: symbols, watchlist: await loadWatchlist(env, name) });
-    } catch (e) { return fail(e); }
-  });
+  server.registerTool("remove_watchlist_items", { description:"從 GitHub 永久觀察清單移除股票。", inputSchema:{name:watchlistNameSchema.optional().default("我的觀察清單"),symbols:z.array(stockSchema).min(1).max(300)} }, async ({name,symbols})=>{try{return ok({storage:"GITHUB_ONLY",name,removed:symbols,watchlist:await removeStoredWatchlistItems(env,name,symbols)});}catch(e){return fail(e);}});
 
   server.registerTool("scan_saved_watchlist", {
-    description: "掃描D1中的觀察清單，依即時強弱、成交值或波段分數排序，並保存每日快照。",
-    inputSchema: {
-      name: watchlistNameSchema.optional().default("我的觀察清單"),
-      rank_by: z.enum(["change_percent", "trade_value", "trade_volume", "intraday_position", "swing_score"]).optional().default("change_percent"),
-      include_swing_score: z.boolean().optional().default(false),
-      top_n: z.number().int().min(1).max(100).optional().default(30),
-    },
-  }, async ({ name, rank_by, include_swing_score, top_n }) => {
-    try {
-      const list = await loadWatchlist(env, name), symbols = list.items.map((x: any) => String(x.symbol));
-      const scanned = await scanSymbols(env, symbols, include_swing_score || rank_by === "swing_score");
-      const score = (x: any) => rank_by === "swing_score" ? num(x.swing?.score) : num(x[rank_by]);
-      scanned.data.sort((a, b) => score(b) - score(a));
-      const db = await ensureSchema(env), date = taipeiDate(), now = nowIso();
-      await db.batch(scanned.data.map((x) => db.prepare("INSERT INTO watchlist_snapshots(watchlist_name,symbol,snapshot_date,close,change_percent,trade_value,score,payload_json,created_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(watchlist_name,symbol,snapshot_date) DO UPDATE SET close=excluded.close,change_percent=excluded.change_percent,trade_value=excluded.trade_value,score=excluded.score,payload_json=excluded.payload_json,created_at=excluded.created_at").bind(name, x.symbol, date, x.close, x.change_percent, x.trade_value, x.swing?.score ?? null, JSON.stringify(x), now)));
-      return ok({ name, snapshot_date: date, rank_by, requested: symbols.length, data: scanned.data.slice(0, top_n), partial_errors: scanned.errors });
-    } catch (e) { return fail(e); }
-  });
+    description:"掃描 GitHub 觀察清單，依即時強弱、成交值或波段分數排序，並把每日快照保存回 GitHub。",
+    inputSchema:{name:watchlistNameSchema.optional().default("我的觀察清單"),rank_by:z.enum(["change_percent","trade_value","trade_volume","intraday_position","swing_score"]).optional().default("change_percent"),include_swing_score:z.boolean().optional().default(false),top_n:z.number().int().min(1).max(100).optional().default(30)},
+  }, async ({name,rank_by,include_swing_score,top_n})=>{try{const list=await loadWatchlist(env,name),symbols=list.items.map((x:any)=>String(x.symbol)),scanned=await scanSymbols(env,symbols,include_swing_score||rank_by==="swing_score"),score=(x:any)=>rank_by==="swing_score"?num(x.swing?.score):num(x[rank_by]);scanned.data.sort((a,b)=>score(b)-score(a));const date=taipeiDate();await saveWatchlistSnapshot(env,name,date,scanned.data);return ok({storage:"GITHUB_ONLY",name,snapshot_date:date,rank_by,requested:symbols.length,data:scanned.data.slice(0,top_n),partial_errors:scanned.errors});}catch(e){return fail(e);}});
 
-  server.registerTool("get_watchlist_changes", {
-    description: "比較觀察清單最近兩個交易日快照，找出排名、漲跌幅與波段分數變化。",
-    inputSchema: { name: watchlistNameSchema.optional().default("我的觀察清單") },
-  }, async ({ name }) => {
-    try {
-      const db = await ensureSchema(env);
-      const dates = await db.prepare("SELECT DISTINCT snapshot_date FROM watchlist_snapshots WHERE watchlist_name = ? ORDER BY snapshot_date DESC LIMIT 2").bind(name).all<any>();
-      if (dates.results.length < 2) throw new Error("至少需要在兩個不同日期執行 scan_saved_watchlist 才能比較變化");
-      const [latestDate, previousDate] = dates.results.map((x: any) => String(x.snapshot_date));
-      const rows = await db.prepare("SELECT * FROM watchlist_snapshots WHERE watchlist_name = ? AND snapshot_date IN (?,?)").bind(name, latestDate, previousDate).all<any>();
-      const map = new Map<string, any>();
-      for (const row of rows.results) { const current = map.get(row.symbol) ?? {}; current[row.snapshot_date] = row; map.set(row.symbol, current); }
-      const changes = [...map.entries()].map(([symbol, value]) => {
-        const a = value[latestDate], b = value[previousDate];
-        return { symbol, latest: a ?? null, previous: b ?? null, close_change_percent: a && b ? returnPct(num(a.close), num(b.close)) : null, score_change: a && b ? round(num(a.score) - num(b.score)) : null, trade_value_change_percent: a && b ? returnPct(num(a.trade_value), num(b.trade_value)) : null };
-      }).sort((a, b) => num(b.score_change) - num(a.score_change));
-      return ok({ name, latest_date: latestDate, previous_date: previousDate, changes });
-    } catch (e) { return fail(e); }
-  });
+  server.registerTool("get_watchlist_changes", { description:"比較 GitHub 觀察清單最近兩個交易日快照。", inputSchema:{name:watchlistNameSchema.optional().default("我的觀察清單")} }, async ({name})=>{try{const snap=await loadWatchlistChanges(env,name),map=new Map<string,any>();for(const row of snap.latest){const v=map.get(row.symbol)??{};v.latest=row;map.set(row.symbol,v);}for(const row of snap.previous){const v=map.get(row.symbol)??{};v.previous=row;map.set(row.symbol,v);}const changes=[...map.entries()].map(([symbol,v])=>({symbol,latest:v.latest??null,previous:v.previous??null,close_change_percent:v.latest&&v.previous?returnPct(num(v.latest.close),num(v.previous.close)):null,score_change:v.latest&&v.previous?round(num(v.latest.swing?.score)-num(v.previous.swing?.score)):null,trade_value_change_percent:v.latest&&v.previous?returnPct(num(v.latest.trade_value),num(v.previous.trade_value)):null})).sort((a,b)=>num(b.score_change)-num(a.score_change));return ok({storage:"GITHUB_ONLY",name,latest_date:snap.latestDate,previous_date:snap.previousDate,changes});}catch(e){return fail(e);}});
 
-  server.registerTool("record_stock_event", {
-    description: "把策略訊號、財報、營收、法說或其他事件永久寫入事件資料庫。",
-    inputSchema: { symbol: stockSchema, event_type: z.string().trim().min(1).max(80), event_date: dateSchema.optional(), source: z.string().max(80).optional().default("manual"), title: z.string().max(500).optional().default(""), payload: z.record(z.string(), z.unknown()).optional().default({}) },
-  }, async ({ symbol, event_type, event_date, source, title, payload }) => {
-    try {
-      const db = await ensureSchema(env), date = event_date ?? taipeiDate();
-      const result = await db.prepare("INSERT INTO stock_events(symbol,event_type,event_date,source,title,payload_json,created_at) VALUES(?,?,?,?,?,?,?)").bind(symbol, event_type, date, source, title, JSON.stringify(payload), nowIso()).run();
-      return ok({ stored: true, event_id: Number(result.meta.last_row_id ?? 0), symbol, event_type, event_date: date });
-    } catch (e) { return fail(e); }
-  });
+  server.registerTool("record_stock_event", { description:"把策略訊號、財報、營收、法說或其他事件永久寫入 GitHub。", inputSchema:{symbol:stockSchema,event_type:z.string().trim().min(1).max(80),event_date:dateSchema.optional(),source:z.string().max(80).optional().default("manual"),title:z.string().max(500).optional().default(""),payload:z.record(z.string(),z.unknown()).optional().default({})} }, async ({symbol,event_type,event_date,source,title,payload})=>{try{const date=event_date??taipeiDate(),event=await appendStockEvent(env,{symbol,event_type,event_date:date,source,title,payload});return ok({storage:"GITHUB_ONLY",stored:true,event_id:event.id,symbol,event_type,event_date:date});}catch(e){return fail(e);}});
 
-  server.registerTool("list_stock_events", {
-    description: "查詢永久事件資料庫。",
-    inputSchema: { symbol: stockSchema.optional(), event_type: z.string().max(80).optional(), limit: z.number().int().min(1).max(500).optional().default(100) },
-  }, async ({ symbol, event_type, limit }) => {
-    try {
-      const db = await ensureSchema(env);
-      const clauses: string[] = [], values: any[] = [];
-      if (symbol) { clauses.push("e.symbol = ?"); values.push(symbol); }
-      if (event_type) { clauses.push("e.event_type = ?"); values.push(event_type); }
-      values.push(limit);
-      const sql = `SELECT e.*,o.reference_price,o.return_1d,o.return_5d,o.return_20d,o.return_60d,o.mfe_20d,o.mae_20d,o.mfe_60d,o.mae_60d FROM stock_events e LEFT JOIN event_outcomes o ON o.event_id=e.id ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY e.event_date DESC,e.id DESC LIMIT ?`;
-      const result = await db.prepare(sql).bind(...values).all<any>();
-      return ok({ data: result.results.map((x: any) => ({ ...x, payload: parseJson(x.payload_json, {}) })) });
-    } catch (e) { return fail(e); }
-  });
+  server.registerTool("list_stock_events", { description:"查詢 GitHub 永久事件資料。", inputSchema:{symbol:stockSchema.optional(),event_type:z.string().max(80).optional(),limit:z.number().int().min(1).max(500).optional().default(100)} }, async ({symbol,event_type,limit})=>{try{return ok({storage:"GITHUB_ONLY",data:await listStoredStockEvents(env,{symbol,event_type,limit})});}catch(e){return fail(e);}});
 
-  server.registerTool("evaluate_event_outcomes", {
-    description: "計算事件後1/5/20/60日報酬及MFE/MAE，寫回事件資料庫。",
-    inputSchema: { event_id: z.number().int().positive().optional(), symbol: stockSchema.optional(), limit: z.number().int().min(1).max(30).optional().default(10), overwrite: z.boolean().optional().default(false) },
-  }, async ({ event_id, symbol, limit, overwrite }) => {
-    try {
-      const db = await ensureSchema(env), clauses: string[] = [], values: any[] = [];
-      if (event_id) { clauses.push("e.id = ?"); values.push(event_id); }
-      if (symbol) { clauses.push("e.symbol = ?"); values.push(symbol); }
-      if (!overwrite) clauses.push("o.event_id IS NULL");
-      values.push(limit);
-      const events = await db.prepare(`SELECT e.* FROM stock_events e LEFT JOIN event_outcomes o ON o.event_id=e.id ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""} ORDER BY e.event_date LIMIT ?`).bind(...values).all<any>();
-      const settled = await concurrencyMap(events.results, 3, async (event: any) => {
-        const rows = normalizeDailyBars(await finmind(env, "TaiwanStockPrice", { data_id: event.symbol, start_date: event.event_date, end_date: addDays(event.event_date, 120) }));
-        if (!rows.length) throw new Error(`${event.symbol} 在事件日期後沒有日K`);
-        const outcome = eventOutcome(rows);
-        await db.prepare("INSERT INTO event_outcomes(event_id,reference_price,return_1d,return_5d,return_20d,return_60d,mfe_20d,mae_20d,mfe_60d,mae_60d,evaluated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(event_id) DO UPDATE SET reference_price=excluded.reference_price,return_1d=excluded.return_1d,return_5d=excluded.return_5d,return_20d=excluded.return_20d,return_60d=excluded.return_60d,mfe_20d=excluded.mfe_20d,mae_20d=excluded.mae_20d,mfe_60d=excluded.mfe_60d,mae_60d=excluded.mae_60d,evaluated_at=excluded.evaluated_at").bind(event.id, outcome.reference_price, outcome.return_1d, outcome.return_5d, outcome.return_20d, outcome.return_60d, outcome.mfe_20d, outcome.mae_20d, outcome.mfe_60d, outcome.mae_60d, nowIso()).run();
-        return { event_id: event.id, symbol: event.symbol, event_type: event.event_type, ...outcome };
-      });
-      return ok({ requested: events.results.length, results: settled.map((x, i) => x.status === "fulfilled" ? x.value : { event_id: events.results[i]?.id, error: errorText(x.reason) }) });
-    } catch (e) { return fail(e); }
-  });
+  server.registerTool("evaluate_event_outcomes", { description:"計算事件後1/5/20/60日報酬及MFE/MAE，結果保存回 GitHub。", inputSchema:{event_id:z.number().int().positive().optional(),symbol:stockSchema.optional(),limit:z.number().int().min(1).max(30).optional().default(10),overwrite:z.boolean().optional().default(false)} }, async ({event_id,symbol,limit,overwrite})=>{try{const events=await listStoredStockEvents(env,{event_id,symbol,limit,without_outcome:!overwrite}),settled=await concurrencyMap(events,3,async(event:any)=>{const rows=normalizeDailyBars(await finmind(env,"TaiwanStockPrice",{data_id:event.symbol,start_date:event.event_date,end_date:addDays(event.event_date,120)}));if(!rows.length)throw new Error(`${event.symbol} 在事件日期後沒有日K`);const outcome=eventOutcome(rows);await saveEventOutcome(env,event.id,outcome);return{event_id:event.id,symbol:event.symbol,event_type:event.event_type,...outcome};});return ok({storage:"GITHUB_ONLY",requested:events.length,results:settled.map((x,i)=>x.status==="fulfilled"?x.value:{event_id:events[i]?.id,error:errorText(x.reason)})});}catch(e){return fail(e);}});
 
-  server.registerTool("find_event_patterns", {
-    description: "依事件類型統計樣本數、正報酬率、平均報酬與MFE/MAE。",
-    inputSchema: { symbol: stockSchema.optional(), min_samples: z.number().int().min(1).max(100).optional().default(3) },
-  }, async ({ symbol, min_samples }) => {
-    try {
-      const db = await ensureSchema(env);
-      const result = symbol
-        ? await db.prepare("SELECT e.event_type,COUNT(*) samples,AVG(o.return_5d) avg_return_5d,AVG(o.return_20d) avg_return_20d,AVG(o.return_60d) avg_return_60d,AVG(o.mfe_20d) avg_mfe_20d,AVG(o.mae_20d) avg_mae_20d,100.0*SUM(CASE WHEN o.return_20d>0 THEN 1 ELSE 0 END)/COUNT(*) positive_20d_rate FROM stock_events e JOIN event_outcomes o ON o.event_id=e.id WHERE e.symbol=? GROUP BY e.event_type HAVING COUNT(*)>=? ORDER BY avg_return_20d DESC").bind(symbol, min_samples).all<any>()
-        : await db.prepare("SELECT e.event_type,COUNT(*) samples,AVG(o.return_5d) avg_return_5d,AVG(o.return_20d) avg_return_20d,AVG(o.return_60d) avg_return_60d,AVG(o.mfe_20d) avg_mfe_20d,AVG(o.mae_20d) avg_mae_20d,100.0*SUM(CASE WHEN o.return_20d>0 THEN 1 ELSE 0 END)/COUNT(*) positive_20d_rate FROM stock_events e JOIN event_outcomes o ON o.event_id=e.id GROUP BY e.event_type HAVING COUNT(*)>=? ORDER BY avg_return_20d DESC").bind(min_samples).all<any>();
-      return ok({ symbol: symbol ?? "all", data: result.results });
-    } catch (e) { return fail(e); }
-  });
+  server.registerTool("find_event_patterns", { description:"依 GitHub 事件資料統計樣本數、正報酬率、平均報酬與MFE/MAE。", inputSchema:{symbol:stockSchema.optional(),min_samples:z.number().int().min(1).max(100).optional().default(3)} }, async ({symbol,min_samples})=>{try{return ok({storage:"GITHUB_ONLY",symbol:symbol??"all",data:await findStoredEventPatterns(env,symbol,min_samples)});}catch(e){return fail(e);}});
 
   server.registerTool("compare_peer_strength", {
     description: "比較同產業股票的20/60/120日強度、波動率、營收年增與綜合排名。",
@@ -465,15 +357,12 @@ export function registerAdvancedTools(server: McpServer, env: Env) {
   const positionSchema = z.object({ symbol: stockSchema, quantity: z.number().positive(), avg_price: z.number().positive(), stop_price: z.number().positive().optional(), sector: z.string().max(80).optional().default(""), note: z.string().max(500).optional().default("") });
 
   server.registerTool("save_portfolio", {
-    description: "建立或更新永久持股組合，供集中度、相關性與停損風險分析。",
+    description: "建立或更新永久持股組合；資料以 GitHub diamond-data 為唯一長期保存來源。",
     inputSchema: { name: z.string().trim().min(1).max(50).optional().default("我的持股"), mode: z.enum(["merge", "replace"]).optional().default("merge"), positions: z.array(positionSchema).min(1).max(100) },
   }, async ({ name, mode, positions }) => {
     try {
-      const db = await ensureSchema(env), now = nowIso();
-      await db.prepare("INSERT INTO portfolios(name,created_at,updated_at) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET updated_at=excluded.updated_at").bind(name, now, now).run();
-      if (mode === "replace") await db.prepare("DELETE FROM portfolio_positions WHERE portfolio_name=?").bind(name).run();
-      await db.batch(positions.map((x: { symbol: string; quantity: number; avg_price: number; stop_price?: number; sector: string; note: string }) => db.prepare("INSERT INTO portfolio_positions(portfolio_name,symbol,quantity,avg_price,stop_price,sector,note,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(portfolio_name,symbol) DO UPDATE SET quantity=excluded.quantity,avg_price=excluded.avg_price,stop_price=excluded.stop_price,sector=excluded.sector,note=excluded.note,updated_at=excluded.updated_at").bind(name, x.symbol, x.quantity, x.avg_price, x.stop_price ?? null, x.sector, x.note, now)));
-      return ok({ name, mode, saved: positions.length });
+      const portfolio = await saveStoredPortfolio(env, name, mode, positions);
+      return ok({ storage: "GitHub diamond-data", name, mode, saved: positions.length, portfolio });
     } catch (e) { return fail(e); }
   });
 
@@ -482,10 +371,10 @@ export function registerAdvancedTools(server: McpServer, env: Env) {
     inputSchema: { name: z.string().trim().min(1).max(50).optional().default("我的持股"), lookback_days: z.number().int().min(30).max(250).optional().default(120) },
   }, async ({ name, lookback_days }) => {
     try {
-      const db = await ensureSchema(env);
-      const result = await db.prepare("SELECT * FROM portfolio_positions WHERE portfolio_name=? ORDER BY symbol").bind(name).all<any>();
-      if (!result.results.length) throw new Error(`持股組合「${name}」尚無資料`);
-      const settled = await concurrencyMap(result.results, 4, async (position: any) => {
+      const portfolio = await getPortfolio(env, name);
+      const storedPositions = portfolio.positions ?? [];
+      if (!storedPositions.length) throw new Error(`持股組合「${name}」尚無資料`);
+      const settled = await concurrencyMap(storedPositions, 4, async (position: any) => {
         const bars = normalizeDailyBars(await finmind(env, "TaiwanStockPrice", { data_id: position.symbol, start_date: taipeiDate(lookback_days * 2), end_date: taipeiDate() })).slice(-lookback_days);
         const latest = bars.at(-1)?.close ?? num(position.avg_price);
         const marketValue = latest * num(position.quantity);
@@ -499,7 +388,7 @@ export function registerAdvancedTools(server: McpServer, env: Env) {
       const correlations: any[] = [];
       for (let i = 0; i < enriched.length; i++) for (let j = i + 1; j < enriched.length; j++) correlations.push({ a: enriched[i].symbol, b: enriched[j].symbol, correlation: correlation(enriched[i].returns, enriched[j].returns) });
       const highCorr = correlations.filter((x) => num(x.correlation) >= 0.75);
-      return ok({ name, total_market_value: round(total), positions: enriched.map(({ returns, ...x }) => x), sector_concentration: [...sectorMap.entries()].map(([sector, value]) => ({ sector, market_value: round(value), weight_percent: total ? round(value / total * 100) : 0 })).sort((a, b) => b.market_value - a.market_value), correlations, risk_flags: [enriched.some((x) => x.weight_percent >= 30) ? "單一個股權重超過30%" : null, [...sectorMap.values()].some((x) => total && x / total >= 0.5) ? "單一產業權重超過50%" : null, highCorr.length ? `存在${highCorr.length}組高度相關持股` : null].filter(Boolean), partial_errors: settled.flatMap((x, i) => x.status === "rejected" ? [{ symbol: result.results[i]?.symbol, error: errorText(x.reason) }] : []) });
+      return ok({ name, total_market_value: round(total), positions: enriched.map(({ returns, ...x }) => x), sector_concentration: [...sectorMap.entries()].map(([sector, value]) => ({ sector, market_value: round(value), weight_percent: total ? round(value / total * 100) : 0 })).sort((a, b) => b.market_value - a.market_value), correlations, risk_flags: [enriched.some((x) => x.weight_percent >= 30) ? "單一個股權重超過30%" : null, [...sectorMap.values()].some((x) => total && x / total >= 0.5) ? "單一產業權重超過50%" : null, highCorr.length ? `存在${highCorr.length}組高度相關持股` : null].filter(Boolean), partial_errors: settled.flatMap((x, i) => x.status === "rejected" ? [{ symbol: storedPositions[i]?.symbol, error: errorText(x.reason) }] : []) });
     } catch (e) { return fail(e); }
   });
 
@@ -514,21 +403,20 @@ export function registerAdvancedTools(server: McpServer, env: Env) {
       if (list.status === "rejected") errors.push(errorText(list.reason));
       const symbols = list.status === "fulfilled" ? list.value.items.map((x: any) => String(x.symbol)) : [];
       const scan = symbols.length ? await scanSymbols(env, symbols, false) : { data: [], errors: [] };
-      const db = await ensureSchema(env);
-      const recentEvents = await db.prepare("SELECT * FROM stock_events WHERE event_date >= ? ORDER BY event_date DESC,id DESC LIMIT 50").bind(taipeiDate(7)).all<any>();
+      const recentEvents = await listStoredStockEvents(env, { from: taipeiDate(7), limit: 50 });
       const strongest = [...scan.data].sort((a, b) => b.change_percent - a.change_percent).slice(0, top_n);
       const weakest = [...scan.data].sort((a, b) => a.change_percent - b.change_percent).slice(0, top_n);
-      return ok({ phase, date: taipeiDate(), generated_at: nowIso(), market: breadth.status === "fulfilled" ? breadth.value : null, watchlist: { name: watchlist_name, count: symbols.length, strongest, weakest, volume_leaders: [...scan.data].sort((a, b) => b.trade_value - a.trade_value).slice(0, top_n) }, recent_stored_events: recentEvents.results.map((x: any) => ({ ...x, payload: parseJson(x.payload_json, {}) })), partial_errors: [...errors, ...scan.errors.map((x: any) => `${x.symbol}: ${x.error}`)] });
+      return ok({ phase, date: taipeiDate(), generated_at: nowIso(), market: breadth.status === "fulfilled" ? breadth.value : null, watchlist: { name: watchlist_name, count: symbols.length, strongest, weakest, volume_leaders: [...scan.data].sort((a, b) => b.trade_value - a.trade_value).slice(0, top_n) }, recent_stored_events: recentEvents, partial_errors: [...errors, ...scan.errors.map((x: any) => `${x.symbol}: ${x.error}`)] });
     } catch (e) { return fail(e); }
   });
 
   server.registerTool("get_data_health", {
-    description: "檢查富果、FinMind、證交所、櫃買、央行與D1的連線、延遲及最新資料日期。",
+    description: "檢查 GitHub canonical data、富果、FinMind、證交所、櫃買與央行的連線、延遲及最新資料日期。",
     inputSchema: { test_symbol: stockSchema.optional().default("2330") },
   }, async ({ test_symbol }) => {
     try {
       const checks = [
-        { name: "D1", run: async () => { const started = Date.now(); const db = await ensureSchema(env); const row = await db.prepare("SELECT datetime('now') now").first<any>(); return { latency_ms: Date.now() - started, latest: row?.now ?? null }; } },
+        { name: "GitHub", run: async () => probeGitHubDataRead(env) },
         { name: "Fugle", run: async () => { const started = Date.now(); const q = normalizeQuote(await fugle(env, `/intraday/quote/${test_symbol}`), test_symbol); return { latency_ms: Date.now() - started, latest: q.last_updated, symbol: q.symbol }; } },
         { name: "FinMind", run: async () => { const started = Date.now(); const rows = await finmind(env, "TaiwanStockPrice", { data_id: test_symbol, start_date: taipeiDate(14), end_date: taipeiDate() }); return { latency_ms: Date.now() - started, latest: rows.at(-1)?.date ?? null, rows: rows.length }; } },
         { name: "TWSE", run: async () => { const r = await fetchJson("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL", { headers: { Accept: "application/json" } }, "TWSE"); return { latency_ms: r.latency_ms, rows: arr(r.body).length }; } },

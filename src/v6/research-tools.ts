@@ -27,22 +27,23 @@ export function registerResearchTools(server: McpServer, env: Env) {
   }, async () => ok(await getResearchStatus(env)));
 
   server.registerTool("get_research_universe", {
-    description: "查詢指定交易日既有研究候選池；此工具只讀 D1 歷史資料。",
+    description: "舊 research_universe D1 路徑已退休。正式研究候選池由目前研究流程重建；Diamond 長期資料僅保存於 GitHub。",
     inputSchema: {
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       limit: z.number().int().min(1).max(100).optional().default(40),
     },
-  }, async ({ date, limit }) => {
-    const result = await env.RESEARCH_DB.prepare(`
-      SELECT trade_date, symbol, market, name, close, change_percent, trade_volume,
-             trade_value, range_percent, selected_rank, selected_reasons_json, updated_at
-      FROM research_universe WHERE trade_date=? ORDER BY selected_rank LIMIT ?
-    `).bind(date, limit).all();
-    return ok({ date, count: result.results.length, data: result.results, storage:"D1_ONLY", policy:"LEGACY_DATA_ONLY" });
-  });
+  }, async ({ date, limit }) => ok({
+    date,
+    requested_limit: limit,
+    count: 0,
+    data: [],
+    status: "LEGACY_RESEARCH_UNIVERSE_RETIRED",
+    storage: "GITHUB_ONLY",
+    policy: "OHLC_MCP_ONLY",
+  }));
 
   server.registerTool("get_stored_intraday_candles", {
-    description: "讀取 D1 中既有的舊研究 candle payload/品質統計；僅供歷史相容查閱，正式台股/TXF OHLC 必須透過 OHLC MCP。",
+    description: "舊研究 candle persistence 已退休；此工具只回報 retired 狀態，正式台股/TXF OHLC 必須透過 OHLC MCP。",
     inputSchema: {
       symbol: z.string().trim().regex(/^\d{4,6}$/),
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),

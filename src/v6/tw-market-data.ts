@@ -1,5 +1,5 @@
 export type TwMarket = "listed" | "otc";
-export type TwMarketDataKind = "institutional" | "margin";
+export type TwMarketDataKind = "institutional" | "margin" | "securities_lending" | "sbl_short_sale";
 
 export type InstitutionalRow = {
   trade_date: string;
@@ -14,6 +14,37 @@ export type InstitutionalRow = {
   source_priority: "OFFICIAL" | "FALLBACK";
 };
 
+export type SecuritiesLendingRow = {
+  trade_date: string;
+  symbol: string;
+  name: string;
+  market: TwMarket;
+  previous_balance_shares: number | null;
+  borrowed_shares: number | null;
+  returned_shares: number | null;
+  balance_shares: number | null;
+  close_price: number | null;
+  balance_value: number | null;
+  source: string;
+  source_priority: "OFFICIAL";
+};
+
+export type SblShortSaleRow = {
+  trade_date: string;
+  symbol: string;
+  name: string;
+  market: TwMarket;
+  previous_balance_shares: number | null;
+  sold_shares: number | null;
+  returned_shares: number | null;
+  adjustment_shares: number | null;
+  balance_shares: number | null;
+  available_shares: number | null;
+  sold_volume_shares: number | null;
+  sold_amount: number | null;
+  source: string;
+  source_priority: "OFFICIAL";
+};
 export type MarginRow = {
   trade_date: string;
   symbol: string;
@@ -203,6 +234,144 @@ export function normalizeTpexMargin(body: unknown, requestedDate: string): Margi
     const tradeDate = normalizeTradeDate(findValue(row, ["Date", "日期", "資料日期", "TradeDate"])) ?? requestedDate;
     return normalizeMarginRow(row, "otc", tradeDate, "TPEX_MAINBOARD_MARGIN_BALANCE");
   }).filter((x): x is MarginRow => Boolean(x));
+}
+
+function twseMarketFromLabel(value: unknown): TwMarket {
+  return /櫃|otc/i.test(String(value ?? "")) ? "otc" : "listed";
+}
+
+export function normalizeTwseSecuritiesLending(body: unknown, requestedDate: string): SecuritiesLendingRow[] {
+  const root = rec(body);
+  const tradeDate = normalizeTradeDate(root.date) ?? requestedDate;
+  return responseRows(body).map((row): SecuritiesLendingRow | null => {
+    const symbol = rowSymbol(row);
+    if (!/^\d{4,6}$/.test(symbol)) return null;
+    const market = twseMarketFromLabel(findValue(row, ["市場別", "Market"]));
+    return {
+      trade_date: tradeDate,
+      symbol,
+      name: rowName(row),
+      market,
+      previous_balance_shares: nullableMarketNumber(findValue(row, ["前日借券餘額(1)股", "昨日借券餘額", "前日借券餘額"])),
+      borrowed_shares: nullableMarketNumber(findValue(row, ["本日異動股借券(2)", "今日新增借券股數", "本日借券"])),
+      returned_shares: nullableMarketNumber(findValue(row, ["本日異動股還券(3)", "今日還券了結股數(含其他了結)", "本日還券"])),
+      balance_shares: nullableMarketNumber(findValue(row, ["本日借券餘額股(4)=(1)+(2)-(3)", "今日借券餘額(股數)", "本日借券餘額"])),
+      close_price: nullableMarketNumber(findValue(row, ["本日收盤價(5)單位：元", "當日收盤價", "本日收盤價"])),
+      balance_value: nullableMarketNumber(findValue(row, ["借券餘額市值單位：元(6)=(4)*(5)", "今日借券餘額(總金額)", "借券餘額市值"])),
+      source: "TWSE_TWT72U",
+      source_priority: "OFFICIAL",
+    };
+  }).filter((x): x is SecuritiesLendingRow => Boolean(x));
+}
+
+function twseTwt93Rows(body: unknown) {
+  return responseRows(body);
+}
+
+export function normalizeTwseSblShortSale(body: unknown, requestedDate: string): SblShortSaleRow[] {
+  const root = rec(body);
+  const tradeDate = normalizeTradeDate(root.date) ?? requestedDate;
+  const fields = Array.isArray(root.fields) ? root.fields.map(String) : [];
+  const rows = Array.isArray(root.data) ? root.data.filter(Array.isArray) as unknown[][] : [];
+  // TWT93U contains two groups with duplicate field names. The SBL group is the second
+  // set: 前日餘額、當日賣出、當日還券、當日調整、當日餘額、次一營業日可限額.
+  if (fields.length >= 14 && rows.length) {
+    return rows.map((values): SblShortSaleRow | null => {
+      const symbol = String(values[0] ?? "").trim();
+      if (!/^\d{4,6}$/.test(symbol)) return null;
+      return {
+        trade_date: tradeDate,
+        symbol,
+        name: String(values[1] ?? "").trim(),
+        market: "listed",
+        previous_balance_shares: nullableMarketNumber(values[8]),
+        sold_shares: nullableMarketNumber(values[9]),
+        returned_shares: nullableMarketNumber(values[10]),
+        adjustment_shares: nullableMarketNumber(values[11]),
+        balance_shares: nullableMarketNumber(values[12]),
+        available_shares: nullableMarketNumber(values[13]),
+        sold_volume_shares: nullableMarketNumber(values[9]),
+        sold_amount: null,
+        source: "TWSE_TWT93U",
+        source_priority: "OFFICIAL",
+      };
+    }).filter((x): x is SblShortSaleRow => Boolean(x));
+  }
+  return twseTwt93Rows(body).map((row): SblShortSaleRow | null => {
+    const symbol = rowSymbol(row);
+    if (!/^\d{4,6}$/.test(symbol)) return null;
+    return {
+      trade_date: tradeDate, symbol, name: rowName(row), market: "listed",
+      previous_balance_shares: null, sold_shares: null, returned_shares: null, adjustment_shares: null,
+      balance_shares: null, available_shares: null, sold_volume_shares: null, sold_amount: null,
+      source: "TWSE_TWT93U", source_priority: "OFFICIAL",
+    };
+  }).filter((x): x is SblShortSaleRow => Boolean(x));
+}
+
+export function normalizeTpexSblShortSale(balanceBody: unknown, volumeBody: unknown, requestedDate: string): SblShortSaleRow[] {
+  const volumeBySymbol = new Map<string, Record<string, any>>();
+  for (const row of responseRows(volumeBody)) {
+    const symbol = rowSymbol(row);
+    if (symbol) volumeBySymbol.set(symbol, row);
+  }
+  return responseRows(balanceBody).map((row): SblShortSaleRow | null => {
+    const symbol = rowSymbol(row);
+    if (!/^\d{4,6}$/.test(symbol)) return null;
+    const volume = volumeBySymbol.get(symbol) ?? {};
+    const tradeDate = normalizeTradeDate(findValue(row, ["Date", "日期"])) ?? requestedDate;
+    return {
+      trade_date: tradeDate,
+      symbol,
+      name: rowName(row),
+      market: "otc",
+      previous_balance_shares: nullableMarketNumber(findValue(row, ["SecuritiesBorrowingBalancePreviousDay"])),
+      sold_shares: nullableMarketNumber(findValue(row, ["SecuritiesBorrowingSale"])),
+      returned_shares: nullableMarketNumber(findValue(row, ["SecuritiesBorrowingReturn"])),
+      adjustment_shares: nullableMarketNumber(findValue(row, ["SecuritiesBorrowingAdjustment"])),
+      balance_shares: nullableMarketNumber(findValue(row, ["SecuritiesBorrowingBalanceOfTheMarketDay"])),
+      available_shares: nullableMarketNumber(findValue(row, ["AvailableVolumesForSBLShortSale"])),
+      sold_volume_shares: (() => {
+        const lots = nullableMarketNumber(findValue(volume, ["SBLVolume"]));
+        return lots === null ? null : lots * 1000;
+      })(),
+      sold_amount: nullableMarketNumber(findValue(volume, ["SBLAmount"])),
+      source: "TPEX_MARGIN_SBL+TPEX_SHORT_SELL",
+      source_priority: "OFFICIAL",
+    };
+  }).filter((x): x is SblShortSaleRow => Boolean(x));
+}
+
+export function securitiesLendingWindows(rows: SecuritiesLendingRow[]) {
+  const sorted = [...rows].sort((a,b)=>a.trade_date.localeCompare(b.trade_date));
+  const latest = sorted.at(-1) ?? null;
+  const sums = (n:number) => {
+    const slice = sorted.slice(-n);
+    return {
+      days: slice.length,
+      borrowed_shares: slice.reduce((s,x)=>s+(x.borrowed_shares ?? 0),0),
+      returned_shares: slice.reduce((s,x)=>s+(x.returned_shares ?? 0),0),
+      net_borrowed_shares: slice.reduce((s,x)=>s+(x.borrowed_shares ?? 0)-(x.returned_shares ?? 0),0),
+    };
+  };
+  return { latest, windows:Object.fromEntries(WINDOWS.map((n)=>[`${n}d`,sums(n)])) };
+}
+
+export function sblShortSaleWindows(rows: SblShortSaleRow[]) {
+  const sorted = [...rows].sort((a,b)=>a.trade_date.localeCompare(b.trade_date));
+  const latest = sorted.at(-1) ?? null;
+  const sums = (n:number) => {
+    const slice = sorted.slice(-n);
+    return {
+      days: slice.length,
+      sold_shares: slice.reduce((s,x)=>s+(x.sold_shares ?? 0),0),
+      returned_shares: slice.reduce((s,x)=>s+(x.returned_shares ?? 0),0),
+      adjustment_shares: slice.reduce((s,x)=>s+(x.adjustment_shares ?? 0),0),
+      sold_volume_shares: slice.reduce((s,x)=>s+(x.sold_volume_shares ?? 0),0),
+      sold_amount: slice.reduce((s,x)=>s+(x.sold_amount ?? 0),0),
+    };
+  };
+  return { latest, windows:Object.fromEntries(WINDOWS.map((n)=>[`${n}d`,sums(n)])) };
 }
 
 const WINDOWS = [1,3,5,10,20] as const;

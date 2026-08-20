@@ -1,51 +1,7 @@
-export const EXPERIMENT_LEDGER_SCHEMA_VERSION = "diamond-experiment-ledger/v1";
-export const EXPERIMENT_DECISION_SCHEMA_VERSION = "diamond-experiment-decision/v1";
+import { GitHubDataStoreError, listIndexedRecords, putIndexedImmutableRecord, readCollectionIndex, readIndexedRecord } from "./github-data-store.ts";
 
-const SCHEMA_STATEMENTS = [
-  `CREATE TABLE IF NOT EXISTS experiment_ledger (
-    experiment_ledger_id TEXT PRIMARY KEY,
-    experiment_id TEXT NOT NULL,
-    experiment_version TEXT NOT NULL,
-    hypothesis TEXT NOT NULL,
-    hypothesis_hash TEXT NOT NULL,
-    source TEXT NOT NULL,
-    strategy_id TEXT,
-    strategy_version TEXT,
-    signal_refs_json TEXT NOT NULL,
-    dataset_refs_json TEXT NOT NULL,
-    parameters_json TEXT NOT NULL,
-    result_json TEXT NOT NULL,
-    profit_factor REAL,
-    win_rate REAL,
-    expectancy_pct REAL,
-    mfe_pct REAL,
-    mae_pct REAL,
-    regime TEXT,
-    validation_status TEXT NOT NULL,
-    rejection_reason TEXT,
-    content_hash TEXT NOT NULL,
-    recorded_at TEXT NOT NULL,
-    UNIQUE(experiment_id, experiment_version)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_experiment_hypothesis_hash ON experiment_ledger(hypothesis_hash, recorded_at)`,
-  `CREATE INDEX IF NOT EXISTS idx_experiment_strategy ON experiment_ledger(strategy_id, strategy_version, recorded_at)`,
-  `CREATE INDEX IF NOT EXISTS idx_experiment_validation ON experiment_ledger(validation_status, recorded_at)`,
-  `CREATE TABLE IF NOT EXISTS experiment_decision_ledger (
-    decision_ledger_id TEXT PRIMARY KEY,
-    decision_id TEXT NOT NULL,
-    decision_version TEXT NOT NULL,
-    experiment_id TEXT NOT NULL,
-    experiment_version TEXT NOT NULL,
-    action TEXT NOT NULL,
-    actor_type TEXT NOT NULL,
-    rationale TEXT,
-    payload_json TEXT NOT NULL,
-    content_hash TEXT NOT NULL,
-    recorded_at TEXT NOT NULL,
-    UNIQUE(decision_id, decision_version)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_experiment_decision_target ON experiment_decision_ledger(experiment_id, experiment_version, recorded_at)`,
-] as const;
+export const EXPERIMENT_LEDGER_SCHEMA_VERSION = "diamond-experiment-ledger/v2-github";
+export const EXPERIMENT_DECISION_SCHEMA_VERSION = "diamond-experiment-decision/v2-github";
 
 export type ExperimentDatasetRef = {
   dataset_id: string;
@@ -183,13 +139,14 @@ function parseJson(raw: unknown, fallback: unknown) {
   try { return JSON.parse(String(raw ?? "")); } catch { return fallback; }
 }
 
-export async function ensureExperimentLedgerSchema(env: Env) {
-  if (!env.RESEARCH_DB) throw new ExperimentLedgerError("RESEARCH_DB_UNAVAILABLE", "RESEARCH_DB binding is required");
-  await env.RESEARCH_DB.batch(SCHEMA_STATEMENTS.map((sql) => env.RESEARCH_DB.prepare(sql)));
+function wrapStoreError(error: unknown): never {
+  if (error instanceof GitHubDataStoreError) throw new ExperimentLedgerError(error.code, error.message, error.detail);
+  throw error;
 }
 
+export async function ensureExperimentLedgerSchema(_env: Env) { /* GitHub JSON store requires no database schema. */ }
+
 export async function recordExperiment(env: Env, raw: RecordExperimentInput) {
-  await ensureExperimentLedgerSchema(env);
   const experiment_id = requiredText(raw.experiment_id, "experiment_id", 240);
   const hypothesis = requiredText(raw.hypothesis, "hypothesis", 5000);
   const normalizedHypothesis = hypothesis.replace(/\s+/g, " ").trim().toLowerCase();
@@ -197,9 +154,7 @@ export async function recordExperiment(env: Env, raw: RecordExperimentInput) {
   const source = requiredText(raw.source, "source", 200);
   const strategy_id = optionalText(raw.strategy_id, 240);
   const strategy_version = optionalText(raw.strategy_version, 160);
-  if ((strategy_id && !strategy_version) || (!strategy_id && strategy_version)) {
-    throw new ExperimentLedgerError("INVALID_STRATEGY_REFERENCE", "strategy_id and strategy_version must be supplied together");
-  }
+  if ((strategy_id && !strategy_version) || (!strategy_id && strategy_version)) throw new ExperimentLedgerError("INVALID_STRATEGY_REFERENCE", "strategy_id and strategy_version must be supplied together");
   const signal_refs = canonicalSignalRefs(raw.signal_refs);
   const dataset_refs = canonicalDatasetRefs(raw.dataset_refs);
   const parameters = stableValue(raw.parameters ?? {}) as Record<string, unknown>;
@@ -211,193 +166,76 @@ export async function recordExperiment(env: Env, raw: RecordExperimentInput) {
     mfe_pct: optionalFinite(raw.metrics?.mfe_pct, "metrics.mfe_pct"),
     mae_pct: optionalFinite(raw.metrics?.mae_pct, "metrics.mae_pct"),
   };
-  if (metrics.win_rate !== null && (metrics.win_rate < 0 || metrics.win_rate > 1)) {
-    throw new ExperimentLedgerError("INVALID_INPUT", "metrics.win_rate must be 0..1");
-  }
+  if (metrics.win_rate !== null && (metrics.win_rate < 0 || metrics.win_rate > 1)) throw new ExperimentLedgerError("INVALID_INPUT", "metrics.win_rate must be 0..1");
   const regime = optionalText(raw.regime, 200);
   const validation_status = String(raw.validation_status ?? "").toUpperCase();
-  if (!["DEVELOPMENT", "VALIDATED", "REJECTED", "CANDIDATE"].includes(validation_status)) {
-    throw new ExperimentLedgerError("INVALID_VALIDATION_STATUS", "validation_status must be DEVELOPMENT, VALIDATED, REJECTED or CANDIDATE");
-  }
+  if (!["DEVELOPMENT", "VALIDATED", "REJECTED", "CANDIDATE"].includes(validation_status)) throw new ExperimentLedgerError("INVALID_VALIDATION_STATUS", "validation_status must be DEVELOPMENT, VALIDATED, REJECTED or CANDIDATE");
   const rejection_reason = optionalText(raw.rejection_reason, 2000);
-  if (validation_status === "REJECTED" && !rejection_reason) {
-    throw new ExperimentLedgerError("REJECTION_REASON_REQUIRED", "REJECTED experiment requires rejection_reason");
-  }
+  if (validation_status === "REJECTED" && !rejection_reason) throw new ExperimentLedgerError("REJECTION_REASON_REQUIRED", "REJECTED experiment requires rejection_reason");
 
-  const canonical = {
-    schema_version: EXPERIMENT_LEDGER_SCHEMA_VERSION,
-    experiment_id,
-    hypothesis,
-    hypothesis_hash,
-    source,
-    strategy_id,
-    strategy_version,
-    signal_refs,
-    dataset_refs,
-    parameters,
-    result,
-    metrics,
-    regime,
-    validation_status,
-    rejection_reason,
-  };
+  const canonical = { schema_version:EXPERIMENT_LEDGER_SCHEMA_VERSION, experiment_id, hypothesis, hypothesis_hash, source, strategy_id, strategy_version, signal_refs, dataset_refs, parameters, result, metrics, regime, validation_status, rejection_reason };
   const content_hash = await sha256Hex(stableJson(canonical));
   const experiment_version = `sha256:${content_hash}`;
   const experiment_ledger_id = `exp:${content_hash}`;
   const recorded_at = new Date().toISOString();
-
-  await env.RESEARCH_DB.prepare(`
-    INSERT OR IGNORE INTO experiment_ledger
-      (experiment_ledger_id,experiment_id,experiment_version,hypothesis,hypothesis_hash,source,strategy_id,strategy_version,signal_refs_json,dataset_refs_json,parameters_json,result_json,profit_factor,win_rate,expectancy_pct,mfe_pct,mae_pct,regime,validation_status,rejection_reason,content_hash,recorded_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-  `).bind(
-    experiment_ledger_id, experiment_id, experiment_version, hypothesis, hypothesis_hash, source,
-    strategy_id, strategy_version, stableJson(signal_refs), stableJson(dataset_refs), stableJson(parameters), stableJson(result),
-    metrics.profit_factor, metrics.win_rate, metrics.expectancy_pct, metrics.mfe_pct, metrics.mae_pct,
-    regime, validation_status, rejection_reason, content_hash, recorded_at,
-  ).run();
-
-  const row = await env.RESEARCH_DB.prepare(`SELECT * FROM experiment_ledger WHERE experiment_id=? AND experiment_version=?`).bind(experiment_id, experiment_version).first<Record<string, unknown>>();
-  if (!row) throw new ExperimentLedgerError("LEDGER_WRITE_FAILED", "experiment was not persisted");
-  if (String(row.content_hash) !== content_hash) throw new ExperimentLedgerError("IMMUTABLE_CONFLICT", "experiment version already exists with different content");
-  return {
-    ok: true as const,
-    immutable: true as const,
-    idempotent: String(row.experiment_ledger_id) === experiment_ledger_id,
-    experiment_ledger_id,
-    experiment_id,
-    experiment_version,
-    hypothesis_hash,
-    validation_status,
-    recorded_at: row.recorded_at,
-    production_promotion: "FORBIDDEN" as const,
-  };
-}
-
-type HydratedExperiment = Record<string, unknown> & {
-  validation_status: unknown;
-  signal_refs: unknown;
-  dataset_refs: unknown;
-  parameters: unknown;
-  result: unknown;
-};
-
-function hydrateExperiment(row: Record<string, unknown>): HydratedExperiment {
-  return {
-    ...row,
-    validation_status: row.validation_status,
-    signal_refs: parseJson(row.signal_refs_json, []),
-    dataset_refs: parseJson(row.dataset_refs_json, []),
-    parameters: parseJson(row.parameters_json, {}),
-    result: parseJson(row.result_json, {}),
-  };
+  const record = { ...canonical, experiment_ledger_id, experiment_version, content_hash, recorded_at, storage:"GITHUB_ONLY" };
+  try {
+    const write = await putIndexedImmutableRecord(env, {
+      collection:"research/experiment-ledger",
+      key:`${experiment_id}\u0000${experiment_version}`,
+      record,
+      metadata:{ experiment_id, experiment_version, hypothesis_hash, strategy_id, strategy_version, validation_status },
+    });
+    return { ok:true as const, immutable:true as const, idempotent:write.idempotent, experiment_ledger_id, experiment_id, experiment_version, hypothesis_hash, validation_status, recorded_at, storage:"GITHUB_ONLY" as const, production_promotion:"FORBIDDEN" as const };
+  } catch (error) { wrapStoreError(error); }
 }
 
 export async function getExperiment(env: Env, experimentId: string, experimentVersion?: string | null) {
-  await ensureExperimentLedgerSchema(env);
   const experiment_id = requiredText(experimentId, "experiment_id", 240);
-  const row = experimentVersion
-    ? await env.RESEARCH_DB.prepare(`SELECT * FROM experiment_ledger WHERE experiment_id=? AND experiment_version=?`).bind(experiment_id, experimentVersion).first<Record<string, unknown>>()
-    : await env.RESEARCH_DB.prepare(`SELECT * FROM experiment_ledger WHERE experiment_id=? ORDER BY recorded_at DESC, experiment_version DESC LIMIT 1`).bind(experiment_id).first<Record<string, unknown>>();
-  return row ? { ok: true as const, found: true as const, experiment: hydrateExperiment(row) } : { ok: true as const, found: false as const, experiment: null };
+  let experiment: any = null;
+  if (experimentVersion) experiment = await readIndexedRecord<any>(env,"research/experiment-ledger",`${experiment_id}\u0000${experimentVersion}`);
+  else {
+    const index=await readCollectionIndex(env,"research/experiment-ledger");
+    const hit=index.records.filter((x)=>x.experiment_id===experiment_id).sort((a,b)=>b.recorded_at.localeCompare(a.recorded_at))[0];
+    if(hit)experiment=await readIndexedRecord<any>(env,"research/experiment-ledger",hit.key);
+  }
+  return experiment ? { ok:true as const, found:true as const, experiment } : { ok:true as const, found:false as const, experiment:null };
 }
 
 export async function listExperiments(env: Env, filters: { strategy_id?: string; validation_status?: string; limit?: number } = {}) {
-  await ensureExperimentLedgerSchema(env);
-  const where: string[] = [];
-  const args: unknown[] = [];
-  if (filters.strategy_id) { where.push("strategy_id=?"); args.push(String(filters.strategy_id).trim()); }
-  if (filters.validation_status) { where.push("validation_status=?"); args.push(String(filters.validation_status).toUpperCase()); }
-  const limit = Math.max(1, Math.min(200, Number(filters.limit || 50)));
-  const sql = `SELECT * FROM experiment_ledger ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY recorded_at DESC, experiment_version DESC LIMIT ?`;
-  args.push(limit);
-  const out = await env.RESEARCH_DB.prepare(sql).bind(...args).all<Record<string, unknown>>();
-  return { ok: true as const, count: out.results.length, experiments: out.results.map(hydrateExperiment) };
+  const strategy=filters.strategy_id?String(filters.strategy_id).trim():undefined;
+  const status=filters.validation_status?String(filters.validation_status).toUpperCase():undefined;
+  const limit=Math.max(1,Math.min(200,Number(filters.limit||50)));
+  const experiments=await listIndexedRecords<any>(env,"research/experiment-ledger",(e)=>(!strategy||e.strategy_id===strategy)&&(!status||e.validation_status===status),limit);
+  return { ok:true as const, count:experiments.length, experiments };
 }
 
 export async function reviewHypothesisHistory(env: Env, hypothesis: string, limit = 50) {
-  await ensureExperimentLedgerSchema(env);
-  const text = requiredText(hypothesis, "hypothesis", 5000);
-  const hypothesis_hash = await sha256Hex(text.replace(/\s+/g, " ").trim().toLowerCase());
-  const safeLimit = Math.max(1, Math.min(200, Number(limit || 50)));
-  const out = await env.RESEARCH_DB.prepare(`
-    SELECT * FROM experiment_ledger WHERE hypothesis_hash=? ORDER BY recorded_at DESC, experiment_version DESC LIMIT ?
-  `).bind(hypothesis_hash, safeLimit).all<Record<string, unknown>>();
-  const rows = out.results.map(hydrateExperiment);
-  const counts = { DEVELOPMENT: 0, VALIDATED: 0, REJECTED: 0, CANDIDATE: 0 } as Record<string, number>;
-  for (const row of rows) counts[String(row.validation_status)] = (counts[String(row.validation_status)] ?? 0) + 1;
-  return {
-    ok: true as const,
-    deterministic: true as const,
-    hypothesis_hash,
-    previously_tested: rows.length > 0,
-    experiment_count: rows.length,
-    status_counts: counts,
-    warning: rows.some((row) => row.validation_status === "REJECTED") ? "HYPOTHESIS_PREVIOUSLY_REJECTED" : null,
-    experiments: rows,
-  };
+  const text=requiredText(hypothesis,"hypothesis",5000), hypothesis_hash=await sha256Hex(text.replace(/\s+/g," ").trim().toLowerCase()), safeLimit=Math.max(1,Math.min(200,Number(limit||50)));
+  const rows=await listIndexedRecords<any>(env,"research/experiment-ledger",(e)=>e.hypothesis_hash===hypothesis_hash,safeLimit);
+  const counts={DEVELOPMENT:0,VALIDATED:0,REJECTED:0,CANDIDATE:0} as Record<string,number>;
+  for(const row of rows)counts[String(row.validation_status)]=(counts[String(row.validation_status)]??0)+1;
+  return {ok:true as const,deterministic:true as const,hypothesis_hash,previously_tested:rows.length>0,experiment_count:rows.length,status_counts:counts,warning:rows.some((row)=>row.validation_status==="REJECTED")?"HYPOTHESIS_PREVIOUSLY_REJECTED":null,experiments:rows};
 }
 
 export async function recordExperimentDecision(env: Env, raw: RecordExperimentDecisionInput) {
-  await ensureExperimentLedgerSchema(env);
-  const decision_id = requiredText(raw.decision_id, "decision_id", 240);
-  const experiment_id = requiredText(raw.experiment_id, "experiment_id", 240);
-  const experiment_version = requiredText(raw.experiment_version, "experiment_version", 80);
-  if (!/^sha256:[0-9a-f]{64}$/.test(experiment_version)) throw new ExperimentLedgerError("INVALID_EXPERIMENT_VERSION", "experiment_version must be sha256:<64 hex>");
-  const target = await env.RESEARCH_DB.prepare(`SELECT experiment_ledger_id FROM experiment_ledger WHERE experiment_id=? AND experiment_version=?`).bind(experiment_id, experiment_version).first<Record<string, unknown>>();
-  if (!target) throw new ExperimentLedgerError("EXPERIMENT_NOT_FOUND", "decision target experiment does not exist");
-  const action = String(raw.action ?? "").toUpperCase();
-  if (!["KEEP_RESEARCH", "MARK_CANDIDATE", "REJECT", "NOTE"].includes(action)) {
-    throw new ExperimentLedgerError("PRODUCTION_PROMOTION_FORBIDDEN", "only KEEP_RESEARCH, MARK_CANDIDATE, REJECT and NOTE are supported; Production promotion is intentionally outside this API");
-  }
-  const actor_type = String(raw.actor_type ?? "").toUpperCase();
-  if (!["HUMAN", "SYSTEM", "AI_REVIEW"].includes(actor_type)) throw new ExperimentLedgerError("INVALID_ACTOR_TYPE", "invalid actor_type");
-  if (action === "MARK_CANDIDATE" && actor_type === "AI_REVIEW") {
-    throw new ExperimentLedgerError("HUMAN_GATE_REQUIRED", "AI_REVIEW cannot promote an experiment to Candidate; human/system approval gate is required");
-  }
-  const rationale = optionalText(raw.rationale, 3000);
-  const payload = stableValue(raw.payload ?? {}) as Record<string, unknown>;
-  const canonical = {
-    schema_version: EXPERIMENT_DECISION_SCHEMA_VERSION,
-    decision_id,
-    experiment_id,
-    experiment_version,
-    action,
-    actor_type,
-    rationale,
-    payload,
-  };
-  const content_hash = await sha256Hex(stableJson(canonical));
-  const decision_version = `sha256:${content_hash}`;
-  const decision_ledger_id = `expdec:${content_hash}`;
-  const recorded_at = new Date().toISOString();
-  await env.RESEARCH_DB.prepare(`
-    INSERT OR IGNORE INTO experiment_decision_ledger
-      (decision_ledger_id,decision_id,decision_version,experiment_id,experiment_version,action,actor_type,rationale,payload_json,content_hash,recorded_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)
-  `).bind(decision_ledger_id, decision_id, decision_version, experiment_id, experiment_version, action, actor_type, rationale, stableJson(payload), content_hash, recorded_at).run();
-  const row = await env.RESEARCH_DB.prepare(`SELECT * FROM experiment_decision_ledger WHERE decision_id=? AND decision_version=?`).bind(decision_id, decision_version).first<Record<string, unknown>>();
-  if (!row) throw new ExperimentLedgerError("LEDGER_WRITE_FAILED", "experiment decision was not persisted");
-  if (String(row.content_hash) !== content_hash) throw new ExperimentLedgerError("IMMUTABLE_CONFLICT", "decision version already exists with different content");
-  return {
-    ok: true as const,
-    immutable: true as const,
-    decision_ledger_id,
-    decision_id,
-    decision_version,
-    experiment_id,
-    experiment_version,
-    action,
-    actor_type,
-    recorded_at: row.recorded_at,
-    production_promotion: "FORBIDDEN" as const,
-  };
+  const decision_id=requiredText(raw.decision_id,"decision_id",240), experiment_id=requiredText(raw.experiment_id,"experiment_id",240), experiment_version=requiredText(raw.experiment_version,"experiment_version",80);
+  if(!/^sha256:[0-9a-f]{64}$/.test(experiment_version))throw new ExperimentLedgerError("INVALID_EXPERIMENT_VERSION","experiment_version must be sha256:<64 hex>");
+  const target=await readIndexedRecord<any>(env,"research/experiment-ledger",`${experiment_id}\u0000${experiment_version}`);
+  if(!target)throw new ExperimentLedgerError("EXPERIMENT_NOT_FOUND","decision target experiment does not exist");
+  const action=String(raw.action??"").toUpperCase();
+  if(!["KEEP_RESEARCH","MARK_CANDIDATE","REJECT","NOTE"].includes(action))throw new ExperimentLedgerError("PRODUCTION_PROMOTION_FORBIDDEN","only KEEP_RESEARCH, MARK_CANDIDATE, REJECT and NOTE are supported; Production promotion is intentionally outside this API");
+  const actor_type=String(raw.actor_type??"").toUpperCase();
+  if(!["HUMAN","SYSTEM","AI_REVIEW"].includes(actor_type))throw new ExperimentLedgerError("INVALID_ACTOR_TYPE","invalid actor_type");
+  if(action==="MARK_CANDIDATE"&&actor_type==="AI_REVIEW")throw new ExperimentLedgerError("HUMAN_GATE_REQUIRED","AI_REVIEW cannot promote an experiment to Candidate; human/system approval gate is required");
+  const rationale=optionalText(raw.rationale,3000),payload=stableValue(raw.payload??{}) as Record<string,unknown>;
+  const canonical={schema_version:EXPERIMENT_DECISION_SCHEMA_VERSION,decision_id,experiment_id,experiment_version,action,actor_type,rationale,payload};
+  const content_hash=await sha256Hex(stableJson(canonical)),decision_version=`sha256:${content_hash}`,decision_ledger_id=`expdec:${content_hash}`,recorded_at=new Date().toISOString(),record={...canonical,decision_version,decision_ledger_id,content_hash,recorded_at,storage:"GITHUB_ONLY"};
+  try{const write=await putIndexedImmutableRecord(env,{collection:"research/experiment-decisions",key:`${decision_id}\u0000${decision_version}`,record,metadata:{decision_id,decision_version,experiment_id,experiment_version,action,actor_type}});return{ok:true as const,immutable:true as const,idempotent:write.idempotent,decision_ledger_id,decision_id,decision_version,experiment_id,experiment_version,action,actor_type,recorded_at,storage:"GITHUB_ONLY" as const,production_promotion:"FORBIDDEN" as const};}catch(error){wrapStoreError(error);}
 }
 
 export async function listExperimentDecisions(env: Env, experimentId: string, experimentVersion: string) {
-  await ensureExperimentLedgerSchema(env);
-  const out = await env.RESEARCH_DB.prepare(`
-    SELECT * FROM experiment_decision_ledger WHERE experiment_id=? AND experiment_version=? ORDER BY recorded_at ASC, decision_version ASC
-  `).bind(experimentId, experimentVersion).all<Record<string, unknown>>();
-  return { ok: true as const, count: out.results.length, decisions: out.results.map((row) => ({ ...row, payload: parseJson(row.payload_json, {}) })) };
+  const decisions=await listIndexedRecords<any>(env,"research/experiment-decisions",(e)=>e.experiment_id===experimentId&&e.experiment_version===experimentVersion,200);
+  decisions.sort((a,b)=>String(a.recorded_at).localeCompare(String(b.recorded_at))||String(a.decision_version).localeCompare(String(b.decision_version)));
+  return {ok:true as const,count:decisions.length,decisions};
 }

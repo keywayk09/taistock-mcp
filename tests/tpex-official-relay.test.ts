@@ -2,67 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { TPEX_OFFICIAL_RELAY_CONTRACT } from "../src/v6/tpex-official-relay.ts";
-
-const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(here, "..");
-const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
-
-assert.deepEqual(TPEX_OFFICIAL_RELAY_CONTRACT, {
-  schema: "TPEX_OFFICIAL_RELAY_V1",
-  source_owner: "TPEx",
-  persistence: "D1_ONLY",
-  relay_branch: "market-data-relay",
-  relay_repository: "keywayk09/taistock-mcp",
-  r2_usage: "FORBIDDEN",
-  ohlc_usage: "FORBIDDEN",
-});
-
-const relay = read("src/v6/tpex-official-relay.ts");
-assert.match(relay, /TPEX_DIRECT/);
-assert.match(relay, /GITHUB_OFFICIAL_RELAY/);
-assert.match(relay, /raw\.githubusercontent\.com\/keywayk09\/taistock-mcp\/market-data-relay/);
-assert.match(relay, /relay_sha_mismatch/);
-assert.match(relay, /relay_row_count_mismatch/);
-assert.match(relay, /relay_source_date_mismatch/);
-assert.match(relay, /source_owner_mismatch/);
-assert.match(relay, /r2_usage: "FORBIDDEN"/);
-assert.match(relay, /ohlc_usage: "FORBIDDEN"/);
-assert.doesNotMatch(relay, /R2Bucket|RESEARCH_BUCKET|r2_key|TaiwanStockPrice/);
-
-const workflow = read(".github/workflows/tpex-official-relay.yml");
-assert.match(workflow, /tpex_3insti_daily_trading/);
-assert.match(workflow, /tpex_mainboard_margin_balance/);
-assert.match(workflow, /TPEX_OFFICIAL_RELAY_V1/);
-assert.match(workflow, /market-data-relay/);
-assert.match(workflow, /cron: '15 10 \* \* 1-5'/);
-assert.match(workflow, /cron: '15 12 \* \* 1-5'/);
-assert.match(workflow, /if: github\.event_name != 'pull_request'/);
-assert.match(workflow, /contents: write/);
-
-const tpexBackfill = read("src/v6/tpex-market-data-backfill.ts");
-assert.match(tpexBackfill, /fetchTpexOfficialPayload/);
-assert.match(tpexBackfill, /GITHUB_OFFICIAL_RELAY|relay_sha256/);
-assert.doesNotMatch(tpexBackfill, /R2Bucket|RESEARCH_BUCKET|r2_key/);
-
-const twse = read("src/v6/twse-market-data-capture.ts");
-assert.match(twse, /TWSE_T86/);
-assert.match(twse, /TWSE_MI_MARGN/);
-assert.doesNotMatch(twse, /TPEX_|tpex\.org\.tw/);
-assert.doesNotMatch(twse, /R2Bucket|RESEARCH_BUCKET|r2_key/);
-
-const index = read("src/index-v6.ts");
-assert.match(index, /runTwseMarketDataCapture/);
-assert.match(index, /runTpexMarketDataBackfill/);
-assert.match(index, /Promise\.allSettled/);
-assert.match(index, /TPEX_DIRECT_THEN_GITHUB_OFFICIAL_RELAY/);
-assert.match(index, /relay_capture_taipei: \["18:15", "20:15"\]/);
-assert.doesNotMatch(index, /runTwMarketDataDaily\(env, tradeDate\)/);
-assert.doesNotMatch(index, /BACKFILL_20260819|temporary_backfill/);
-
-const wrangler = read("wrangler.jsonc");
-assert.match(wrangler, /"30 10 \* \* 1-5"/);
-assert.match(wrangler, /"30 12 \* \* 1-5"/);
-assert.doesNotMatch(wrangler, /17-18 19 8|20260819/);
-
-console.log("P18.9 TPEx official relay governance and cleanup tests passed");
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");const read=(p:string)=>fs.readFileSync(path.join(root,p),"utf8");
+const workflow=read(".github/workflows/market-data-github-archive.yml");
+assert.match(workflow,/Diamond GitHub Market Data Archive/);assert.match(workflow,/ref: diamond-data/);assert.match(workflow,/git rebase origin\/diamond-data/);assert.match(workflow,/GitHub canonical archive CAS retries exhausted/);assert.doesNotMatch(workflow,/git\s+push[^\n]*(?:--force|-f\b)/);
+const capture=read("scripts/capture-tw-market-data.ts");assert.match(capture,/https:\/\/www\.tpex\.org\.tw\/openapi\/v1\/tpex_3insti_daily_trading/);assert.match(capture,/tpex_mainboard_margin_balance/);assert.match(capture,/tpex_margin_sbl/);assert.match(capture,/tpex_short_sell/);assert.match(capture,/source_date_mismatch/);assert.match(capture,/sha256|sha\(/i);
+assert.equal(fs.existsSync(path.join(root,"src/v6/tpex-official-relay.ts")),false);assert.equal(fs.existsSync(path.join(root,"src/v6/tpex-market-data-backfill.ts")),false);assert.equal(fs.existsSync(path.join(root,".github/workflows/tpex-official-relay.yml")),false);
+console.log("P19 unified official GitHub archive relay tests passed");

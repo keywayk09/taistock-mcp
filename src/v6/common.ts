@@ -4,7 +4,6 @@ declare global {
   interface Env {
     FUGLE_API_KEY: string;
     FINMIND_TOKEN: string;
-    DB?: D1Database;
   }
 }
 
@@ -188,92 +187,6 @@ export function technicalSummary(bars: DailyBar[]) {
     atr14: round(atr14, 4),
     score: Math.max(0, Math.min(100, score)),
   };
-}
-
-let schemaReady = false;
-
-export function requireDb(env: Env): D1Database {
-  if (!env.DB) throw new Error("D1 儲存尚未綁定；等待 Cloudflare 自動建立 DB，或在 Worker Bindings 將 D1 綁定名稱設為 DB");
-  return env.DB;
-}
-
-export async function ensureSchema(env: Env): Promise<D1Database> {
-  const db = requireDb(env);
-  if (schemaReady) return db;
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS watchlists (
-      name TEXT PRIMARY KEY,
-      description TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS watchlist_items (
-      watchlist_name TEXT NOT NULL,
-      symbol TEXT NOT NULL,
-      note TEXT NOT NULL DEFAULT '',
-      tags_json TEXT NOT NULL DEFAULT '[]',
-      target_price REAL,
-      stop_price REAL,
-      added_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY (watchlist_name, symbol)
-    );
-    CREATE INDEX IF NOT EXISTS idx_watchlist_items_symbol ON watchlist_items(symbol);
-    CREATE TABLE IF NOT EXISTS watchlist_snapshots (
-      watchlist_name TEXT NOT NULL,
-      symbol TEXT NOT NULL,
-      snapshot_date TEXT NOT NULL,
-      close REAL,
-      change_percent REAL,
-      trade_value REAL,
-      score REAL,
-      payload_json TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      PRIMARY KEY (watchlist_name, symbol, snapshot_date)
-    );
-    CREATE TABLE IF NOT EXISTS stock_events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      symbol TEXT NOT NULL,
-      event_type TEXT NOT NULL,
-      event_date TEXT NOT NULL,
-      source TEXT NOT NULL DEFAULT 'manual',
-      title TEXT NOT NULL DEFAULT '',
-      payload_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_stock_events_symbol_date ON stock_events(symbol, event_date);
-    CREATE TABLE IF NOT EXISTS event_outcomes (
-      event_id INTEGER PRIMARY KEY,
-      reference_price REAL,
-      return_1d REAL,
-      return_5d REAL,
-      return_20d REAL,
-      return_60d REAL,
-      mfe_20d REAL,
-      mae_20d REAL,
-      mfe_60d REAL,
-      mae_60d REAL,
-      evaluated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS portfolios (
-      name TEXT PRIMARY KEY,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS portfolio_positions (
-      portfolio_name TEXT NOT NULL,
-      symbol TEXT NOT NULL,
-      quantity REAL NOT NULL,
-      avg_price REAL NOT NULL,
-      stop_price REAL,
-      sector TEXT NOT NULL DEFAULT '',
-      note TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY (portfolio_name, symbol)
-    );
-  `);
-  schemaReady = true;
-  return db;
 }
 
 export function parseJson<T>(value: unknown, fallback: T): T {

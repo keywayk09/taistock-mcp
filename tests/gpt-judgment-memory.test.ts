@@ -19,7 +19,7 @@ assert.equal(GPT_JUDGMENT_REVIEW_SCHEMA_VERSION, "diamond-gpt-judgment-review/v1
 assert.equal(GPT_TRADING_KNOWLEDGE_SCHEMA_VERSION, "diamond-trading-knowledge/v1");
 
 const core = read("src/v6/gpt-judgment-memory.ts");
-assert.match(core, /data_watermark_ts_ms > knowledge_cutoff_ts_ms \|\| knowledge_cutoff_ts_ms > judgment_ts_ms/);
+assert.match(core, /data_watermark_ts_ms\s*>\s*knowledge_cutoff_ts_ms\s*\|\|\s*knowledge_cutoff_ts_ms\s*>\s*judgment_ts_ms/);
 assert.match(core, /trendline anchor is after knowledge cutoff/);
 assert.match(core, /pattern detection is after knowledge cutoff/);
 assert.match(core, /TW_STOCK judgment symbol must|TW_STOCK symbol must be 4-6 digits/);
@@ -30,9 +30,11 @@ assert.match(core, /ACCEPTED knowledge requires HUMAN actor and human_approved=t
 assert.match(core, /MIXED_DO_NOT_COMPARE_DIRECTLY/);
 assert.match(core, /REVIEW_DOES_NOT_MUTATE_STRATEGY/);
 assert.match(core, /STATISTICS_GENERATE_HYPOTHESES_ONLY_NO_AUTO_STRATEGY_CHANGE/);
-assert.match(core, /gpt_judgment_trendlines/);
-assert.match(core, /gpt_judgment_patterns/);
-assert.match(core, /gpt_trading_knowledge/);
+assert.match(core, /research\/gpt-judgments/);
+assert.match(core, /research\/gpt-judgment-reviews/);
+assert.match(core, /research\/gpt-trading-knowledge/);
+assert.match(core, /GITHUB_ONLY/);
+assert.doesNotMatch(core, /D1Database|RESEARCH_DB|\bSELECT\b|\bINSERT\b|\bUPDATE\b|\bDELETE\b/i);
 
 const tools = read("src/v6/gpt-judgment-memory-tools.ts");
 for (const name of [
@@ -66,7 +68,6 @@ assert.ok(Number(versionMatch[1]) > 6 || (Number(versionMatch[1]) === 6 && Numbe
 const toolsMatch = index.match(/tools: (\d+)/);
 assert.ok(toolsMatch && Number(toolsMatch[1]) >= 105, "P16 requires at least 105 MCP tools");
 
-const migration = read("migrations/0005_gpt_judgment_memory.sql");
-for (const table of ["gpt_judgments","gpt_judgment_reasons","gpt_judgment_trendlines","gpt_judgment_patterns","gpt_judgment_reviews","gpt_trading_knowledge"]) assert.match(migration, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`));
+assert.match(core, /putIndexedImmutableRecord/);
 
 console.log("P16 GPT judgment / structure / pattern / trendline memory tests passed");
