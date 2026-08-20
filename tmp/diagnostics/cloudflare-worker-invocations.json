@@ -8,18 +8,6 @@
           "workersInvocationsAdaptive": [
             {
               "dimensions": {
-                "datetime": "2026-08-20T16:45:37Z",
-                "scriptName": "taistock-mcp",
-                "status": "scriptThrewException"
-              },
-              "sum": {
-                "errors": 1,
-                "requests": 1,
-                "subrequests": 50
-              }
-            },
-            {
-              "dimensions": {
                 "datetime": "2026-08-20T17:10:37Z",
                 "scriptName": "taistock-mcp",
                 "status": "exceededResources"
@@ -32,26 +20,26 @@
             },
             {
               "dimensions": {
-                "datetime": "2026-08-20T16:55:37Z",
+                "datetime": "2026-08-20T17:15:37Z",
                 "scriptName": "taistock-mcp",
-                "status": "scriptThrewException"
+                "status": "exceededResources"
               },
               "sum": {
                 "errors": 1,
                 "requests": 1,
-                "subrequests": 50
+                "subrequests": 5
               }
             },
             {
               "dimensions": {
-                "datetime": "2026-08-20T16:50:37Z",
+                "datetime": "2026-08-20T17:20:37Z",
                 "scriptName": "taistock-mcp",
-                "status": "scriptThrewException"
+                "status": "exceededResources"
               },
               "sum": {
                 "errors": 1,
                 "requests": 1,
-                "subrequests": 50
+                "subrequests": 5
               }
             }
           ]
