@@ -5,9 +5,10 @@ import { registerDailyReportFormatTool } from "./v6/daily-report-format";
 import { registerAdvancedTools } from "./v6/register";
 import { registerFamilyStockSelectionTools } from "./v6/family-stock-selection";
 import { githubDataStoreHealth } from "./v6/github-data-store";
+import { getTwMarketDataDayStatus } from "./v6/market-data-day-status";
 import { getResearchStatus, isAuthorizedResearchRequest } from "./v6/research-pipeline";
 import { registerResearchTools } from "./v6/research-tools";
-import { getTwMarketDataStatus, TW_MARKET_DATA_VERSION } from "./v6/tw-market-data-github";
+import { TW_MARKET_DATA_VERSION } from "./v6/tw-market-data-github";
 import { registerTwMarketDataTools } from "./v6/tw-market-data-tools";
 
 function taipeiDateFromMs(ms: number) {
@@ -111,7 +112,7 @@ export default {
 
     if (url.pathname === "/market-data/status" && request.method === "GET") {
       const tradeDate = url.searchParams.get("trade_date")?.trim() || taipeiDateFromMs(Date.now());
-      return Response.json(await getTwMarketDataStatus(env, tradeDate));
+      return Response.json(await getTwMarketDataDayStatus(env, tradeDate));
     }
 
     if (url.pathname.startsWith("/research/")) {
