@@ -1,0 +1,181 @@
+name: TPEx Official Relay V2
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tpex-official-relay-v2.yml'
+  schedule:
+    # 17:15 / 18:15 / 20:15 Asia/Taipei on weekdays.
+    - cron: '15 9 * * 1-5'
+    - cron: '15 10 * * 1-5'
+    - cron: '15 12 * * 1-5'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tpex-official-relay-v2
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Capture available official TPEx datasets
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/tpex-relay-build
+          mkdir -p /tmp/tpex-relay-build/data/market-data/tpex-relay
+          python - <<'PY'
+          import datetime as dt
+          import hashlib
+          import json
+          import pathlib
+          import re
+          import urllib.request
+
+          ROOT = pathlib.Path('/tmp/tpex-relay-build/data/market-data/tpex-relay')
+          ENDPOINTS = {
+              'institutional': 'https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading',
+              'margin': 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance',
+              'sbl_balance': 'https://www.tpex.org.tw/openapi/v1/tpex_margin_sbl',
+              'sbl_volume': 'https://www.tpex.org.tw/openapi/v1/tpex_short_sell',
+          }
+          HEADERS = {
+              'Accept': 'application/json,text/plain,*/*',
+              'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+              'Referer': 'https://www.tpex.org.tw/',
+              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
+          }
+
+          def normalize_date(value):
+              raw = str(value or '').strip()
+              if re.fullmatch(r'\d{7}', raw):
+                  return f'{int(raw[:3]) + 1911:04d}-{raw[3:5]}-{raw[5:7]}'
+              if re.fullmatch(r'\d{8}', raw):
+                  return f'{raw[:4]}-{raw[4:6]}-{raw[6:8]}'
+              m = re.fullmatch(r'(\d{3})/(\d{2})/(\d{2})', raw)
+              if m:
+                  return f'{int(m.group(1)) + 1911:04d}-{m.group(2)}-{m.group(3)}'
+              if re.fullmatch(r'\d{4}-\d{2}-\d{2}', raw):
+                  return raw
+              return None
+
+          def row_date(row):
+              if not isinstance(row, dict):
+                  return None
+              for key in ('Date', 'date', '日期', '資料日期', 'TradeDate'):
+                  value = normalize_date(row.get(key))
+                  if value:
+                      return value
+              return None
+
+          def fetch(name, url):
+              req = urllib.request.Request(url, headers=HEADERS)
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  raw = response.read()
+                  if response.status != 200:
+                      raise RuntimeError(f'HTTP {response.status}')
+              body = json.loads(raw.decode('utf-8-sig'))
+              if not isinstance(body, list) or not body:
+                  raise RuntimeError('expected non-empty JSON list')
+              dates = [row_date(body[i]) for i in sorted({0, len(body)//2, len(body)-1})]
+              dates = [value for value in dates if value]
+              if not dates:
+                  raise RuntimeError('source date missing')
+              if len(set(dates)) != 1:
+                  raise RuntimeError(f'mixed source dates: {dates}')
+              return dates[0], body
+
+          captured = {}
+          errors = {}
+          for name, url in ENDPOINTS.items():
+              try:
+                  trade_date, body = fetch(name, url)
+                  captured[name] = (trade_date, body, url)
+                  print(f'{name}: READY {trade_date} rows={len(body)}')
+              except Exception as exc:
+                  errors[name] = f'{type(exc).__name__}: {exc}'[:300]
+                  print(f'{name}: ERROR {errors[name]}')
+
+          if not captured:
+              raise RuntimeError('no TPEx dataset captured')
+
+          grouped = {}
+          for name, item in captured.items():
+              grouped.setdefault(item[0], {})[name] = item
+
+          now = dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z')
+          for trade_date, datasets in grouped.items():
+              base = ROOT / trade_date
+              base.mkdir(parents=True, exist_ok=True)
+              manifest = {
+                  'schema': 'TPEX_OFFICIAL_RELAY_V2',
+                  'trade_date': trade_date,
+                  'captured_at_utc': now,
+                  'source_owner': 'TPEx',
+                  'transport': 'GitHub public hosted runner official-endpoint transport cache',
+                  'canonical_storage': 'keywayk09/tv-papertrader main/data',
+                  'datasets': {},
+                  'capture_errors': errors,
+              }
+              for name, (_, body, url) in datasets.items():
+                  payload = json.dumps(body, ensure_ascii=False, separators=(',', ':'), sort_keys=True)
+                  sha = hashlib.sha256(payload.encode('utf-8')).hexdigest()
+                  file_name = f'{name}.json'
+                  (base / file_name).write_text(payload + '\n', encoding='utf-8')
+                  manifest['datasets'][name] = {
+                      'source_date': trade_date,
+                      'row_count': len(body),
+                      'sha256': sha,
+                      'endpoint': url,
+                      'file': file_name,
+                  }
+              (base / 'manifest.json').write_text(
+                  json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + '\n',
+                  encoding='utf-8',
+              )
+
+          latest_date = max(grouped)
+          latest = {
+              'schema': 'TPEX_OFFICIAL_RELAY_LATEST_V2',
+              'trade_date': latest_date,
+              'updated_at_utc': now,
+          }
+          (ROOT / 'latest.json').write_text(
+              json.dumps(latest, ensure_ascii=False, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          print(json.dumps(latest, ensure_ascii=False))
+          PY
+
+      - name: Publish relay cache branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'tpex-official-relay-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git fetch origin market-data-relay:refs/remotes/origin/market-data-relay || true
+          if git show-ref --verify --quiet refs/remotes/origin/market-data-relay; then
+            git checkout -B market-data-relay refs/remotes/origin/market-data-relay
+          else
+            git checkout --orphan market-data-relay
+            git rm -rf . || true
+          fi
+          mkdir -p data/market-data/tpex-relay
+          cp -a /tmp/tpex-relay-build/data/market-data/tpex-relay/. data/market-data/tpex-relay/
+          git add data/market-data/tpex-relay
+          if git diff --cached --quiet; then
+            echo 'Relay cache unchanged.'
+            exit 0
+          fi
+          git commit -m "market-data: refresh TPEx official relay cache"
+          git push origin HEAD:refs/heads/market-data-relay
