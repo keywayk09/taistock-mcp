@@ -1,8 +1,8 @@
 name: P19 MI_MARGN Positional Parser Fix
 
 on:
-  push:
-    branches: [p19/mi-margin-positional-fix]
+  pull_request:
+    branches: [main]
     paths:
       - '.github/workflows/p19-mi-margin-fix.yml'
 
@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   apply-and-test:
+    if: github.head_ref == 'p19/mi-margin-positional-fix'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
