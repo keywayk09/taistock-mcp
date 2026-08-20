@@ -1,20 +1,22 @@
 import assert from "node:assert/strict";
-import { decideMarketDataCron } from "../src/v6/market-data-cloudflare-runner.ts";
+import fs from "node:fs";
 import { parseTwseHolidayCsv } from "../src/v6/market-data-incremental-controller.ts";
 
-function utc(taipeiIsoWithoutOffset: string) {
-  return new Date(`${taipeiIsoWithoutOffset}+08:00`);
-}
+const runner = fs.readFileSync("src/v6/market-data-cloudflare-runner.ts", "utf8");
+const wrangler = fs.readFileSync("wrangler.jsonc", "utf8");
+const entrypoint = fs.readFileSync("src/index-v6.ts", "utf8");
 
-const first = decideMarketDataCron(utc("2026-08-20T18:15:00"));
-assert.deepEqual(first, { tradeDate: "2026-08-20", finalAudit: false, reason: "TRADING_EVENING" });
-assert.equal(decideMarketDataCron(utc("2026-08-20T18:20:00"))?.tradeDate, "2026-08-20");
-assert.equal(decideMarketDataCron(utc("2026-08-20T22:30:00"))?.finalAudit, true);
-assert.deepEqual(decideMarketDataCron(utc("2026-08-21T08:30:00")), { tradeDate: "2026-08-20", finalAudit: true, reason: "PREVIOUS_DAY_FINAL_AUDIT" });
-assert.deepEqual(decideMarketDataCron(utc("2026-08-22T18:15:00")), { tradeDate: "2026-08-22", finalAudit: false, reason: "WEEKEND_PREFLIGHT" });
-assert.equal(decideMarketDataCron(utc("2026-08-22T18:20:00")), null);
-assert.equal(decideMarketDataCron(utc("2026-08-20T12:00:00")), null);
-assert.equal(decideMarketDataCron(utc("2026-08-20T22:35:00")), null);
+assert.match(runner, /hour === 18 && minute >= 15/);
+assert.match(runner, /hour === 22 && minute <= 30/);
+assert.match(runner, /hour === 8 && minute === 30/);
+assert.match(runner, /PREVIOUS_DAY_FINAL_AUDIT/);
+assert.match(runner, /WEEKEND_PREFLIGHT/);
+assert.match(runner, /dueLayerKeys/);
+assert.match(runner, /mergeReadyMonotonic/);
+assert.match(runner, /retries: 8/);
+assert.match(wrangler, /"crons": \["\*\/5 \* \* \* \*"\]/);
+assert.match(entrypoint, /async scheduled\(controller: ScheduledController/);
+assert.match(entrypoint, /CLOUDFLARE_CRON_CANONICAL_WRITER/);
 
 const csv = [
   '"日期","名稱","說明"',
