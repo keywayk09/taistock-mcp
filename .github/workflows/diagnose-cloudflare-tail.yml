@@ -1,5 +1,5 @@
 name: Diagnose Cloudflare Market Data Tail
-# retrigger 2026-08-21T01:04+08:00
+# aligned retrigger for immediate */5 cron observation
 
 on:
   push:
@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      - name: Tail one scheduled interval
+      - name: Tail production scheduled runtime
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -29,7 +29,7 @@ jobs:
         run: |
           set +e
           mkdir -p tmp/diagnostics
-          timeout 370s npx wrangler tail taistock-mcp --format json > /tmp/tail.jsonl 2>/tmp/tail.stderr
+          timeout 150s npx wrangler tail taistock-mcp --format json --sampling-rate 1 > /tmp/tail.jsonl 2>/tmp/tail.stderr
           tail_rc=$?
           TAIL_RC=$tail_rc python - <<'PY'
           import json, os, re
@@ -38,19 +38,15 @@ jobs:
           p=Path('/tmp/tail.jsonl')
           if p.exists():
               for raw in p.read_text(errors='replace').splitlines():
-                  try:
-                      obj=json.loads(raw)
-                  except Exception:
-                      continue
-                  event=obj.get('event') if isinstance(obj,dict) else None
-                  logs=obj.get('logs') if isinstance(obj,dict) else None
-                  exceptions=obj.get('exceptions') if isinstance(obj,dict) else None
-                  outcome=obj.get('outcome') if isinstance(obj,dict) else None
-                  item={'outcome':outcome}
+                  try: obj=json.loads(raw)
+                  except Exception: continue
+                  if not isinstance(obj,dict): continue
+                  event=obj.get('event'); logs=obj.get('logs'); exceptions=obj.get('exceptions')
+                  item={'outcome':obj.get('outcome')}
                   if isinstance(event,dict):
                       item['event_type']=event.get('type')
-                      if 'scheduledTime' in event: item['scheduledTime']=event.get('scheduledTime')
-                      if 'cron' in event: item['cron']=event.get('cron')
+                      item['scheduledTime']=event.get('scheduledTime')
+                      item['cron']=event.get('cron')
                   if isinstance(logs,list):
                       msgs=[]
                       for x in logs:
@@ -58,25 +54,20 @@ jobs:
                           msg=x.get('message')
                           if isinstance(msg,list): msg=' '.join(str(v) for v in msg)
                           if isinstance(msg,str):
-                              msg=re.sub(r'Bearer\s+[A-Za-z0-9._~+\-/]+=*','Bearer [REDACTED]',msg,flags=re.I)
-                              msgs.append({'level':x.get('level'),'message':msg[:2000]})
+                              msg=re.sub(r'Bearer\s+\S+','Bearer [REDACTED]',msg,flags=re.I)
+                              msgs.append({'level':x.get('level'),'message':msg[:2500]})
                       if msgs: item['logs']=msgs
                   if isinstance(exceptions,list):
                       exc=[]
                       for x in exceptions:
-                          if isinstance(x,dict):
-                              exc.append({'name':x.get('name'),'message':str(x.get('message',''))[:3000]})
+                          if isinstance(x,dict): exc.append({'name':x.get('name'),'message':str(x.get('message',''))[:4000]})
                       if exc: item['exceptions']=exc
-                  if item.get('event_type')=='scheduled' or item.get('exceptions') or item.get('logs'):
-                      safe.append(item)
-          stderr=''
-          sp=Path('/tmp/tail.stderr')
-          if sp.exists(): stderr=sp.read_text(errors='replace')[-3000:]
-          receipt={'tail_rc':int(os.environ.get('TAIL_RC','0')),'events':safe[-50:],'stderr_tail':stderr}
-          Path('tmp/diagnostics/cloudflare-market-data-tail.json').write_text(json.dumps(receipt,indent=2)+'\n')
+                  safe.append(item)
+          stderr=Path('/tmp/tail.stderr').read_text(errors='replace')[-3000:] if Path('/tmp/tail.stderr').exists() else ''
+          Path('tmp/diagnostics/cloudflare-market-data-tail.json').write_text(json.dumps({'tail_rc':int(os.environ.get('TAIL_RC','0')),'events':safe[-100:],'stderr_tail':stderr},indent=2)+'\n')
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add tmp/diagnostics/cloudflare-market-data-tail.json
-          git commit -m 'diag: record Cloudflare market-data tail' || exit 0
+          git commit -m 'diag: record aligned Cloudflare market-data tail' || exit 0
           git push origin HEAD:${GITHUB_REF_NAME}
