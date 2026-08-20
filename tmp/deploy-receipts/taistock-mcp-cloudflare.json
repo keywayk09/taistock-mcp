@@ -1,10 +1,10 @@
 {
-  "source_sha": "18a62fd4b8b8c0fc6717f0793d1faf029be4f232",
+  "source_sha": "cbf12c7b12ed1e4dc946825494caac9165bdd756",
   "deploy_outcome": "success",
   "cron_outcome": "success",
   "reason": "DEPLOYED_AND_CRON_VERIFIED",
   "token_configured": true,
   "account_id_configured": true,
   "cron": "*/5 * * * *",
-  "recorded_at": "2026-08-20T17:23:43Z"
+  "recorded_at": "2026-08-20T18:20:03Z"
 }
