@@ -1,0 +1,73 @@
+name: Deploy taistock-mcp to Cloudflare
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'wrangler.jsonc'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-cloudflare-production.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: taistock-mcp-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Deploy production Worker
+        id: deploy
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo 'CLOUDFLARE_API_TOKEN is not configured for this repository.' >&2
+            exit 78
+          fi
+          npx wrangler deploy
+      - name: Persist deploy receipt
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/deploy-receipts
+          cat > tmp/deploy-receipts/taistock-mcp-cloudflare.json <<EOF
+          {
+            "source_sha": "${GITHUB_SHA}",
+            "deploy_outcome": "${{ steps.deploy.outcome }}",
+            "recorded_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/deploy-receipts/taistock-mcp-cloudflare.json
+          git commit -m 'ops: record Cloudflare production deploy result' || exit 0
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            git fetch origin main
+            git rebase origin/main
+          done
+          echo 'deploy receipt push retries exhausted' >&2
+          exit 1
+      - name: Enforce deployment result
+        if: steps.deploy.outcome != 'success'
+        run: exit 1
