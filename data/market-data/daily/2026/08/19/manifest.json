@@ -1,7 +1,7 @@
 {
   "layers": [
     {
-      "captured_at": "2026-08-20T05:23:06.148Z",
+      "captured_at": "2026-08-20T05:24:48.064Z",
       "content_sha256": "84c6a4b7625646a61fe6318cf7598cbc1d7f9b15c2a49c461618e366981edd9c",
       "dataset_version": "sha256:84c6a4b7625646a61fe6318cf7598cbc1d7f9b15c2a49c461618e366981edd9c",
       "error": null,
@@ -16,7 +16,7 @@
       "status": "READY"
     },
     {
-      "captured_at": "2026-08-20T05:23:06.148Z",
+      "captured_at": "2026-08-20T05:24:48.064Z",
       "content_sha256": "cd304d96d5a8b9ed8599fc52a921b27ab998b443ee6d5219bc7a294d73898420",
       "dataset_version": "sha256:cd304d96d5a8b9ed8599fc52a921b27ab998b443ee6d5219bc7a294d73898420",
       "error": null,
@@ -31,7 +31,7 @@
       "status": "READY"
     },
     {
-      "captured_at": "2026-08-20T05:23:06.148Z",
+      "captured_at": "2026-08-20T05:24:48.064Z",
       "content_sha256": "5d69d8d8633f98040ddfc31d19b4cdd200963b10249ed00fe2b3f4f3c066e3da",
       "dataset_version": "sha256:5d69d8d8633f98040ddfc31d19b4cdd200963b10249ed00fe2b3f4f3c066e3da",
       "error": null,
@@ -46,7 +46,7 @@
       "status": "READY"
     },
     {
-      "captured_at": "2026-08-20T05:23:06.148Z",
+      "captured_at": "2026-08-20T05:24:48.064Z",
       "content_sha256": "65a53d3e7ce0cc3f8654ba0d8ba1f7834e55480f7a4cd7b4aaeca4d988a67fb6",
       "dataset_version": "sha256:65a53d3e7ce0cc3f8654ba0d8ba1f7834e55480f7a4cd7b4aaeca4d988a67fb6",
       "error": null,
@@ -61,7 +61,7 @@
       "status": "READY"
     },
     {
-      "captured_at": "2026-08-20T05:23:06.148Z",
+      "captured_at": "2026-08-20T05:24:48.064Z",
       "content_sha256": "7eb4a6f5fbb5dafb4a2f9fd82864223571a6ad08d2b9df450339a51c59e9b311",
       "dataset_version": "sha256:7eb4a6f5fbb5dafb4a2f9fd82864223571a6ad08d2b9df450339a51c59e9b311",
       "error": null,
@@ -76,7 +76,7 @@
       "status": "READY"
     },
     {
-      "captured_at": "2026-08-20T05:23:06.148Z",
+      "captured_at": "2026-08-20T05:24:48.064Z",
       "content_sha256": "f477289fda1ad517e7afed07e23b3ffa8f4f8b144ad78d7258a24a5db3a43674",
       "dataset_version": "sha256:f477289fda1ad517e7afed07e23b3ffa8f4f8b144ad78d7258a24a5db3a43674",
       "error": null,
@@ -91,7 +91,7 @@
       "status": "READY"
     },
     {
-      "captured_at": "2026-08-20T05:23:06.148Z",
+      "captured_at": "2026-08-20T05:24:48.064Z",
       "content_sha256": "1306c8d028e107db4ba46965495b2caedfd38f15a2b0f0706419fcdee1d0e0dd",
       "dataset_version": "sha256:1306c8d028e107db4ba46965495b2caedfd38f15a2b0f0706419fcdee1d0e0dd",
       "error": null,
@@ -106,7 +106,7 @@
       "status": "READY"
     },
     {
-      "captured_at": "2026-08-20T05:23:06.148Z",
+      "captured_at": "2026-08-20T05:24:48.064Z",
       "content_sha256": "a8448698f3dc9cb77fdb495fb2c3f0e9928089300417e5ec7a6fc012a4ae4af8",
       "dataset_version": "sha256:a8448698f3dc9cb77fdb495fb2c3f0e9928089300417e5ec7a6fc012a4ae4af8",
       "error": null,
@@ -125,5 +125,5 @@
   "schema_version": "diamond-market-data-manifest/v2",
   "storage": "GITHUB_ONLY",
   "trade_date": "2026-08-19",
-  "updated_at": "2026-08-20T05:23:06.148Z"
+  "updated_at": "2026-08-20T05:24:48.064Z"
 }
