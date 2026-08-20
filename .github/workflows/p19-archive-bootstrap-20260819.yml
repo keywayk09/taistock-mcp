@@ -31,21 +31,63 @@ jobs:
           path: archive
           fetch-depth: 0
 
-      - name: Inspect live TWSE MI_MARGN contract
+      - name: Apply candidate MI_MARGN positional parser for acceptance
         shell: bash
         run: |
-          node - <<'NODE'
-          const url='https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=20260819&selectType=ALL&response=json';
-          const r=await fetch(url,{headers:{Accept:'application/json,text/plain,*/*','User-Agent':'Diamond-P19-Diagnostic/1.0'}});
-          const body=await r.json();
-          console.log('HTTP',r.status,'date',body.date,'keys',Object.keys(body));
-          console.log('tables',Array.isArray(body.tables)?body.tables.length:0);
-          for (const [i,t] of (body.tables||[]).entries()) {
-            console.log(JSON.stringify({i,title:t.title,fields:t.fields,rows:Array.isArray(t.data)?t.data.length:null,first:Array.isArray(t.data)?t.data[0]:null},null,2));
-          }
-          console.log('root fields',JSON.stringify(body.fields||null));
-          console.log('root rows',Array.isArray(body.data)?body.data.length:null,'root first',JSON.stringify(Array.isArray(body.data)?body.data[0]:null));
-          NODE
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('code/src/v6/tw-market-data.ts')
+          s=p.read_text()
+          old='''export function normalizeTwseMargin(body: unknown, requestedDate: string): MarginRow[] {
+  const root = rec(body);
+  const rows = findTwseMarginTable(body);
+  const tradeDate = normalizeTradeDate(root.date) ?? requestedDate;
+  return rows.map((row) => normalizeMarginRow(row, "listed", tradeDate, "TWSE_MI_MARGN")).filter((x): x is MarginRow => Boolean(x));
+}'''
+          new='''export function normalizeTwseMargin(body: unknown, requestedDate: string): MarginRow[] {
+  const root = rec(body);
+  const tradeDate = normalizeTradeDate(root.date) ?? requestedDate;
+  if (Array.isArray(root.tables)) {
+    for (const tableValue of root.tables) {
+      const table = rec(tableValue);
+      if (!/融資融券彙總/.test(String(table.title ?? "")) || !Array.isArray(table.fields) || !Array.isArray(table.data)) continue;
+      const keys = table.fields.map((field: unknown) => normalizeKey(String(field)));
+      const codeIndex = keys.findIndex((key: string) => ["代號", "證券代號", "股票代號"].map(normalizeKey).includes(key));
+      const nameIndex = keys.findIndex((key: string) => ["名稱", "證券名稱", "股票名稱"].map(normalizeKey).includes(key));
+      const previousIndexes = keys.map((key: string, index: number) => key.includes(normalizeKey("前日餘額")) ? index : -1).filter((index: number) => index >= 0);
+      const todayIndexes = keys.map((key: string, index: number) => key.includes(normalizeKey("今日餘額")) ? index : -1).filter((index: number) => index >= 0);
+      if (codeIndex < 0 || previousIndexes.length < 2 || todayIndexes.length < 2) continue;
+      return table.data.filter(Array.isArray).map((values: any[]): MarginRow | null => {
+        const symbol = String(values[codeIndex] ?? "").trim().replace(/\\s/g, "");
+        if (!/^\\d{4,6}$/.test(symbol)) return null;
+        const marginPrev = nullableMarketNumber(values[previousIndexes[0]]);
+        const marginNow = nullableMarketNumber(values[todayIndexes[0]]);
+        const shortPrev = nullableMarketNumber(values[previousIndexes[1]]);
+        const shortNow = nullableMarketNumber(values[todayIndexes[1]]);
+        return {
+          trade_date: tradeDate,
+          symbol,
+          name: nameIndex >= 0 ? String(values[nameIndex] ?? "").trim() : "",
+          market: "listed",
+          margin_previous_balance_lots: marginPrev,
+          margin_balance_lots: marginNow,
+          margin_balance_change_lots: marginNow !== null && marginPrev !== null ? marginNow - marginPrev : null,
+          short_previous_balance_lots: shortPrev,
+          short_balance_lots: shortNow,
+          short_balance_change_lots: shortNow !== null && shortPrev !== null ? shortNow - shortPrev : null,
+          source: "TWSE_MI_MARGN",
+          source_priority: "OFFICIAL",
+        };
+      }).filter((x): x is MarginRow => Boolean(x));
+    }
+  }
+  const rows = findTwseMarginTable(body);
+  return rows.map((row) => normalizeMarginRow(row, "listed", tradeDate, "TWSE_MI_MARGN")).filter((x): x is MarginRow => Boolean(x));
+}'''
+          if old not in s:
+            raise SystemExit('normalizeTwseMargin source block not found')
+          p.write_text(s.replace(old,new,1))
+          PY
 
       - name: Capture exact 2026-08-19 official market data
         env:
