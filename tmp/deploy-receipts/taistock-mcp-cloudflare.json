@@ -1,5 +1,8 @@
 {
-  "source_sha": "5d10aebf2255baee94b75ecb1a7f393bd2c26ff8",
+  "source_sha": "042ebc8ca11a53011b171f07d664bd0c11d6a505",
   "deploy_outcome": "failure",
-  "recorded_at": "2026-08-20T15:01:40Z"
+  "reason": "MISSING_CLOUDFLARE_API_TOKEN",
+  "token_configured": false,
+  "account_id_configured": false,
+  "recorded_at": "2026-08-20T15:03:43Z"
 }
