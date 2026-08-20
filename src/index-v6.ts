@@ -5,7 +5,7 @@ import { registerDailyReportFormatTool } from "./v6/daily-report-format";
 import { registerAdvancedTools } from "./v6/register";
 import { registerFamilyStockSelectionTools } from "./v6/family-stock-selection";
 import { githubDataStoreHealth } from "./v6/github-data-store";
-import { runScheduledMarketDataController } from "./v6/market-data-cloudflare-runner";
+import { runExtendedScheduledMarketDataController } from "./v6/market-data-scheduled-dispatch";
 import { getTwMarketDataDayStatus } from "./v6/market-data-day-status";
 import { getResearchStatus, isAuthorizedResearchRequest } from "./v6/research-pipeline";
 import { registerResearchTools } from "./v6/research-tools";
@@ -95,7 +95,7 @@ export default {
           policy: "incremental_ready_monotonic_missing_only_retry",
           ohlc_gateway: "OHLC_MCP_ONLY",
           capture_owner: "CLOUDFLARE_CRON_CANONICAL_WRITER",
-          execution_policy: "FIVE_MINUTE_WAKE; DUE_LAYER_ONLY; NO_PRIVATE_GITHUB_ACTIONS_DEPENDENCY",
+          execution_policy: "FIVE_MINUTE_WAKE; DUE_LAYER_ONLY; NO_PRIVATE_GITHUB_ACTIONS_DEPENDENCY; NO_2230_HARD_STOP",
           expected_layers: 8,
           kinds: ["institutional", "margin", "securities_lending", "sbl_short_sale"],
           source_lanes: {
@@ -139,6 +139,6 @@ export default {
   },
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(runScheduledMarketDataController(env, controller.scheduledTime));
+    ctx.waitUntil(runExtendedScheduledMarketDataController(env, controller.scheduledTime));
   },
 };
