@@ -7,11 +7,11 @@ import {
   normalizeTpexSblShortSale,
   normalizeTradeDate,
   normalizeTwseInstitutional,
-  normalizeTwseMargin,
   normalizeTwseSecuritiesLending,
   normalizeTwseSblShortSale,
   type TwMarketDataKind,
 } from "../src/v6/tw-market-data.ts";
+import { normalizeTwseMiMargnOfficial } from "../src/v6/twse-mi-margin-official.ts";
 
 const VERSION = "diamond-tw-market-data/v2.0.0-github";
 const OUT = process.env.DIAMOND_DATA_ROOT || process.argv[process.argv.indexOf("--out") + 1] || ".";
@@ -86,7 +86,7 @@ await capture("institutional-otc",async()=>{
 await capture("margin-listed",async()=>{
   const body=await getJson(`https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${compact}&selectType=ALL&response=json`,"TWSE_MI_MARGN");
   const raw=rawCapture("TWSE_MI_MARGN",body); const d=sourceDate(body); if(d!==tradeDate)throw new Error(`source_date_mismatch:${d}`);
-  layers.push({kind:"margin",market:"listed",source:"TWSE_MI_MARGN",rows:normalizeTwseMargin(body,tradeDate),raw_paths:[raw.path]});
+  layers.push({kind:"margin",market:"listed",source:"TWSE_MI_MARGN",rows:normalizeTwseMiMargnOfficial(body,tradeDate),raw_paths:[raw.path]});
 });
 await capture("margin-otc",async()=>{
   const body=await getJson("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance","TPEX_MARGIN");
