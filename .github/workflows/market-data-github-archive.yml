@@ -1,6 +1,6 @@
 name: Diamond GitHub Market Data Archive
 
-# P19 bootstrap trigger: keep the GitHub-only canonical archive path live after migration.
+# P19.1 acceptance trigger: rerun GitHub-only canonical archive after TWSE MI_MARGN parser fix.
 on:
   schedule:
     # 18:15 / 20:15 Asia/Taipei, weekdays.
