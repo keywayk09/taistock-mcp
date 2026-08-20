@@ -1,8 +1,8 @@
 {
-  "source_sha": "042ebc8ca11a53011b171f07d664bd0c11d6a505",
-  "deploy_outcome": "failure",
-  "reason": "MISSING_CLOUDFLARE_API_TOKEN",
-  "token_configured": false,
-  "account_id_configured": false,
-  "recorded_at": "2026-08-20T15:03:43Z"
+  "source_sha": "51e56552aadc2cecf6819cb645782d57acc64fff",
+  "deploy_outcome": "success",
+  "reason": "DEPLOYED",
+  "token_configured": true,
+  "account_id_configured": true,
+  "recorded_at": "2026-08-20T16:12:20Z"
 }
