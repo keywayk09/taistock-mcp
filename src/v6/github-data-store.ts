@@ -1,3 +1,10 @@
+import { getMarketDataCapturePolicy } from "./market-data-capture-context.ts";
+import {
+  decodeGitHubCompressedJsonText,
+  encodeGitHubCompressedJsonText,
+  isGitHubCompressedJsonEnvelope,
+} from "./github-compressed-json.ts";
+
 /**
  * GitHub canonical data store for Diamond.
  *
@@ -6,6 +13,7 @@
  * - D1/R2 are forbidden for application data persistence.
  * - Writes use strict compare-and-swap. HTTP 409/422 always trigger re-read + re-merge.
  * - Immutable records never overwrite conflicting content.
+ * - One-shot historical Market Data raw/snapshot blobs may be transparently stored as gzip+base64 JSON envelopes.
  */
 
 declare global {
@@ -134,6 +142,29 @@ function contentPutUrl(env: Env, path: string) {
   return `https://api.github.com/repos/${repo}/contents/${encodedPath}`;
 }
 
+function shouldCompressHistoryImmutable(path: string) {
+  if (getMarketDataCapturePolicy().storageMode !== "HISTORY_COMPRESSED") return false;
+  const normalized = normalizePath(path);
+  return /^data\/market-data\/raw\/20\d{2}\/\d{2}\/\d{2}\//.test(normalized)
+    || /^data\/market-data\/daily\/20\d{2}\/\d{2}\/\d{2}\/snapshots\//.test(normalized);
+}
+
+async function decodeStoredJsonText(text: string) {
+  const parsed = JSON.parse(text);
+  if (!isGitHubCompressedJsonEnvelope(parsed)) return text;
+  return await decodeGitHubCompressedJsonText(parsed);
+}
+
+async function storedImmutableText(path: string, logicalText: string) {
+  if (!shouldCompressHistoryImmutable(path)) return logicalText;
+  return stableJson(await encodeGitHubCompressedJsonText(logicalText));
+}
+
+async function logicalStoredHash(text: string) {
+  const logical = await decodeStoredJsonText(text);
+  return await sha256Hex(logical.endsWith("\n") ? logical : `${logical}\n`);
+}
+
 async function memorySha(text: string) { return await sha256Hex(`memory:${text}`); }
 
 export async function readGitHubText(env: Env, path: string): Promise<GitHubJsonRead<string>> {
@@ -166,9 +197,10 @@ export async function readGitHubJson<T>(env: Env, path: string): Promise<GitHubJ
   const raw = await readGitHubText(env, path);
   if (!raw.exists || raw.value === null) return { ...raw, value: null } as GitHubJsonRead<T>;
   try {
-    return { exists: true, path: raw.path, sha: raw.sha, value: JSON.parse(raw.value) as T };
+    const logicalText = await decodeStoredJsonText(raw.value);
+    return { exists: true, path: raw.path, sha: raw.sha, value: JSON.parse(logicalText) as T };
   } catch (error) {
-    throw new GitHubDataStoreError("GITHUB_JSON_INVALID", "Stored GitHub JSON is invalid", undefined, { path: raw.path, error: String(error) });
+    throw new GitHubDataStoreError("GITHUB_JSON_INVALID", "Stored GitHub JSON is invalid or compressed payload failed verification", undefined, { path: raw.path, error: String(error) });
   }
 }
 
@@ -235,23 +267,32 @@ export async function putImmutableGitHubJson(env: Env, input: {
   message: string;
   retries?: number;
 }) {
-  const incoming = stableJson(input.value);
-  const incomingHash = await sha256Hex(incoming);
+  const incomingLogical = stableJson(input.value);
+  const incomingHash = await sha256Hex(incomingLogical);
+  const incomingStored = await storedImmutableText(input.path, incomingLogical);
   const retries = Math.max(1, Math.min(8, input.retries ?? 5));
   for (let attempt = 1; attempt <= retries; attempt++) {
     const current = await readGitHubText(env, input.path);
     if (current.exists && current.value !== null) {
-      const currentHash = await sha256Hex(current.value.endsWith("\n") ? current.value : `${current.value}\n`);
+      let currentHash: string;
+      try {
+        currentHash = await logicalStoredHash(current.value);
+      } catch (error) {
+        throw new GitHubDataStoreError("GITHUB_COMPRESSED_JSON_INVALID", "existing immutable compressed JSON failed verification", 409, {
+          path: normalizePath(input.path),
+          error: String(error),
+        });
+      }
       if (currentHash !== incomingHash) {
-        throw new GitHubDataStoreError("IMMUTABLE_CONFLICT", "immutable GitHub record already exists with different content", 409, {
+        throw new GitHubDataStoreError("IMMUTABLE_CONFLICT", "immutable GitHub record already exists with different logical content", 409, {
           path: normalizePath(input.path), current_hash: currentHash, incoming_hash: incomingHash,
         });
       }
       return { ok: true as const, immutable: true as const, idempotent: true as const, path: normalizePath(input.path), sha: current.sha, content_sha256: incomingHash, attempts: attempt };
     }
-    const write = await putTextOnce(env, input.path, incoming, null, input.message);
+    const write = await putTextOnce(env, input.path, incomingStored, null, input.message);
     if (write.ok) return { ok: true as const, immutable: true as const, idempotent: false as const, path: normalizePath(input.path), sha: write.sha, content_sha256: incomingHash, attempts: attempt };
-    // Strict create-CAS race: re-read after 409/422 and verify immutability.
+    // Strict create-CAS race: re-read after 409/422 and verify logical immutability.
   }
   throw new GitHubDataStoreError("GITHUB_CAS_EXHAUSTED", "GitHub immutable create retries exhausted", 409, { path: normalizePath(input.path), retries });
 }
