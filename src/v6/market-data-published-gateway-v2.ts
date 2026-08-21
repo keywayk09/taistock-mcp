@@ -30,6 +30,7 @@ import {
 } from "./tw-market-data.ts";
 
 export const MARKET_DATA_PUBLISHED_GATEWAY_VERSION = "diamond-market-data-published-gateway/v3-generation-manifest";
+export const MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS = 180;
 
 type ClosedMonthShard = {
   schema_version: "diamond-market-data-symbol-shard/v2";
@@ -184,8 +185,6 @@ async function stateFromPublishedGeneration(
     };
   }
 
-  // Legacy fallback: production generations written before v5 may store one
-  // embedded v3 (or transitional v4) receipt per prefix.
   const receiptPath = marketReadPublishedShardPath(pointer.trade_date, pointer.generation, prefix);
   const read = await readGitHubJson<MarketReadShardReceipt>(env, receiptPath);
   if (!read.value) throw new Error(`published_shard_missing:${prefix}`);
@@ -222,7 +221,7 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
   }
 
   const asOf = input.as_of ?? pointer.trade_date;
-  const calendarDays = Math.max(30, Math.min(360, Number(input.calendar_days ?? 60)));
+  const calendarDays = Math.max(30, Math.min(MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS, Number(input.calendar_days ?? 60)));
   const start = subtractDays(asOf, calendarDays);
   const months = monthRange(start, asOf);
   const publishedMonth = pointer.trade_date.slice(0, 7);
@@ -263,10 +262,10 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
     for (const row of series.sbl_short_sale) if (row.trade_date >= start && row.trade_date <= asOf) sblShortSaleRows.push(row as SblShortSaleRow);
   }
 
-  const institutional = dedupeRows(institutionalRows).slice(-360);
-  const margin = dedupeRows(marginRows).slice(-360);
-  const securitiesLending = dedupeRows(securitiesLendingRows).slice(-360);
-  const sblShortSale = dedupeRows(sblShortSaleRows).slice(-360);
+  const institutional = dedupeRows(institutionalRows).slice(-MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS);
+  const margin = dedupeRows(marginRows).slice(-MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS);
+  const securitiesLending = dedupeRows(securitiesLendingRows).slice(-MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS);
+  const sblShortSale = dedupeRows(sblShortSaleRows).slice(-MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS);
   const groups = [institutional, margin, securitiesLending, sblShortSale];
   const unavailableLayers = groups.filter((rows) => !rows.length).length;
 
