@@ -98,7 +98,7 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
         manifest: preparedManifest,
         capturedAt: now.toISOString(),
         deadlineAtMs: input.deadlineAtMs ?? (Date.now() + 30_000),
-        subrequestBudget: Math.max(12, Math.floor(input.subrequestBudget ?? 32)),
+        subrequestBudget: Math.max(0, Math.floor(input.subrequestBudget ?? 32)),
       });
     } else {
       capture = await runSubrequestSafeMarketDataCapture(env, { tradeDate, now });
