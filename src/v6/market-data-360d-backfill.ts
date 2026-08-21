@@ -84,7 +84,9 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
   const tradeDate = state.cursor_date;
   const preparedManifest = await prepareHistoryManifest(env, tradeDate, now.toISOString());
 
-  setMarketDataCapturePolicy(null);
+  // Only the one-shot History lane enables transparent compression. Current-day
+  // Daily checkpoints continue writing their normal readable JSON artifacts.
+  setMarketDataCapturePolicy({ storageMode: "HISTORY_COMPRESSED" });
   setMarketDataCaptureTradeDate(tradeDate);
   let capture: any;
   try {
