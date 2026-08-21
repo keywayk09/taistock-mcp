@@ -1,3 +1,5 @@
+import { getMarketDataCapturePolicy } from "./market-data-capture-context";
+
 export type MarketDataKind = "institutional" | "margin" | "securities_lending" | "sbl_short_sale";
 export type MarketSide = "listed" | "otc";
 export type MarketLayerStatus = "READY" | "PENDING" | "ERROR";
@@ -239,10 +241,24 @@ export function mergeReadyMonotonic(existing: MarketManifestLayer | null | undef
 export function dueLayerKeys(existingLayers: MarketManifestLayer[] | undefined, nowIso: string) {
   const existing = new Map((existingLayers || []).map((layer) => [marketLayerKey(layer), layer]));
   const now = new Date(nowIso).getTime();
+  const policy = getMarketDataCapturePolicy();
+  const allowed = policy.allowedKinds?.length ? new Set(policy.allowedKinds) : null;
+  const checkpointStart = policy.checkpointStartedAt ? new Date(policy.checkpointStartedAt).getTime() : null;
+
   return EXPECTED_MARKET_DATA_LAYERS.filter((identity) => {
+    if (allowed && !allowed.has(identity.kind)) return false;
     const layer = existing.get(marketLayerKey(identity));
+    if (layer?.status === "READY") return false;
+
+    // During a DAILY checkpoint window, a missing layer may be attempted at
+    // most once in that checkpoint. Later 5-minute wakes only continue units
+    // that have not yet been attempted since checkpointStartedAt.
+    if (checkpointStart != null && layer?.last_attempt_at) {
+      const lastAttempt = new Date(layer.last_attempt_at).getTime();
+      if (Number.isFinite(lastAttempt) && lastAttempt >= checkpointStart) return false;
+    }
+
     if (!layer) return true;
-    if (layer.status === "READY") return false;
     if (!layer.next_retry_at) return true;
     const next = new Date(layer.next_retry_at).getTime();
     return !Number.isFinite(next) || next <= now;
