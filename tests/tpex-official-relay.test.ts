@@ -42,9 +42,20 @@ assert.match(dailyRelay, /22:15/);
 assert.match(dailyRelay, /22:45/);
 assert.doesNotMatch(dailyRelay, /grouped\.setdefault\(item\[0\]/);
 
+// Historical exact-date capture may classify an old date as no-trading only when ALL
+// independent TPEx datasets are empty. A partial empty remains a hard data error.
+const historyRelay = read(".github/workflows/tpex-historical-relay-v1.yml");
+assert.match(historyRelay, /ALL_EXACT_DATE_TPEX_DATASETS_EMPTY/);
+assert.match(historyRelay, /exact_date_dataset_partial_empty/);
+assert.match(historyRelay, /NO_TRADING_DAY/);
+assert.match(historyRelay, /skipped_no_trading_dates/);
+assert.match(historyRelay, /last_skipped_no_trading_date/);
+assert.match(historyRelay, /if\s+all\(/);
+assert.match(historyRelay, /if\s+any\(/);
+
 assert.equal(fs.existsSync(path.join(root, "src/v6/github-canonical-sync.ts")), false);
 assert.equal(fs.existsSync(path.join(root, "src/v6/tpex-official-relay.ts")), false);
 assert.equal(fs.existsSync(path.join(root, "src/v6/tpex-market-data-backfill.ts")), false);
 assert.equal(fs.existsSync(path.join(root, ".github/workflows/tpex-official-relay.yml")), false);
 
-console.log("P19 exact-date monotonic TPEx daily relay + tv-papertrader canonical store tests passed");
+console.log("P19 exact-date monotonic TPEx daily + historical no-trading evidence contracts passed");
