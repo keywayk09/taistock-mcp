@@ -1,4 +1,4 @@
-import { readGitHubJson } from "./github-data-store.ts";
+import { GitHubDataStoreError, readGitHubJson } from "./github-data-store.ts";
 import {
   atomicUpdateGitHubJsonFiles,
   estimateAtomicJsonTransactionSubrequests,
@@ -12,8 +12,15 @@ export const HISTORY_INDEX_DEADLINE_GUARD_MS = 2_500;
 // symbol shards. Legacy two-digit shards remain read-only compatibility data.
 export const MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH = 1;
 export const MARKET_DATA_CLOSED_HISTORY_PREFIX_LENGTH = 1;
-export const HISTORY_INDEX_ATOMIC_FIXED_SUBREQUESTS = 15;
-export const HISTORY_INDEX_PREFIX_ATOMIC_SUBREQUESTS = 2;
+
+// History runs in a shared GitHub branch with other canonical writers. A branch
+// head can legitimately move between our read and ref-CAS even when our files
+// do not overlap. Keep each wake small enough to survive ONE full CAS retry;
+// if the second attempt also collides, yield and resume from the last durable
+// manifest checkpoint on the next five-minute wake instead of burning through
+// the Cloudflare request budget.
+export const HISTORY_INDEX_CAS_ATTEMPTS = 2;
+export const HISTORY_INDEX_COORDINATOR_HEADROOM = 5;
 
 type IndexState = {
   status: "PENDING" | "READY";
@@ -48,6 +55,25 @@ function shardPath(tradeDate: string, prefix: string) {
   return `data/market-data/index/${year}/${month}/${prefix}.json`;
 }
 
+/**
+ * Worst-case request cost for one History index slice.
+ *
+ * Each attempt of the atomic transaction needs:
+ *   branch ref + parent commit + N exact-ref reads + N blob creates
+ *   + tree + commit + ref CAS = 2*N + 5 requests.
+ * N includes selected prefix shards PLUS the manifest checkpoint.
+ *
+ * Snapshot reads happen once before the atomic transaction. We deliberately
+ * reserve two atomic attempts so one unrelated branch-head movement cannot
+ * turn a normal wake into an unbounded retry storm.
+ */
+export function estimateHistoryIndexSliceWorstCaseSubrequests(prefixCount: number) {
+  const prefixes = Math.max(0, Math.floor(prefixCount));
+  const atomicFiles = prefixes + 1; // prefix shards + manifest checkpoint
+  return HISTORY_INDEX_SNAPSHOT_READ_SUBREQUESTS
+    + HISTORY_INDEX_CAS_ATTEMPTS * estimateAtomicJsonTransactionSubrequests(atomicFiles);
+}
+
 export function adaptiveHistoryIndexCapacity(input: {
   pendingPrefixes: number;
   subrequestBudget: number;
@@ -56,8 +82,17 @@ export function adaptiveHistoryIndexCapacity(input: {
 }) {
   if (input.pendingPrefixes <= 0) return 0;
   if (input.nowMs >= input.deadlineAtMs - HISTORY_INDEX_DEADLINE_GUARD_MS) return 0;
-  const remaining = Math.max(0, Math.floor(input.subrequestBudget) - HISTORY_INDEX_ATOMIC_FIXED_SUBREQUESTS);
-  return Math.max(0, Math.min(input.pendingPrefixes, Math.floor(remaining / HISTORY_INDEX_PREFIX_ATOMIC_SUBREQUESTS)));
+
+  // Do not size from the happy-path transaction. Select the largest number of
+  // prefixes whose TWO-attempt worst-case still fits the budget already handed
+  // to this index slice by the coordinator.
+  const budget = Math.max(0, Math.floor(input.subrequestBudget));
+  let capacity = 0;
+  for (let prefixes = 1; prefixes <= input.pendingPrefixes; prefixes++) {
+    if (estimateHistoryIndexSliceWorstCaseSubrequests(prefixes) > budget) break;
+    capacity = prefixes;
+  }
+  return capacity;
 }
 
 function buildPrefixUpdates(
@@ -127,67 +162,135 @@ export async function runAdaptiveHistoryIndexSlice(env: Env, input: {
   // This also performs an in-place migration for manifests that previously
   // recorded two-digit prefixes: legacy entries are discarded from progress,
   // compact prefixes are rebuilt once, then future days stay compact.
-  const completed = new Set((input.manifest.index_state?.completed_prefixes ?? []).filter((prefix) => validPrefixes.has(prefix)));
-  const pending = allPrefixes.filter((prefix) => !completed.has(prefix));
-  const capacity = adaptiveHistoryIndexCapacity({ pendingPrefixes: pending.length, subrequestBudget: input.subrequestBudget, nowMs: Date.now(), deadlineAtMs: input.deadlineAtMs });
+  const durableCompleted = new Set(
+    (input.manifest.index_state?.completed_prefixes ?? []).filter((prefix) => validPrefixes.has(prefix)),
+  );
+  const pending = allPrefixes.filter((prefix) => !durableCompleted.has(prefix));
+  const capacity = adaptiveHistoryIndexCapacity({
+    pendingPrefixes: pending.length,
+    subrequestBudget: input.subrequestBudget,
+    nowMs: Date.now(),
+    deadlineAtMs: input.deadlineAtMs,
+  });
 
   if (pending.length > 0 && capacity === 0) {
     return {
       trade_date: input.tradeDate,
       status: "INDEX_YIELD" as const,
       indexed_prefixes: 0,
-      completed_prefixes: completed.size,
+      completed_prefixes: durableCompleted.size,
       total_prefixes: allPrefixes.length,
       remaining_prefixes: pending.length,
       estimated_subrequests: HISTORY_INDEX_SNAPSHOT_READ_SUBREQUESTS,
       adaptive_capacity: 0,
       prefix_length: prefixLength,
+      yield_reason: "REQUEST_BUDGET" as const,
     };
   }
 
   const selected = pending.slice(0, capacity);
-  for (const prefix of selected) completed.add(prefix);
-  const remaining = allPrefixes.filter((prefix) => !completed.has(prefix));
-  const indexStatus = remaining.length ? "PENDING" as const : "READY" as const;
+  const plannedCompleted = new Set(durableCompleted);
+  for (const prefix of selected) plannedCompleted.add(prefix);
+  const plannedRemaining = allPrefixes.filter((prefix) => !plannedCompleted.has(prefix));
+  const plannedIndexStatus = plannedRemaining.length ? "PENDING" as const : "READY" as const;
 
   const updates: Array<{ path: string; defaultValue: any; merge: (current: any) => any }> = [];
   for (const prefix of selected) {
     const prefixRows = prefixUpdates.get(prefix) ?? [];
     updates.push({
       path: shardPath(input.tradeDate, prefix),
-      defaultValue: { schema_version: "diamond-market-data-symbol-shard/v2", month: input.tradeDate.slice(0, 7), prefix, symbols: {}, updated_at: "" } satisfies SymbolMonthShard,
-      merge: (current: SymbolMonthShard) => mergePrefixShard(current, { tradeDate: input.tradeDate, prefix, updates: prefixRows, capturedAt: input.capturedAt }),
+      defaultValue: {
+        schema_version: "diamond-market-data-symbol-shard/v2",
+        month: input.tradeDate.slice(0, 7),
+        prefix,
+        symbols: {},
+        updated_at: "",
+      } satisfies SymbolMonthShard,
+      merge: (current: SymbolMonthShard) => mergePrefixShard(current, {
+        tradeDate: input.tradeDate,
+        prefix,
+        updates: prefixRows,
+        capturedAt: input.capturedAt,
+      }),
     });
   }
 
   updates.push({
     path: manifestPath(input.tradeDate),
     defaultValue: input.manifest,
-    merge: (current: HistoryManifest) => ({
-      ...current,
-      index_state: { status: indexStatus, completed_prefixes: [...completed].sort(), total_prefixes: allPrefixes.length, updated_at: input.capturedAt },
-      updated_at: input.capturedAt,
-    }),
+    // IMPORTANT: merge progress monotonically against the exact-ref manifest
+    // re-read by atomicUpdateGitHubJsonFiles. On a CAS retry another wake may
+    // already have completed different prefixes; union them instead of writing
+    // the stale pre-attempt set and accidentally moving progress backwards.
+    merge: (current: HistoryManifest) => {
+      const mergedCompleted = new Set(
+        (current.index_state?.completed_prefixes ?? []).filter((prefix) => validPrefixes.has(prefix)),
+      );
+      for (const prefix of selected) mergedCompleted.add(prefix);
+      const remaining = allPrefixes.filter((prefix) => !mergedCompleted.has(prefix));
+      return {
+        ...current,
+        index_state: {
+          status: remaining.length ? "PENDING" as const : "READY" as const,
+          completed_prefixes: [...mergedCompleted].sort(),
+          total_prefixes: allPrefixes.length,
+          updated_at: input.capturedAt,
+        },
+        updated_at: input.capturedAt,
+      };
+    },
   });
 
-  const atomic = await atomicUpdateGitHubJsonFiles(env, {
-    message: `data(market): compact index slice ${input.tradeDate} ${selected.join(",") || "finalize"}`,
-    updates,
-    retries: 3,
-  });
-  const estimatedSubrequests = HISTORY_INDEX_SNAPSHOT_READ_SUBREQUESTS + estimateAtomicJsonTransactionSubrequests(updates.length);
+  let atomic;
+  try {
+    atomic = await atomicUpdateGitHubJsonFiles(env, {
+      message: `data(market): compact index slice ${input.tradeDate} ${selected.join(",") || "finalize"}`,
+      updates,
+      retries: HISTORY_INDEX_CAS_ATTEMPTS,
+    });
+  } catch (error) {
+    if (error instanceof GitHubDataStoreError && error.code === "GITHUB_ATOMIC_CAS_EXHAUSTED") {
+      // No branch ref was advanced by the failed CAS attempts. Treat this as a
+      // normal resumable yield; the next wake re-reads the durable manifest and
+      // retries only the prefixes that are still missing.
+      return {
+        trade_date: input.tradeDate,
+        status: "INDEX_YIELD" as const,
+        indexed_prefixes: 0,
+        completed_prefixes: durableCompleted.size,
+        total_prefixes: allPrefixes.length,
+        remaining_prefixes: pending.length,
+        estimated_subrequests: estimateHistoryIndexSliceWorstCaseSubrequests(selected.length),
+        adaptive_capacity: capacity,
+        prefix_length: prefixLength,
+        yield_reason: "CAS_CONFLICT" as const,
+      };
+    }
+    throw error;
+  }
+
+  // Charge the controller for the number of attempts actually consumed. This
+  // prevents a successful second CAS attempt from being followed by another
+  // work unit that would unknowingly exceed the wake's remaining headroom.
+  const estimatedSubrequests = HISTORY_INDEX_SNAPSHOT_READ_SUBREQUESTS
+    + atomic.attempts * estimateAtomicJsonTransactionSubrequests(updates.length);
 
   return {
     trade_date: input.tradeDate,
-    status: indexStatus === "READY" ? "INDEX_COMPLETE" as const : selected.length > 0 ? "INDEX_PROGRESS" as const : "INDEX_YIELD" as const,
+    status: plannedIndexStatus === "READY"
+      ? "INDEX_COMPLETE" as const
+      : selected.length > 0
+        ? "INDEX_PROGRESS" as const
+        : "INDEX_YIELD" as const,
     indexed_prefixes: selected.length,
-    completed_prefixes: completed.size,
+    completed_prefixes: plannedCompleted.size,
     total_prefixes: allPrefixes.length,
-    remaining_prefixes: remaining.length,
+    remaining_prefixes: plannedRemaining.length,
     estimated_subrequests: estimatedSubrequests,
     adaptive_capacity: capacity,
     prefix_length: prefixLength,
     atomic_commit_sha: atomic.commit_sha,
     atomic_changed_paths: atomic.changed_paths.length,
+    atomic_attempts: atomic.attempts,
   };
 }
