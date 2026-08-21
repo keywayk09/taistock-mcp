@@ -42,7 +42,8 @@ export async function runExtendedScheduledMarketDataController(env: Env, schedul
 
   const result = hotResults.at(-1) ?? null;
   const publication = publications.at(-1) ?? null;
-  const backfill = publication?.status === "PUBLISHED"
+  const hotLaneIdle = result?.status === "NOOP_ALREADY_COMPLETE" && publication?.status === "PUBLISHED";
+  const backfill = hotLaneIdle
     ? await runMarketData360dBackfillStep(env, { anchorTradeDate: decision.tradeDate, now })
     : { status: "BACKFILL_PAUSED_FOR_HOT_LANE" as const };
 
@@ -52,6 +53,7 @@ export async function runExtendedScheduledMarketDataController(env: Env, schedul
     publication,
     hot_steps: hotResults.length,
     publish_steps: publications.length,
+    hot_lane_idle: hotLaneIdle,
     backfill,
   });
   return { decision, result, publication, hotResults, publications, backfill };
