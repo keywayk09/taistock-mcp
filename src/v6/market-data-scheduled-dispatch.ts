@@ -110,7 +110,7 @@ async function runHistoryLane(env: Env, decision: ReturnType<typeof decideExtend
 
   while (hasSafeMarketDataBudget(budget, { nextEstimatedSubrequests: BACKFILL_UNIT_RESERVE })) {
     const remainingSubrequests = Math.max(
-      BACKFILL_UNIT_RESERVE,
+      0,
       budget.subrequest_budget - budget.estimated_subrequests - BACKFILL_COORDINATOR_HEADROOM,
     );
     const backfill = await runMarketData360dBackfillStep(env, {
