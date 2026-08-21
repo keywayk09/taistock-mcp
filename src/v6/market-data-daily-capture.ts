@@ -55,7 +55,8 @@ export async function runAdaptiveDailyMarketDataCapture(env: Env, input: {
     return {
       ...indexed,
       estimated_subrequests: 1 + Number(indexed.estimated_subrequests ?? 0),
-      daily_index_mode: "ADAPTIVE_ATOMIC_COMPACT" as const,
+      daily_index_mode: "ADAPTIVE_ATOMIC" as const,
+      compact_prefix_length: 1 as const,
     };
   }
 
