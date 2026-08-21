@@ -1,10 +1,11 @@
 {
   "anchor_trade_date": "2026-08-21",
   "completed_at": null,
-  "cursor_date": "2026-07-21",
-  "processed_dates": 20,
+  "cursor_date": "2026-07-10",
+  "last_error": "RuntimeError: exact_date_dataset_empty:inst=0:margin=0:sbl=0",
+  "processed_dates": 27,
   "schema": "TPEX_HISTORICAL_RELAY_STATE_V1",
   "status": "RUNNING",
   "target_start_date": "2026-02-22",
-  "updated_at": "2026-08-21T17:00:40.353673Z"
+  "updated_at": "2026-08-21T17:54:04.007878Z"
 }
