@@ -7,10 +7,13 @@ on:
     paths:
       - '.github/workflows/tpex-official-relay-v2.yml'
   schedule:
-    # 17:15 / 18:15 / 20:15 Asia/Taipei on weekdays.
+    # Asia/Taipei: early institutional checks plus late margin/SBL recovery.
+    # 17:15 / 18:15 / 20:15 / 21:15 / 21:45 / 22:15 / 22:45.
     - cron: '15 9 * * 1-5'
     - cron: '15 10 * * 1-5'
     - cron: '15 12 * * 1-5'
+    - cron: '15,45 13 * * 1-5'
+    - cron: '15,45 14 * * 1-5'
 
 permissions:
   contents: write
@@ -28,27 +31,34 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Capture available official TPEx datasets
+      - name: Load existing monotonic relay cache
         shell: bash
         run: |
           set -euo pipefail
           rm -rf /tmp/tpex-relay-build
           mkdir -p /tmp/tpex-relay-build/data/market-data/tpex-relay
+          git fetch origin market-data-relay:refs/remotes/origin/market-data-relay || true
+          if git show-ref --verify --quiet refs/remotes/origin/market-data-relay; then
+            git archive refs/remotes/origin/market-data-relay data/market-data/tpex-relay | tar -x -C /tmp/tpex-relay-build
+          fi
+
+      - name: Capture exact-date official TPEx datasets
+        shell: bash
+        run: |
+          set -euo pipefail
           python - <<'PY'
           import datetime as dt
           import hashlib
           import json
           import pathlib
           import re
+          import urllib.parse
           import urllib.request
+          from zoneinfo import ZoneInfo
 
           ROOT = pathlib.Path('/tmp/tpex-relay-build/data/market-data/tpex-relay')
-          ENDPOINTS = {
-              'institutional': 'https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading',
-              'margin': 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance',
-              'sbl_balance': 'https://www.tpex.org.tw/openapi/v1/tpex_margin_sbl',
-              'sbl_volume': 'https://www.tpex.org.tw/openapi/v1/tpex_short_sell',
-          }
+          REQUIRED_DATASETS = ('institutional', 'margin', 'sbl_balance', 'sbl_volume')
+          TAIPEI = ZoneInfo('Asia/Taipei')
           HEADERS = {
               'Accept': 'application/json,text/plain,*/*',
               'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
@@ -56,105 +66,257 @@ jobs:
               'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
           }
 
-          def normalize_date(value):
-              raw = str(value or '').strip()
-              if re.fullmatch(r'\d{7}', raw):
-                  return f'{int(raw[:3]) + 1911:04d}-{raw[3:5]}-{raw[5:7]}'
-              if re.fullmatch(r'\d{8}', raw):
-                  return f'{raw[:4]}-{raw[4:6]}-{raw[6:8]}'
-              m = re.fullmatch(r'(\d{3})/(\d{2})/(\d{2})', raw)
-              if m:
-                  return f'{int(m.group(1)) + 1911:04d}-{m.group(2)}-{m.group(3)}'
-              if re.fullmatch(r'\d{4}-\d{2}-\d{2}', raw):
-                  return raw
-              return None
+          def clean(value):
+              return re.sub(r'<[^>]*>', '', str(value or '')).replace('&nbsp;', ' ').strip()
 
-          def row_date(row):
-              if not isinstance(row, dict):
-                  return None
-              for key in ('Date', 'date', '日期', '資料日期', 'TradeDate'):
-                  value = normalize_date(row.get(key))
-                  if value:
-                      return value
-              return None
+          def number(value):
+              try:
+                  return float(clean(value).replace(',', ''))
+              except Exception:
+                  return 0.0
 
-          def fetch(name, url):
+          def stable_payload(body):
+              return json.dumps(body, ensure_ascii=False, separators=(',', ':'), sort_keys=True)
+
+          def target_weekday():
+              day = dt.datetime.now(TAIPEI).date()
+              while day.weekday() >= 5:
+                  day -= dt.timedelta(days=1)
+              return day
+
+          def urls_for(day):
+              roc = urllib.parse.quote(f'{day.year - 1911:03d}/{day.month:02d}/{day.day:02d}', safe='')
+              ad = urllib.parse.quote(day.strftime('%Y/%m/%d'), safe='')
+              return {
+                  'institutional': f'https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date={roc}&id=&response=json',
+                  'margin': f'https://www.tpex.org.tw/www/zh-tw/margin/balance?date={roc}&id=&response=json',
+                  'sbl': f'https://www.tpex.org.tw/www/zh-tw/margin/sbl?date={ad}&id=&response=json',
+              }
+
+          def fetch_json(url, label):
               req = urllib.request.Request(url, headers=HEADERS)
               with urllib.request.urlopen(req, timeout=30) as response:
                   raw = response.read()
+                  final_url = response.geturl()
                   if response.status != 200:
-                      raise RuntimeError(f'HTTP {response.status}')
-              body = json.loads(raw.decode('utf-8-sig'))
-              if not isinstance(body, list) or not body:
-                  raise RuntimeError('expected non-empty JSON list')
-              dates = [row_date(body[i]) for i in sorted({0, len(body)//2, len(body)-1})]
-              dates = [value for value in dates if value]
-              if not dates:
-                  raise RuntimeError('source date missing')
-              if len(set(dates)) != 1:
-                  raise RuntimeError(f'mixed source dates: {dates}')
-              return dates[0], body
-
-          captured = {}
-          errors = {}
-          for name, url in ENDPOINTS.items():
+                      raise RuntimeError(f'{label}_http_{response.status}')
+                  if '/errors' in final_url:
+                      raise RuntimeError(f'{label}_redirected_to_errors:{final_url}')
               try:
-                  trade_date, body = fetch(name, url)
-                  captured[name] = (trade_date, body, url)
-                  print(f'{name}: READY {trade_date} rows={len(body)}')
+                  return json.loads(raw.decode('utf-8-sig'))
               except Exception as exc:
-                  errors[name] = f'{type(exc).__name__}: {exc}'[:300]
-                  print(f'{name}: ERROR {errors[name]}')
+                  raise RuntimeError(f'{label}_invalid_json:{exc}')
 
-          if not captured:
-              raise RuntimeError('no TPEx dataset captured')
+          def exact_table(body, day, label):
+              expected_ad = day.strftime('%Y%m%d')
+              expected_roc = f'{day.year - 1911:03d}/{day.month:02d}/{day.day:02d}'
+              if not isinstance(body, dict):
+                  raise RuntimeError(f'{label}_root_not_object')
+              if str(body.get('date') or '') != expected_ad:
+                  raise RuntimeError(f'{label}_source_date_mismatch:{body.get("date")}')
+              tables = body.get('tables')
+              if not isinstance(tables, list) or not tables or not isinstance(tables[0], dict):
+                  raise RuntimeError(f'{label}_tables_missing')
+              table = tables[0]
+              table_date = str(table.get('date') or '')
+              if table_date and table_date != expected_roc:
+                  raise RuntimeError(f'{label}_table_date_mismatch:{table_date}')
+              rows = table.get('data')
+              if not isinstance(rows, list):
+                  raise RuntimeError(f'{label}_table_data_missing')
+              rows = [row for row in rows if isinstance(row, list)]
+              if not rows:
+                  raise RuntimeError(f'{label}_exact_date_empty')
+              return rows
 
-          grouped = {}
-          for name, item in captured.items():
-              grouped.setdefault(item[0], {})[name] = item
+          def dataset_valid(base, trade_date, name, meta):
+              if not isinstance(meta, dict):
+                  return False
+              if meta.get('source_date') != trade_date:
+                  return False
+              if not isinstance(meta.get('file'), str) or not meta['file']:
+                  return False
+              if not re.fullmatch(r'[0-9a-f]{64}', str(meta.get('sha256') or ''), re.I):
+                  return False
+              path = base / meta['file']
+              if not path.exists():
+                  return False
+              text = path.read_text(encoding='utf-8').rstrip()
+              if hashlib.sha256(text.encode('utf-8')).hexdigest() != meta['sha256']:
+                  return False
+              try:
+                  body = json.loads(text)
+              except Exception:
+                  return False
+              return isinstance(body, list) and len(body) == int(meta.get('row_count') or 0) and len(body) > 0
+
+          def write_dataset(base, manifest, trade_date, name, rows, endpoint):
+              if not rows:
+                  raise RuntimeError(f'{name}_empty_after_normalization')
+              payload = stable_payload(rows)
+              sha = hashlib.sha256(payload.encode('utf-8')).hexdigest()
+              file_name = f'{name}.json'
+              (base / file_name).write_text(payload + '\n', encoding='utf-8')
+              manifest['datasets'][name] = {
+                  'source_date': trade_date,
+                  'row_count': len(rows),
+                  'sha256': sha,
+                  'endpoint': endpoint,
+                  'file': file_name,
+              }
+              manifest['capture_errors'].pop(name, None)
+
+          day = target_weekday()
+          trade_date = day.isoformat()
+          urls = urls_for(day)
+          base = ROOT / trade_date
+          base.mkdir(parents=True, exist_ok=True)
+          manifest_path = base / 'manifest.json'
+
+          existing_manifest = {}
+          if manifest_path.exists():
+              try:
+                  candidate = json.loads(manifest_path.read_text(encoding='utf-8'))
+                  if candidate.get('schema') == 'TPEX_OFFICIAL_RELAY_V2' and candidate.get('trade_date') == trade_date:
+                      existing_manifest = candidate
+              except Exception:
+                  existing_manifest = {}
 
           now = dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z')
-          for trade_date, datasets in grouped.items():
-              base = ROOT / trade_date
-              base.mkdir(parents=True, exist_ok=True)
-              manifest = {
-                  'schema': 'TPEX_OFFICIAL_RELAY_V2',
+          manifest = {
+              'schema': 'TPEX_OFFICIAL_RELAY_V2',
+              'trade_date': trade_date,
+              'captured_at_utc': existing_manifest.get('captured_at_utc') or now,
+              'source_owner': 'TPEx',
+              'transport': 'GitHub hosted runner exact-date modern official TPEx JSON API',
+              'canonical_storage': 'keywayk09/tv-papertrader main/data',
+              'datasets': {},
+              'capture_errors': {},
+          }
+
+          for name, meta in (existing_manifest.get('datasets') or {}).items():
+              if name in REQUIRED_DATASETS and dataset_valid(base, trade_date, name, meta):
+                  manifest['datasets'][name] = meta
+          for name, message in (existing_manifest.get('capture_errors') or {}).items():
+              if name in REQUIRED_DATASETS and name not in manifest['datasets']:
+                  manifest['capture_errors'][name] = str(message)[:300]
+
+          if all(name in manifest['datasets'] for name in REQUIRED_DATASETS):
+              print(f'daily relay already COMPLETE {trade_date}; no network fetch needed')
+          else:
+              changed = False
+
+              if 'institutional' not in manifest['datasets']:
+                  try:
+                      inst = exact_table(fetch_json(urls['institutional'], 'TPEX_INSTI_MODERN'), day, 'TPEX_INSTI_MODERN')
+                      rows = [{
+                          'Date': trade_date,
+                          '證券代號': clean(row[0]),
+                          '證券名稱': clean(row[1]),
+                          '外資及陸資買賣超股數': row[10],
+                          '投信買賣超股數': row[13],
+                          '自營商買賣超股數': row[22],
+                          '三大法人買賣超股數': row[23],
+                      } for row in inst if len(row) > 23 and clean(row[0])]
+                      write_dataset(base, manifest, trade_date, 'institutional', rows, urls['institutional'])
+                      changed = True
+                      print(f'institutional READY {trade_date} rows={len(rows)}')
+                  except Exception as exc:
+                      manifest['capture_errors']['institutional'] = f'{type(exc).__name__}: {exc}'[:300]
+                      print(f'institutional WAIT {manifest["capture_errors"]["institutional"]}')
+
+              if 'margin' not in manifest['datasets']:
+                  try:
+                      margin = exact_table(fetch_json(urls['margin'], 'TPEX_MARGIN_MODERN'), day, 'TPEX_MARGIN_MODERN')
+                      rows = [{
+                          'Date': trade_date,
+                          '證券代號': clean(row[0]),
+                          '證券名稱': clean(row[1]),
+                          '融資前日餘額': row[2],
+                          '融資今日餘額': row[6],
+                          '融券前日餘額': row[10],
+                          '融券今日餘額': row[14],
+                      } for row in margin if len(row) > 14 and clean(row[0])]
+                      write_dataset(base, manifest, trade_date, 'margin', rows, urls['margin'])
+                      changed = True
+                      print(f'margin READY {trade_date} rows={len(rows)}')
+                  except Exception as exc:
+                      manifest['capture_errors']['margin'] = f'{type(exc).__name__}: {exc}'[:300]
+                      print(f'margin WAIT {manifest["capture_errors"]["margin"]}')
+
+              if 'sbl_balance' not in manifest['datasets'] or 'sbl_volume' not in manifest['datasets']:
+                  try:
+                      sbl = exact_table(fetch_json(urls['sbl'], 'TPEX_SBL_MODERN'), day, 'TPEX_SBL_MODERN')
+                      balance_rows = [{
+                          'Date': trade_date,
+                          'SecuritiesCompanyCode': clean(row[0]),
+                          'CompanyName': clean(row[1]),
+                          'SecuritiesBorrowingBalancePreviousDay': row[8],
+                          'SecuritiesBorrowingSale': row[9],
+                          'SecuritiesBorrowingReturn': row[10],
+                          'SecuritiesBorrowingAdjustment': row[11],
+                          'SecuritiesBorrowingBalanceOfTheMarketDay': row[12],
+                          'AvailableVolumesForSBLShortSale': row[13],
+                      } for row in sbl if len(row) > 13 and clean(row[0])]
+                      volume_rows = [{
+                          'Date': trade_date,
+                          'SecuritiesCompanyCode': clean(row[0]),
+                          'CompanyName': clean(row[1]),
+                          'SBLVolume': number(row[9]) / 1000,
+                          'SBLAmount': None,
+                      } for row in sbl if len(row) > 9 and clean(row[0])]
+                      if 'sbl_balance' not in manifest['datasets']:
+                          write_dataset(base, manifest, trade_date, 'sbl_balance', balance_rows, urls['sbl'])
+                          changed = True
+                      if 'sbl_volume' not in manifest['datasets']:
+                          write_dataset(base, manifest, trade_date, 'sbl_volume', volume_rows, urls['sbl'])
+                          changed = True
+                      print(f'sbl READY {trade_date} balance={len(balance_rows)} volume={len(volume_rows)}')
+                  except Exception as exc:
+                      message = f'{type(exc).__name__}: {exc}'[:300]
+                      if 'sbl_balance' not in manifest['datasets']:
+                          manifest['capture_errors']['sbl_balance'] = message
+                      if 'sbl_volume' not in manifest['datasets']:
+                          manifest['capture_errors']['sbl_volume'] = message
+                      print(f'sbl WAIT {message}')
+
+              if changed:
+                  manifest['captured_at_utc'] = now
+
+          missing = [name for name in REQUIRED_DATASETS if name not in manifest['datasets']]
+          manifest['status'] = 'COMPLETE' if not missing else 'PARTIAL'
+          manifest['missing_datasets'] = missing
+          manifest_path.write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+
+          latest_path = ROOT / 'latest.json'
+          existing_latest = {}
+          if latest_path.exists():
+              try:
+                  existing_latest = json.loads(latest_path.read_text(encoding='utf-8'))
+              except Exception:
+                  existing_latest = {}
+          existing_latest_date = str(existing_latest.get('trade_date') or '')
+          if manifest['datasets'] and (not existing_latest_date or trade_date > existing_latest_date):
+              latest = {
+                  'schema': 'TPEX_OFFICIAL_RELAY_LATEST_V2',
                   'trade_date': trade_date,
-                  'captured_at_utc': now,
-                  'source_owner': 'TPEx',
-                  'transport': 'GitHub public hosted runner official-endpoint transport cache',
-                  'canonical_storage': 'keywayk09/tv-papertrader main/data',
-                  'datasets': {},
-                  'capture_errors': errors,
+                  'updated_at_utc': now,
               }
-              for name, (_, body, url) in datasets.items():
-                  payload = json.dumps(body, ensure_ascii=False, separators=(',', ':'), sort_keys=True)
-                  sha = hashlib.sha256(payload.encode('utf-8')).hexdigest()
-                  file_name = f'{name}.json'
-                  (base / file_name).write_text(payload + '\n', encoding='utf-8')
-                  manifest['datasets'][name] = {
-                      'source_date': trade_date,
-                      'row_count': len(body),
-                      'sha256': sha,
-                      'endpoint': url,
-                      'file': file_name,
-                  }
-              (base / 'manifest.json').write_text(
-                  json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + '\n',
+              latest_path.write_text(
+                  json.dumps(latest, ensure_ascii=False, indent=2, sort_keys=True) + '\n',
                   encoding='utf-8',
               )
 
-          latest_date = max(grouped)
-          latest = {
-              'schema': 'TPEX_OFFICIAL_RELAY_LATEST_V2',
-              'trade_date': latest_date,
-              'updated_at_utc': now,
-          }
-          (ROOT / 'latest.json').write_text(
-              json.dumps(latest, ensure_ascii=False, indent=2, sort_keys=True) + '\n',
-              encoding='utf-8',
-          )
-          print(json.dumps(latest, ensure_ascii=False))
+          print(json.dumps({
+              'trade_date': trade_date,
+              'status': manifest['status'],
+              'ready': sorted(manifest['datasets']),
+              'missing': missing,
+              'capture_errors': manifest['capture_errors'],
+          }, ensure_ascii=False))
           PY
 
       - name: Publish relay cache branch
@@ -177,5 +339,5 @@ jobs:
             echo 'Relay cache unchanged.'
             exit 0
           fi
-          git commit -m "market-data: refresh TPEx official relay cache"
+          git commit -m "market-data: refresh exact-date TPEx official relay cache"
           git push origin HEAD:refs/heads/market-data-relay
