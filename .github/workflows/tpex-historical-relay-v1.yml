@@ -125,10 +125,23 @@ jobs:
               margin = exact_table(margin_body, day, 'TPEX_MARGIN_MODERN')
               sbl = exact_table(sbl_body, day, 'TPEX_SBL_MODERN')
 
-              empty_count = sum(1 for rows in (inst, margin, sbl) if not rows)
-              if empty_count:
-                  # Never silently classify a weekday as no-trading from one empty dataset.
-                  raise RuntimeError(f'exact_date_dataset_empty:inst={len(inst)}:margin={len(margin)}:sbl={len(sbl)}')
+              source_rows = (inst, margin, sbl)
+              counts = {'inst': len(inst), 'margin': len(margin), 'sbl': len(sbl)}
+              if all(not rows for rows in source_rows):
+                  # Historical-only closure evidence: three independent exact-date
+                  # official TPEx datasets agree that this old date has no trading rows.
+                  # Current Daily never uses this rule, so late publication cannot be
+                  # mistaken for a closure.
+                  return {
+                      'status': 'NO_TRADING_DAY',
+                      'evidence': 'ALL_EXACT_DATE_TPEX_DATASETS_EMPTY',
+                      'counts': counts,
+                  }
+              if any(not rows for rows in source_rows):
+                  # Partial emptiness is a data-integrity failure, never a holiday signal.
+                  raise RuntimeError(
+                      f'exact_date_dataset_partial_empty:inst={len(inst)}:margin={len(margin)}:sbl={len(sbl)}'
+                  )
 
               datasets = {
                   'institutional': [{
@@ -205,18 +218,26 @@ jobs:
               (base / 'manifest.json').write_text(
                   json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8'
               )
-              return {name: len(rows) for name, rows in datasets.items()}
+              return {
+                  'status': 'READY',
+                  'counts': {name: len(rows) for name, rows in datasets.items()},
+              }
 
           latest = json.loads((ROOT / 'latest.json').read_text(encoding='utf-8'))
           anchor = dt.date.fromisoformat(latest['trade_date'])
-          target = anchor - dt.timedelta(days=HORIZON_DAYS)
+          # Inclusive 180-calendar-day retention: 8/21 -> 2/23, matching canonical policy.
+          target = anchor - dt.timedelta(days=HORIZON_DAYS - 1)
           state = json.loads(STATE.read_text(encoding='utf-8')) if STATE.exists() else {
               'schema': 'TPEX_HISTORICAL_RELAY_STATE_V1',
               'anchor_trade_date': anchor.isoformat(),
               'target_start_date': target.isoformat(),
               'cursor_date': (anchor - dt.timedelta(days=1)).isoformat(),
-              'status': 'RUNNING', 'processed_dates': 0,
-              'updated_at': None, 'completed_at': None,
+              'status': 'RUNNING',
+              'processed_dates': 0,
+              'skipped_no_trading_dates': 0,
+              'last_skipped_no_trading_date': None,
+              'updated_at': None,
+              'completed_at': None,
           }
           if state.get('status') == 'COMPLETE':
               pathlib.Path('/tmp/tpex-history-complete').write_text('1')
@@ -225,6 +246,8 @@ jobs:
 
           # Retention may only shrink; never reopen or move a cursor backward here.
           state['target_start_date'] = max(str(state.get('target_start_date') or target.isoformat()), target.isoformat())
+          state['skipped_no_trading_dates'] = int(state.get('skipped_no_trading_dates', 0))
+          state.setdefault('last_skipped_no_trading_date', None)
           cursor = dt.date.fromisoformat(state['cursor_date'])
           done = 0
           while done < BATCH_DAYS and cursor >= dt.date.fromisoformat(state['target_start_date']):
@@ -234,15 +257,21 @@ jobs:
                   continue
               print(f'historical relay attempting {cursor}')
               try:
-                  counts = capture_day(cursor)
-                  print(f'historical relay READY {cursor} {counts}')
+                  result = capture_day(cursor)
+                  if result['status'] == 'NO_TRADING_DAY':
+                      state['skipped_no_trading_dates'] = int(state.get('skipped_no_trading_dates', 0)) + 1
+                      state['last_skipped_no_trading_date'] = cursor.isoformat()
+                      state['last_skip_evidence'] = result['evidence']
+                      print(f'historical relay NO_TRADING_DAY {cursor} {result}')
+                  else:
+                      state['processed_dates'] = int(state.get('processed_dates', 0)) + 1
+                      print(f'historical relay READY {cursor} {result["counts"]}')
               except Exception as exc:
                   state['last_error'] = f'{type(exc).__name__}: {exc}'[:500]
                   state['updated_at'] = dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z')
                   STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
                   raise
               state.pop('last_error', None)
-              state['processed_dates'] = int(state.get('processed_dates', 0)) + 1
               cursor -= dt.timedelta(days=1)
               state['cursor_date'] = cursor.isoformat()
               state['updated_at'] = dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z')
