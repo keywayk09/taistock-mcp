@@ -1,0 +1,39 @@
+{
+  "canonical_storage": "keywayk09/tv-papertrader main/data",
+  "capture_errors": {},
+  "captured_at_utc": "2026-08-21T22:15:43.173663Z",
+  "datasets": {
+    "institutional": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date=115%2F04%2F14&id=&response=json",
+      "file": "institutional.json",
+      "row_count": 912,
+      "sha256": "66cb0459a6396b95e13b590121a6ab3fcf398b82ac4ebce3cd8f20320af9bf81",
+      "source_date": "2026-04-14"
+    },
+    "margin": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/margin/balance?date=115%2F04%2F14&id=&response=json",
+      "file": "margin.json",
+      "row_count": 895,
+      "sha256": "7e484f3f1c66b599c192fbd7e206cd6b077e36a6c39dd46eb012018b078ed168",
+      "source_date": "2026-04-14"
+    },
+    "sbl_balance": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=2026%2F04%2F14&id=&response=json",
+      "file": "sbl_balance.json",
+      "row_count": 912,
+      "sha256": "7e0d0968066113f8ad83df11c2d4a24e17ff2cba180d22190d2009611d2e80f5",
+      "source_date": "2026-04-14"
+    },
+    "sbl_volume": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=2026%2F04%2F14&id=&response=json",
+      "file": "sbl_volume.json",
+      "row_count": 912,
+      "sha256": "904d416b47c3c87c19a4908d216702c7146a8e492692a50109fd3953d25aba7d",
+      "source_date": "2026-04-14"
+    }
+  },
+  "schema": "TPEX_OFFICIAL_RELAY_V2",
+  "source_owner": "TPEx",
+  "trade_date": "2026-04-14",
+  "transport": "GitHub hosted runner exact-date modern official TPEx JSON API"
+}
