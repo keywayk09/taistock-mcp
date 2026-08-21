@@ -21,11 +21,17 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const querySchema = {
   symbol: symbolSchema,
   as_of: dateSchema.optional(),
-  calendar_days: z.number().int().min(30).max(180).optional().default(60),
+  calendar_days: z.number().int().min(30).max(360).optional().default(60),
 };
 const fastSummarySchema = {
   ...querySchema,
   consistency: z.enum(["published", "live"]).optional().default("published"),
+  reference_price: z.number().positive().optional(),
+  estimated_financing_cost: z.number().positive().optional(),
+  financing_ratio: z.number().min(0.1).max(0.9).optional().default(0.6),
+};
+const familyChipSchema = {
+  ...querySchema,
   reference_price: z.number().positive().optional(),
   estimated_financing_cost: z.number().positive().optional(),
   financing_ratio: z.number().min(0.1).max(0.9).optional().default(0.6),
@@ -40,6 +46,9 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
     version: TW_MARKET_DATA_VERSION,
     owner: "Diamond Market Data Plane",
     preferred_symbol_read_tool: "get_tw_market_chip_summary",
+    family_symbol_read_tool: "get_family_market_chip_summary",
+    family_access: "READ_ONLY_PUBLISHED_GENERATION",
+    history_window_calendar_days: 360,
     read_model: "published generation by default; live prefix-month index + exact-day snapshot overlay only when consistency=live",
     formal_consistency: "PUBLISHED",
     live_consistency: "LIVE_OVERLAY",
@@ -50,7 +59,7 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
       otc_margin: "TPEx tpex_mainboard_margin_balance",
       securities_lending: "TWSE TWT72U (listed + OTC market label)",
       listed_sbl_short_sale: "TWSE TWT93U",
-      otc_sbl_short_sale: "TPEx tpex_margin_sbl + tpex_short_sell",
+      otc_sbl_short_sale: "TPEx tpex_margin_sbl + tpex_short_sell / official historical web fallback",
     },
     semantic_layers: ["institutional", "margin", "securities_lending", "sbl_short_sale", "maintenance_risk"],
     fallback: {
@@ -72,6 +81,7 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
       market_data_failure_blocks_unrelated_swing_layers: false,
       formal_read_mixed_generation: "FORBIDDEN",
       formal_read_daily_snapshot_overlay: "FORBIDDEN",
+      family_market_data_write: "FORBIDDEN",
     },
   }));
 
@@ -84,6 +94,12 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
       ? await getTwMarketChipSummaryFast(env, input)
       : await getTwMarketChipSummaryPublished(env, input),
   ));
+
+  server.registerTool("get_family_market_chip_summary", {
+    description: "家人版唯讀個股籌碼入口。只讀正式 published generation，不允許 live overlay、不寫入任何資料、不具交易權限；可查最多360自然日的法人、融資融券、借券與借券賣出歷史。",
+    inputSchema: familyChipSchema,
+    annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
+  }, async (input) => out(await getTwMarketChipSummaryPublished(env, input)));
 
   server.registerTool("get_tw_institutional_flow", {
     description: "查詢台股個股三大法人 1/3/5/10/20 日累積。GitHub 官方封存資料優先，FinMind 僅補歷史/降級。",

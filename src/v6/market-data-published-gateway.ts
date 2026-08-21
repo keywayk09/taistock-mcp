@@ -148,7 +148,7 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
   }
 
   const asOf = input.as_of ?? pointer.trade_date;
-  const calendarDays = Math.max(30, Math.min(180, Number(input.calendar_days ?? 60)));
+  const calendarDays = Math.max(30, Math.min(360, Number(input.calendar_days ?? 60)));
   const start = subtractDays(asOf, calendarDays);
   const months = monthRange(start, asOf);
   const publishedMonth = pointer.trade_date.slice(0, 7);
@@ -190,10 +190,10 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
     for (const row of series.sbl_short_sale) if (row.trade_date >= start && row.trade_date <= asOf) sblShortSaleRows.push(row as SblShortSaleRow);
   }
 
-  const institutional = dedupeRows(institutionalRows).slice(-120);
-  const margin = dedupeRows(marginRows).slice(-120);
-  const securitiesLending = dedupeRows(securitiesLendingRows).slice(-120);
-  const sblShortSale = dedupeRows(sblShortSaleRows).slice(-120);
+  const institutional = dedupeRows(institutionalRows).slice(-360);
+  const margin = dedupeRows(marginRows).slice(-360);
+  const securitiesLending = dedupeRows(securitiesLendingRows).slice(-360);
+  const sblShortSale = dedupeRows(sblShortSaleRows).slice(-360);
   const groups = [institutional, margin, securitiesLending, sblShortSale];
   const unavailableLayers = groups.filter((rows) => !rows.length).length;
 
