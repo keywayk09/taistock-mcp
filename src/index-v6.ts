@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { MyMCP as BaseMCP } from "./index";
 import { registerDailyReportFormatTool } from "./v6/daily-report-format";
+import { handleFamilyActionCompat } from "./v6/family-action-compat";
 import { registerAdvancedTools } from "./v6/register";
 import { registerFamilyStockSelectionTools } from "./v6/family-stock-selection";
 import { githubDataStoreHealth } from "./v6/github-data-store";
@@ -68,6 +69,9 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/mcp") return MyMCP.serve("/mcp").fetch(request, env, ctx);
 
+    const familyCompat = await handleFamilyActionCompat(request, env, url);
+    if (familyCompat) return familyCompat;
+
     if (url.pathname === "/" || url.pathname === "/health") {
       return Response.json({
         service: "Taiwan Stock AI MCP",
@@ -107,6 +111,9 @@ export default {
           status_endpoint: "/market-data/status?trade_date=YYYY-MM-DD",
         },
         mcp_endpoint: "/mcp",
+        family_read_only_action: "/api/family/query",
+        family_openapi: "/family-openapi.json",
+        privacy_policy: "/privacy",
         research_status_endpoint: "/research/status",
         tools: 113,
       });
