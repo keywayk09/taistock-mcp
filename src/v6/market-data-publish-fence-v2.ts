@@ -49,6 +49,8 @@ export type MarketReadEmbeddedShardReceiptV3 = {
   updated_at?: string;
 };
 
+// Transitional per-prefix reference format. Readers retain support so any
+// already-written v4 generation remains readable, but new publisher writes v5.
 export type MarketReadReferenceShardReceiptV4 = {
   schema_version: "diamond-market-data-symbol-shard-ref/v4";
   month: string;
@@ -65,14 +67,33 @@ export type MarketReadReferenceShardReceiptV4 = {
 
 export type MarketReadShardReceipt = MarketReadEmbeddedShardReceiptV3 | MarketReadReferenceShardReceiptV4;
 
+export type MarketReadPrefixReference = {
+  source_path: string;
+  source_blob_sha: string;
+  source_logical_sha256: string;
+};
+
+export type MarketReadGenerationManifestV5 = {
+  schema_version: "diamond-market-data-generation-ref/v5";
+  month: string;
+  trade_date: string;
+  generation: string;
+  source_manifest_sha: string;
+  audit_status: "PASS";
+  prefix_count: number;
+  prefixes: Record<string, MarketReadPrefixReference>;
+  created_at: string;
+};
+
 export type MarketReadPublishState = {
-  schema_version: "diamond-market-data-publish-state/v1";
+  schema_version: "diamond-market-data-publish-state/v1" | "diamond-market-data-publish-state/v2-reference";
   trade_date: string;
   generation: string;
   source_manifest_sha: string;
   status: "PENDING" | "READY";
   completed_prefixes: string[];
   total_prefixes: number;
+  references?: Record<string, MarketReadPrefixReference>;
   updated_at: string;
 };
 
@@ -120,14 +141,25 @@ export function marketReadPublishStatePath(tradeDate: string) {
   return `data/market-data/published/state/${year}/${month}/${day}.json`;
 }
 
-export function marketReadPublishedShardPath(tradeDate: string, generation: string, prefix: string) {
+function generationParts(tradeDate: string, generation: string) {
   invariant(/^20\d{2}-\d{2}-\d{2}$/.test(tradeDate), "trade_date_invalid");
-  invariant(/^\d{2}$/.test(prefix), "prefix_invalid");
   const [generationDate, generationSha] = generation.split(":");
   invariant(generationDate === tradeDate, "generation_trade_date_mismatch");
   invariant(/^[0-9a-f]{40,64}$/i.test(generationSha ?? ""), "generation_sha_invalid");
-  const [year, month, day] = tradeDate.split("-");
-  return `data/market-data/published/generations/${year}/${month}/${day}/${generationSha.toLowerCase()}/${prefix}.json`;
+  return { generationSha: generationSha.toLowerCase(), dateParts: tradeDate.split("-") };
+}
+
+export function marketReadPublishedShardPath(tradeDate: string, generation: string, prefix: string) {
+  invariant(/^\d{2}$/.test(prefix), "prefix_invalid");
+  const { generationSha, dateParts } = generationParts(tradeDate, generation);
+  const [year, month, day] = dateParts;
+  return `data/market-data/published/generations/${year}/${month}/${day}/${generationSha}/${prefix}.json`;
+}
+
+export function marketReadPublishedGenerationManifestPath(tradeDate: string, generation: string) {
+  const { generationSha, dateParts } = generationParts(tradeDate, generation);
+  const [year, month, day] = dateParts;
+  return `data/market-data/published/generations/${year}/${month}/${day}/${generationSha}/manifest.json`;
 }
 
 export function validateMarketReadPublishPrerequisites(manifest: MarketReadManifest) {
@@ -151,6 +183,26 @@ export function validateMarketReadPublishPrerequisites(manifest: MarketReadManif
   return { trade_date: manifest.trade_date!, prefixes: [...unique].sort() };
 }
 
+function validateReference(prefix: string, reference: MarketReadPrefixReference) {
+  invariant(/^\d{2}$/.test(prefix), `generation_prefix_invalid:${prefix}`);
+  invariant(/^data\/market-data\/index\/20\d{2}\/\d{2}\/\d{2}\.json$/.test(reference.source_path), `generation_source_path_invalid:${prefix}`);
+  invariant(/^[0-9a-f]{40}$/i.test(reference.source_blob_sha), `generation_source_blob_sha_invalid:${prefix}`);
+  invariant(/^[0-9a-f]{64}$/i.test(reference.source_logical_sha256), `generation_source_logical_sha_invalid:${prefix}`);
+}
+
+export function assertPublishedGenerationManifest(pointer: MarketReadPublishedPointer, manifest: MarketReadGenerationManifestV5) {
+  invariant(manifest.schema_version === "diamond-market-data-generation-ref/v5", "published_generation_schema_invalid");
+  invariant(manifest.trade_date === pointer.trade_date, "published_generation_trade_date_mismatch");
+  invariant(manifest.month === pointer.trade_date.slice(0, 7), "published_generation_month_mismatch");
+  invariant(manifest.generation === pointer.generation, "published_generation_mismatch");
+  invariant(manifest.source_manifest_sha === pointer.source_manifest_sha, "published_generation_manifest_sha_mismatch");
+  invariant(manifest.audit_status === "PASS", "published_generation_audit_failed");
+  const prefixes = Object.keys(manifest.prefixes ?? {}).sort();
+  invariant(prefixes.length === pointer.prefix_count, "published_generation_prefix_count_mismatch");
+  invariant(manifest.prefix_count === pointer.prefix_count, "published_generation_declared_prefix_count_mismatch");
+  for (const prefix of prefixes) validateReference(prefix, manifest.prefixes[prefix]);
+}
+
 export function auditPublishedShard(
   shard: MarketReadShardReceipt,
   expected: { prefix: string; trade_date: string; generation: string; manifest_sha: string },
@@ -168,9 +220,7 @@ export function auditPublishedShard(
   if (shard.schema_version === "diamond-market-data-symbol-shard/v3") {
     invariant(Boolean(shard.symbols) && typeof shard.symbols === "object" && !Array.isArray(shard.symbols), `shard_symbols_invalid:${expected.prefix}`);
   } else {
-    invariant(/^data\/market-data\/index\/20\d{2}\/\d{2}\/\d{2}\.json$/.test(shard.source_path), `shard_source_path_invalid:${expected.prefix}`);
-    invariant(/^[0-9a-f]{40}$/i.test(shard.source_blob_sha), `shard_source_blob_sha_invalid:${expected.prefix}`);
-    invariant(/^[0-9a-f]{64}$/i.test(shard.source_logical_sha256), `shard_source_logical_sha_invalid:${expected.prefix}`);
+    validateReference(expected.prefix, shard);
   }
 }
 
