@@ -71,8 +71,9 @@ assert.match(transport, /source_date_mismatch/);
 assert.match(transport, /getOfficialWebSblDataset/);
 
 const published = fs.readFileSync("src/v6/market-data-published-gateway-v2.ts", "utf8");
-assert.match(published, /Math\.min\(180/);
-assert.match(published, /slice\(-180\)/);
+assert.match(published, /MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS = 180/);
+assert.match(published, /Math\.min\(MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS/);
+assert.match(published, /slice\(-MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS\)/);
 assert.match(published, /GENERATION_MANIFEST_V5/);
 
 console.log("PASS market-data one-shot 180d bootstrap + adaptive scheduler contract");
