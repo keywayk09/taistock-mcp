@@ -68,6 +68,7 @@ function auditMaterializedPrefix(input: {
   if (source.schema_version !== "diamond-market-data-symbol-shard/v2") throw new Error(`source_shard_schema:${prefix}`);
   if (source.prefix !== prefix) throw new Error(`source_shard_prefix:${prefix}`);
   if (source.month !== tradeDate.slice(0, 7)) throw new Error(`source_shard_month:${prefix}`);
+  if (!expected.size) throw new Error(`canonical_prefix_empty:${prefix}`);
 
   const actual = new Map<string, { kind: TwMarketDataKind; row: any }>();
   for (const [symbol, state] of Object.entries(source.symbols ?? {})) {
@@ -221,7 +222,6 @@ export async function runMarketDataPublisher(
         source_manifest_sha: context.sourceManifestSha,
         audit_status: "PASS",
         symbols: sourceRead.value.symbols,
-        updated_at: updatedAt,
       };
       await putImmutableGitHubJson(env, {
         path: marketReadPublishedShardPath(tradeDate, context.generation, prefix),
