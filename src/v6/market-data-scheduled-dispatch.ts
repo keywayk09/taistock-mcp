@@ -1,6 +1,7 @@
 import { runMarketData360dBackfillStep } from "./market-data-360d-backfill";
 import { setMarketDataCapturePolicy, setMarketDataCaptureTradeDate } from "./market-data-capture-context";
 import { runAdaptiveDailyMarketDataCapture } from "./market-data-daily-capture";
+import { recordHistoryBackfillFailure } from "./market-data-history-diagnostic";
 import { runMarketDataPublisher } from "./market-data-publisher";
 import { decideExtendedMarketDataSchedule } from "./market-data-schedule";
 import {
@@ -16,6 +17,9 @@ const CAPTURE_UNIT_RESERVE = 10;
 // worst-case final generation-manifest + pointer transaction.
 const PUBLISH_UNIT_RESERVE = 23;
 const BACKFILL_UNIT_RESERVE = 13;
+// This headroom is intentionally not handed to the backfill worker. It covers
+// coordinator reads and, on failure, the small idempotent Production diagnostic
+// write so the original runtime error can be identified without Cloudflare log access.
 const BACKFILL_COORDINATOR_HEADROOM = 5;
 
 function statusOf(value: any) {
@@ -132,12 +136,33 @@ async function runHistoryLane(env: Env, decision: ReturnType<typeof decideExtend
       0,
       budget.subrequest_budget - budget.estimated_subrequests - BACKFILL_COORDINATOR_HEADROOM,
     );
-    const backfill = await runMarketData360dBackfillStep(env, {
-      anchorTradeDate: decision.tradeDate,
-      now: new Date(),
-      deadlineAtMs: budget.deadline_at_ms,
-      subrequestBudget: remainingSubrequests,
-    });
+    let backfill: any;
+    try {
+      backfill = await runMarketData360dBackfillStep(env, {
+        anchorTradeDate: decision.tradeDate,
+        now: new Date(),
+        deadlineAtMs: budget.deadline_at_ms,
+        subrequestBudget: remainingSubrequests,
+      });
+    } catch (error) {
+      // Persist only a changed fingerprint. Repeated identical five-minute
+      // failures are idempotent and therefore do not create Git commit churn.
+      // Diagnostic failure must never mask the original Production failure.
+      try {
+        const diagnostic = await recordHistoryBackfillFailure(env, {
+          error,
+          stage: "HISTORY_BACKFILL_STEP",
+          anchorTradeDate: decision.tradeDate,
+        });
+        console.error("market-data-history-failure-recorded", diagnostic);
+      } catch (diagnosticError) {
+        console.error("market-data-history-failure-diagnostic-failed", {
+          original_error: String(error),
+          diagnostic_error: String(diagnosticError),
+        });
+      }
+      throw error;
+    }
     backfillResults.push(backfill);
     chargeMarketDataWorkBudget(budget, estimateBackfillSubrequests(backfill));
     const status = statusOf(backfill);
