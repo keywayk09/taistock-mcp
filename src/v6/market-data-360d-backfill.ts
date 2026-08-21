@@ -1,5 +1,5 @@
 import { readGitHubJson, updateGitHubJson } from "./github-data-store.ts";
-import { setMarketDataCaptureTradeDate } from "./market-data-capture-context.ts";
+import { setMarketDataCapturePolicy, setMarketDataCaptureTradeDate } from "./market-data-capture-context.ts";
 import { runSubrequestSafeMarketDataCapture } from "./market-data-cloudflare-chunked-runner.ts";
 import {
   MARKET_DATA_BACKFILL_STATE_VERSION,
@@ -57,6 +57,7 @@ export async function runMarketData360dBackfillStep(env: Env, input: { anchorTra
   }
 
   const tradeDate = state.cursor_date;
+  setMarketDataCapturePolicy(null);
   setMarketDataCaptureTradeDate(tradeDate);
   let capture: any;
   try {
@@ -64,6 +65,7 @@ export async function runMarketData360dBackfillStep(env: Env, input: { anchorTra
     // decides dynamically how many calls fit in the current safe work budget.
     capture = await runSubrequestSafeMarketDataCapture(env, { tradeDate, now });
   } finally {
+    setMarketDataCapturePolicy(null);
     setMarketDataCaptureTradeDate(null);
   }
 
