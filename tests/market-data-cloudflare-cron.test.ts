@@ -5,6 +5,7 @@ import { decideExtendedMarketDataSchedule } from "../src/v6/market-data-schedule
 
 const legacyRunner = fs.readFileSync("src/v6/market-data-cloudflare-runner.ts", "utf8");
 const runner = fs.readFileSync("src/v6/market-data-cloudflare-chunked-runner.ts", "utf8");
+const dailyCapture = fs.readFileSync("src/v6/market-data-daily-capture.ts", "utf8");
 const captureContext = fs.readFileSync("src/v6/market-data-capture-context.ts", "utf8");
 const incremental = fs.readFileSync("src/v6/market-data-incremental-controller.ts", "utf8");
 const publisher = fs.readFileSync("src/v6/market-data-publisher-v5.ts", "utf8");
@@ -25,6 +26,9 @@ assert.match(runner, /MARKET_DATA_CAPTURE_BATCH_SIZE = 1/);
 assert.match(runner, /MARKET_DATA_INDEX_PREFIX_BATCH_SIZE = 1/);
 assert.match(runner, /processIndexBatch/);
 assert.match(runner, /completed_prefixes/);
+assert.match(dailyCapture, /runAdaptiveHistoryIndexSlice/);
+assert.match(dailyCapture, /runLegacyCapture/);
+assert.match(dailyCapture, /daily_index_mode:\s*"ADAPTIVE_ATOMIC"/);
 assert.match(captureContext, /setMarketDataCapturePolicy/);
 assert.match(captureContext, /allowedKinds/);
 assert.match(captureContext, /checkpointStartedAt/);
@@ -44,12 +48,14 @@ assert.doesNotMatch(publisher, /pending\.slice\(0,\s*\d+\)/);
 assert.doesNotMatch(dispatcher, /MARKET_DATA_HOT_STEPS_PER_CRON/);
 assert.doesNotMatch(dispatcher, /MARKET_DATA_PUBLISH_STEPS_PER_CRON/);
 assert.doesNotMatch(dispatcher, /BACKFILL_PAUSED_FOR_HOT_LANE/);
-assert.match(dispatcher, /runSubrequestSafeMarketDataCapture/);
+assert.match(dispatcher, /runAdaptiveDailyMarketDataCapture/);
+assert.doesNotMatch(dispatcher, /runSubrequestSafeMarketDataCapture/);
 assert.match(dispatcher, /runMarketDataPublisher/);
 assert.match(dispatcher, /runMarketData360dBackfillStep/);
 assert.match(dispatcher, /hasSafeMarketDataBudget/);
 assert.match(dispatcher, /chargeMarketDataWorkBudget/);
 assert.match(dispatcher, /subrequestBudget:\s*remainingSubrequests/);
+assert.match(dispatcher, /deadlineAtMs:\s*budget\.deadline_at_ms/);
 assert.match(dispatcher, /storageMode:\s*"HISTORY_COMPRESSED"/);
 
 assert.match(schedule, /DAILY_INSTITUTIONAL/);
@@ -147,4 +153,4 @@ assert.equal(parsed[0]?.open, false);
 assert.equal(parsed[1]?.date, "2026-02-23");
 assert.equal(parsed[1]?.open, true);
 
-console.log("market-data staged daily checkpoints + adaptive history/publisher scheduler contract passed");
+console.log("market-data staged daily checkpoints + adaptive atomic daily/history/publisher scheduler contract passed");
