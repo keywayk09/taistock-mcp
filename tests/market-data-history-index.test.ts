@@ -28,8 +28,8 @@ assert.ok(
   "one full compact attempt plus coordinator headroom must stay inside the 42-request controller budget",
 );
 assert.ok(
-  estimateHistoryIndexSliceWorstCaseSubrequests(11) + HISTORY_INDEX_COORDINATOR_HEADROOM > 42,
-  "budget contract must still reject work beyond the compact 10-prefix universe",
+  estimateHistoryIndexSliceWorstCaseSubrequests(12) + HISTORY_INDEX_COORDINATOR_HEADROOM > 42,
+  "budget contract must still reject work materially beyond the compact 10-prefix universe",
 );
 
 const smallerBudget = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 29, nowMs: 0, deadlineAtMs: farDeadline });
