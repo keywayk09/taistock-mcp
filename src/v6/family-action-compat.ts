@@ -132,7 +132,7 @@ async function buildStockRead(env: Env, symbol: string, asOf: string) {
     })),
   ]);
 
-  const bars = prices.ok ? normalizeDailyBars(prices.value, symbol) : [];
+  const bars = prices.ok ? normalizeDailyBars(prices.value) : [];
   const technical = bars.length ? technicalSummary(bars) : null;
   const latestBar = bars.at(-1) ?? null;
   const normalizedQuote = quote.ok ? normalizeQuote(quote.value, symbol) : null;
