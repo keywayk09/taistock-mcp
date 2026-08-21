@@ -5,6 +5,8 @@ import { decideExtendedMarketDataSchedule } from "../src/v6/market-data-schedule
 
 const legacyRunner = fs.readFileSync("src/v6/market-data-cloudflare-runner.ts", "utf8");
 const runner = fs.readFileSync("src/v6/market-data-cloudflare-chunked-runner.ts", "utf8");
+const publisher = fs.readFileSync("src/v6/market-data-publisher.ts", "utf8");
+const publishedGateway = fs.readFileSync("src/v6/market-data-published-gateway.ts", "utf8");
 const tpexTransport = fs.readFileSync("src/v6/tpex-cloudflare-transport.ts", "utf8");
 const tpexRelayWorkflow = fs.readFileSync(".github/workflows/tpex-official-relay-v2.yml", "utf8");
 const dispatcher = fs.readFileSync("src/v6/market-data-scheduled-dispatch.ts", "utf8");
@@ -31,6 +33,16 @@ assert.match(runner, /retries: 2/);
 assert.match(runner, /getTpexInstitutionalPayload/);
 assert.match(runner, /getTpexMarginPayload/);
 assert.match(runner, /getTpexJson/);
+assert.match(publisher, /MARKET_DATA_PUBLISH_PREFIX_BATCH_SIZE = 5/);
+assert.match(publisher, /validateMarketReadPublishPrerequisites/);
+assert.match(publisher, /auditMaterializedPrefix/);
+assert.match(publisher, /putImmutableGitHubJson/);
+assert.match(publisher, /marketReadPublishedShardPath/);
+assert.match(publisher, /marketReadPublishedPointerPath/);
+assert.match(publishedGateway, /PUBLISHED_GENERATION_CURRENT_MONTH_PLUS_CLOSED_MONTH_HISTORY/);
+assert.match(publishedGateway, /assertPublishedShard/);
+assert.match(publishedGateway, /mixed_generation_current_day: false/);
+assert.match(publishedGateway, /daily_snapshot_overlay: false/);
 assert.match(tpexTransport, /Accept-Language/);
 assert.match(tpexTransport, /Referer/);
 assert.match(tpexTransport, /Mozilla\/5\.0/);
@@ -58,10 +70,16 @@ assert.match(fastGateway, /NEEDS_OHLC_JOIN/);
 assert.match(fastGateway, /ESTIMATED_POSITION_MAINTENANCE_PROXY/);
 assert.match(marketTools, /get_tw_market_chip_summary/);
 assert.match(marketTools, /preferred_symbol_read_tool/);
+assert.match(marketTools, /consistency: z\.enum\(\["published", "live"\]\)/);
+assert.match(marketTools, /default\("published"\)/);
+assert.match(marketTools, /getTwMarketChipSummaryPublished/);
 assert.doesNotMatch(dispatcher, /runMarketDataCloudflareCapture/);
 assert.match(dispatcher, /runSubrequestSafeMarketDataCapture/);
+assert.match(dispatcher, /runMarketDataPublisher/);
 assert.match(schedule, /hour === 18 && minute >= 15/);
 assert.match(schedule, /hour >= 19 && hour <= 23/);
+assert.match(schedule, /previousDayCatchup/);
+assert.match(schedule, /hour < 18 \|\| \(hour === 18 && minute < 15\)/);
 assert.match(schedule, /PREVIOUS_DAY_OVERNIGHT_CATCHUP/);
 assert.match(schedule, /PREVIOUS_DAY_FINAL_AUDIT/);
 assert.match(schedule, /WEEKEND_PREFLIGHT/);
@@ -95,6 +113,16 @@ assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T08:30:00"))
   finalAudit: true,
   reason: "PREVIOUS_DAY_FINAL_AUDIT",
 });
+assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T10:42:00")), {
+  tradeDate: "2026-08-20",
+  finalAudit: false,
+  reason: "PREVIOUS_DAY_OVERNIGHT_CATCHUP",
+});
+assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-22T12:00:00")), {
+  tradeDate: "2026-08-21",
+  finalAudit: false,
+  reason: "PREVIOUS_DAY_OVERNIGHT_CATCHUP",
+});
 assert.equal(decideExtendedMarketDataSchedule(taipei("2026-08-24T00:10:00")), null);
 
 const csv = [
@@ -108,4 +136,4 @@ assert.equal(parsed[0]?.open, false);
 assert.equal(parsed[1]?.date, "2026-02-23");
 assert.equal(parsed[1]?.open, true);
 
-console.log("market-data Cloudflare cron, verified TPEx relay, and fast read gateway tests passed");
+console.log("market-data Cloudflare cron, daytime catchup, verified TPEx relay, live/published read gateway tests passed");

@@ -33,22 +33,25 @@ export function decideExtendedMarketDataSchedule(now = new Date()) {
   const previousDow = dayOfWeek(previousDate);
   const previousWeekday = previousDow >= 1 && previousDow <= 5;
 
-  // Keep retrying the previous trading day overnight. READY layers and
-  // COMPLETE days are idempotent NOOPs, so only missing/due layers are fetched.
-  const overnightCatchup = hour < 8 || (hour === 8 && minute < 30);
-  if (previousWeekday && overnightCatchup) {
-    return {
-      tradeDate: previousDate,
-      finalAudit: false,
-      reason: "PREVIOUS_DAY_OVERNIGHT_CATCHUP" as const,
-    };
-  }
-
+  // 08:30 remains the explicit previous-day final-audit checkpoint.
   if (hour === 8 && minute === 30 && previousWeekday) {
     return {
       tradeDate: previousDate,
       finalAudit: true,
       reason: "PREVIOUS_DAY_FINAL_AUDIT" as const,
+    };
+  }
+
+  // Continue the previous trading day's resumable capture/index/publish work until
+  // the current day's official evening window begins. COMPLETE/READY/PUBLISHED
+  // stages are idempotent, so this primarily drains unfinished compaction and
+  // generation publishing instead of stranding a partially built day at 08:30.
+  const previousDayCatchup = previousWeekday && (hour < 18 || (hour === 18 && minute < 15));
+  if (previousDayCatchup) {
+    return {
+      tradeDate: previousDate,
+      finalAudit: false,
+      reason: "PREVIOUS_DAY_OVERNIGHT_CATCHUP" as const,
     };
   }
 

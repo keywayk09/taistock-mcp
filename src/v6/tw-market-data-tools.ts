@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getTwMarketChipSummaryFast } from "./market-data-fast-gateway";
+import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
 import { getTwMarketDataDayStatus } from "./market-data-day-status";
 import {
   TW_MARKET_DATA_VERSION,
@@ -24,6 +25,7 @@ const querySchema = {
 };
 const fastSummarySchema = {
   ...querySchema,
+  consistency: z.enum(["published", "live"]).optional().default("published"),
   reference_price: z.number().positive().optional(),
   estimated_financing_cost: z.number().positive().optional(),
   financing_ratio: z.number().min(0.1).max(0.9).optional().default(0.6),
@@ -38,7 +40,9 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
     version: TW_MARKET_DATA_VERSION,
     owner: "Diamond Market Data Plane",
     preferred_symbol_read_tool: "get_tw_market_chip_summary",
-    read_model: "prefix-month materialized index + exact-day snapshot overlay",
+    read_model: "published generation by default; live prefix-month index + exact-day snapshot overlay only when consistency=live",
+    formal_consistency: "PUBLISHED",
+    live_consistency: "LIVE_OVERLAY",
     official_sources: {
       listed_institutional: "TWSE T86",
       otc_institutional: "TPEx tpex_3insti_daily_trading",
@@ -66,14 +70,20 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
       r2_usage: "FORBIDDEN",
       market_data_failure_blocks_ohlc: false,
       market_data_failure_blocks_unrelated_swing_layers: false,
+      formal_read_mixed_generation: "FORBIDDEN",
+      formal_read_daily_snapshot_overlay: "FORBIDDEN",
     },
   }));
 
   server.registerTool("get_tw_market_chip_summary", {
-    description: "最快速個股籌碼入口：按股票代號 prefix 一次讀取 materialized index，再覆蓋尚未完成 index compaction 的當日 snapshots；整合法人、融資融券、借券、借券賣出與估算維持率風險契約。一般個股分析優先使用此工具。",
+    description: "正式個股籌碼入口。預設 consistency=published，只讀已完成 audit 並由 published pointer 原子發布的 generation；若要檢查尚未發布的最新 canonical/index/snapshot 狀態，明確指定 consistency=live。整合法人、融資融券、借券、借券賣出與估算維持率風險契約。",
     inputSchema: fastSummarySchema,
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
-  }, async (input) => out(await getTwMarketChipSummaryFast(env, input)));
+  }, async (input) => out(
+    input.consistency === "live"
+      ? await getTwMarketChipSummaryFast(env, input)
+      : await getTwMarketChipSummaryPublished(env, input),
+  ));
 
   server.registerTool("get_tw_institutional_flow", {
     description: "查詢台股個股三大法人 1/3/5/10/20 日累積。GitHub 官方封存資料優先，FinMind 僅補歷史/降級。",
