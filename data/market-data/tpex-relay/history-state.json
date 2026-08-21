@@ -1,10 +1,11 @@
 {
   "anchor_trade_date": "2026-08-21",
   "completed_at": null,
-  "cursor_date": "2026-08-11",
-  "processed_dates": 5,
+  "cursor_date": "2026-08-18",
+  "last_error": "RESET_AFTER_INVALID_EMPTY_HISTORICAL_RESPONSE",
+  "processed_dates": 0,
   "schema": "TPEX_HISTORICAL_RELAY_STATE_V1",
   "status": "RUNNING",
   "target_start_date": "2026-02-22",
-  "updated_at": "2026-08-21T16:05:28.393324Z"
+  "updated_at": "2026-08-21T16:08:00Z"
 }
