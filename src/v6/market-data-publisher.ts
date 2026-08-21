@@ -5,6 +5,11 @@ import {
   stableJson,
   updateGitHubJson,
 } from "./github-data-store.ts";
+import type { MarketDataBackfillState } from "./market-data-backfill-policy.ts";
+import {
+  MARKET_DATA_BACKFILL_STATE_PATH,
+  shouldWaitForHistoryMonth,
+} from "./market-data-publish-history-fence.ts";
 import {
   buildMarketReadGeneration,
   canonicalMarketReadManifestProjection,
@@ -193,6 +198,16 @@ export async function runMarketDataPublisher(
       index_status: manifest.index_state?.status ?? null,
       completed_prefixes: manifest.index_state?.completed_prefixes?.length ?? 0,
       total_prefixes: manifest.index_state?.total_prefixes ?? null,
+    };
+  }
+
+  const backfillRead = await readGitHubJson<MarketDataBackfillState>(env, MARKET_DATA_BACKFILL_STATE_PATH);
+  if (shouldWaitForHistoryMonth(backfillRead.value, tradeDate)) {
+    return {
+      trade_date: tradeDate,
+      status: "PUBLISH_WAITING_HISTORY_MONTH" as const,
+      history_cursor_date: backfillRead.value?.cursor_date ?? null,
+      history_status: backfillRead.value?.status ?? null,
     };
   }
 

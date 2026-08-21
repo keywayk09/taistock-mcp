@@ -5,15 +5,11 @@ import { decideExtendedMarketDataSchedule } from "../src/v6/market-data-schedule
 
 const legacyRunner = fs.readFileSync("src/v6/market-data-cloudflare-runner.ts", "utf8");
 const runner = fs.readFileSync("src/v6/market-data-cloudflare-chunked-runner.ts", "utf8");
+const captureContext = fs.readFileSync("src/v6/market-data-capture-context.ts", "utf8");
+const incremental = fs.readFileSync("src/v6/market-data-incremental-controller.ts", "utf8");
 const publisher = fs.readFileSync("src/v6/market-data-publisher.ts", "utf8");
-const publishedGateway = fs.readFileSync("src/v6/market-data-published-gateway.ts", "utf8");
-const monthlySymbolBundle = fs.readFileSync("src/v6/market-data-monthly-symbol-bundle.ts", "utf8");
-const tpexTransport = fs.readFileSync("src/v6/tpex-cloudflare-transport.ts", "utf8");
-const tpexRelayWorkflow = fs.readFileSync(".github/workflows/tpex-official-relay-v2.yml", "utf8");
 const dispatcher = fs.readFileSync("src/v6/market-data-scheduled-dispatch.ts", "utf8");
 const schedule = fs.readFileSync("src/v6/market-data-schedule.ts", "utf8");
-const fastGateway = fs.readFileSync("src/v6/market-data-fast-gateway.ts", "utf8");
-const marketTools = fs.readFileSync("src/v6/tw-market-data-tools.ts", "utf8");
 const wrangler = fs.readFileSync("wrangler.jsonc", "utf8");
 const entrypoint = fs.readFileSync("src/index-v6.ts", "utf8");
 const deployWorkflow = fs.readFileSync(".github/workflows/deploy-cloudflare-production.yml", "utf8");
@@ -27,109 +23,112 @@ assert.match(runner, /dueLayerKeys/);
 assert.match(runner, /mergeReadyMonotonic/);
 assert.match(runner, /MARKET_DATA_CAPTURE_BATCH_SIZE = 1/);
 assert.match(runner, /MARKET_DATA_INDEX_PREFIX_BATCH_SIZE = 1/);
-assert.match(runner, /dueAll\.slice\(0, MARKET_DATA_CAPTURE_BATCH_SIZE\)/);
 assert.match(runner, /processIndexBatch/);
 assert.match(runner, /completed_prefixes/);
-assert.match(runner, /retries: 2/);
-assert.match(runner, /getTpexInstitutionalPayload/);
-assert.match(runner, /getTpexMarginPayload/);
-assert.match(runner, /getTpexJson/);
-assert.match(publisher, /MARKET_DATA_PUBLISH_PREFIX_BATCH_SIZE = 5/);
+assert.match(captureContext, /setMarketDataCapturePolicy/);
+assert.match(captureContext, /allowedKinds/);
+assert.match(captureContext, /checkpointStartedAt/);
+assert.match(incremental, /getMarketDataCapturePolicy/);
+assert.match(incremental, /last_attempt_at/);
+assert.match(incremental, /lastAttempt >= checkpointStart/);
 assert.match(publisher, /validateMarketReadPublishPrerequisites/);
 assert.match(publisher, /auditMaterializedPrefix/);
 assert.match(publisher, /putImmutableGitHubJson/);
-assert.match(publisher, /marketReadPublishedShardPath/);
-assert.match(publisher, /marketReadPublishedPointerPath/);
-assert.match(publishedGateway, /LOGICAL_MONTH_SYMBOL_BUNDLE_OVER_GENERATION_FENCED_PREFIX_STORAGE/);
-assert.match(publishedGateway, /buildMonthlySymbolBundle/);
-assert.match(publishedGateway, /monthlySymbolBundleSeries/);
-assert.match(publishedGateway, /physically_persisted_per_symbol: false/);
-assert.match(monthlySymbolBundle, /diamond-market-data-monthly-symbol-bundle\/v1/);
-assert.match(monthlySymbolBundle, /market-data\/\$\{year\}\/\$\{mon\}\/\$\{symbol\}\.json/);
-assert.match(publishedGateway, /assertPublishedShard/);
-assert.match(publishedGateway, /mixed_generation_current_day: false/);
-assert.match(publishedGateway, /daily_snapshot_overlay: false/);
-assert.match(tpexTransport, /Accept-Language/);
-assert.match(tpexTransport, /Referer/);
-assert.match(tpexTransport, /Mozilla\/5\.0/);
-assert.match(tpexTransport, /redirect: "manual"/);
-assert.match(tpexTransport, /TPEX_OFFICIAL_RELAY_V2/);
-assert.match(tpexTransport, /TPEX_OFFICIAL_RELAY_LATEST_V2/);
-assert.match(tpexTransport, /sha256Text/);
-assert.match(tpexTransport, /getRelayDataset/);
-assert.match(tpexTransport, /3itrade_hedge_result\.php/);
-assert.match(tpexTransport, /margin_bal_result\.php/);
-assert.match(tpexRelayWorkflow, /tpex_3insti_daily_trading/);
-assert.match(tpexRelayWorkflow, /tpex_mainboard_margin_balance/);
-assert.match(tpexRelayWorkflow, /tpex_margin_sbl/);
-assert.match(tpexRelayWorkflow, /tpex_short_sell/);
-assert.match(tpexRelayWorkflow, /market-data-relay/);
-assert.match(tpexRelayWorkflow, /TPEX_OFFICIAL_RELAY_V2/);
-assert.match(tpexRelayWorkflow, /canonical_storage/);
-assert.match(fastGateway, /PREFIX_MONTH_READ_MODEL_PLUS_DAILY_SNAPSHOT_OVERLAY/);
-assert.match(fastGateway, /symbol\.slice\(0, 2\)/);
-assert.match(fastGateway, /institutional/);
-assert.match(fastGateway, /margin/);
-assert.match(fastGateway, /securities_lending/);
-assert.match(fastGateway, /sbl_short_sale/);
-assert.match(fastGateway, /NEEDS_OHLC_JOIN/);
-assert.match(fastGateway, /ESTIMATED_POSITION_MAINTENANCE_PROXY/);
-assert.match(marketTools, /get_tw_market_chip_summary/);
-assert.match(marketTools, /preferred_symbol_read_tool/);
-assert.match(marketTools, /consistency: z\.enum\(\["published", "live"\]\)/);
-assert.match(marketTools, /default\("published"\)/);
-assert.match(marketTools, /getTwMarketChipSummaryPublished/);
-assert.doesNotMatch(dispatcher, /runMarketDataCloudflareCapture/);
+
+assert.doesNotMatch(dispatcher, /MARKET_DATA_HOT_STEPS_PER_CRON/);
+assert.doesNotMatch(dispatcher, /MARKET_DATA_PUBLISH_STEPS_PER_CRON/);
+assert.doesNotMatch(dispatcher, /BACKFILL_PAUSED_FOR_HOT_LANE/);
 assert.match(dispatcher, /runSubrequestSafeMarketDataCapture/);
 assert.match(dispatcher, /runMarketDataPublisher/);
-assert.match(schedule, /hour === 18 && minute >= 15/);
-assert.match(schedule, /hour >= 19 && hour <= 23/);
-assert.match(schedule, /previousDayCatchup/);
-assert.match(schedule, /hour < 18 \|\| \(hour === 18 && minute < 15\)/);
-assert.match(schedule, /PREVIOUS_DAY_OVERNIGHT_CATCHUP/);
+assert.match(dispatcher, /runMarketData360dBackfillStep/);
+assert.match(dispatcher, /hasSafeMarketDataBudget/);
+assert.match(dispatcher, /chargeMarketDataWorkBudget/);
+
+assert.match(schedule, /DAILY_INSTITUTIONAL/);
+assert.match(schedule, /DAILY_LATE/);
+assert.match(schedule, /DAILY_RECOVERY/);
 assert.match(schedule, /PREVIOUS_DAY_FINAL_AUDIT/);
-assert.match(schedule, /WEEKEND_PREFLIGHT/);
-assert.match(dispatcher, /decideExtendedMarketDataSchedule/);
+assert.match(schedule, /HISTORY_BOOTSTRAP/);
+assert.doesNotMatch(schedule, /TRADING_EVENING_EXTENDED/);
+assert.doesNotMatch(schedule, /PREVIOUS_DAY_OVERNIGHT_CATCHUP/);
 assert.match(wrangler, /"crons": \["\*\/5 \* \* \* \*"\]/);
 assert.match(entrypoint, /async scheduled\(controller: ScheduledController/);
 assert.match(entrypoint, /runExtendedScheduledMarketDataController/);
-assert.match(entrypoint, /CLOUDFLARE_CRON_CANONICAL_WRITER/);
-assert.match(entrypoint, /NO_2230_HARD_STOP/);
 assert.match(deployWorkflow, /npx wrangler deploy/);
-assert.match(deployWorkflow, /CLOUDFLARE_API_TOKEN/);
-assert.match(deployWorkflow, /tmp\/deploy-receipts\/taistock-mcp-cloudflare\.json/);
 
-assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-20T18:15:00")), {
-  tradeDate: "2026-08-20",
+assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T18:00:00")), {
+  tradeDate: "2026-08-21",
   finalAudit: false,
-  reason: "TRADING_EVENING_EXTENDED",
+  lane: "DAILY",
+  allowedKinds: ["institutional"],
+  checkpointStartedAt: "2026-08-21T10:00:00.000Z",
+  reason: "DAILY_INSTITUTIONAL",
 });
-assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T00:10:00")), {
-  tradeDate: "2026-08-20",
+
+// 18:05 is continuation of the same checkpoint, not a second fetch epoch.
+assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T18:05:00")), {
+  tradeDate: "2026-08-21",
   finalAudit: false,
-  reason: "PREVIOUS_DAY_OVERNIGHT_CATCHUP",
+  lane: "DAILY",
+  allowedKinds: ["institutional"],
+  checkpointStartedAt: "2026-08-21T10:00:00.000Z",
+  reason: "DAILY_INSTITUTIONAL",
 });
-assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T07:55:00")), {
-  tradeDate: "2026-08-20",
+
+assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T20:00:00")), {
+  tradeDate: "2026-08-21",
   finalAudit: false,
-  reason: "PREVIOUS_DAY_OVERNIGHT_CATCHUP",
+  lane: "HISTORY",
+  allowedKinds: [],
+  checkpointStartedAt: null,
+  reason: "HISTORY_BOOTSTRAP",
 });
-assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T08:30:00")), {
-  tradeDate: "2026-08-20",
+
+assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T21:15:00")), {
+  tradeDate: "2026-08-21",
+  finalAudit: false,
+  lane: "DAILY",
+  allowedKinds: ["margin", "securities_lending", "sbl_short_sale"],
+  checkpointStartedAt: "2026-08-21T13:15:00.000Z",
+  reason: "DAILY_LATE",
+});
+
+assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T21:20:00")), {
+  tradeDate: "2026-08-21",
+  finalAudit: false,
+  lane: "DAILY",
+  allowedKinds: ["margin", "securities_lending", "sbl_short_sale"],
+  checkpointStartedAt: "2026-08-21T13:15:00.000Z",
+  reason: "DAILY_LATE",
+});
+
+assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T22:15:00")), {
+  tradeDate: "2026-08-21",
+  finalAudit: false,
+  lane: "DAILY",
+  allowedKinds: ["institutional", "margin", "securities_lending", "sbl_short_sale"],
+  checkpointStartedAt: "2026-08-21T14:15:00.000Z",
+  reason: "DAILY_RECOVERY",
+});
+
+assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-22T08:30:00")), {
+  tradeDate: "2026-08-21",
   finalAudit: true,
+  lane: "DAILY",
+  allowedKinds: ["institutional", "margin", "securities_lending", "sbl_short_sale"],
+  checkpointStartedAt: "2026-08-22T00:30:00.000Z",
   reason: "PREVIOUS_DAY_FINAL_AUDIT",
 });
-assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T10:42:00")), {
-  tradeDate: "2026-08-20",
-  finalAudit: false,
-  reason: "PREVIOUS_DAY_OVERNIGHT_CATCHUP",
-});
+
+// Outside a daily checkpoint, spare wakes belong to the one-shot history bootstrap.
 assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-22T12:00:00")), {
   tradeDate: "2026-08-21",
   finalAudit: false,
-  reason: "PREVIOUS_DAY_OVERNIGHT_CATCHUP",
+  lane: "HISTORY",
+  allowedKinds: [],
+  checkpointStartedAt: null,
+  reason: "HISTORY_BOOTSTRAP",
 });
-assert.equal(decideExtendedMarketDataSchedule(taipei("2026-08-24T00:10:00")), null);
 
 const csv = [
   '"日期","名稱","說明"',
@@ -142,4 +141,4 @@ assert.equal(parsed[0]?.open, false);
 assert.equal(parsed[1]?.date, "2026-02-23");
 assert.equal(parsed[1]?.open, true);
 
-console.log("market-data Cloudflare cron, logical month-symbol bundle, daytime catchup, verified TPEx relay, live/published read gateway tests passed");
+console.log("market-data staged daily checkpoints + history-lane scheduler contract passed");

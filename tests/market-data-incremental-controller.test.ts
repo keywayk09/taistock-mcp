@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { setMarketDataCapturePolicy } from "../src/v6/market-data-capture-context.ts";
 import {
   classifyTradingDay,
   dueLayerKeys,
@@ -33,6 +34,27 @@ assert.equal(pending.next_retry_at, "2026-08-20T10:25:00.000Z");
 assert.equal(dueLayerKeys([ready, pending], "2026-08-20T10:20:00Z").includes("margin-listed"), false);
 assert.equal(dueLayerKeys([ready, pending], "2026-08-20T10:25:00Z").includes("margin-listed"), true);
 
+// 18:00 institutional checkpoint must not expose margin/lending/SBL.
+setMarketDataCapturePolicy({ allowedKinds: ["institutional"], checkpointStartedAt: "2026-08-20T10:00:00Z" });
+const institutionalOnly = dueLayerKeys([ready, pending], "2026-08-20T10:30:00Z");
+assert.equal(institutionalOnly.some((key) => key.startsWith("margin-")), false);
+assert.equal(institutionalOnly.every((key) => key.startsWith("institutional-")), true);
+
+// A layer already attempted after checkpoint start cannot be polled again by
+// another five-minute wake in the same checkpoint.
+const attemptedThisCheckpoint = makePendingLayer(
+  { kind: "margin", market: "listed" },
+  "2026-08-20T13:16:00Z",
+  { error: "source_date_mismatch", retryMinutes: 0 },
+);
+setMarketDataCapturePolicy({ allowedKinds: ["margin"], checkpointStartedAt: "2026-08-20T13:15:00Z" });
+assert.equal(dueLayerKeys([attemptedThisCheckpoint], "2026-08-20T13:30:00Z").includes("margin-listed"), false);
+
+// A later recovery checkpoint is a new attempt epoch.
+setMarketDataCapturePolicy({ allowedKinds: ["margin"], checkpointStartedAt: "2026-08-20T14:15:00Z" });
+assert.equal(dueLayerKeys([attemptedThisCheckpoint], "2026-08-20T14:30:00Z").includes("margin-listed"), true);
+setMarketDataCapturePolicy(null);
+
 const identities = [
   ["institutional", "otc"], ["margin", "listed"], ["margin", "otc"],
   ["securities_lending", "listed"], ["securities_lending", "otc"],
@@ -41,4 +63,4 @@ const identities = [
 const layers = [ready, ...identities.map(([kind, market]) => makePendingLayer({ kind, market }, "2026-08-20T10:15:00Z"))];
 assert.equal(summarizeDay(layers).terminal, false);
 
-console.log("market-data incremental controller tests passed");
+console.log("market-data incremental controller + staged checkpoint tests passed");

@@ -1,3 +1,8 @@
+import type { TwMarketDataKind } from "./tw-market-data";
+
+const ALL_KINDS: TwMarketDataKind[] = ["institutional", "margin", "securities_lending", "sbl_short_sale"];
+const LATE_KINDS: TwMarketDataKind[] = ["margin", "securities_lending", "sbl_short_sale"];
+
 function taipeiParts(now: Date) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Taipei",
@@ -15,13 +20,43 @@ function dayOfWeek(date: string) {
   return new Date(`${date}T00:00:00Z`).getUTCDay();
 }
 
-function subtractDays(date: string, days: number) {
+function shiftDays(date: string, days: number) {
   const value = new Date(`${date}T00:00:00Z`);
-  value.setUTCDate(value.getUTCDate() - days);
+  value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
 }
 
-export function decideExtendedMarketDataSchedule(now = new Date()) {
+function previousWeekday(date: string) {
+  let cursor = shiftDays(date, -1);
+  while ([0, 6].includes(dayOfWeek(cursor))) cursor = shiftDays(cursor, -1);
+  return cursor;
+}
+
+function checkpointIso(date: string, hour: number, minute: number) {
+  const hh = String(hour).padStart(2, "0");
+  const mm = String(minute).padStart(2, "0");
+  return new Date(`${date}T${hh}:${mm}:00+08:00`).toISOString();
+}
+
+function inMinuteWindow(hour: number, minute: number, targetHour: number, startMinute: number, endMinute: number) {
+  return hour === targetHour && minute >= startMinute && minute <= endMinute;
+}
+
+export type MarketDataScheduleDecision = {
+  tradeDate: string;
+  finalAudit: boolean;
+  lane: "DAILY" | "HISTORY";
+  allowedKinds: TwMarketDataKind[];
+  checkpointStartedAt: string | null;
+  reason:
+    | "DAILY_INSTITUTIONAL"
+    | "DAILY_LATE"
+    | "DAILY_RECOVERY"
+    | "PREVIOUS_DAY_FINAL_AUDIT"
+    | "HISTORY_BOOTSTRAP";
+};
+
+export function decideExtendedMarketDataSchedule(now = new Date()): MarketDataScheduleDecision {
   const p = taipeiParts(now);
   const date = `${p.year}-${p.month}-${p.day}`;
   const hour = Number(p.hour);
@@ -29,48 +64,67 @@ export function decideExtendedMarketDataSchedule(now = new Date()) {
   const dow = dayOfWeek(date);
   const weekday = dow >= 1 && dow <= 5;
 
-  const previousDate = subtractDays(date, 1);
-  const previousDow = dayOfWeek(previousDate);
-  const previousWeekday = previousDow >= 1 && previousDow <= 5;
-
-  // 08:30 remains the explicit previous-day final-audit checkpoint.
-  if (hour === 8 && minute === 30 && previousWeekday) {
+  // One previous-day final-audit checkpoint. Saturday is allowed so Friday can
+  // be closed cleanly; Sunday is history-only and does not repeat Friday audit.
+  if (dow !== 0 && inMinuteWindow(hour, minute, 8, 30, 55)) {
     return {
-      tradeDate: previousDate,
+      tradeDate: previousWeekday(date),
       finalAudit: true,
-      reason: "PREVIOUS_DAY_FINAL_AUDIT" as const,
+      lane: "DAILY",
+      allowedKinds: [...ALL_KINDS],
+      checkpointStartedAt: checkpointIso(date, 8, 30),
+      reason: "PREVIOUS_DAY_FINAL_AUDIT",
     };
   }
 
-  // Continue the previous trading day's resumable capture/index/publish work until
-  // the current day's official evening window begins. COMPLETE/READY/PUBLISHED
-  // stages are idempotent, so this primarily drains unfinished compaction and
-  // generation publishing instead of stranding a partially built day at 08:30.
-  const previousDayCatchup = previousWeekday && (hour < 18 || (hour === 18 && minute < 15));
-  if (previousDayCatchup) {
-    return {
-      tradeDate: previousDate,
-      finalAudit: false,
-      reason: "PREVIOUS_DAY_OVERNIGHT_CATCHUP" as const,
-    };
-  }
-
-  const eveningWindow = weekday && ((hour === 18 && minute >= 15) || (hour >= 19 && hour <= 23));
-  if (eveningWindow) {
+  // 18:00 institutional checkpoint. 18:05..18:25 are continuation wakes for
+  // unfinished units from the same checkpoint, not new retry epochs.
+  if (weekday && inMinuteWindow(hour, minute, 18, 0, 25)) {
     return {
       tradeDate: date,
       finalAudit: false,
-      reason: "TRADING_EVENING_EXTENDED" as const,
+      lane: "DAILY",
+      allowedKinds: ["institutional"],
+      checkpointStartedAt: checkpointIso(date, 18, 0),
+      reason: "DAILY_INSTITUTIONAL",
     };
   }
 
-  if (!weekday && hour === 18 && minute === 15) {
+  // Margin / lending / SBL are intentionally delayed until 21:15 so the
+  // Worker does not keep polling official endpoints before the data is ready.
+  if (weekday && inMinuteWindow(hour, minute, 21, 15, 55)) {
     return {
       tradeDate: date,
       finalAudit: false,
-      reason: "WEEKEND_PREFLIGHT" as const,
+      lane: "DAILY",
+      allowedKinds: [...LATE_KINDS],
+      checkpointStartedAt: checkpointIso(date, 21, 15),
+      reason: "DAILY_LATE",
     };
   }
 
-  return null;
+  // One missing-only recovery epoch later in the evening. Each missing layer
+  // can be attempted at most once inside this checkpoint window.
+  if (weekday && inMinuteWindow(hour, minute, 22, 15, 55)) {
+    return {
+      tradeDate: date,
+      finalAudit: false,
+      lane: "DAILY",
+      allowedKinds: [...ALL_KINDS],
+      checkpointStartedAt: checkpointIso(date, 22, 15),
+      reason: "DAILY_RECOVERY",
+    };
+  }
+
+  // Every spare five-minute wake belongs to the one-shot history bootstrap.
+  // On weekends use the latest prior weekday as the anchor. The persisted
+  // bootstrap state freezes its original anchor and cannot be reopened later.
+  return {
+    tradeDate: weekday ? date : previousWeekday(date),
+    finalAudit: false,
+    lane: "HISTORY",
+    allowedKinds: [],
+    checkpointStartedAt: null,
+    reason: "HISTORY_BOOTSTRAP",
+  };
 }
