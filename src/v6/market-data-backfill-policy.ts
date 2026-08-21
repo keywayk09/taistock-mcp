@@ -1,6 +1,5 @@
 export const MARKET_DATA_BACKFILL_HORIZON_DAYS = 360;
-export const MARKET_DATA_BACKFILL_STEPS_PER_CRON = 3;
-export const MARKET_DATA_BACKFILL_STATE_VERSION = "diamond-market-data-backfill-state/v1";
+export const MARKET_DATA_BACKFILL_STATE_VERSION = "diamond-market-data-backfill-state/v2";
 
 export type MarketDataBackfillState = {
   schema_version: typeof MARKET_DATA_BACKFILL_STATE_VERSION;
@@ -10,6 +9,7 @@ export type MarketDataBackfillState = {
   status: "RUNNING" | "COMPLETE";
   processed_dates: number;
   updated_at: string;
+  completed_at: string | null;
 };
 
 function assertDate(value: string) {
@@ -37,30 +37,16 @@ export function initialMarketDataBackfillState(anchorTradeDate: string, now = ne
     status: "RUNNING",
     processed_dates: 0,
     updated_at: now.toISOString(),
+    completed_at: null,
   };
 }
 
-export function refreshBackfillAnchor(state: MarketDataBackfillState, anchorTradeDate: string, now = new Date()) {
+// The history bootstrap is intentionally one-shot. Once state exists, later
+// daily anchors never move its start/target/cursor. COMPLETE is permanently
+// terminal and cannot be reopened by a newer trading day.
+export function refreshBackfillAnchor(state: MarketDataBackfillState, anchorTradeDate: string, _now = new Date()) {
   assertDate(anchorTradeDate);
-  if (state.anchor_trade_date === anchorTradeDate) return state;
-  const targetStart = marketDataBackfillStart(anchorTradeDate);
-  if (state.status === "COMPLETE") {
-    return {
-      ...state,
-      anchor_trade_date: anchorTradeDate,
-      target_start_date: targetStart,
-      cursor_date: shiftIsoDate(targetStart, -1),
-      status: "COMPLETE" as const,
-      updated_at: now.toISOString(),
-    };
-  }
-  return {
-    ...state,
-    anchor_trade_date: anchorTradeDate,
-    target_start_date: targetStart,
-    status: state.cursor_date < targetStart ? "COMPLETE" as const : "RUNNING" as const,
-    updated_at: now.toISOString(),
-  };
+  return state;
 }
 
 export function shouldAdvanceBackfillCursor(status: string) {
