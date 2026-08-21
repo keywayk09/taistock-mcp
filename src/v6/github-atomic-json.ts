@@ -78,6 +78,29 @@ async function logicalJsonText(storedText: string) {
     : storedText;
 }
 
+export async function parseAtomicStoredJsonText<T>(storedText: string, input: {
+  path: string;
+  ref: string;
+}): Promise<T> {
+  const normalized = normalizePath(input.path);
+  try {
+    const logical = await logicalJsonText(storedText);
+    return JSON.parse(logical) as T;
+  } catch (error) {
+    throw new GitHubDataStoreError(
+      "GITHUB_ATOMIC_JSON_INVALID",
+      "GitHub atomic exact-ref JSON is invalid or truncated",
+      undefined,
+      {
+        path: normalized,
+        ref: input.ref,
+        stored_bytes: new TextEncoder().encode(storedText).byteLength,
+        error: String(error),
+      },
+    );
+  }
+}
+
 async function jsonRequest<T>(env: Env, url: string, init: RequestInit, allowedConflict = false): Promise<{
   ok: boolean;
   conflict: boolean;
@@ -117,36 +140,43 @@ async function readJsonAtRef<T>(env: Env, path: string, ref: string): Promise<{
   if (mem) {
     const entry = mem.get(normalized);
     if (!entry) return { exists: false, sha: null, value: null };
-    const text = await logicalJsonText(entry.text);
-    return { exists: true, sha: entry.sha, value: JSON.parse(text) as T };
+    return {
+      exists: true,
+      sha: entry.sha,
+      value: await parseAtomicStoredJsonText<T>(entry.text, { path: normalized, ref }),
+    };
   }
 
   const encodedPath = normalized.split("/").map(encodeURIComponent).join("/");
   const response = await fetch(`${apiBase(env)}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`, {
     method: "GET",
-    headers: headers(env),
+    headers: {
+      ...headers(env),
+      Accept: "application/vnd.github.raw+json",
+    },
     cache: "no-store",
   });
   if (response.status === 404) return { exists: false, sha: null, value: null };
-  const body = await response.json<any>().catch(() => null);
+  const storedText = await response.text();
   if (!response.ok) {
     throw new GitHubDataStoreError(
       "GITHUB_ATOMIC_READ_FAILED",
-      `GitHub atomic read failed (${response.status})`,
+      `GitHub atomic raw read failed (${response.status})`,
       response.status,
-      { path: normalized, body },
+      {
+        path: normalized,
+        ref,
+        body_preview: storedText.slice(0, 500),
+      },
     );
   }
-  if (!body || Array.isArray(body) || typeof body.content !== "string" || typeof body.sha !== "string") {
-    throw new GitHubDataStoreError(
-      "GITHUB_ATOMIC_INVALID_CONTENT",
-      "GitHub contents response is not a file",
-      response.status,
-      { path: normalized },
-    );
-  }
-  const logical = await logicalJsonText(utf8FromBase64(body.content));
-  return { exists: true, sha: body.sha, value: JSON.parse(logical) as T };
+  return {
+    exists: true,
+    // The Git-data transaction does not require the source blob SHA here;
+    // exact-ref consistency comes from the immutable commit SHA in the URL.
+    sha: null,
+    value: await parseAtomicStoredJsonText<T>(storedText, { path: normalized, ref }),
+  };
 }
 
 export function estimateAtomicJsonTransactionSubrequests(fileCount: number) {
@@ -164,8 +194,7 @@ export async function readGitHubBlobJson<T>(env: Env, blobSha: string): Promise<
   if (mem) {
     const entry = [...mem.values()].find((candidate) => candidate.sha === blobSha);
     if (!entry) throw new GitHubDataStoreError("GITHUB_BLOB_MISSING", `memory Git blob not found: ${blobSha}`, 404);
-    const logical = await logicalJsonText(entry.text);
-    return JSON.parse(logical) as T;
+    return await parseAtomicStoredJsonText<T>(entry.text, { path: `blob:${blobSha}`, ref: blobSha });
   }
 
   const response = await fetch(`${apiBase(env)}/git/blobs/${encodeURIComponent(blobSha)}`, {
@@ -183,8 +212,7 @@ export async function readGitHubBlobJson<T>(env: Env, blobSha: string): Promise<
     );
   }
   const storedText = body.encoding === "base64" ? utf8FromBase64(body.content) : String(body.content);
-  const logical = await logicalJsonText(storedText);
-  return JSON.parse(logical) as T;
+  return await parseAtomicStoredJsonText<T>(storedText, { path: `blob:${blobSha}`, ref: blobSha });
 }
 
 export async function atomicUpdateGitHubJsonFiles(

@@ -9,8 +9,11 @@ import {
   adaptiveHistoryIndexCapacity,
   estimateHistoryIndexSliceWorstCaseSubrequests,
 } from "../src/v6/market-data-history-index.ts";
-import { atomicUpdateGitHubJsonFiles } from "../src/v6/github-atomic-json.ts";
-import { stableJson, type MemoryGitHubDataStore } from "../src/v6/github-data-store.ts";
+import {
+  atomicUpdateGitHubJsonFiles,
+  parseAtomicStoredJsonText,
+} from "../src/v6/github-atomic-json.ts";
+import { GitHubDataStoreError, stableJson, type MemoryGitHubDataStore } from "../src/v6/github-data-store.ts";
 
 assert.equal(MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH, 1, "future Daily must use compact one-digit shards");
 assert.equal(MARKET_DATA_CLOSED_HISTORY_PREFIX_LENGTH, 1, "History must use the same compact shard contract");
@@ -40,6 +43,39 @@ assert.equal(enoughForAll, 2, "small remaining work should finish in one slice w
 
 const nearDeadline = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 100, nowMs: farDeadline - HISTORY_INDEX_DEADLINE_GUARD_MS, deadlineAtMs: farDeadline });
 assert.equal(nearDeadline, 0, "deadline guard must yield before starting more GitHub writes");
+
+// Production 2026-08-14 exposed a naked `Unexpected end of JSON input` while
+// atomic History index was re-reading compact month shards. Exact-ref reads
+// must use GitHub's raw media representation so a ~1 MB shard is not expanded
+// into a much larger base64 JSON envelope before parsing inside the Worker.
+const atomicSource = fs.readFileSync("src/v6/github-atomic-json.ts", "utf8");
+assert.match(atomicSource, /application\/vnd\.github\.raw\+json/);
+assert.match(atomicSource, /await response\.text\(\)/);
+assert.match(atomicSource, /GITHUB_ATOMIC_JSON_INVALID/);
+assert.match(atomicSource, /stored_bytes/);
+assert.doesNotMatch(atomicSource, /logicalJsonText\(utf8FromBase64\(body\.content\)\)/);
+
+assert.deepEqual(
+  await parseAtomicStoredJsonText<{ value: number }>("{\"value\":1}\n", {
+    path: "data/market-data/index/2026/08/1.json",
+    ref: "a".repeat(40),
+  }),
+  { value: 1 },
+);
+await assert.rejects(
+  () => parseAtomicStoredJsonText("{\"value\":", {
+    path: "data/market-data/index/2026/08/1.json",
+    ref: "b".repeat(40),
+  }),
+  (error: unknown) => {
+    assert.ok(error instanceof GitHubDataStoreError);
+    assert.equal(error.code, "GITHUB_ATOMIC_JSON_INVALID");
+    assert.equal(error.detail?.path, "data/market-data/index/2026/08/1.json");
+    assert.equal(error.detail?.ref, "b".repeat(40));
+    assert.equal(error.detail?.stored_bytes, 9);
+    return true;
+  },
+);
 
 const historyIndex = fs.readFileSync("src/v6/market-data-history-index-v2.ts", "utf8");
 const backfill = fs.readFileSync("src/v6/market-data-360d-backfill.ts", "utf8");
@@ -102,4 +138,4 @@ await assert.rejects(
 assert.equal(memory.get("data/test/a.json")!.text, beforeA);
 assert.equal(memory.get("data/test/b.json")!.text, beforeB);
 
-console.log("market-data retry-safe compact adaptive atomic index contract passed");
+console.log("market-data retry-safe compact adaptive atomic index + raw exact-ref read contract passed");
