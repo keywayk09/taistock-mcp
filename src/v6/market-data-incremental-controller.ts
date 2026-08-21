@@ -1,4 +1,4 @@
-import { getMarketDataCapturePolicy } from "./market-data-capture-context";
+import { getMarketDataCapturePolicy } from "./market-data-capture-context.ts";
 
 export type MarketDataKind = "institutional" | "margin" | "securities_lending" | "sbl_short_sale";
 export type MarketSide = "listed" | "otc";
