@@ -1,13 +1,16 @@
 import { readGitHubJson, sha256Hex, stableJson } from "./github-data-store.ts";
 import { readGitHubBlobJson } from "./github-atomic-json.ts";
 import {
+  assertPublishedGenerationManifest,
   assertPublishedShard,
   marketReadCacheKey,
+  marketReadPublishedGenerationManifestPath,
   marketReadPublishedPointerPath,
   marketReadPublishedShardPath,
+  type MarketReadGenerationManifestV5,
   type MarketReadPublishedPointer,
-  type MarketReadShardReceipt,
   type MarketReadReferenceShardReceiptV4,
+  type MarketReadShardReceipt,
 } from "./market-data-publish-fence.ts";
 import {
   buildMonthlySymbolBundle,
@@ -26,7 +29,7 @@ import {
   type TwMarketDataKind,
 } from "./tw-market-data.ts";
 
-export const MARKET_DATA_PUBLISHED_GATEWAY_VERSION = "diamond-market-data-published-gateway/v2-reference";
+export const MARKET_DATA_PUBLISHED_GATEWAY_VERSION = "diamond-market-data-published-gateway/v3-generation-manifest";
 
 type ClosedMonthShard = {
   schema_version: "diamond-market-data-symbol-shard/v2";
@@ -139,12 +142,50 @@ function unavailable(input: PublishedGatewayInput, reason: string, pointer: Mark
   };
 }
 
-async function stateFromPublishedReceipt(
+async function stateFromPinnedReference(
+  env: Env,
+  pointer: MarketReadPublishedPointer,
+  prefix: string,
+  symbol: string,
+  reference: { source_path: string; source_blob_sha: string; source_logical_sha256: string },
+) {
+  const source = await readGitHubBlobJson<ClosedMonthShard>(env, reference.source_blob_sha);
+  if (source.schema_version !== "diamond-market-data-symbol-shard/v2") throw new Error(`published_source_schema:${prefix}`);
+  if (source.prefix !== prefix) throw new Error(`published_source_prefix:${prefix}`);
+  if (source.month !== pointer.trade_date.slice(0, 7)) throw new Error(`published_source_month:${prefix}`);
+  const logicalSha = await sha256Hex(stableJson(source));
+  if (logicalSha !== reference.source_logical_sha256) throw new Error(`published_source_logical_sha:${prefix}`);
+  return {
+    state: source.symbols?.[symbol] ?? {},
+    sourceDataset: { path: reference.source_path, sha: reference.source_blob_sha, role: "PINNED_SOURCE_BLOB" },
+  };
+}
+
+async function stateFromPublishedGeneration(
   env: Env,
   pointer: MarketReadPublishedPointer,
   prefix: string,
   symbol: string,
 ) {
+  const generationManifestPath = marketReadPublishedGenerationManifestPath(pointer.trade_date, pointer.generation);
+  const generationRead = await readGitHubJson<MarketReadGenerationManifestV5>(env, generationManifestPath);
+  if (generationRead.value?.schema_version === "diamond-market-data-generation-ref/v5") {
+    assertPublishedGenerationManifest(pointer, generationRead.value);
+    const reference = generationRead.value.prefixes[prefix];
+    if (!reference) throw new Error(`published_generation_prefix_missing:${prefix}`);
+    const pinned = await stateFromPinnedReference(env, pointer, prefix, symbol, reference);
+    return {
+      state: pinned.state,
+      datasets: [
+        { path: generationRead.path, sha: generationRead.sha, role: "PUBLISHED_GENERATION_MANIFEST_V5" },
+        pinned.sourceDataset,
+      ],
+      format: "GENERATION_MANIFEST_V5" as const,
+    };
+  }
+
+  // Legacy fallback: production generations written before v5 may store one
+  // embedded v3 (or transitional v4) receipt per prefix.
   const receiptPath = marketReadPublishedShardPath(pointer.trade_date, pointer.generation, prefix);
   const read = await readGitHubJson<MarketReadShardReceipt>(env, receiptPath);
   if (!read.value) throw new Error(`published_shard_missing:${prefix}`);
@@ -154,22 +195,19 @@ async function stateFromPublishedReceipt(
     return {
       state: (read.value.symbols?.[symbol] ?? {}) as Partial<Record<TwMarketDataKind, any[]>>,
       datasets: [{ path: read.path, sha: read.sha, role: "PUBLISHED_GENERATION_SHARD_V3" }],
+      format: "LEGACY_V3" as const,
     };
   }
 
   const receipt = read.value as MarketReadReferenceShardReceiptV4;
-  const source = await readGitHubBlobJson<ClosedMonthShard>(env, receipt.source_blob_sha);
-  if (source.schema_version !== "diamond-market-data-symbol-shard/v2") throw new Error(`published_source_schema:${prefix}`);
-  if (source.prefix !== prefix) throw new Error(`published_source_prefix:${prefix}`);
-  if (source.month !== pointer.trade_date.slice(0, 7)) throw new Error(`published_source_month:${prefix}`);
-  const logicalSha = await sha256Hex(stableJson(source));
-  if (logicalSha !== receipt.source_logical_sha256) throw new Error(`published_source_logical_sha:${prefix}`);
+  const pinned = await stateFromPinnedReference(env, pointer, prefix, symbol, receipt);
   return {
-    state: source.symbols?.[symbol] ?? {},
+    state: pinned.state,
     datasets: [
       { path: read.path, sha: read.sha, role: "PUBLISHED_GENERATION_REFERENCE_V4" },
-      { path: receipt.source_path, sha: receipt.source_blob_sha, role: "PINNED_SOURCE_BLOB" },
+      pinned.sourceDataset,
     ],
+    format: "LEGACY_V4" as const,
   };
 }
 
@@ -196,14 +234,16 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
   const sblShortSaleRows: SblShortSaleRow[] = [];
   const datasets: Array<{ path: string; sha: string | null; role: string }> = [];
   const logicalBundles: Array<{ month: string; symbol: string; logical_path: string }> = [];
+  let publishedFormat: "GENERATION_MANIFEST_V5" | "LEGACY_V3" | "LEGACY_V4" | null = null;
 
   for (const month of months) {
     let state: Partial<Record<TwMarketDataKind, any[]>> = {};
     if (month === publishedMonth) {
       try {
-        const resolved = await stateFromPublishedReceipt(env, pointer, prefix, input.symbol);
+        const resolved = await stateFromPublishedGeneration(env, pointer, prefix, input.symbol);
         state = resolved.state;
         datasets.push(...resolved.datasets);
+        publishedFormat = resolved.format;
       } catch (error) {
         return unavailable(input, `published_shard_invalid:${String(error)}`, pointer);
       }
@@ -251,6 +291,7 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
       published_at: pointer.published_at,
       previous_generation: pointer.previous_generation,
       cache_key: marketReadCacheKey(input.symbol, pointer),
+      format: publishedFormat,
     },
     data_quality: {
       formal_published: true,
@@ -258,7 +299,8 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
       mixed_generation_current_day: false,
       daily_snapshot_overlay: false,
       historical_closed_months_use_terminal_month_index: true,
-      published_generation_uses_blob_reference: true,
+      published_generation_uses_blob_reference: publishedFormat === "GENERATION_MANIFEST_V5" || publishedFormat === "LEGACY_V4",
+      single_generation_manifest: publishedFormat === "GENERATION_MANIFEST_V5",
     },
     logical_read_model: {
       shape: "YEAR/MONTH/SYMBOL -> ALL CHIP DATA BY DATE",
