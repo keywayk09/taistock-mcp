@@ -1,0 +1,378 @@
+{
+  "trade_date": "2026-08-18",
+  "candidates": {
+    "institutional": [
+      {
+        "url": "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date=115%2F08%2F18&id=&response=json",
+        "http": 200,
+        "final_url": "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date=115%2F08%2F18&id=&response=json",
+        "bytes": 148901,
+        "json": {
+          "type": "dict",
+          "keys": [
+            "columnNum",
+            "tables",
+            "template",
+            "date",
+            "stat"
+          ],
+          "date": "20260818",
+          "tables": [
+            {
+              "title": "三大法人買賣明細資訊",
+              "date": "115/08/18",
+              "fields": [
+                "代號",
+                "名稱",
+                "買進股數",
+                "賣出股數",
+                "買賣超股數",
+                "買進股數",
+                "賣出股數",
+                "買賣超股數",
+                "買進股數",
+                "賣出股數",
+                "買賣超股數",
+                "買進股數",
+                "賣出股數",
+                "買賣超股數",
+                "買進股數",
+                "賣出股數",
+                "買賣超股數",
+                "買進股數",
+                "賣出股數",
+                "買賣超股數",
+                "買進股數",
+                "賣出股數",
+                "買賣超股數",
+                "三大法人買賣超股數合計"
+              ],
+              "rows": 916,
+              "sample": [
+                [
+                  "006201",
+                  "元大富櫃50",
+                  "10,000",
+                  "19,000",
+                  "-9,000",
+                  "0",
+                  "0",
+                  "0",
+                  "10,000",
+                  "19,000",
+                  "-9,000",
+                  "0",
+                  "0",
+                  "0",
+                  "0",
+                  "0",
+                  "0",
+                  "108,999",
+                  "39,018",
+                  "69,981",
+                  "108,999",
+                  "39,018",
+                  "69,981",
+                  "60,981"
+                ],
+                [
+                  "00679B",
+                  "元大美債20年",
+                  "1,235,400",
+                  "4,519,000",
+                  "-3,283,600",
+                  "0",
+                  "0",
+                  "0",
+                  "1,235,400",
+                  "4,519,000",
+                  "-3,283,600",
+                  "0",
+                  "0",
+                  "0",
+                  "25,000",
+                  "35,000",
+                  "-10,000",
+                  "2,628,000",
+                  "14,646,452",
+                  "-12,018,452",
+                  "2,653,000",
+                  "14,681,452",
+                  "-12,028,452",
+                  "-15,312,052"
+                ]
+              ]
+            },
+            {
+              "title": null,
+              "date": null,
+              "fields": null,
+              "rows": 0,
+              "sample": []
+            }
+          ]
+        }
+      }
+    ],
+    "margin": [
+      {
+        "url": "https://www.tpex.org.tw/www/zh-tw/margin/transactions?date=115%2F08%2F18&id=&response=json",
+        "http": 200,
+        "final_url": "https://www.tpex.org.tw/errors",
+        "bytes": 10892,
+        "decode_error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)",
+        "body_head": "<!DOCTYPE html><html lang=\"zh-Hant-tw\"><head><title>404 - 證券櫃檯買賣中心</title><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no\"><meta name=\"author\" content=\"\"><meta name=\"description\" content=\"櫃買中心是國內第一個彙整國內外重要綠色相關標章，並揭示上市櫃公司取得標章情形之平台，可作為金融機構及投資人進行投融資時參考資訊之重要來源。\"><meta nam"
+      },
+      {
+        "url": "https://www.tpex.org.tw/www/zh-tw/margin/transactions?date=2026%2F08%2F18&id=&response=json",
+        "http": 200,
+        "final_url": "https://www.tpex.org.tw/errors",
+        "bytes": 10892,
+        "decode_error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)",
+        "body_head": "<!DOCTYPE html><html lang=\"zh-Hant-tw\"><head><title>404 - 證券櫃檯買賣中心</title><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no\"><meta name=\"author\" content=\"\"><meta name=\"description\" content=\"櫃買中心是國內第一個彙整國內外重要綠色相關標章，並揭示上市櫃公司取得標章情形之平台，可作為金融機構及投資人進行投融資時參考資訊之重要來源。\"><meta nam"
+      },
+      {
+        "url": "https://www.tpex.org.tw/www/zh-tw/margin/balance?date=115%2F08%2F18&id=&response=json",
+        "http": 200,
+        "final_url": "https://www.tpex.org.tw/www/zh-tw/margin/balance?date=115%2F08%2F18&id=&response=json",
+        "bytes": 106843,
+        "json": {
+          "type": "dict",
+          "keys": [
+            "date",
+            "tables",
+            "stat"
+          ],
+          "date": "20260818",
+          "tables": [
+            {
+              "title": "上櫃股票融資融券餘額",
+              "date": "115/08/18",
+              "fields": [
+                "代號",
+                "名稱",
+                "前資餘額(張)",
+                "資買",
+                "資賣",
+                "現償",
+                "資餘額",
+                "資屬證金",
+                "資使用率(%)",
+                "資限額",
+                "前券餘額(張)",
+                "券賣",
+                "券買",
+                "券償",
+                "券餘額",
+                "券屬證金",
+                "券使用率(%)",
+                "券限額",
+                "資券相抵(張)",
+                "備註"
+              ],
+              "rows": 918,
+              "sample": [
+                [
+                  "00679B",
+                  "元大美債20年",
+                  "4,294",
+                  "77",
+                  "27",
+                  "0",
+                  "4,344",
+                  "27",
+                  "0.27",
+                  "1,563,923",
+                  "0",
+                  "0",
+                  "0",
+                  "0",
+                  "0",
+                  "0",
+                  "0.0",
+                  "1,563,923",
+                  "0",
+                  "X"
+                ],
+                [
+                  "00687B",
+                  "國泰20年美債",
+                  "4,801",
+                  "215",
+                  "113",
+                  "0",
+                  "4,903",
+                  "105",
+                  "0.45",
+                  "1,071,595",
+                  "0",
+                  "2",
+                  "0",
+                  "0",
+                  "2",
+                  "0",
+                  "0.0",
+                  "1,071,595",
+                  "0",
+                  ""
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "sbl": [
+      {
+        "url": "https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=2026%2F08%2F18&id=&response=json",
+        "http": 200,
+        "final_url": "https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=2026%2F08%2F18&id=&response=json",
+        "bytes": 99814,
+        "json": {
+          "type": "dict",
+          "keys": [
+            "date",
+            "tables",
+            "stat"
+          ],
+          "date": "20260818",
+          "tables": [
+            {
+              "title": "信用額度總量管制餘額表",
+              "date": "115/08/18",
+              "fields": [
+                "股票代號",
+                "股票名稱",
+                "前日餘額",
+                "賣出",
+                "買進",
+                "現券",
+                "當日餘額",
+                "限額",
+                "前日餘額",
+                "當日賣出",
+                "當日還券",
+                "當日調整數額",
+                "當日餘額",
+                "次一營業日可借券賣出限額",
+                "備註"
+              ],
+              "rows": 929,
+              "sample": [
+                [
+                  "006201",
+                  "元大富櫃50",
+                  "16,000",
+                  "0",
+                  "0",
+                  "0",
+                  "16,000",
+                  "5,736,500",
+                  "570,000",
+                  "0",
+                  "0",
+                  "0",
+                  "570,000",
+                  "118,658",
+                  ""
+                ],
+                [
+                  "00679B",
+                  "元大美債20年",
+                  "0",
+                  "0",
+                  "0",
+                  "0",
+                  "0",
+                  "1,563,923,000",
+                  "104,040,000",
+                  "3,358,000",
+                  "57,000",
+                  "0",
+                  "107,341,000",
+                  "7,006,310",
+                  "X"
+                ]
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "url": "https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=115%2F08%2F18&id=&response=json",
+        "http": 200,
+        "final_url": "https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=115%2F08%2F18&id=&response=json",
+        "bytes": 99814,
+        "json": {
+          "type": "dict",
+          "keys": [
+            "date",
+            "tables",
+            "stat"
+          ],
+          "date": "20260818",
+          "tables": [
+            {
+              "title": "信用額度總量管制餘額表",
+              "date": "115/08/18",
+              "fields": [
+                "股票代號",
+                "股票名稱",
+                "前日餘額",
+                "賣出",
+                "買進",
+                "現券",
+                "當日餘額",
+                "限額",
+                "前日餘額",
+                "當日賣出",
+                "當日還券",
+                "當日調整數額",
+                "當日餘額",
+                "次一營業日可借券賣出限額",
+                "備註"
+              ],
+              "rows": 929,
+              "sample": [
+                [
+                  "006201",
+                  "元大富櫃50",
+                  "16,000",
+                  "0",
+                  "0",
+                  "0",
+                  "16,000",
+                  "5,736,500",
+                  "570,000",
+                  "0",
+                  "0",
+                  "0",
+                  "570,000",
+                  "118,658",
+                  ""
+                ],
+                [
+                  "00679B",
+                  "元大美債20年",
+                  "0",
+                  "0",
+                  "0",
+                  "0",
+                  "0",
+                  "1,563,923,000",
+                  "104,040,000",
+                  "3,358,000",
+                  "57,000",
+                  "0",
+                  "107,341,000",
+                  "7,006,310",
+                  "X"
+                ]
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
