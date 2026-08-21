@@ -1,7 +1,9 @@
 import { readGitHubJson, updateGitHubJson } from "./github-data-store";
+import { setMarketDataCaptureTradeDate } from "./market-data-capture-context";
 import { runSubrequestSafeMarketDataCapture } from "./market-data-cloudflare-chunked-runner";
 
 export const MARKET_DATA_BACKFILL_HORIZON_DAYS = 360;
+export const MARKET_DATA_BACKFILL_STEPS_PER_CRON = 8;
 export const MARKET_DATA_BACKFILL_STATE_VERSION = "diamond-market-data-backfill-state/v1";
 
 export type MarketDataBackfillState = {
@@ -33,7 +35,7 @@ export function marketDataBackfillStatePath() {
   return "data/market-data/backfill/360d-state.json";
 }
 
-export function initialMarketDataBackfillState(anchorTradeDate: string, now = new Date()) : MarketDataBackfillState {
+export function initialMarketDataBackfillState(anchorTradeDate: string, now = new Date()): MarketDataBackfillState {
   assertDate(anchorTradeDate);
   return {
     schema_version: MARKET_DATA_BACKFILL_STATE_VERSION,
@@ -90,13 +92,20 @@ export async function runMarketData360dBackfillStep(env: Env, input: { anchorTra
   }
 
   const tradeDate = state.cursor_date;
-  const result = await runSubrequestSafeMarketDataCapture(env, {
-    tradeDate,
-    now,
-    lane: "backfill",
-  });
+  setMarketDataCaptureTradeDate(tradeDate);
+  const captures: any[] = [];
+  try {
+    for (let step = 0; step < MARKET_DATA_BACKFILL_STEPS_PER_CRON; step++) {
+      const result = await runSubrequestSafeMarketDataCapture(env, { tradeDate, now });
+      captures.push(result);
+      if (shouldAdvanceBackfillCursor(String((result as any).status ?? ""))) break;
+    }
+  } finally {
+    setMarketDataCaptureTradeDate(null);
+  }
 
-  if (shouldAdvanceBackfillCursor(String((result as any).status ?? ""))) {
+  const last = captures.at(-1) ?? { status: "BACKFILL_NO_CAPTURE" };
+  if (shouldAdvanceBackfillCursor(String(last.status ?? ""))) {
     const next = shiftIsoDate(tradeDate, -1);
     state = {
       ...state,
@@ -115,9 +124,10 @@ export async function runMarketData360dBackfillStep(env: Env, input: { anchorTra
   }
 
   return {
-    status: "BACKFILL_PROGRESS" as const,
+    status: state.status === "COMPLETE" ? "BACKFILL_COMPLETE" as const : "BACKFILL_PROGRESS" as const,
     trade_date: tradeDate,
-    capture: result,
+    captures,
+    steps_run: captures.length,
     state,
   };
 }
