@@ -8,7 +8,9 @@ import type { TwMarketDataKind } from "./tw-market-data.ts";
 
 export const HISTORY_INDEX_SNAPSHOT_READ_SUBREQUESTS = 8;
 export const HISTORY_INDEX_DEADLINE_GUARD_MS = 2_500;
-export const MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH = 2;
+// Universal compact index contract: both Daily and History use one-digit
+// symbol shards. Legacy two-digit shards remain read-only compatibility data.
+export const MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH = 1;
 export const MARKET_DATA_CLOSED_HISTORY_PREFIX_LENGTH = 1;
 export const HISTORY_INDEX_ATOMIC_FIXED_SUBREQUESTS = 15;
 export const HISTORY_INDEX_PREFIX_ATOMIC_SUBREQUESTS = 2;
@@ -122,6 +124,9 @@ export async function runAdaptiveHistoryIndexSlice(env: Env, input: {
   const prefixUpdates = buildPrefixUpdates(layers, snapshotReads, prefixLength);
   const allPrefixes = [...prefixUpdates.keys()].sort();
   const validPrefixes = new Set(allPrefixes);
+  // This also performs an in-place migration for manifests that previously
+  // recorded two-digit prefixes: legacy entries are discarded from progress,
+  // compact prefixes are rebuilt once, then future days stay compact.
   const completed = new Set((input.manifest.index_state?.completed_prefixes ?? []).filter((prefix) => validPrefixes.has(prefix)));
   const pending = allPrefixes.filter((prefix) => !completed.has(prefix));
   const capacity = adaptiveHistoryIndexCapacity({ pendingPrefixes: pending.length, subrequestBudget: input.subrequestBudget, nowMs: Date.now(), deadlineAtMs: input.deadlineAtMs });
@@ -166,7 +171,7 @@ export async function runAdaptiveHistoryIndexSlice(env: Env, input: {
   });
 
   const atomic = await atomicUpdateGitHubJsonFiles(env, {
-    message: `data(market): history index slice ${input.tradeDate} ${selected.join(",") || "finalize"}`,
+    message: `data(market): compact index slice ${input.tradeDate} ${selected.join(",") || "finalize"}`,
     updates,
     retries: 3,
   });
