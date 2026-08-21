@@ -85,9 +85,7 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
 
   const tradeDate = state.cursor_date;
   const preparedManifest = await prepareHistoryManifest(env, tradeDate, now.toISOString());
-  const anchorMonth = state.anchor_trade_date.slice(0, 7);
-  const historyMonth = tradeDate.slice(0, 7);
-  const prefixLength: 1 | 2 = historyMonth < anchorMonth ? 1 : 2;
+  const prefixLength: 1 = 1;
 
   setMarketDataCapturePolicy({ storageMode: "HISTORY_COMPRESSED" });
   setMarketDataCaptureTradeDate(tradeDate);
