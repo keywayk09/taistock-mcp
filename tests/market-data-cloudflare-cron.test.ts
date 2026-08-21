@@ -7,6 +7,7 @@ const legacyRunner = fs.readFileSync("src/v6/market-data-cloudflare-runner.ts", 
 const runner = fs.readFileSync("src/v6/market-data-cloudflare-chunked-runner.ts", "utf8");
 const publisher = fs.readFileSync("src/v6/market-data-publisher.ts", "utf8");
 const publishedGateway = fs.readFileSync("src/v6/market-data-published-gateway.ts", "utf8");
+const monthlySymbolBundle = fs.readFileSync("src/v6/market-data-monthly-symbol-bundle.ts", "utf8");
 const tpexTransport = fs.readFileSync("src/v6/tpex-cloudflare-transport.ts", "utf8");
 const tpexRelayWorkflow = fs.readFileSync(".github/workflows/tpex-official-relay-v2.yml", "utf8");
 const dispatcher = fs.readFileSync("src/v6/market-data-scheduled-dispatch.ts", "utf8");
@@ -39,7 +40,12 @@ assert.match(publisher, /auditMaterializedPrefix/);
 assert.match(publisher, /putImmutableGitHubJson/);
 assert.match(publisher, /marketReadPublishedShardPath/);
 assert.match(publisher, /marketReadPublishedPointerPath/);
-assert.match(publishedGateway, /PUBLISHED_GENERATION_CURRENT_MONTH_PLUS_CLOSED_MONTH_HISTORY/);
+assert.match(publishedGateway, /LOGICAL_MONTH_SYMBOL_BUNDLE_OVER_GENERATION_FENCED_PREFIX_STORAGE/);
+assert.match(publishedGateway, /buildMonthlySymbolBundle/);
+assert.match(publishedGateway, /monthlySymbolBundleSeries/);
+assert.match(publishedGateway, /physically_persisted_per_symbol: false/);
+assert.match(monthlySymbolBundle, /diamond-market-data-monthly-symbol-bundle\/v1/);
+assert.match(monthlySymbolBundle, /market-data\/\$\{year\}\/\$\{mon\}\/\$\{symbol\}\.json/);
 assert.match(publishedGateway, /assertPublishedShard/);
 assert.match(publishedGateway, /mixed_generation_current_day: false/);
 assert.match(publishedGateway, /daily_snapshot_overlay: false/);
@@ -136,4 +142,4 @@ assert.equal(parsed[0]?.open, false);
 assert.equal(parsed[1]?.date, "2026-02-23");
 assert.equal(parsed[1]?.open, true);
 
-console.log("market-data Cloudflare cron, daytime catchup, verified TPEx relay, live/published read gateway tests passed");
+console.log("market-data Cloudflare cron, logical month-symbol bundle, daytime catchup, verified TPEx relay, live/published read gateway tests passed");
