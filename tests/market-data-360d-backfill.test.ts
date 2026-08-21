@@ -11,7 +11,7 @@ import {
 } from "../src/v6/market-data-360d-backfill.ts";
 
 assert.equal(MARKET_DATA_BACKFILL_HORIZON_DAYS, 360);
-assert.equal(MARKET_DATA_BACKFILL_STEPS_PER_CRON, 8);
+assert.equal(MARKET_DATA_BACKFILL_STEPS_PER_CRON, 3);
 assert.equal(shiftIsoDate("2026-08-20", -1), "2026-08-19");
 assert.equal(marketDataBackfillStart("2026-08-20"), "2025-08-26");
 
