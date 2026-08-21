@@ -6,272 +6,79 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/tpex-historical-relay-v1.yml'
-  schedule:
-    # Hourly while the one-shot 180d history bootstrap is incomplete.
-    - cron: '25 * * * *'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: tpex-official-relay-v2
   cancel-in-progress: false
 
 jobs:
-  history:
+  probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Load relay branch
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf /tmp/tpex-history
-          mkdir -p /tmp/tpex-history/data/market-data/tpex-relay
-          git fetch origin market-data-relay:refs/remotes/origin/market-data-relay || true
-          if git show-ref --verify --quiet refs/remotes/origin/market-data-relay; then
-            git archive refs/remotes/origin/market-data-relay data/market-data/tpex-relay | tar -x -C /tmp/tpex-history
-          fi
-
-      - name: Capture exact-date TPEx history
+      - name: Probe exact-date official TPEx APIs
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import datetime as dt
-          import hashlib
-          import json
-          import pathlib
-          import urllib.parse
-          import urllib.request
-
-          ROOT = pathlib.Path('/tmp/tpex-history/data/market-data/tpex-relay')
-          ROOT.mkdir(parents=True, exist_ok=True)
-          STATE = ROOT / 'history-state.json'
-          BATCH_DAYS = 5
-          HORIZON_DAYS = 180
+          import json, urllib.request, urllib.parse
           HEADERS = {
-              'Accept': 'application/json,text/plain,*/*',
-              'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
-              'Referer': 'https://www.tpex.org.tw/',
-              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
+            'Accept': 'application/json,text/plain,*/*',
+            'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+            'Referer': 'https://www.tpex.org.tw/',
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
           }
-
-          def stable_payload(body):
-              return json.dumps(body, ensure_ascii=False, separators=(',', ':'), sort_keys=True)
-
-          def fetch_json(url, label):
-              req = urllib.request.Request(url, headers=HEADERS)
-              with urllib.request.urlopen(req, timeout=30) as response:
+          day_roc = '115/08/18'
+          day_ad = '2026/08/18'
+          candidates = {
+            'institutional': [
+              f'https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date={urllib.parse.quote(day_roc, safe="")}&id=&response=json',
+            ],
+            'margin': [
+              f'https://www.tpex.org.tw/www/zh-tw/margin/transactions?date={urllib.parse.quote(day_roc, safe="")}&id=&response=json',
+              f'https://www.tpex.org.tw/www/zh-tw/margin/transactions?date={urllib.parse.quote(day_ad, safe="")}&id=&response=json',
+              f'https://www.tpex.org.tw/www/zh-tw/margin/balance?date={urllib.parse.quote(day_roc, safe="")}&id=&response=json',
+            ],
+            'sbl': [
+              f'https://www.tpex.org.tw/www/zh-tw/margin/sbl?date={urllib.parse.quote(day_ad, safe="")}&id=&response=json',
+              f'https://www.tpex.org.tw/www/zh-tw/margin/sbl?date={urllib.parse.quote(day_roc, safe="")}&id=&response=json',
+            ],
+          }
+          def summarize(body):
+            out = {'type': type(body).__name__}
+            if isinstance(body, dict):
+              out['keys'] = list(body.keys())[:30]
+              out['date'] = body.get('date') or body.get('Date')
+              tables = body.get('tables')
+              if isinstance(tables, list):
+                out['tables'] = []
+                for t in tables[:5]:
+                  if not isinstance(t, dict): continue
+                  data = t.get('data') if isinstance(t.get('data'), list) else []
+                  out['tables'].append({'title': t.get('title'), 'date': t.get('date'), 'fields': t.get('fields'), 'rows': len(data), 'sample': data[:1]})
+              if isinstance(body.get('data'), list): out['rows'] = len(body['data'])
+            elif isinstance(body, list):
+              out['rows'] = len(body)
+              out['sample'] = body[:1]
+            return out
+          any_success = False
+          for label, urls in candidates.items():
+            print(f'=== {label} ===')
+            for url in urls:
+              try:
+                req = urllib.request.Request(url, headers=HEADERS)
+                with urllib.request.urlopen(req, timeout=30) as response:
                   raw = response.read()
-                  final_url = response.geturl()
-                  if response.status != 200:
-                      raise RuntimeError(f'{label}_http_{response.status}')
-                  if '/errors' in final_url:
-                      raise RuntimeError(f'{label}_redirected_to_errors:{final_url}')
-              try:
-                  return json.loads(raw.decode('utf-8-sig'))
+                  print('URL', url)
+                  print('HTTP', response.status, 'FINAL', response.geturl(), 'BYTES', len(raw))
+                body = json.loads(raw.decode('utf-8-sig'))
+                print(json.dumps(summarize(body), ensure_ascii=False)[:12000])
+                any_success = True
               except Exception as exc:
-                  raise RuntimeError(f'{label}_invalid_json:{exc}')
-
-          def clean(value):
-              import re
-              return re.sub(r'<[^>]*>', '', str(value or '')).replace('&nbsp;', ' ').strip()
-
-          def number(value):
-              try:
-                  return float(clean(value).replace(',', ''))
-              except Exception:
-                  return 0
-
-          def legacy_rows(body, label):
-              rows = body.get('aaData') if isinstance(body, dict) else None
-              rows = [row for row in (rows or []) if isinstance(row, list)]
-              if not rows:
-                  raise ValueError(f'{label}_empty')
-              return rows
-
-          def roc_date(day):
-              return f'{day.year - 1911:03d}/{day.month:02d}/{day.day:02d}'
-
-          def historical_urls(day):
-              date = urllib.parse.quote(roc_date(day), safe='')
-              return {
-                  'institutional': f'https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=EW&t=D&d={date}&s=0,asc',
-                  'margin': f'https://www.tpex.org.tw/web/stock/margin_trading/margin_balance/margin_bal_result.php?l=zh-tw&o=json&d={date}&s=0,asc',
-                  'margin_sbl': f'https://www.tpex.org.tw/web/stock/margin_trading/margin_sbl/margin_sbl_result.php?l=zh-tw&o=json&d={date}',
-              }
-
-          def capture_day(day):
-              trade_date = day.isoformat()
-              urls = historical_urls(day)
-              inst_body = fetch_json(urls['institutional'], 'TPEX_3INSTI_WEB_JSON')
-              margin_body = fetch_json(urls['margin'], 'TPEX_MARGIN_WEB_JSON')
-              sbl_body = fetch_json(urls['margin_sbl'], 'TPEX_MARGIN_SBL_WEB_JSON')
-              inst = legacy_rows(inst_body, 'TPEX_3INSTI_WEB_JSON')
-              margin = legacy_rows(margin_body, 'TPEX_MARGIN_WEB_JSON')
-              sbl = legacy_rows(sbl_body, 'TPEX_MARGIN_SBL_WEB_JSON')
-
-              datasets = {
-                  'institutional': [{
-                      'Date': trade_date,
-                      '證券代號': clean(row[0]),
-                      '證券名稱': clean(row[1]),
-                      '外資及陸資買賣超股數': row[10],
-                      '投信買賣超股數': row[13],
-                      '自營商買賣超股數': row[22],
-                      '三大法人買賣超股數': row[23],
-                  } for row in inst if len(row) > 23 and clean(row[0])],
-                  'margin': [{
-                      'Date': trade_date,
-                      '證券代號': clean(row[0]),
-                      '證券名稱': clean(row[1]),
-                      '融資前日餘額': row[2],
-                      '融資今日餘額': row[6],
-                      '融券前日餘額': row[10],
-                      '融券今日餘額': row[14],
-                  } for row in margin if len(row) > 14 and clean(row[0])],
-                  'sbl_balance': [{
-                      'Date': trade_date,
-                      'SecuritiesCompanyCode': clean(row[0]),
-                      'CompanyName': clean(row[1]),
-                      'SecuritiesBorrowingBalancePreviousDay': row[8],
-                      'SecuritiesBorrowingSale': row[9],
-                      'SecuritiesBorrowingReturn': row[10],
-                      'SecuritiesBorrowingAdjustment': row[11],
-                      'SecuritiesBorrowingBalanceOfTheMarketDay': row[12],
-                      'AvailableVolumesForSBLShortSale': row[13],
-                  } for row in sbl if len(row) > 13 and clean(row[0])],
-                  'sbl_volume': [{
-                      'Date': trade_date,
-                      'SecuritiesCompanyCode': clean(row[0]),
-                      'CompanyName': clean(row[1]),
-                      'SBLVolume': number(row[9]) / 1000,
-                      'SBLAmount': None,
-                  } for row in sbl if len(row) > 9 and clean(row[0])],
-              }
-              if any(not rows for rows in datasets.values()):
-                  raise RuntimeError('historical_dataset_empty_after_normalization')
-
-              base = ROOT / trade_date
-              base.mkdir(parents=True, exist_ok=True)
-              now = dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z')
-              manifest = {
-                  'schema': 'TPEX_OFFICIAL_RELAY_V2',
-                  'trade_date': trade_date,
-                  'captured_at_utc': now,
-                  'source_owner': 'TPEx',
-                  'transport': 'GitHub hosted runner exact-date official historical web transport',
-                  'datasets': {},
-                  'capture_errors': {},
-              }
-              endpoint_map = {
-                  'institutional': urls['institutional'],
-                  'margin': urls['margin'],
-                  'sbl_balance': urls['margin_sbl'],
-                  'sbl_volume': urls['margin_sbl'],
-              }
-              for name, rows in datasets.items():
-                  payload = stable_payload(rows)
-                  sha = hashlib.sha256(payload.encode('utf-8')).hexdigest()
-                  file_name = f'{name}.json'
-                  (base / file_name).write_text(payload + '\n', encoding='utf-8')
-                  manifest['datasets'][name] = {
-                      'source_date': trade_date,
-                      'row_count': len(rows),
-                      'sha256': sha,
-                      'endpoint': endpoint_map[name],
-                      'file': file_name,
-                  }
-              (base / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
-              return {name: len(rows) for name, rows in datasets.items()}
-
-          latest_file = ROOT / 'latest.json'
-          if not latest_file.exists():
-              raise RuntimeError('relay_latest_missing')
-          latest = json.loads(latest_file.read_text(encoding='utf-8'))
-          anchor = dt.date.fromisoformat(latest['trade_date'])
-          target = anchor - dt.timedelta(days=HORIZON_DAYS)
-
-          if STATE.exists():
-              state = json.loads(STATE.read_text(encoding='utf-8'))
-              cursor = dt.date.fromisoformat(state['cursor_date'])
-              if state.get('status') == 'COMPLETE':
-                  print(json.dumps(state, ensure_ascii=False))
-                  raise SystemExit(0)
-          else:
-              dirs = sorted(dt.date.fromisoformat(p.name) for p in ROOT.iterdir() if p.is_dir() and len(p.name) == 10)
-              earliest = min(dirs) if dirs else anchor
-              cursor = earliest - dt.timedelta(days=1)
-              state = {
-                  'schema': 'TPEX_HISTORICAL_RELAY_STATE_V1',
-                  'anchor_trade_date': anchor.isoformat(),
-                  'target_start_date': target.isoformat(),
-                  'cursor_date': cursor.isoformat(),
-                  'status': 'RUNNING',
-                  'processed_dates': 0,
-                  'updated_at': None,
-                  'completed_at': None,
-              }
-
-          done = 0
-          while done < BATCH_DAYS and cursor >= target:
-              if cursor.weekday() >= 5:
-                  cursor -= dt.timedelta(days=1)
-                  continue
-              print(f'historical relay attempting {cursor}')
-              try:
-                  counts = capture_day(cursor)
-                  print(f'historical relay READY {cursor} {counts}')
-              except ValueError as exc:
-                  # A successful official response with no table rows is treated as a non-trading day.
-                  print(f'historical relay NO_TRADING_DAY {cursor}: {exc}')
-              except Exception as exc:
-                  # Transport/parser failures are fail-closed: keep cursor on this date for the next run.
-                  state['last_error'] = f'{type(exc).__name__}: {exc}'[:500]
-                  state['updated_at'] = dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z')
-                  STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
-                  raise
-              state.pop('last_error', None)
-              state['processed_dates'] = int(state.get('processed_dates', 0)) + 1
-              cursor -= dt.timedelta(days=1)
-              state['cursor_date'] = cursor.isoformat()
-              state['updated_at'] = dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z')
-              done += 1
-
-          if cursor < target:
-              state['status'] = 'COMPLETE'
-              state['completed_at'] = state.get('completed_at') or dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z')
-          state['cursor_date'] = cursor.isoformat()
-          state['target_start_date'] = target.isoformat()
-          state['updated_at'] = dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00', 'Z')
-          STATE.write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
-          print(json.dumps(state, ensure_ascii=False))
+                print('ERROR', url, type(exc).__name__, str(exc)[:1000])
+          if not any_success:
+            raise SystemExit('all TPEx modern API probes failed')
           PY
-
-      - name: Publish historical relay cache
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name 'tpex-official-relay-bot'
-          git config user.email 'actions@users.noreply.github.com'
-          git fetch origin market-data-relay:refs/remotes/origin/market-data-relay || true
-          if git show-ref --verify --quiet refs/remotes/origin/market-data-relay; then
-            git checkout -B market-data-relay refs/remotes/origin/market-data-relay
-          else
-            git checkout --orphan market-data-relay
-            git rm -rf . || true
-          fi
-          mkdir -p data/market-data/tpex-relay
-          cp -a /tmp/tpex-history/data/market-data/tpex-relay/. data/market-data/tpex-relay/
-          git add data/market-data/tpex-relay
-          if git diff --cached --quiet; then
-            echo 'Historical relay cache unchanged.'
-            exit 0
-          fi
-          git commit -m 'market-data: backfill TPEx historical relay cache'
-          git push origin HEAD:refs/heads/market-data-relay
