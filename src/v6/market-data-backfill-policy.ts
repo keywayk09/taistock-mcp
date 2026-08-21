@@ -1,4 +1,4 @@
-export const MARKET_DATA_BACKFILL_HORIZON_DAYS = 360;
+export const MARKET_DATA_BACKFILL_HORIZON_DAYS = 180;
 export const MARKET_DATA_BACKFILL_STATE_VERSION = "diamond-market-data-backfill-state/v2";
 
 export type MarketDataBackfillState = {
@@ -41,12 +41,19 @@ export function initialMarketDataBackfillState(anchorTradeDate: string, now = ne
   };
 }
 
-// The history bootstrap is intentionally one-shot. Once state exists, later
-// daily anchors never move its start/target/cursor. COMPLETE is permanently
-// terminal and cannot be reopened by a newer trading day.
-export function refreshBackfillAnchor(state: MarketDataBackfillState, anchorTradeDate: string, _now = new Date()) {
+// The history bootstrap stays one-shot. COMPLETE is permanently terminal.
+// A RUNNING legacy 360-day state may only shrink to the current retention
+// window; it can never be extended by a newer daily anchor.
+export function refreshBackfillAnchor(state: MarketDataBackfillState, anchorTradeDate: string, now = new Date()) {
   assertDate(anchorTradeDate);
-  return state;
+  if (state.status === "COMPLETE") return state;
+  const desiredTarget = marketDataBackfillStart(state.anchor_trade_date);
+  if (state.target_start_date >= desiredTarget) return state;
+  return {
+    ...state,
+    target_start_date: desiredTarget,
+    updated_at: now.toISOString(),
+  };
 }
 
 export function shouldAdvanceBackfillCursor(status: string) {

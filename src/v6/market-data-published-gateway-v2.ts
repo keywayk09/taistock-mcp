@@ -30,6 +30,7 @@ import {
 } from "./tw-market-data.ts";
 
 export const MARKET_DATA_PUBLISHED_GATEWAY_VERSION = "diamond-market-data-published-gateway/v3-generation-manifest";
+export const MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS = 180;
 
 type ClosedMonthShard = {
   schema_version: "diamond-market-data-symbol-shard/v2";
@@ -65,9 +66,23 @@ function monthRange(start: string, end: string) {
   return out;
 }
 
-function closedMonthShardPath(month: string, symbol: string) {
+function closedMonthShardPath(month: string, prefix: string) {
   const [year, mon] = month.split("-");
-  return `data/market-data/index/${year}/${mon}/${symbol.slice(0, 2)}.json`;
+  return `data/market-data/index/${year}/${mon}/${prefix}.json`;
+}
+
+async function readClosedMonthState(env: Env, month: string, symbol: string) {
+  const compactPrefix = symbol.slice(0, 1);
+  const compact = await readGitHubJson<ClosedMonthShard>(env, closedMonthShardPath(month, compactPrefix));
+  if (compact.value?.symbols?.[symbol]) {
+    return { state: compact.value.symbols[symbol], dataset: { path: compact.path, sha: compact.sha, role: "CLOSED_MONTH_HISTORY_SHARD_COMPACT" } };
+  }
+  const legacyPrefix = symbol.slice(0, 2);
+  const legacy = await readGitHubJson<ClosedMonthShard>(env, closedMonthShardPath(month, legacyPrefix));
+  return {
+    state: legacy.value?.symbols?.[symbol] ?? {},
+    dataset: legacy.value?.symbols?.[symbol] ? { path: legacy.path, sha: legacy.sha, role: "CLOSED_MONTH_HISTORY_SHARD_LEGACY" } : null,
+  };
 }
 
 function dedupeRows<T extends { trade_date: string; market?: string }>(rows: T[]) {
@@ -184,8 +199,6 @@ async function stateFromPublishedGeneration(
     };
   }
 
-  // Legacy fallback: production generations written before v5 may store one
-  // embedded v3 (or transitional v4) receipt per prefix.
   const receiptPath = marketReadPublishedShardPath(pointer.trade_date, pointer.generation, prefix);
   const read = await readGitHubJson<MarketReadShardReceipt>(env, receiptPath);
   if (!read.value) throw new Error(`published_shard_missing:${prefix}`);
@@ -222,7 +235,7 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
   }
 
   const asOf = input.as_of ?? pointer.trade_date;
-  const calendarDays = Math.max(30, Math.min(360, Number(input.calendar_days ?? 60)));
+  const calendarDays = Math.max(30, Math.min(MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS, Number(input.calendar_days ?? 60)));
   const start = subtractDays(asOf, calendarDays);
   const months = monthRange(start, asOf);
   const publishedMonth = pointer.trade_date.slice(0, 7);
@@ -248,9 +261,9 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
         return unavailable(input, `published_shard_invalid:${String(error)}`, pointer);
       }
     } else {
-      const read = await readGitHubJson<ClosedMonthShard>(env, closedMonthShardPath(month, input.symbol));
-      state = read.value?.symbols?.[input.symbol] ?? {};
-      if (Object.keys(state).length) datasets.push({ path: read.path, sha: read.sha, role: "CLOSED_MONTH_HISTORY_SHARD" });
+      const closed = await readClosedMonthState(env, month, input.symbol);
+      state = closed.state;
+      if (closed.dataset) datasets.push(closed.dataset);
     }
 
     const bundle = buildMonthlySymbolBundle({ month, symbol: input.symbol, state });
@@ -263,10 +276,10 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
     for (const row of series.sbl_short_sale) if (row.trade_date >= start && row.trade_date <= asOf) sblShortSaleRows.push(row as SblShortSaleRow);
   }
 
-  const institutional = dedupeRows(institutionalRows).slice(-360);
-  const margin = dedupeRows(marginRows).slice(-360);
-  const securitiesLending = dedupeRows(securitiesLendingRows).slice(-360);
-  const sblShortSale = dedupeRows(sblShortSaleRows).slice(-360);
+  const institutional = dedupeRows(institutionalRows).slice(-MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS);
+  const margin = dedupeRows(marginRows).slice(-MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS);
+  const securitiesLending = dedupeRows(securitiesLendingRows).slice(-MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS);
+  const sblShortSale = dedupeRows(sblShortSaleRows).slice(-MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS);
   const groups = [institutional, margin, securitiesLending, sblShortSale];
   const unavailableLayers = groups.filter((rows) => !rows.length).length;
 
@@ -299,6 +312,7 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
       mixed_generation_current_day: false,
       daily_snapshot_overlay: false,
       historical_closed_months_use_terminal_month_index: true,
+      closed_month_compact_shard_fallback: true,
       published_generation_uses_blob_reference: publishedFormat === "GENERATION_MANIFEST_V5" || publishedFormat === "LEGACY_V4",
       single_generation_manifest: publishedFormat === "GENERATION_MANIFEST_V5",
     },

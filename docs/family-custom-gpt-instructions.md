@@ -30,7 +30,7 @@
 
 1. 必須優先呼叫 MCP 工具 `get_family_market_chip_summary`。
 2. 此工具只讀正式 published generation；不得改用 live overlay 來冒充正式資料。
-3. 可查最多 360 自然日；若 published pointer 尚未發布到使用者要求日期，必須明示資料尚未正式發布，不可自行補值。
+3. 可查最多 180 自然日；若 published pointer 尚未發布到使用者要求日期，必須明示資料尚未正式發布，不可自行補值。
 4. 家人模式只有 read-only 權限；不得因查詢而寫入、修改、修復或觸發任何 Production 資料。
 5. OHLC／K 線仍由 OHLC MCP 提供；籌碼資料與 OHLC 必須保持來源邊界，不得互相偽造。
 6. 若 `get_family_market_chip_summary` 回傳 DEGRADED 或 UNAVAILABLE，直接說明缺哪一層，不可用新聞、猜測或其他非正式資料硬補。

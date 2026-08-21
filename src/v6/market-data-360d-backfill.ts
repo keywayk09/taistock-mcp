@@ -67,7 +67,9 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
   }
 
   if (!existing) {
-    await persistState(env, state, "data(market): start one-shot 360d backfill");
+    await persistState(env, state, "data(market): start one-shot retention backfill");
+  } else if (state.target_start_date !== existing.target_start_date) {
+    await persistState(env, state, "data(market): apply shortened history retention");
   }
 
   if (state.cursor_date < state.target_start_date) {
@@ -77,15 +79,16 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
       completed_at: state.completed_at ?? now.toISOString(),
       updated_at: now.toISOString(),
     };
-    await persistState(env, state, "data(market): backfill 360d complete");
+    await persistState(env, state, "data(market): retention backfill complete");
     return { status: "BACKFILL_COMPLETE" as const, terminal: true, state, estimated_subrequests: 3 };
   }
 
   const tradeDate = state.cursor_date;
   const preparedManifest = await prepareHistoryManifest(env, tradeDate, now.toISOString());
+  const anchorMonth = state.anchor_trade_date.slice(0, 7);
+  const historyMonth = tradeDate.slice(0, 7);
+  const prefixLength: 1 | 2 = historyMonth < anchorMonth ? 1 : 2;
 
-  // Only the one-shot History lane enables transparent compression. Current-day
-  // Daily checkpoints continue writing their normal readable JSON artifacts.
   setMarketDataCapturePolicy({ storageMode: "HISTORY_COMPRESSED" });
   setMarketDataCaptureTradeDate(tradeDate);
   let capture: any;
@@ -101,6 +104,7 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
         capturedAt: now.toISOString(),
         deadlineAtMs: input.deadlineAtMs ?? (Date.now() + 30_000),
         subrequestBudget: Math.max(0, Math.floor(input.subrequestBudget ?? 32)),
+        prefixLength,
       });
     } else {
       capture = await runSubrequestSafeMarketDataCapture(env, { tradeDate, now });
@@ -124,7 +128,7 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
     await persistState(
       env,
       state,
-      complete ? "data(market): backfill 360d complete" : `data(market): backfill cursor ${tradeDate}`,
+      complete ? "data(market): retention backfill complete" : `data(market): backfill cursor ${tradeDate}`,
     );
   }
 
@@ -146,6 +150,7 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
     captures: [capture],
     steps_run: 1,
     state,
+    index_prefix_length: prefixLength,
     estimated_subrequests: estimatedSubrequests,
   };
 }

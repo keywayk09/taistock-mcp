@@ -21,7 +21,7 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const querySchema = {
   symbol: symbolSchema,
   as_of: dateSchema.optional(),
-  calendar_days: z.number().int().min(30).max(360).optional().default(60),
+  calendar_days: z.number().int().min(30).max(180).optional().default(60),
 };
 const fastSummarySchema = {
   ...querySchema,
@@ -48,7 +48,7 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
     preferred_symbol_read_tool: "get_tw_market_chip_summary",
     family_symbol_read_tool: "get_family_market_chip_summary",
     family_access: "READ_ONLY_PUBLISHED_GENERATION",
-    history_window_calendar_days: 360,
+    history_window_calendar_days: 180,
     read_model: "published generation by default; live prefix-month index + exact-day snapshot overlay only when consistency=live",
     formal_consistency: "PUBLISHED",
     live_consistency: "LIVE_OVERLAY",
@@ -96,7 +96,7 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
   ));
 
   server.registerTool("get_family_market_chip_summary", {
-    description: "家人版唯讀個股籌碼入口。只讀正式 published generation，不允許 live overlay、不寫入任何資料、不具交易權限；可查最多360自然日的法人、融資融券、借券與借券賣出歷史。",
+    description: "家人版唯讀個股籌碼入口。只讀正式 published generation，不允許 live overlay、不寫入任何資料、不具交易權限；可查最多180自然日的法人、融資融券、借券與借券賣出歷史。",
     inputSchema: familyChipSchema,
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
   }, async (input) => out(await getTwMarketChipSummaryPublished(env, input)));
