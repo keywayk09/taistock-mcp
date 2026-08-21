@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import {
+  assertPublishedGenerationManifest,
   assertPublishedShard,
   buildMarketReadGeneration,
   buildPublishedPointer,
   marketReadCacheKey,
+  type MarketReadEmbeddedShardReceiptV3,
+  type MarketReadGenerationManifestV5,
   type MarketReadManifest,
   type MarketReadPublishedPointer,
-  type MarketReadShardReceipt,
+  type MarketReadReferenceShardReceiptV4,
 } from "../src/v6/market-data-publish-fence.ts";
 
 const tradeDate = "2026-08-20";
@@ -45,7 +48,7 @@ const manifest: MarketReadManifest = {
   },
 };
 
-function shard(prefix: string, overrides: Partial<MarketReadShardReceipt> = {}): MarketReadShardReceipt {
+function shard(prefix: string, overrides: Partial<MarketReadEmbeddedShardReceiptV3> = {}): MarketReadEmbeddedShardReceiptV3 {
   return {
     schema_version: "diamond-market-data-symbol-shard/v3",
     month: "2026-08",
@@ -55,6 +58,22 @@ function shard(prefix: string, overrides: Partial<MarketReadShardReceipt> = {}):
     source_manifest_sha: manifestSha,
     audit_status: "PASS",
     symbols: prefix === "30" ? { "3003": { institutional: [] } } : {},
+    ...overrides,
+  };
+}
+
+function reference(prefix: string, overrides: Partial<MarketReadReferenceShardReceiptV4> = {}): MarketReadReferenceShardReceiptV4 {
+  return {
+    schema_version: "diamond-market-data-symbol-shard-ref/v4",
+    month: "2026-08",
+    prefix,
+    build_trade_date: tradeDate,
+    generation,
+    source_manifest_sha: manifestSha,
+    audit_status: "PASS",
+    source_path: `data/market-data/index/2026/08/${prefix}.json`,
+    source_blob_sha: "b".repeat(40),
+    source_logical_sha256: "c".repeat(64),
     ...overrides,
   };
 }
@@ -129,10 +148,11 @@ const promoted = buildPublishedPointer({
   current: oldPointer,
   manifest,
   manifest_sha: manifestSha,
-  shards: prefixes.map((prefix) => shard(prefix)),
+  shards: prefixes.map((prefix) => reference(prefix)),
   published_at: "2026-08-21T00:00:00Z",
 });
 assert.equal(promoted.previous_generation, oldPointer.generation);
+assertPublishedShard(promoted, reference("30"));
 assertPublishedShard(promoted, shard("30"));
 assert.throws(
   () => assertPublishedShard(
@@ -147,4 +167,58 @@ assert.throws(
 );
 assert.notEqual(marketReadCacheKey("3003", oldPointer), marketReadCacheKey("3003", promoted));
 
-console.log("PASS market-data-publish-fence");
+assert.throws(
+  () => buildPublishedPointer({
+    current: null,
+    manifest,
+    manifest_sha: manifestSha,
+    shards: [reference("30"), reference("31", { source_blob_sha: "bad" }), reference("32")],
+    published_at: "2026-08-21T00:00:00Z",
+  }),
+  /generation_source_blob_sha_invalid:31|shard_source_blob_sha_invalid:31/,
+);
+
+const v5Pointer: MarketReadPublishedPointer = {
+  schema_version: "diamond-market-data-published-pointer/v1",
+  trade_date: tradeDate,
+  generation,
+  source_manifest_sha: manifestSha,
+  prefix_count: prefixes.length,
+  published_at: "2026-08-21T00:00:00Z",
+  previous_generation: null,
+};
+const v5Manifest: MarketReadGenerationManifestV5 = {
+  schema_version: "diamond-market-data-generation-ref/v5",
+  month: "2026-08",
+  trade_date: tradeDate,
+  generation,
+  source_manifest_sha: manifestSha,
+  audit_status: "PASS",
+  prefix_count: prefixes.length,
+  prefixes: Object.fromEntries(prefixes.map((prefix, index) => [prefix, {
+    source_path: `data/market-data/index/2026/08/${prefix}.json`,
+    source_blob_sha: (index + 1).toString(16).padStart(40, "0"),
+    source_logical_sha256: (index + 1).toString(16).padStart(64, "0"),
+  }])),
+  created_at: "2026-08-21T00:00:00Z",
+};
+assert.doesNotThrow(() => assertPublishedGenerationManifest(v5Pointer, v5Manifest));
+assert.throws(
+  () => assertPublishedGenerationManifest(v5Pointer, {
+    ...v5Manifest,
+    prefix_count: 2,
+  }),
+  /published_generation_declared_prefix_count_mismatch/,
+);
+assert.throws(
+  () => assertPublishedGenerationManifest(v5Pointer, {
+    ...v5Manifest,
+    prefixes: {
+      ...v5Manifest.prefixes,
+      "31": { ...v5Manifest.prefixes["31"], source_blob_sha: "bad" },
+    },
+  }),
+  /generation_source_blob_sha_invalid:31/,
+);
+
+console.log("PASS market-data publish fence legacy compatibility + compact v5 generation manifest");

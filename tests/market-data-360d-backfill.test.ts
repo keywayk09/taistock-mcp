@@ -57,8 +57,9 @@ assert.match(transport, /getMarketDataCaptureTradeDate/);
 assert.match(transport, /source_date_mismatch/);
 assert.match(transport, /getOfficialWebSblDataset/);
 
-const published = fs.readFileSync("src/v6/market-data-published-gateway.ts", "utf8");
+const published = fs.readFileSync("src/v6/market-data-published-gateway-v2.ts", "utf8");
 assert.match(published, /Math\.min\(360/);
 assert.match(published, /slice\(-360\)/);
+assert.match(published, /GENERATION_MANIFEST_V5/);
 
 console.log("PASS market-data one-shot 360d bootstrap + adaptive scheduler contract");

@@ -7,7 +7,7 @@ const legacyRunner = fs.readFileSync("src/v6/market-data-cloudflare-runner.ts", 
 const runner = fs.readFileSync("src/v6/market-data-cloudflare-chunked-runner.ts", "utf8");
 const captureContext = fs.readFileSync("src/v6/market-data-capture-context.ts", "utf8");
 const incremental = fs.readFileSync("src/v6/market-data-incremental-controller.ts", "utf8");
-const publisher = fs.readFileSync("src/v6/market-data-publisher.ts", "utf8");
+const publisher = fs.readFileSync("src/v6/market-data-publisher-v5.ts", "utf8");
 const dispatcher = fs.readFileSync("src/v6/market-data-scheduled-dispatch.ts", "utf8");
 const schedule = fs.readFileSync("src/v6/market-data-schedule.ts", "utf8");
 const wrangler = fs.readFileSync("wrangler.jsonc", "utf8");
@@ -28,12 +28,18 @@ assert.match(runner, /completed_prefixes/);
 assert.match(captureContext, /setMarketDataCapturePolicy/);
 assert.match(captureContext, /allowedKinds/);
 assert.match(captureContext, /checkpointStartedAt/);
+assert.match(captureContext, /HISTORY_COMPRESSED/);
 assert.match(incremental, /getMarketDataCapturePolicy/);
 assert.match(incremental, /last_attempt_at/);
 assert.match(incremental, /lastAttempt >= checkpointStart/);
 assert.match(publisher, /validateMarketReadPublishPrerequisites/);
 assert.match(publisher, /auditMaterializedPrefix/);
-assert.match(publisher, /putImmutableGitHubJson/);
+assert.match(publisher, /atomicUpdateGitHubJsonFiles/);
+assert.match(publisher, /adaptiveMarketDataPublishCapacity/);
+assert.match(publisher, /marketReadPublishedGenerationManifestPath/);
+assert.match(publisher, /source_blob_sha/);
+assert.doesNotMatch(publisher, /symbols:\s*sourceRead\.value\.symbols/);
+assert.doesNotMatch(publisher, /pending\.slice\(0,\s*\d+\)/);
 
 assert.doesNotMatch(dispatcher, /MARKET_DATA_HOT_STEPS_PER_CRON/);
 assert.doesNotMatch(dispatcher, /MARKET_DATA_PUBLISH_STEPS_PER_CRON/);
@@ -43,6 +49,8 @@ assert.match(dispatcher, /runMarketDataPublisher/);
 assert.match(dispatcher, /runMarketData360dBackfillStep/);
 assert.match(dispatcher, /hasSafeMarketDataBudget/);
 assert.match(dispatcher, /chargeMarketDataWorkBudget/);
+assert.match(dispatcher, /subrequestBudget:\s*remainingSubrequests/);
+assert.match(dispatcher, /storageMode:\s*"HISTORY_COMPRESSED"/);
 
 assert.match(schedule, /DAILY_INSTITUTIONAL/);
 assert.match(schedule, /DAILY_LATE/);
@@ -65,7 +73,6 @@ assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T18:00:00"))
   reason: "DAILY_INSTITUTIONAL",
 });
 
-// 18:05 is continuation of the same checkpoint, not a second fetch epoch.
 assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T18:05:00")), {
   tradeDate: "2026-08-21",
   finalAudit: false,
@@ -120,7 +127,6 @@ assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-22T08:30:00"))
   reason: "PREVIOUS_DAY_FINAL_AUDIT",
 });
 
-// Outside a daily checkpoint, spare wakes belong to the one-shot history bootstrap.
 assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-22T12:00:00")), {
   tradeDate: "2026-08-21",
   finalAudit: false,
@@ -141,4 +147,4 @@ assert.equal(parsed[0]?.open, false);
 assert.equal(parsed[1]?.date, "2026-02-23");
 assert.equal(parsed[1]?.open, true);
 
-console.log("market-data staged daily checkpoints + history-lane scheduler contract passed");
+console.log("market-data staged daily checkpoints + adaptive history/publisher scheduler contract passed");

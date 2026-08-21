@@ -12,7 +12,9 @@ import {
 export { decideExtendedMarketDataSchedule } from "./market-data-schedule";
 
 const CAPTURE_UNIT_RESERVE = 10;
-const PUBLISH_UNIT_RESERVE = 12;
+// Publisher v5 needs enough room for at least one audited prefix plus the
+// worst-case final generation-manifest + pointer transaction.
+const PUBLISH_UNIT_RESERVE = 23;
 const BACKFILL_UNIT_RESERVE = 13;
 const BACKFILL_COORDINATOR_HEADROOM = 5;
 
@@ -31,10 +33,11 @@ function estimateCaptureSubrequests(result: any) {
 }
 
 function estimatePublisherSubrequests(result: any) {
+  if (Number.isFinite(Number(result?.estimated_subrequests))) return Number(result.estimated_subrequests);
   const status = statusOf(result);
-  if (["PUBLISH_WAITING_MANIFEST", "PUBLISH_WAITING_CANONICAL", "PUBLISH_WAITING_INDEX", "PUBLISH_NO_TRADING_DAY", "PUBLISH_WAITING_HISTORY_MONTH"].includes(status)) return 2;
-  if (status === "PUBLISHED") return 8;
-  if (status === "PUBLISH_PROGRESS") return 10;
+  if (["PUBLISH_WAITING_MANIFEST", "PUBLISH_WAITING_CANONICAL", "PUBLISH_WAITING_INDEX", "PUBLISH_NO_TRADING_DAY", "PUBLISH_WAITING_HISTORY_MONTH", "PUBLISH_YIELD"].includes(status)) return 2;
+  if (status === "PUBLISHED") return 23;
+  if (status === "PUBLISH_PROGRESS") return 23;
   return 5;
 }
 
@@ -56,6 +59,7 @@ async function runDailyLane(env: Env, decision: ReturnType<typeof decideExtended
   setMarketDataCapturePolicy({
     allowedKinds: decision.allowedKinds,
     checkpointStartedAt: decision.checkpointStartedAt,
+    storageMode: "HISTORY_COMPRESSED",
   });
   try {
     while (hasSafeMarketDataBudget(budget, { nextEstimatedSubrequests: CAPTURE_UNIT_RESERVE })) {
@@ -81,9 +85,15 @@ async function runDailyLane(env: Env, decision: ReturnType<typeof decideExtended
   }
 
   while (hasSafeMarketDataBudget(budget, { nextEstimatedSubrequests: PUBLISH_UNIT_RESERVE })) {
+    const remainingSubrequests = Math.max(
+      0,
+      budget.subrequest_budget - budget.estimated_subrequests,
+    );
     const publication = await runMarketDataPublisher(env, {
       tradeDate: decision.tradeDate,
       now: new Date(),
+      deadlineAtMs: budget.deadline_at_ms,
+      subrequestBudget: remainingSubrequests,
     });
     publications.push(publication);
     chargeMarketDataWorkBudget(budget, estimatePublisherSubrequests(publication));

@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
 import { stableJson, type MemoryGitHubDataStore } from "../src/v6/github-data-store.ts";
 import {
+  marketReadPublishedGenerationManifestPath,
   marketReadPublishedPointerPath,
   marketReadPublishedShardPath,
   marketReadPublishStatePath,
   type MarketReadPublishState,
 } from "../src/v6/market-data-publish-fence.ts";
 import { getTwMarketChipSummaryPublished } from "../src/v6/market-data-published-gateway.ts";
-import { MARKET_DATA_PUBLISH_PREFIX_BATCH_SIZE, runMarketDataPublisher } from "../src/v6/market-data-publisher.ts";
+import {
+  MARKET_DATA_PUBLISH_FIXED_SUBREQUESTS,
+  adaptiveMarketDataPublishCapacity,
+  runMarketDataPublisher,
+} from "../src/v6/market-data-publisher.ts";
 
 const tradeDate = "2026-08-20";
 const prefixes = ["30", "31", "32", "33", "34", "35"];
@@ -16,7 +21,8 @@ const env = { __GITHUB_DATA_MEMORY: memory } as unknown as Env;
 let seedNo = 0;
 
 function seed(path: string, value: unknown) {
-  memory.set(path, { sha: `seed-${++seedNo}`, text: stableJson(value) });
+  const sha = (++seedNo).toString(16).padStart(40, "0");
+  memory.set(path, { sha, text: stableJson(value) });
 }
 
 function symbolFor(prefix: string) {
@@ -147,48 +153,83 @@ for (const prefix of prefixes) {
   });
 }
 
-assert.equal(MARKET_DATA_PUBLISH_PREFIX_BATCH_SIZE, 5);
-const first = await runMarketDataPublisher(env, { tradeDate, now: new Date("2026-08-21T00:05:00Z") });
+const capacity = adaptiveMarketDataPublishCapacity({
+  pendingPrefixes: 70,
+  subrequestBudget: MARKET_DATA_PUBLISH_FIXED_SUBREQUESTS + 7,
+  nowMs: 0,
+  deadlineAtMs: 100_000,
+});
+assert.equal(capacity, 7, "publisher capacity must follow available budget, not a fixed batch size");
+
+const first = await runMarketDataPublisher(env, {
+  tradeDate,
+  now: new Date("2026-08-21T00:05:00Z"),
+  deadlineAtMs: Date.now() + 100_000,
+  subrequestBudget: MARKET_DATA_PUBLISH_FIXED_SUBREQUESTS + 3,
+});
 assert.equal(first.status, "PUBLISH_PROGRESS");
-assert.equal(first.published_prefixes, 5);
+assert.equal(first.published_prefixes, 3);
+assert.equal(first.storage, "GENERATION_MANIFEST_V5");
 assert.equal(memory.has(marketReadPublishedPointerPath()), false);
 
 const statePath = marketReadPublishStatePath(tradeDate);
 const firstState = JSON.parse(memory.get(statePath)!.text) as MarketReadPublishState;
-assert.equal(firstState.completed_prefixes.length, 5);
+assert.equal(firstState.schema_version, "diamond-market-data-publish-state/v2-reference");
+assert.equal(firstState.completed_prefixes.length, 3);
+assert.equal(Object.keys(firstState.references ?? {}).length, 3);
 assert.equal(firstState.status, "PENDING");
-for (const prefix of prefixes.slice(0, 5)) {
-  assert.equal(memory.has(marketReadPublishedShardPath(tradeDate, firstState.generation, prefix)), true);
+for (const prefix of prefixes.slice(0, 3)) {
+  const ref = firstState.references?.[prefix];
+  assert.ok(ref);
+  assert.match(ref!.source_blob_sha, /^[0-9a-f]{40}$/);
+  assert.match(ref!.source_logical_sha256, /^[0-9a-f]{64}$/);
+  assert.equal(memory.has(marketReadPublishedShardPath(tradeDate, firstState.generation, prefix)), false, "v5 must not create one generation file per prefix");
 }
+assert.equal(memory.has(marketReadPublishedGenerationManifestPath(tradeDate, firstState.generation)), false);
 
-// Same-generation replay must be immutable/idempotent, not an immutable-content conflict.
-seed(statePath, { ...firstState, status: "PENDING", completed_prefixes: [] });
-const replay = await runMarketDataPublisher(env, { tradeDate, now: new Date("2026-08-21T00:10:00Z") });
-assert.equal(replay.status, "PUBLISH_PROGRESS");
-assert.equal(replay.published_prefixes, 5);
-
-// Failure injection: the last source prefix no longer matches the canonical snapshots.
-const badPrefix = "35";
+// Failure injection: next pending source no longer matches canonical snapshots.
+const badPrefix = "33";
 const badPath = `data/market-data/index/2026/08/${badPrefix}.json`;
 const goodBadSource = JSON.parse(memory.get(badPath)!.text);
 const badSource = structuredClone(goodBadSource);
 badSource.symbols[symbolFor(badPrefix)].margin[0].margin_balance_lots = 999;
 seed(badPath, badSource);
 await assert.rejects(
-  () => runMarketDataPublisher(env, { tradeDate, now: new Date("2026-08-21T00:15:00Z") }),
-  /source_shard_row_mismatch:35/,
+  () => runMarketDataPublisher(env, {
+    tradeDate,
+    now: new Date("2026-08-21T00:15:00Z"),
+    deadlineAtMs: Date.now() + 100_000,
+    subrequestBudget: MARKET_DATA_PUBLISH_FIXED_SUBREQUESTS + 3,
+  }),
+  /source_shard_row_mismatch:33/,
 );
 assert.equal(memory.has(marketReadPublishedPointerPath()), false);
 
 seed(badPath, goodBadSource);
-const second = await runMarketDataPublisher(env, { tradeDate, now: new Date("2026-08-21T00:20:00Z") });
+const second = await runMarketDataPublisher(env, {
+  tradeDate,
+  now: new Date("2026-08-21T00:20:00Z"),
+  deadlineAtMs: Date.now() + 100_000,
+  subrequestBudget: MARKET_DATA_PUBLISH_FIXED_SUBREQUESTS + 20,
+});
 assert.equal(second.status, "PUBLISHED");
 assert.equal(second.published_prefixes, 6);
+assert.equal(second.storage, "GENERATION_MANIFEST_V5");
 
 const pointer = JSON.parse(memory.get(marketReadPublishedPointerPath())!.text);
 assert.equal(pointer.trade_date, tradeDate);
 assert.equal(pointer.generation, firstState.generation);
 assert.equal(pointer.prefix_count, 6);
+
+const generationPath = marketReadPublishedGenerationManifestPath(tradeDate, pointer.generation);
+const generation = JSON.parse(memory.get(generationPath)!.text);
+assert.equal(generation.schema_version, "diamond-market-data-generation-ref/v5");
+assert.equal(generation.prefix_count, 6);
+assert.equal(Object.keys(generation.prefixes).length, 6);
+assert.equal("symbols" in generation, false, "generation manifest must contain references, not duplicated market payloads");
+for (const prefix of prefixes) {
+  assert.equal(memory.has(marketReadPublishedShardPath(tradeDate, pointer.generation, prefix)), false);
+}
 
 const published = await getTwMarketChipSummaryPublished(env, {
   symbol: "3003",
@@ -200,8 +241,12 @@ assert.equal(published.status, "READY");
 assert.equal(published.data_quality.formal_published, true);
 assert.equal(published.data_quality.mixed_generation_current_day, false);
 assert.equal(published.data_quality.daily_snapshot_overlay, false);
+assert.equal(published.data_quality.published_generation_uses_blob_reference, true);
+assert.equal(published.data_quality.single_generation_manifest, true);
 assert.equal(published.publication.generation, pointer.generation);
-assert.ok(published.datasets.some((item) => item.role === "PUBLISHED_GENERATION_SHARD"));
+assert.equal(published.publication.format, "GENERATION_MANIFEST_V5");
+assert.ok(published.datasets.some((item) => item.role === "PUBLISHED_GENERATION_MANIFEST_V5"));
+assert.ok(published.datasets.some((item) => item.role === "PINNED_SOURCE_BLOB"));
 
 const stale = await getTwMarketChipSummaryPublished(env, {
   symbol: "3003",
@@ -211,4 +256,4 @@ const stale = await getTwMarketChipSummaryPublished(env, {
 assert.equal(stale.ok, false);
 assert.equal(stale.reason, "requested_as_of_newer_than_published_pointer");
 
-console.log("PASS market-data publisher + published gateway");
+console.log("PASS market-data adaptive v5 generation manifest + published gateway");
