@@ -1,11 +1,18 @@
 import { readGitHubJson } from "./github-data-store";
 import { runSubrequestSafeMarketDataCapture as runLegacyCapture } from "./market-data-cloudflare-chunked-runner";
 import { runAdaptiveHistoryIndexSlice } from "./market-data-history-index";
+import type { MarketManifestLayer } from "./market-data-incremental-controller";
 
 type DailyManifest = {
+  layers?: MarketManifestLayer[];
   day_status?: string;
   terminal?: boolean;
-  index_state?: { status?: string };
+  index_state?: {
+    status: "PENDING" | "READY";
+    completed_prefixes: string[];
+    total_prefixes: number | null;
+    updated_at: string;
+  };
   [key: string]: unknown;
 };
 
