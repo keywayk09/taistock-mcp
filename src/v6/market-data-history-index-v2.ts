@@ -13,13 +13,12 @@ export const HISTORY_INDEX_DEADLINE_GUARD_MS = 2_500;
 export const MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH = 1;
 export const MARKET_DATA_CLOSED_HISTORY_PREFIX_LENGTH = 1;
 
-// History runs in a shared GitHub branch with other canonical writers. A branch
-// head can legitimately move between our read and ref-CAS even when our files
-// do not overlap. Keep each wake small enough to survive ONE full CAS retry;
-// if the second attempt also collides, yield and resume from the last durable
-// manifest checkpoint on the next five-minute wake instead of burning through
-// the Cloudflare request budget.
-export const HISTORY_INDEX_CAS_ATTEMPTS = 2;
+// History shares the canonical GitHub branch with other writers, so the branch
+// head may move between our exact-ref read and the final ref CAS. Do not replay
+// a large compact transaction inside the same Cloudflare wake: one full attempt
+// is budget-safe; a CAS collision yields cleanly and the next wake re-reads the
+// durable manifest/head before trying again.
+export const HISTORY_INDEX_CAS_ATTEMPTS = 1;
 export const HISTORY_INDEX_COORDINATOR_HEADROOM = 5;
 
 type IndexState = {
@@ -58,14 +57,14 @@ function shardPath(tradeDate: string, prefix: string) {
 /**
  * Worst-case request cost for one History index slice.
  *
- * Each attempt of the atomic transaction needs:
+ * One atomic attempt needs:
  *   branch ref + parent commit + N exact-ref reads + N blob creates
  *   + tree + commit + ref CAS = 2*N + 5 requests.
  * N includes selected prefix shards PLUS the manifest checkpoint.
  *
- * Snapshot reads happen once before the atomic transaction. We deliberately
- * reserve two atomic attempts so one unrelated branch-head movement cannot
- * turn a normal wake into an unbounded retry storm.
+ * Snapshot reads happen once before the atomic transaction. A CAS collision is
+ * intentionally NOT retried in the same wake; it yields and resumes from the
+ * latest durable branch state on the next five-minute wake.
  */
 export function estimateHistoryIndexSliceWorstCaseSubrequests(prefixCount: number) {
   const prefixes = Math.max(0, Math.floor(prefixCount));
@@ -83,9 +82,9 @@ export function adaptiveHistoryIndexCapacity(input: {
   if (input.pendingPrefixes <= 0) return 0;
   if (input.nowMs >= input.deadlineAtMs - HISTORY_INDEX_DEADLINE_GUARD_MS) return 0;
 
-  // Do not size from the happy-path transaction. Select the largest number of
-  // prefixes whose TWO-attempt worst-case still fits the budget already handed
-  // to this index slice by the coordinator.
+  // Select the largest single-attempt compact slice that fits the budget handed
+  // down by the coordinator. This lets a normal 37-request History lane finish
+  // all ten one-digit prefixes in one wake without sacrificing CAS safety.
   const budget = Math.max(0, Math.floor(input.subrequestBudget));
   let capacity = 0;
   for (let prefixes = 1; prefixes <= input.pendingPrefixes; prefixes++) {
@@ -219,9 +218,9 @@ export async function runAdaptiveHistoryIndexSlice(env: Env, input: {
     path: manifestPath(input.tradeDate),
     defaultValue: input.manifest,
     // IMPORTANT: merge progress monotonically against the exact-ref manifest
-    // re-read by atomicUpdateGitHubJsonFiles. On a CAS retry another wake may
-    // already have completed different prefixes; union them instead of writing
-    // the stale pre-attempt set and accidentally moving progress backwards.
+    // re-read by atomicUpdateGitHubJsonFiles. A concurrent writer may already
+    // have completed different prefixes; union them instead of writing the
+    // stale pre-attempt set and accidentally moving progress backwards.
     merge: (current: HistoryManifest) => {
       const mergedCompleted = new Set(
         (current.index_state?.completed_prefixes ?? []).filter((prefix) => validPrefixes.has(prefix)),
@@ -250,9 +249,9 @@ export async function runAdaptiveHistoryIndexSlice(env: Env, input: {
     });
   } catch (error) {
     if (error instanceof GitHubDataStoreError && error.code === "GITHUB_ATOMIC_CAS_EXHAUSTED") {
-      // No branch ref was advanced by the failed CAS attempts. Treat this as a
-      // normal resumable yield; the next wake re-reads the durable manifest and
-      // retries only the prefixes that are still missing.
+      // A failed ref CAS never advanced the canonical branch. Treat it as a
+      // normal resumable yield; next wake re-reads the durable manifest/head
+      // and retries only work that is still missing.
       return {
         trade_date: input.tradeDate,
         status: "INDEX_YIELD" as const,
@@ -269,9 +268,6 @@ export async function runAdaptiveHistoryIndexSlice(env: Env, input: {
     throw error;
   }
 
-  // Charge the controller for the number of attempts actually consumed. This
-  // prevents a successful second CAS attempt from being followed by another
-  // work unit that would unknowingly exceed the wake's remaining headroom.
   const estimatedSubrequests = HISTORY_INDEX_SNAPSHOT_READ_SUBREQUESTS
     + atomic.attempts * estimateAtomicJsonTransactionSubrequests(updates.length);
 

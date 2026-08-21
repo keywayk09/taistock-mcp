@@ -17,26 +17,29 @@ import { GitHubDataStoreError, stableJson, type MemoryGitHubDataStore } from "..
 
 assert.equal(MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH, 1, "future Daily must use compact one-digit shards");
 assert.equal(MARKET_DATA_CLOSED_HISTORY_PREFIX_LENGTH, 1, "History must use the same compact shard contract");
-assert.equal(HISTORY_INDEX_CAS_ATTEMPTS, 2, "History index must bound each wake to one CAS retry");
+assert.equal(HISTORY_INDEX_CAS_ATTEMPTS, 1, "one wake must not replay a full compact transaction after a CAS collision");
 assert.equal(HISTORY_INDEX_COORDINATOR_HEADROOM, 5, "History index must reserve coordinator requests outside the atomic slice");
 
 const farDeadline = 100_000;
 const productionSlice = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 37, nowMs: 0, deadlineAtMs: farDeadline });
-assert.equal(productionSlice, 3, `37-request history slice must checkpoint 3 prefixes safely; got ${productionSlice}`);
+assert.equal(productionSlice, 10, `37-request history slice should attempt all 10 compact prefixes in one wake; got ${productionSlice}`);
 assert.ok(
   estimateHistoryIndexSliceWorstCaseSubrequests(productionSlice) + HISTORY_INDEX_COORDINATOR_HEADROOM <= 42,
-  "selected history index work must survive one CAS retry inside the 42-request controller budget",
+  "one full compact attempt plus coordinator headroom must stay inside the 42-request controller budget",
 );
 assert.ok(
-  estimateHistoryIndexSliceWorstCaseSubrequests(productionSlice + 1) + HISTORY_INDEX_COORDINATOR_HEADROOM > 42,
-  "capacity test must prove one more prefix would exceed the safe retry budget",
+  estimateHistoryIndexSliceWorstCaseSubrequests(12) + HISTORY_INDEX_COORDINATOR_HEADROOM > 42,
+  "budget contract must still reject work materially beyond the compact 10-prefix universe",
 );
 
 const smallerBudget = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 29, nowMs: 0, deadlineAtMs: farDeadline });
-assert.ok(smallerBudget > 0 && smallerBudget < productionSlice, "capacity must scale down with available retry-safe headroom");
+assert.equal(smallerBudget, 7, "capacity must scale down to the largest single-attempt slice that fits the available budget");
 
-const tooSmallForRetrySafeWrite = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 18, nowMs: 0, deadlineAtMs: farDeadline });
-assert.equal(tooSmallForRetrySafeWrite, 0, "must yield instead of starting an atomic write that cannot survive one CAS retry");
+const minimumUsefulBudget = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 18, nowMs: 0, deadlineAtMs: farDeadline });
+assert.equal(minimumUsefulBudget, 1, "a small but valid budget should still checkpoint one prefix instead of wasting the wake");
+
+const tooSmallForAtomicWrite = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 16, nowMs: 0, deadlineAtMs: farDeadline });
+assert.equal(tooSmallForAtomicWrite, 0, "must yield when even one prefix plus manifest cannot fit safely");
 
 const enoughForAll = adaptiveHistoryIndexCapacity({ pendingPrefixes: 2, subrequestBudget: 100, nowMs: 0, deadlineAtMs: farDeadline });
 assert.equal(enoughForAll, 2, "small remaining work should finish in one slice when budget allows");
@@ -138,4 +141,4 @@ await assert.rejects(
 assert.equal(memory.get("data/test/a.json")!.text, beforeA);
 assert.equal(memory.get("data/test/b.json")!.text, beforeB);
 
-console.log("market-data retry-safe compact adaptive atomic index + raw exact-ref read contract passed");
+console.log("market-data single-attempt compact adaptive atomic index + raw exact-ref read contract passed");
