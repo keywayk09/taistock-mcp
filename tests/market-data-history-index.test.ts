@@ -1,26 +1,42 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
+  HISTORY_INDEX_CAS_ATTEMPTS,
+  HISTORY_INDEX_COORDINATOR_HEADROOM,
   HISTORY_INDEX_DEADLINE_GUARD_MS,
   MARKET_DATA_CLOSED_HISTORY_PREFIX_LENGTH,
   MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH,
   adaptiveHistoryIndexCapacity,
+  estimateHistoryIndexSliceWorstCaseSubrequests,
 } from "../src/v6/market-data-history-index.ts";
 import { atomicUpdateGitHubJsonFiles } from "../src/v6/github-atomic-json.ts";
 import { stableJson, type MemoryGitHubDataStore } from "../src/v6/github-data-store.ts";
 
 assert.equal(MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH, 1, "future Daily must use compact one-digit shards");
 assert.equal(MARKET_DATA_CLOSED_HISTORY_PREFIX_LENGTH, 1, "History must use the same compact shard contract");
+assert.equal(HISTORY_INDEX_CAS_ATTEMPTS, 2, "History index must bound each wake to one CAS retry");
+assert.equal(HISTORY_INDEX_COORDINATOR_HEADROOM, 5, "History index must reserve coordinator requests outside the atomic slice");
 
 const farDeadline = 100_000;
-const fast = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 35, nowMs: 0, deadlineAtMs: farDeadline });
-assert.ok(fast > 3, `compact index must finish multiple shards per safe slice; got ${fast}`);
+const productionSlice = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 37, nowMs: 0, deadlineAtMs: farDeadline });
+assert.equal(productionSlice, 3, `37-request history slice must checkpoint 3 prefixes safely; got ${productionSlice}`);
+assert.ok(
+  estimateHistoryIndexSliceWorstCaseSubrequests(productionSlice) + HISTORY_INDEX_COORDINATOR_HEADROOM <= 42,
+  "selected history index work must survive one CAS retry inside the 42-request controller budget",
+);
+assert.ok(
+  estimateHistoryIndexSliceWorstCaseSubrequests(productionSlice + 1) + HISTORY_INDEX_COORDINATOR_HEADROOM > 42,
+  "capacity test must prove one more prefix would exceed the safe retry budget",
+);
 
-const smallerBudget = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 18, nowMs: 0, deadlineAtMs: farDeadline });
-assert.ok(smallerBudget > 0 && smallerBudget < fast, "capacity must scale down with available subrequest headroom");
+const smallerBudget = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 29, nowMs: 0, deadlineAtMs: farDeadline });
+assert.ok(smallerBudget > 0 && smallerBudget < productionSlice, "capacity must scale down with available retry-safe headroom");
 
-const enoughForAll = adaptiveHistoryIndexCapacity({ pendingPrefixes: 4, subrequestBudget: 100, nowMs: 0, deadlineAtMs: farDeadline });
-assert.equal(enoughForAll, 4, "small remaining work should finish in one slice when budget allows");
+const tooSmallForRetrySafeWrite = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 18, nowMs: 0, deadlineAtMs: farDeadline });
+assert.equal(tooSmallForRetrySafeWrite, 0, "must yield instead of starting an atomic write that cannot survive one CAS retry");
+
+const enoughForAll = adaptiveHistoryIndexCapacity({ pendingPrefixes: 2, subrequestBudget: 100, nowMs: 0, deadlineAtMs: farDeadline });
+assert.equal(enoughForAll, 2, "small remaining work should finish in one slice when budget allows");
 
 const nearDeadline = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 100, nowMs: farDeadline - HISTORY_INDEX_DEADLINE_GUARD_MS, deadlineAtMs: farDeadline });
 assert.equal(nearDeadline, 0, "deadline guard must yield before starting more GitHub writes");
@@ -35,6 +51,9 @@ assert.doesNotMatch(historyIndex, /PREFIX_BATCH_SIZE\s*=\s*\d+/);
 assert.match(historyIndex, /MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH = 1/);
 assert.match(historyIndex, /symbol\.slice\(0, prefixLength\)/);
 assert.match(historyIndex, /atomicUpdateGitHubJsonFiles/);
+assert.match(historyIndex, /retries:\s*HISTORY_INDEX_CAS_ATTEMPTS/);
+assert.match(historyIndex, /GITHUB_ATOMIC_CAS_EXHAUSTED/);
+assert.match(historyIndex, /yield_reason:\s*"CAS_CONFLICT"/);
 assert.doesNotMatch(backfill, /historyMonth < anchorMonth \? 1 : 2/);
 assert.match(backfill, /const prefixLength: 1 = 1/);
 assert.match(daily, /prefixLength:\s*1/);
@@ -83,4 +102,4 @@ await assert.rejects(
 assert.equal(memory.get("data/test/a.json")!.text, beforeA);
 assert.equal(memory.get("data/test/b.json")!.text, beforeB);
 
-console.log("market-data universal compact adaptive atomic index contract passed");
+console.log("market-data retry-safe compact adaptive atomic index contract passed");
