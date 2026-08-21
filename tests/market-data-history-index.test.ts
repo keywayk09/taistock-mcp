@@ -9,34 +9,41 @@ import {
 import { atomicUpdateGitHubJsonFiles } from "../src/v6/github-atomic-json.ts";
 import { stableJson, type MemoryGitHubDataStore } from "../src/v6/github-data-store.ts";
 
-assert.equal(MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH, 2);
-assert.equal(MARKET_DATA_CLOSED_HISTORY_PREFIX_LENGTH, 1);
+assert.equal(MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH, 1, "future Daily must use compact one-digit shards");
+assert.equal(MARKET_DATA_CLOSED_HISTORY_PREFIX_LENGTH, 1, "History must use the same compact shard contract");
 
 const farDeadline = 100_000;
-const fast = adaptiveHistoryIndexCapacity({ pendingPrefixes: 70, subrequestBudget: 35, nowMs: 0, deadlineAtMs: farDeadline });
-assert.ok(fast > 3, `history index must not retain the old 1/3-prefix pace; got ${fast}`);
+const fast = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 35, nowMs: 0, deadlineAtMs: farDeadline });
+assert.ok(fast > 3, `compact index must finish multiple shards per safe slice; got ${fast}`);
 
-const smallerBudget = adaptiveHistoryIndexCapacity({ pendingPrefixes: 70, subrequestBudget: 18, nowMs: 0, deadlineAtMs: farDeadline });
+const smallerBudget = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 18, nowMs: 0, deadlineAtMs: farDeadline });
 assert.ok(smallerBudget > 0 && smallerBudget < fast, "capacity must scale down with available subrequest headroom");
 
 const enoughForAll = adaptiveHistoryIndexCapacity({ pendingPrefixes: 4, subrequestBudget: 100, nowMs: 0, deadlineAtMs: farDeadline });
 assert.equal(enoughForAll, 4, "small remaining work should finish in one slice when budget allows");
 
-const nearDeadline = adaptiveHistoryIndexCapacity({ pendingPrefixes: 70, subrequestBudget: 100, nowMs: farDeadline - HISTORY_INDEX_DEADLINE_GUARD_MS, deadlineAtMs: farDeadline });
+const nearDeadline = adaptiveHistoryIndexCapacity({ pendingPrefixes: 10, subrequestBudget: 100, nowMs: farDeadline - HISTORY_INDEX_DEADLINE_GUARD_MS, deadlineAtMs: farDeadline });
 assert.equal(nearDeadline, 0, "deadline guard must yield before starting more GitHub writes");
 
 const historyIndex = fs.readFileSync("src/v6/market-data-history-index-v2.ts", "utf8");
 const backfill = fs.readFileSync("src/v6/market-data-360d-backfill.ts", "utf8");
+const daily = fs.readFileSync("src/v6/market-data-daily-capture.ts", "utf8");
 const dispatcher = fs.readFileSync("src/v6/market-data-scheduled-dispatch.ts", "utf8");
 const published = fs.readFileSync("src/v6/market-data-published-gateway-v2.ts", "utf8");
+const fastGateway = fs.readFileSync("src/v6/market-data-fast-gateway.ts", "utf8");
 assert.doesNotMatch(historyIndex, /PREFIX_BATCH_SIZE\s*=\s*\d+/);
-assert.match(historyIndex, /prefixLength\?: 1 \| 2/);
+assert.match(historyIndex, /MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH = 1/);
 assert.match(historyIndex, /symbol\.slice\(0, prefixLength\)/);
 assert.match(historyIndex, /atomicUpdateGitHubJsonFiles/);
-assert.match(backfill, /historyMonth < anchorMonth \? 1 : 2/);
-assert.match(backfill, /prefixLength,/);
-assert.match(published, /CLOSED_MONTH_HISTORY_SHARD_COMPACT/);
-assert.match(published, /CLOSED_MONTH_HISTORY_SHARD_LEGACY/);
+assert.doesNotMatch(backfill, /historyMonth < anchorMonth \? 1 : 2/);
+assert.match(backfill, /const prefixLength: 1 = 1/);
+assert.match(daily, /prefixLength:\s*1/);
+assert.match(daily, /ADAPTIVE_ATOMIC_COMPACT/);
+assert.match(published, /prefixCandidates/);
+assert.match(published, /universal_compact_shard_write:\s*true/);
+assert.match(published, /legacy_two_digit_shard_read_fallback:\s*true/);
+assert.match(fastGateway, /PREFIX_MONTH_COMPACT/);
+assert.match(fastGateway, /PREFIX_MONTH_LEGACY_FALLBACK/);
 assert.match(dispatcher, /BACKFILL_COORDINATOR_HEADROOM/);
 assert.match(dispatcher, /deadlineAtMs:\s*budget\.deadline_at_ms/);
 
@@ -75,4 +82,4 @@ await assert.rejects(
 assert.equal(memory.get("data/test/a.json")!.text, beforeA);
 assert.equal(memory.get("data/test/b.json")!.text, beforeB);
 
-console.log("market-data adaptive atomic history index + compact closed-month shard contract passed");
+console.log("market-data universal compact adaptive atomic index contract passed");
