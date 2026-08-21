@@ -52,11 +52,20 @@ export function refreshBackfillAnchor(state: MarketDataBackfillState, anchorTrad
   assertDate(anchorTradeDate);
   if (state.anchor_trade_date === anchorTradeDate) return state;
   const targetStart = marketDataBackfillStart(anchorTradeDate);
+  if (state.status === "COMPLETE") {
+    return {
+      ...state,
+      anchor_trade_date: anchorTradeDate,
+      target_start_date: targetStart,
+      cursor_date: shiftIsoDate(targetStart, -1),
+      status: "COMPLETE" as const,
+      updated_at: now.toISOString(),
+    };
+  }
   return {
     ...state,
     anchor_trade_date: anchorTradeDate,
     target_start_date: targetStart,
-    cursor_date: state.status === "COMPLETE" ? shiftIsoDate(anchorTradeDate, -1) : state.cursor_date,
     status: state.cursor_date < targetStart ? "COMPLETE" as const : "RUNNING" as const,
     updated_at: now.toISOString(),
   };
