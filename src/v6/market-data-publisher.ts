@@ -1,1 +1,1 @@
-export * from "./market-data-publisher-v4.ts";
+export * from "./market-data-publisher-v5.ts";
