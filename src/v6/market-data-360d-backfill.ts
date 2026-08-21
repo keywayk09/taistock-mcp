@@ -1,6 +1,6 @@
-import { readGitHubJson, updateGitHubJson } from "./github-data-store";
-import { setMarketDataCaptureTradeDate } from "./market-data-capture-context";
-import { runSubrequestSafeMarketDataCapture } from "./market-data-cloudflare-chunked-runner";
+import { readGitHubJson, updateGitHubJson } from "./github-data-store.ts";
+import { setMarketDataCaptureTradeDate } from "./market-data-capture-context.ts";
+import { runSubrequestSafeMarketDataCapture } from "./market-data-cloudflare-chunked-runner.ts";
 
 export const MARKET_DATA_BACKFILL_HORIZON_DAYS = 360;
 export const MARKET_DATA_BACKFILL_STEPS_PER_CRON = 3;
