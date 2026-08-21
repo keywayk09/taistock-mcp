@@ -3,7 +3,7 @@ import fs from "node:fs";
 
 const facade = fs.readFileSync("src/v6/market-data-daily-capture.ts", "utf8");
 const dispatcher = fs.readFileSync("src/v6/market-data-scheduled-dispatch.ts", "utf8");
-const sharedIndexer = fs.readFileSync("src/v6/market-data-history-index.ts", "utf8");
+const sharedIndexer = fs.readFileSync("src/v6/market-data-history-index-v2.ts", "utf8");
 
 assert.match(facade, /runAdaptiveHistoryIndexSlice/);
 assert.match(facade, /daily_index_mode:\s*"ADAPTIVE_ATOMIC"/);
