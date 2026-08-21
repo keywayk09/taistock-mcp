@@ -66,9 +66,23 @@ function monthRange(start: string, end: string) {
   return out;
 }
 
-function closedMonthShardPath(month: string, symbol: string) {
+function closedMonthShardPath(month: string, prefix: string) {
   const [year, mon] = month.split("-");
-  return `data/market-data/index/${year}/${mon}/${symbol.slice(0, 2)}.json`;
+  return `data/market-data/index/${year}/${mon}/${prefix}.json`;
+}
+
+async function readClosedMonthState(env: Env, month: string, symbol: string) {
+  const compactPrefix = symbol.slice(0, 1);
+  const compact = await readGitHubJson<ClosedMonthShard>(env, closedMonthShardPath(month, compactPrefix));
+  if (compact.value?.symbols?.[symbol]) {
+    return { state: compact.value.symbols[symbol], dataset: { path: compact.path, sha: compact.sha, role: "CLOSED_MONTH_HISTORY_SHARD_COMPACT" } };
+  }
+  const legacyPrefix = symbol.slice(0, 2);
+  const legacy = await readGitHubJson<ClosedMonthShard>(env, closedMonthShardPath(month, legacyPrefix));
+  return {
+    state: legacy.value?.symbols?.[symbol] ?? {},
+    dataset: legacy.value?.symbols?.[symbol] ? { path: legacy.path, sha: legacy.sha, role: "CLOSED_MONTH_HISTORY_SHARD_LEGACY" } : null,
+  };
 }
 
 function dedupeRows<T extends { trade_date: string; market?: string }>(rows: T[]) {
@@ -247,9 +261,9 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
         return unavailable(input, `published_shard_invalid:${String(error)}`, pointer);
       }
     } else {
-      const read = await readGitHubJson<ClosedMonthShard>(env, closedMonthShardPath(month, input.symbol));
-      state = read.value?.symbols?.[input.symbol] ?? {};
-      if (Object.keys(state).length) datasets.push({ path: read.path, sha: read.sha, role: "CLOSED_MONTH_HISTORY_SHARD" });
+      const closed = await readClosedMonthState(env, month, input.symbol);
+      state = closed.state;
+      if (closed.dataset) datasets.push(closed.dataset);
     }
 
     const bundle = buildMonthlySymbolBundle({ month, symbol: input.symbol, state });
@@ -298,6 +312,7 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
       mixed_generation_current_day: false,
       daily_snapshot_overlay: false,
       historical_closed_months_use_terminal_month_index: true,
+      closed_month_compact_shard_fallback: true,
       published_generation_uses_blob_reference: publishedFormat === "GENERATION_MANIFEST_V5" || publishedFormat === "LEGACY_V4",
       single_generation_manifest: publishedFormat === "GENERATION_MANIFEST_V5",
     },
