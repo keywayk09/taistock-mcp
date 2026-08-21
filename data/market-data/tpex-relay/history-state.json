@@ -1,11 +1,13 @@
 {
   "anchor_trade_date": "2026-08-21",
   "completed_at": null,
-  "cursor_date": "2026-07-10",
-  "last_error": "RuntimeError: exact_date_dataset_empty:inst=0:margin=0:sbl=0",
-  "processed_dates": 27,
+  "cursor_date": "2026-06-28",
+  "last_skip_evidence": "ALL_EXACT_DATE_TPEX_DATASETS_EMPTY",
+  "last_skipped_no_trading_date": "2026-07-10",
+  "processed_dates": 36,
   "schema": "TPEX_HISTORICAL_RELAY_STATE_V1",
+  "skipped_no_trading_dates": 1,
   "status": "RUNNING",
-  "target_start_date": "2026-02-22",
-  "updated_at": "2026-08-21T18:39:20.928462Z"
+  "target_start_date": "2026-02-23",
+  "updated_at": "2026-08-21T19:13:23.374407Z"
 }
