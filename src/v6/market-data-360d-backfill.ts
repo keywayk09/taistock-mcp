@@ -1,6 +1,7 @@
 import { readGitHubJson, updateGitHubJson } from "./github-data-store.ts";
 import { setMarketDataCapturePolicy, setMarketDataCaptureTradeDate } from "./market-data-capture-context.ts";
 import { runSubrequestSafeMarketDataCapture } from "./market-data-cloudflare-chunked-runner.ts";
+import { promoteLegacyCompleteManifest } from "./market-data-legacy-manifest.ts";
 import {
   MARKET_DATA_BACKFILL_STATE_VERSION,
   initialMarketDataBackfillState,
@@ -16,6 +17,11 @@ export function marketDataBackfillStatePath() {
   return "data/market-data/backfill/360d-state.json";
 }
 
+function dailyManifestPath(tradeDate: string) {
+  const [year, month, day] = tradeDate.split("-");
+  return `data/market-data/daily/${year}/${month}/${day}/manifest.json`;
+}
+
 async function persistState(env: Env, state: MarketDataBackfillState, message: string) {
   return await updateGitHubJson<MarketDataBackfillState>(env, {
     path: marketDataBackfillStatePath(),
@@ -24,6 +30,21 @@ async function persistState(env: Env, state: MarketDataBackfillState, message: s
     retries: 3,
     merge: () => state,
   });
+}
+
+async function promoteLegacyHistoryManifestIfNeeded(env: Env, tradeDate: string, capturedAt: string) {
+  const path = dailyManifestPath(tradeDate);
+  const read = await readGitHubJson<any>(env, path);
+  const promoted = promoteLegacyCompleteManifest(read.value, capturedAt);
+  if (!promoted) return false;
+  await updateGitHubJson<any>(env, {
+    path,
+    defaultValue: promoted,
+    message: `data(market): promote legacy complete ${tradeDate}`,
+    retries: 3,
+    merge: (current) => promoteLegacyCompleteManifest(current, capturedAt) ?? current,
+  });
+  return true;
 }
 
 export async function runMarketData360dBackfillStep(env: Env, input: { anchorTradeDate: string; now?: Date }) {
@@ -57,6 +78,12 @@ export async function runMarketData360dBackfillStep(env: Env, input: { anchorTra
   }
 
   const tradeDate = state.cursor_date;
+  // Historical archives created before the resumable controller may already
+  // contain all 8 READY layers but lack terminal/day_status/index_state. Promote
+  // those manifests in place so History proceeds directly to bounded indexing
+  // instead of refetching sources or stalling on NOOP_NOT_DUE.
+  await promoteLegacyHistoryManifestIfNeeded(env, tradeDate, now.toISOString());
+
   setMarketDataCapturePolicy(null);
   setMarketDataCaptureTradeDate(tradeDate);
   let capture: any;
