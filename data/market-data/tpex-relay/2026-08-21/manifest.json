@@ -1,0 +1,18 @@
+{
+  "canonical_storage": "keywayk09/tv-papertrader main/data",
+  "capture_errors": {},
+  "captured_at_utc": "2026-08-21T09:53:09.423173Z",
+  "datasets": {
+    "institutional": {
+      "endpoint": "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading",
+      "file": "institutional.json",
+      "row_count": 912,
+      "sha256": "1999d1c0e25368a8718152f0730ba84ad9dc087c2bc9ccdb7b8fa3a4876a634e",
+      "source_date": "2026-08-21"
+    }
+  },
+  "schema": "TPEX_OFFICIAL_RELAY_V2",
+  "source_owner": "TPEx",
+  "trade_date": "2026-08-21",
+  "transport": "GitHub public hosted runner official-endpoint transport cache"
+}
