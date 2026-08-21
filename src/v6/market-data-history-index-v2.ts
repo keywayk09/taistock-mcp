@@ -8,7 +8,8 @@ import type { TwMarketDataKind } from "./tw-market-data.ts";
 
 export const HISTORY_INDEX_SNAPSHOT_READ_SUBREQUESTS = 8;
 export const HISTORY_INDEX_DEADLINE_GUARD_MS = 2_500;
-export const MARKET_DATA_INDEX_PREFIX_LENGTH = 1;
+export const MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH = 2;
+export const MARKET_DATA_CLOSED_HISTORY_PREFIX_LENGTH = 1;
 export const HISTORY_INDEX_ATOMIC_FIXED_SUBREQUESTS = 15;
 export const HISTORY_INDEX_PREFIX_ATOMIC_SUBREQUESTS = 2;
 
@@ -57,7 +58,11 @@ export function adaptiveHistoryIndexCapacity(input: {
   return Math.max(0, Math.min(input.pendingPrefixes, Math.floor(remaining / HISTORY_INDEX_PREFIX_ATOMIC_SUBREQUESTS)));
 }
 
-function buildPrefixUpdates(layers: MarketManifestLayer[], snapshotReads: Array<{ value: { rows?: any[] } | null }>) {
+function buildPrefixUpdates(
+  layers: MarketManifestLayer[],
+  snapshotReads: Array<{ value: { rows?: any[] } | null }>,
+  prefixLength: number,
+) {
   const prefixUpdates = new Map<string, Array<{ kind: TwMarketDataKind; row: any }>>();
   for (let i = 0; i < layers.length; i++) {
     const layer = layers[i];
@@ -65,7 +70,7 @@ function buildPrefixUpdates(layers: MarketManifestLayer[], snapshotReads: Array<
     for (const row of rows) {
       const symbol = String(row?.symbol ?? "");
       if (!/^\d{4,6}$/.test(symbol)) continue;
-      const prefix = symbol.slice(0, MARKET_DATA_INDEX_PREFIX_LENGTH);
+      const prefix = symbol.slice(0, prefixLength);
       const list = prefixUpdates.get(prefix) ?? [];
       list.push({ kind: layer.kind as TwMarketDataKind, row });
       prefixUpdates.set(prefix, list);
@@ -76,12 +81,7 @@ function buildPrefixUpdates(layers: MarketManifestLayer[], snapshotReads: Array<
 
 function mergePrefixShard(
   current: SymbolMonthShard,
-  input: {
-    tradeDate: string;
-    prefix: string;
-    updates: Array<{ kind: TwMarketDataKind; row: any }>;
-    capturedAt: string;
-  },
+  input: { tradeDate: string; prefix: string; updates: Array<{ kind: TwMarketDataKind; row: any }>; capturedAt: string },
 ) {
   const next: SymbolMonthShard = {
     schema_version: "diamond-market-data-symbol-shard/v2",
@@ -107,31 +107,24 @@ export async function runAdaptiveHistoryIndexSlice(env: Env, input: {
   capturedAt: string;
   deadlineAtMs: number;
   subrequestBudget: number;
+  prefixLength?: 1 | 2;
 }) {
+  const prefixLength = input.prefixLength ?? MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH;
   const layers = (input.manifest.layers ?? []).filter((layer) => layer.status === "READY" && layer.snapshot_path);
   if (layers.length !== EXPECTED_MARKET_DATA_LAYERS.length) {
     return { trade_date: input.tradeDate, status: "INDEX_WAITING_FOR_COMPLETE_DAY" as const, indexed_prefixes: 0, estimated_subrequests: 0 };
   }
-
   if (Date.now() >= input.deadlineAtMs - HISTORY_INDEX_DEADLINE_GUARD_MS) {
     return { trade_date: input.tradeDate, status: "INDEX_YIELD" as const, indexed_prefixes: 0, estimated_subrequests: 0 };
   }
 
   const snapshotReads = await Promise.all(layers.map((layer) => readGitHubJson<{ rows?: any[] }>(env, String(layer.snapshot_path))));
-  const prefixUpdates = buildPrefixUpdates(layers, snapshotReads);
+  const prefixUpdates = buildPrefixUpdates(layers, snapshotReads, prefixLength);
   const allPrefixes = [...prefixUpdates.keys()].sort();
   const validPrefixes = new Set(allPrefixes);
-  // If a day was partially indexed under the legacy 2-digit scheme before a
-  // deploy, discard only that checkpoint list and rebuild the new 1-digit
-  // buckets. Fully READY legacy days are never reopened by the backfill runner.
   const completed = new Set((input.manifest.index_state?.completed_prefixes ?? []).filter((prefix) => validPrefixes.has(prefix)));
   const pending = allPrefixes.filter((prefix) => !completed.has(prefix));
-  const capacity = adaptiveHistoryIndexCapacity({
-    pendingPrefixes: pending.length,
-    subrequestBudget: input.subrequestBudget,
-    nowMs: Date.now(),
-    deadlineAtMs: input.deadlineAtMs,
-  });
+  const capacity = adaptiveHistoryIndexCapacity({ pendingPrefixes: pending.length, subrequestBudget: input.subrequestBudget, nowMs: Date.now(), deadlineAtMs: input.deadlineAtMs });
 
   if (pending.length > 0 && capacity === 0) {
     return {
@@ -143,7 +136,7 @@ export async function runAdaptiveHistoryIndexSlice(env: Env, input: {
       remaining_prefixes: pending.length,
       estimated_subrequests: HISTORY_INDEX_SNAPSHOT_READ_SUBREQUESTS,
       adaptive_capacity: 0,
-      prefix_length: MARKET_DATA_INDEX_PREFIX_LENGTH,
+      prefix_length: prefixLength,
     };
   }
 
@@ -157,19 +150,8 @@ export async function runAdaptiveHistoryIndexSlice(env: Env, input: {
     const prefixRows = prefixUpdates.get(prefix) ?? [];
     updates.push({
       path: shardPath(input.tradeDate, prefix),
-      defaultValue: {
-        schema_version: "diamond-market-data-symbol-shard/v2",
-        month: input.tradeDate.slice(0, 7),
-        prefix,
-        symbols: {},
-        updated_at: "",
-      } satisfies SymbolMonthShard,
-      merge: (current: SymbolMonthShard) => mergePrefixShard(current, {
-        tradeDate: input.tradeDate,
-        prefix,
-        updates: prefixRows,
-        capturedAt: input.capturedAt,
-      }),
+      defaultValue: { schema_version: "diamond-market-data-symbol-shard/v2", month: input.tradeDate.slice(0, 7), prefix, symbols: {}, updated_at: "" } satisfies SymbolMonthShard,
+      merge: (current: SymbolMonthShard) => mergePrefixShard(current, { tradeDate: input.tradeDate, prefix, updates: prefixRows, capturedAt: input.capturedAt }),
     });
   }
 
@@ -178,12 +160,7 @@ export async function runAdaptiveHistoryIndexSlice(env: Env, input: {
     defaultValue: input.manifest,
     merge: (current: HistoryManifest) => ({
       ...current,
-      index_state: {
-        status: indexStatus,
-        completed_prefixes: [...completed].sort(),
-        total_prefixes: allPrefixes.length,
-        updated_at: input.capturedAt,
-      },
+      index_state: { status: indexStatus, completed_prefixes: [...completed].sort(), total_prefixes: allPrefixes.length, updated_at: input.capturedAt },
       updated_at: input.capturedAt,
     }),
   });
@@ -193,7 +170,6 @@ export async function runAdaptiveHistoryIndexSlice(env: Env, input: {
     updates,
     retries: 3,
   });
-
   const estimatedSubrequests = HISTORY_INDEX_SNAPSHOT_READ_SUBREQUESTS + estimateAtomicJsonTransactionSubrequests(updates.length);
 
   return {
@@ -205,7 +181,7 @@ export async function runAdaptiveHistoryIndexSlice(env: Env, input: {
     remaining_prefixes: remaining.length,
     estimated_subrequests: estimatedSubrequests,
     adaptive_capacity: capacity,
-    prefix_length: MARKET_DATA_INDEX_PREFIX_LENGTH,
+    prefix_length: prefixLength,
     atomic_commit_sha: atomic.commit_sha,
     atomic_changed_paths: atomic.changed_paths.length,
   };
