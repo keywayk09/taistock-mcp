@@ -1,6 +1,7 @@
 import { readGitHubJson, updateGitHubJson } from "./github-data-store.ts";
 import { setMarketDataCapturePolicy, setMarketDataCaptureTradeDate } from "./market-data-capture-context.ts";
 import { runSubrequestSafeMarketDataCapture } from "./market-data-cloudflare-chunked-runner.ts";
+import { runAdaptiveHistoryIndexSlice } from "./market-data-history-index.ts";
 import { promoteLegacyCompleteManifest } from "./market-data-legacy-manifest.ts";
 import {
   MARKET_DATA_BACKFILL_STATE_VERSION,
@@ -32,11 +33,11 @@ async function persistState(env: Env, state: MarketDataBackfillState, message: s
   });
 }
 
-async function promoteLegacyHistoryManifestIfNeeded(env: Env, tradeDate: string, capturedAt: string) {
+async function prepareHistoryManifest(env: Env, tradeDate: string, capturedAt: string) {
   const path = dailyManifestPath(tradeDate);
   const read = await readGitHubJson<any>(env, path);
   const promoted = promoteLegacyCompleteManifest(read.value, capturedAt);
-  if (!promoted) return false;
+  if (!promoted) return read.value;
   await updateGitHubJson<any>(env, {
     path,
     defaultValue: promoted,
@@ -44,10 +45,15 @@ async function promoteLegacyHistoryManifestIfNeeded(env: Env, tradeDate: string,
     retries: 3,
     merge: (current) => promoteLegacyCompleteManifest(current, capturedAt) ?? current,
   });
-  return true;
+  return promoted;
 }
 
-export async function runMarketData360dBackfillStep(env: Env, input: { anchorTradeDate: string; now?: Date }) {
+export async function runMarketData360dBackfillStep(env: Env, input: {
+  anchorTradeDate: string;
+  now?: Date;
+  deadlineAtMs?: number;
+  subrequestBudget?: number;
+}) {
   const now = input.now ?? new Date();
   const path = marketDataBackfillStatePath();
   const read = await readGitHubJson<MarketDataBackfillState>(env, path);
@@ -56,10 +62,8 @@ export async function runMarketData360dBackfillStep(env: Env, input: { anchorTra
     ? refreshBackfillAnchor(existing, input.anchorTradeDate, now)
     : initialMarketDataBackfillState(input.anchorTradeDate, now);
 
-  // COMPLETE is permanently terminal. Do not rewrite the marker and do not
-  // perform any provider/index work on later cron wakes.
   if (state.status === "COMPLETE") {
-    return { status: "BACKFILL_COMPLETE" as const, terminal: true, state };
+    return { status: "BACKFILL_COMPLETE" as const, terminal: true, state, estimated_subrequests: 1 };
   }
 
   if (!existing) {
@@ -74,23 +78,31 @@ export async function runMarketData360dBackfillStep(env: Env, input: { anchorTra
       updated_at: now.toISOString(),
     };
     await persistState(env, state, "data(market): backfill 360d complete");
-    return { status: "BACKFILL_COMPLETE" as const, terminal: true, state };
+    return { status: "BACKFILL_COMPLETE" as const, terminal: true, state, estimated_subrequests: 3 };
   }
 
   const tradeDate = state.cursor_date;
-  // Historical archives created before the resumable controller may already
-  // contain all 8 READY layers but lack terminal/day_status/index_state. Promote
-  // those manifests in place so History proceeds directly to bounded indexing
-  // instead of refetching sources or stalling on NOOP_NOT_DUE.
-  await promoteLegacyHistoryManifestIfNeeded(env, tradeDate, now.toISOString());
+  const preparedManifest = await prepareHistoryManifest(env, tradeDate, now.toISOString());
 
   setMarketDataCapturePolicy(null);
   setMarketDataCaptureTradeDate(tradeDate);
   let capture: any;
   try {
-    // Exactly one atomic capture/index work unit per call. The outer scheduler
-    // decides dynamically how many calls fit in the current safe work budget.
-    capture = await runSubrequestSafeMarketDataCapture(env, { tradeDate, now });
+    if (
+      preparedManifest?.terminal === true
+      && preparedManifest?.day_status === "COMPLETE"
+      && preparedManifest?.index_state?.status !== "READY"
+    ) {
+      capture = await runAdaptiveHistoryIndexSlice(env, {
+        tradeDate,
+        manifest: preparedManifest,
+        capturedAt: now.toISOString(),
+        deadlineAtMs: input.deadlineAtMs ?? (Date.now() + 30_000),
+        subrequestBudget: Math.max(0, Math.floor(input.subrequestBudget ?? 32)),
+      });
+    } else {
+      capture = await runSubrequestSafeMarketDataCapture(env, { tradeDate, now });
+    }
   } finally {
     setMarketDataCapturePolicy(null);
     setMarketDataCaptureTradeDate(null);
@@ -115,7 +127,12 @@ export async function runMarketData360dBackfillStep(env: Env, input: { anchorTra
   }
 
   const captureStatus = String(capture?.status ?? "");
-  const waiting = captureStatus === "NOOP_NOT_DUE" || captureStatus === "INDEX_WAITING_FOR_COMPLETE_DAY";
+  const waiting = captureStatus === "NOOP_NOT_DUE"
+    || captureStatus === "INDEX_WAITING_FOR_COMPLETE_DAY"
+    || captureStatus === "INDEX_YIELD";
+  const estimatedSubrequests = 2
+    + Number(capture?.estimated_subrequests ?? 6)
+    + (shouldAdvanceBackfillCursor(captureStatus) ? 2 : 0);
   return {
     status: state.status === "COMPLETE"
       ? "BACKFILL_COMPLETE" as const
@@ -127,5 +144,6 @@ export async function runMarketData360dBackfillStep(env: Env, input: { anchorTra
     captures: [capture],
     steps_run: 1,
     state,
+    estimated_subrequests: estimatedSubrequests,
   };
 }

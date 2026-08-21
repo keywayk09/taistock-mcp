@@ -11,21 +11,20 @@ import {
 
 export { decideExtendedMarketDataSchedule } from "./market-data-schedule";
 
-// These are safety headroom estimates for the next atomic unit, not work-count
-// ceilings. The loops remain unbounded by step count and continue while the
-// measured/estimated remaining budget can safely fit another unit.
 const CAPTURE_UNIT_RESERVE = 10;
 const PUBLISH_UNIT_RESERVE = 12;
 const BACKFILL_UNIT_RESERVE = 13;
+const BACKFILL_COORDINATOR_HEADROOM = 5;
 
 function statusOf(value: any) {
   return String(value?.status ?? "");
 }
 
 function estimateCaptureSubrequests(result: any) {
+  if (Number.isFinite(Number(result?.estimated_subrequests))) return Number(result.estimated_subrequests);
   const status = statusOf(result);
   if (["NOOP_NOT_DUE", "NOOP_ALREADY_COMPLETE", "NOOP_NO_TRADING_DAY"].includes(status)) return 2;
-  if (["INDEX_PROGRESS", "INDEX_COMPLETE", "INDEX_WAITING_FOR_COMPLETE_DAY"].includes(status)) return 7;
+  if (["INDEX_PROGRESS", "INDEX_COMPLETE", "INDEX_WAITING_FOR_COMPLETE_DAY", "INDEX_YIELD"].includes(status)) return 7;
   if (status === "NO_TRADING_DAY") return 5;
   if (Array.isArray(result?.attempted_layers) && result.attempted_layers.length) return 9;
   return 6;
@@ -40,6 +39,7 @@ function estimatePublisherSubrequests(result: any) {
 }
 
 function estimateBackfillSubrequests(result: any) {
+  if (Number.isFinite(Number(result?.estimated_subrequests))) return Number(result.estimated_subrequests);
   const status = statusOf(result);
   if (status === "BACKFILL_COMPLETE") return 2;
   if (status === "BACKFILL_WAITING") return 4;
@@ -109,9 +109,15 @@ async function runHistoryLane(env: Env, decision: ReturnType<typeof decideExtend
   const backfillResults: any[] = [];
 
   while (hasSafeMarketDataBudget(budget, { nextEstimatedSubrequests: BACKFILL_UNIT_RESERVE })) {
+    const remainingSubrequests = Math.max(
+      0,
+      budget.subrequest_budget - budget.estimated_subrequests - BACKFILL_COORDINATOR_HEADROOM,
+    );
     const backfill = await runMarketData360dBackfillStep(env, {
       anchorTradeDate: decision.tradeDate,
       now: new Date(),
+      deadlineAtMs: budget.deadline_at_ms,
+      subrequestBudget: remainingSubrequests,
     });
     backfillResults.push(backfill);
     chargeMarketDataWorkBudget(budget, estimateBackfillSubrequests(backfill));
