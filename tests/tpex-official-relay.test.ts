@@ -1,10 +1,29 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
+
+function embeddedPython(workflow: string) {
+  const match = workflow.match(/python - <<'PY'\n([\s\S]*?)\n\s+PY(?:\n|$)/);
+  assert.ok(match, "workflow Python heredoc missing");
+  const lines = match[1].split("\n");
+  const nonEmpty = lines.filter((line) => line.trim());
+  const minIndent = Math.min(...nonEmpty.map((line) => line.match(/^\s*/)?.[0].length ?? 0));
+  return lines.map((line) => line.slice(Math.min(minIndent, line.length))).join("\n");
+}
+
+function assertPythonCompiles(label: string, workflow: string) {
+  const python = embeddedPython(workflow);
+  const result = spawnSync("python3", ["-c", "import sys; compile(sys.stdin.read(), '<workflow>', 'exec')"], {
+    input: python,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, `${label} embedded Python syntax failed:\n${result.stderr}`);
+}
 
 assert.equal(fs.existsSync(path.join(root, ".github/workflows/market-data-github-archive.yml")), false);
 
@@ -41,6 +60,7 @@ assert.match(dailyRelay, /21:15/);
 assert.match(dailyRelay, /22:15/);
 assert.match(dailyRelay, /22:45/);
 assert.doesNotMatch(dailyRelay, /grouped\.setdefault\(item\[0\]/);
+assertPythonCompiles("Daily relay", dailyRelay);
 
 // Historical exact-date capture may classify an old date as no-trading only when ALL
 // independent TPEx datasets are empty. A partial empty remains a hard data error.
@@ -53,6 +73,7 @@ assert.match(historyRelay, /last_skipped_no_trading_date/);
 assert.match(historyRelay, /if\s+all\(/);
 assert.match(historyRelay, /if\s+any\(/);
 assert.match(historyRelay, /target\s*=\s*anchor\s*-\s*dt\.timedelta\(days=HORIZON_DAYS\s*-\s*1\)/);
+assertPythonCompiles("Historical relay", historyRelay);
 
 assert.equal(fs.existsSync(path.join(root, "src/v6/github-canonical-sync.ts")), false);
 assert.equal(fs.existsSync(path.join(root, "src/v6/tpex-official-relay.ts")), false);
