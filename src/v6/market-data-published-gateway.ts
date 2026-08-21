@@ -8,6 +8,11 @@ import {
   type MarketReadShardReceipt,
 } from "./market-data-publish-fence.ts";
 import {
+  buildMonthlySymbolBundle,
+  monthlySymbolBundleLogicalPath,
+  monthlySymbolBundleSeries,
+} from "./market-data-monthly-symbol-bundle.ts";
+import {
   institutionalWindows,
   marginWindows,
   securitiesLendingWindows,
@@ -154,6 +159,7 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
   const securitiesLendingRows: SecuritiesLendingRow[] = [];
   const sblShortSaleRows: SblShortSaleRow[] = [];
   const datasets: Array<{ path: string; sha: string | null; role: string }> = [];
+  const logicalBundles: Array<{ month: string; symbol: string; logical_path: string }> = [];
 
   for (const month of months) {
     let state: Partial<Record<TwMarketDataKind, any[]>> = {};
@@ -174,10 +180,14 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
       if (Object.keys(state).length) datasets.push({ path: read.path, sha: read.sha, role: "CLOSED_MONTH_HISTORY_SHARD" });
     }
 
-    for (const row of state.institutional ?? []) if (row.trade_date >= start && row.trade_date <= asOf) institutionalRows.push(row as InstitutionalRow);
-    for (const row of state.margin ?? []) if (row.trade_date >= start && row.trade_date <= asOf) marginRows.push(row as MarginRow);
-    for (const row of state.securities_lending ?? []) if (row.trade_date >= start && row.trade_date <= asOf) securitiesLendingRows.push(row as SecuritiesLendingRow);
-    for (const row of state.sbl_short_sale ?? []) if (row.trade_date >= start && row.trade_date <= asOf) sblShortSaleRows.push(row as SblShortSaleRow);
+    const bundle = buildMonthlySymbolBundle({ month, symbol: input.symbol, state });
+    const series = monthlySymbolBundleSeries(bundle);
+    logicalBundles.push({ month, symbol: input.symbol, logical_path: monthlySymbolBundleLogicalPath(month, input.symbol) });
+
+    for (const row of series.institutional) if (row.trade_date >= start && row.trade_date <= asOf) institutionalRows.push(row as InstitutionalRow);
+    for (const row of series.margin) if (row.trade_date >= start && row.trade_date <= asOf) marginRows.push(row as MarginRow);
+    for (const row of series.securities_lending) if (row.trade_date >= start && row.trade_date <= asOf) securitiesLendingRows.push(row as SecuritiesLendingRow);
+    for (const row of series.sbl_short_sale) if (row.trade_date >= start && row.trade_date <= asOf) sblShortSaleRows.push(row as SblShortSaleRow);
   }
 
   const institutional = dedupeRows(institutionalRows).slice(-120);
@@ -192,7 +202,7 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
     version: MARKET_DATA_PUBLISHED_GATEWAY_VERSION,
     storage: "GITHUB_ONLY",
     consistency: "PUBLISHED" as const,
-    read_strategy: "PUBLISHED_GENERATION_CURRENT_MONTH_PLUS_CLOSED_MONTH_HISTORY",
+    read_strategy: "LOGICAL_MONTH_SYMBOL_BUNDLE_OVER_GENERATION_FENCED_PREFIX_STORAGE",
     symbol: input.symbol,
     requested_as_of: asOf,
     data_as_of: dataAsOf(groups),
@@ -216,9 +226,16 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
       daily_snapshot_overlay: false,
       historical_closed_months_use_terminal_month_index: true,
     },
+    logical_read_model: {
+      shape: "YEAR/MONTH/SYMBOL -> ALL CHIP DATA BY DATE",
+      physically_persisted_per_symbol: false,
+      reason: "Avoid per-symbol GitHub write amplification while preserving the same program-facing model.",
+      bundles: logicalBundles,
+    },
     read_efficiency: {
       prefix,
       months_requested: months.length,
+      physical_reads_per_month: 1,
       published_generation_shards: months.includes(publishedMonth) ? 1 : 0,
       closed_month_history_shards: months.filter((month) => month !== publishedMonth).length,
       daily_manifest_reads: 0,
