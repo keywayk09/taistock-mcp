@@ -52,6 +52,7 @@ assert.match(historyRelay, /skipped_no_trading_dates/);
 assert.match(historyRelay, /last_skipped_no_trading_date/);
 assert.match(historyRelay, /if\s+all\(/);
 assert.match(historyRelay, /if\s+any\(/);
+assert.match(historyRelay, /target\s*=\s*anchor\s*-\s*dt\.timedelta\(days=HORIZON_DAYS\s*-\s*1\)/);
 
 assert.equal(fs.existsSync(path.join(root, "src/v6/github-canonical-sync.ts")), false);
 assert.equal(fs.existsSync(path.join(root, "src/v6/tpex-official-relay.ts")), false);
