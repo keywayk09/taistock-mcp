@@ -4,7 +4,7 @@ import {
   sha256Hex,
   stableJson,
   updateGitHubJson,
-} from "./github-data-store";
+} from "./github-data-store.ts";
 import {
   buildMarketReadGeneration,
   canonicalMarketReadManifestProjection,
@@ -16,8 +16,8 @@ import {
   type MarketReadPublishedPointer,
   type MarketReadPublishState,
   type MarketReadShardReceipt,
-} from "./market-data-publish-fence";
-import type { TwMarketDataKind } from "./tw-market-data";
+} from "./market-data-publish-fence.ts";
+import type { TwMarketDataKind } from "./tw-market-data.ts";
 
 export const MARKET_DATA_PUBLISHER_VERSION = "diamond-market-data-publisher/v1";
 export const MARKET_DATA_PUBLISH_PREFIX_BATCH_SIZE = 5;
