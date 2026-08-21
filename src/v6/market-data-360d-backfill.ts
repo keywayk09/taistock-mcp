@@ -3,7 +3,7 @@ import { setMarketDataCaptureTradeDate } from "./market-data-capture-context";
 import { runSubrequestSafeMarketDataCapture } from "./market-data-cloudflare-chunked-runner";
 
 export const MARKET_DATA_BACKFILL_HORIZON_DAYS = 360;
-export const MARKET_DATA_BACKFILL_STEPS_PER_CRON = 8;
+export const MARKET_DATA_BACKFILL_STEPS_PER_CRON = 3;
 export const MARKET_DATA_BACKFILL_STATE_VERSION = "diamond-market-data-backfill-state/v1";
 
 export type MarketDataBackfillState = {
