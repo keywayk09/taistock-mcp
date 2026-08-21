@@ -11,6 +11,8 @@ export type MarketReadManifestLayer = {
   status: string;
   snapshot_path?: string | null;
   dataset_version?: string | null;
+  content_sha256?: string | null;
+  row_count?: number | null;
 };
 
 export type MarketReadManifest = {
@@ -44,6 +46,18 @@ export type MarketReadShardReceipt = {
   source_manifest_sha: string;
   audit_status: "PASS" | "FAIL";
   symbols: Record<string, unknown>;
+  updated_at?: string;
+};
+
+export type MarketReadPublishState = {
+  schema_version: "diamond-market-data-publish-state/v1";
+  trade_date: string;
+  generation: string;
+  source_manifest_sha: string;
+  status: "PENDING" | "READY";
+  completed_prefixes: string[];
+  total_prefixes: number;
+  updated_at: string;
 };
 
 function invariant(condition: unknown, code: string): asserts condition {
@@ -54,6 +68,50 @@ export function buildMarketReadGeneration(tradeDate: string, manifestSha: string
   invariant(/^20\d{2}-\d{2}-\d{2}$/.test(tradeDate), "trade_date_invalid");
   invariant(/^[0-9a-f]{40,64}$/i.test(manifestSha), "manifest_sha_invalid");
   return `${tradeDate}:${manifestSha.toLowerCase()}`;
+}
+
+export function canonicalMarketReadManifestProjection(manifest: MarketReadManifest) {
+  const layers = [...(manifest.layers ?? [])]
+    .map((layer) => ({
+      kind: layer.kind,
+      market: layer.market,
+      status: layer.status,
+      snapshot_path: layer.snapshot_path ?? null,
+      dataset_version: layer.dataset_version ?? null,
+      content_sha256: layer.content_sha256 ?? null,
+      row_count: layer.row_count ?? null,
+    }))
+    .sort((a, b) => `${a.kind}:${a.market}`.localeCompare(`${b.kind}:${b.market}`));
+  return {
+    schema_version: manifest.schema_version ?? null,
+    trade_date: manifest.trade_date ?? null,
+    day_status: manifest.day_status ?? null,
+    terminal: manifest.terminal === true,
+    expected_layers: manifest.expected_layers ?? null,
+    ready_layers: manifest.ready_layers ?? null,
+    missing_layers: [...(manifest.missing_layers ?? [])].sort(),
+    layers,
+  };
+}
+
+export function marketReadPublishedPointerPath() {
+  return "data/market-data/published/latest.json";
+}
+
+export function marketReadPublishStatePath(tradeDate: string) {
+  invariant(/^20\d{2}-\d{2}-\d{2}$/.test(tradeDate), "trade_date_invalid");
+  const [year, month, day] = tradeDate.split("-");
+  return `data/market-data/published/state/${year}/${month}/${day}.json`;
+}
+
+export function marketReadPublishedShardPath(tradeDate: string, generation: string, prefix: string) {
+  invariant(/^20\d{2}-\d{2}-\d{2}$/.test(tradeDate), "trade_date_invalid");
+  invariant(/^\d{2}$/.test(prefix), "prefix_invalid");
+  const [generationDate, generationSha] = generation.split(":");
+  invariant(generationDate === tradeDate, "generation_trade_date_mismatch");
+  invariant(/^[0-9a-f]{40,64}$/i.test(generationSha ?? ""), "generation_sha_invalid");
+  const [year, month, day] = tradeDate.split("-");
+  return `data/market-data/published/generations/${year}/${month}/${day}/${generationSha.toLowerCase()}/${prefix}.json`;
 }
 
 export function validateMarketReadPublishPrerequisites(manifest: MarketReadManifest) {
