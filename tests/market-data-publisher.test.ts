@@ -16,7 +16,8 @@ const env = { __GITHUB_DATA_MEMORY: memory } as unknown as Env;
 let seedNo = 0;
 
 function seed(path: string, value: unknown) {
-  memory.set(path, { sha: `seed-${++seedNo}`, text: stableJson(value) });
+  const sha = (++seedNo).toString(16).padStart(40, "0");
+  memory.set(path, { sha, text: stableJson(value) });
 }
 
 function symbolFor(prefix: string) {
@@ -151,6 +152,7 @@ assert.equal(MARKET_DATA_PUBLISH_PREFIX_BATCH_SIZE, 5);
 const first = await runMarketDataPublisher(env, { tradeDate, now: new Date("2026-08-21T00:05:00Z") });
 assert.equal(first.status, "PUBLISH_PROGRESS");
 assert.equal(first.published_prefixes, 5);
+assert.equal(first.storage, "REFERENCE_RECEIPT_V4");
 assert.equal(memory.has(marketReadPublishedPointerPath()), false);
 
 const statePath = marketReadPublishStatePath(tradeDate);
@@ -158,16 +160,22 @@ const firstState = JSON.parse(memory.get(statePath)!.text) as MarketReadPublishS
 assert.equal(firstState.completed_prefixes.length, 5);
 assert.equal(firstState.status, "PENDING");
 for (const prefix of prefixes.slice(0, 5)) {
-  assert.equal(memory.has(marketReadPublishedShardPath(tradeDate, firstState.generation, prefix)), true);
+  const receiptPath = marketReadPublishedShardPath(tradeDate, firstState.generation, prefix);
+  assert.equal(memory.has(receiptPath), true);
+  const receipt = JSON.parse(memory.get(receiptPath)!.text);
+  assert.equal(receipt.schema_version, "diamond-market-data-symbol-shard-ref/v4");
+  assert.equal("symbols" in receipt, false, "published generation must not duplicate the month shard payload");
+  assert.match(receipt.source_blob_sha, /^[0-9a-f]{40}$/);
+  assert.match(receipt.source_logical_sha256, /^[0-9a-f]{64}$/);
 }
 
-// Same-generation replay must be immutable/idempotent, not an immutable-content conflict.
+// Same-generation replay must be immutable/idempotent, not a receipt conflict.
 seed(statePath, { ...firstState, status: "PENDING", completed_prefixes: [] });
 const replay = await runMarketDataPublisher(env, { tradeDate, now: new Date("2026-08-21T00:10:00Z") });
 assert.equal(replay.status, "PUBLISH_PROGRESS");
 assert.equal(replay.published_prefixes, 5);
 
-// Failure injection: the last source prefix no longer matches the canonical snapshots.
+// Failure injection: the last source prefix no longer matches canonical snapshots.
 const badPrefix = "35";
 const badPath = `data/market-data/index/2026/08/${badPrefix}.json`;
 const goodBadSource = JSON.parse(memory.get(badPath)!.text);
@@ -184,6 +192,7 @@ seed(badPath, goodBadSource);
 const second = await runMarketDataPublisher(env, { tradeDate, now: new Date("2026-08-21T00:20:00Z") });
 assert.equal(second.status, "PUBLISHED");
 assert.equal(second.published_prefixes, 6);
+assert.equal(second.storage, "REFERENCE_RECEIPT_V4");
 
 const pointer = JSON.parse(memory.get(marketReadPublishedPointerPath())!.text);
 assert.equal(pointer.trade_date, tradeDate);
@@ -200,8 +209,10 @@ assert.equal(published.status, "READY");
 assert.equal(published.data_quality.formal_published, true);
 assert.equal(published.data_quality.mixed_generation_current_day, false);
 assert.equal(published.data_quality.daily_snapshot_overlay, false);
+assert.equal(published.data_quality.published_generation_uses_blob_reference, true);
 assert.equal(published.publication.generation, pointer.generation);
-assert.ok(published.datasets.some((item) => item.role === "PUBLISHED_GENERATION_SHARD"));
+assert.ok(published.datasets.some((item) => item.role === "PUBLISHED_GENERATION_REFERENCE_V4"));
+assert.ok(published.datasets.some((item) => item.role === "PINNED_SOURCE_BLOB"));
 
 const stale = await getTwMarketChipSummaryPublished(env, {
   symbol: "3003",
@@ -211,4 +222,4 @@ const stale = await getTwMarketChipSummaryPublished(env, {
 assert.equal(stale.ok, false);
 assert.equal(stale.reason, "requested_as_of_newer_than_published_pointer");
 
-console.log("PASS market-data publisher + published gateway");
+console.log("PASS market-data publisher v4 reference + published gateway");
