@@ -4,9 +4,10 @@ import {
   buildMarketReadGeneration,
   buildPublishedPointer,
   marketReadCacheKey,
+  type MarketReadEmbeddedShardReceiptV3,
   type MarketReadManifest,
   type MarketReadPublishedPointer,
-  type MarketReadShardReceipt,
+  type MarketReadReferenceShardReceiptV4,
 } from "../src/v6/market-data-publish-fence.ts";
 
 const tradeDate = "2026-08-20";
@@ -45,7 +46,7 @@ const manifest: MarketReadManifest = {
   },
 };
 
-function shard(prefix: string, overrides: Partial<MarketReadShardReceipt> = {}): MarketReadShardReceipt {
+function shard(prefix: string, overrides: Partial<MarketReadEmbeddedShardReceiptV3> = {}): MarketReadEmbeddedShardReceiptV3 {
   return {
     schema_version: "diamond-market-data-symbol-shard/v3",
     month: "2026-08",
@@ -55,6 +56,22 @@ function shard(prefix: string, overrides: Partial<MarketReadShardReceipt> = {}):
     source_manifest_sha: manifestSha,
     audit_status: "PASS",
     symbols: prefix === "30" ? { "3003": { institutional: [] } } : {},
+    ...overrides,
+  };
+}
+
+function reference(prefix: string, overrides: Partial<MarketReadReferenceShardReceiptV4> = {}): MarketReadReferenceShardReceiptV4 {
+  return {
+    schema_version: "diamond-market-data-symbol-shard-ref/v4",
+    month: "2026-08",
+    prefix,
+    build_trade_date: tradeDate,
+    generation,
+    source_manifest_sha: manifestSha,
+    audit_status: "PASS",
+    source_path: `data/market-data/index/2026/08/${prefix}.json`,
+    source_blob_sha: "b".repeat(40),
+    source_logical_sha256: "c".repeat(64),
     ...overrides,
   };
 }
@@ -129,10 +146,11 @@ const promoted = buildPublishedPointer({
   current: oldPointer,
   manifest,
   manifest_sha: manifestSha,
-  shards: prefixes.map((prefix) => shard(prefix)),
+  shards: prefixes.map((prefix) => reference(prefix)),
   published_at: "2026-08-21T00:00:00Z",
 });
 assert.equal(promoted.previous_generation, oldPointer.generation);
+assertPublishedShard(promoted, reference("30"));
 assertPublishedShard(promoted, shard("30"));
 assert.throws(
   () => assertPublishedShard(
@@ -147,4 +165,15 @@ assert.throws(
 );
 assert.notEqual(marketReadCacheKey("3003", oldPointer), marketReadCacheKey("3003", promoted));
 
-console.log("PASS market-data-publish-fence");
+assert.throws(
+  () => buildPublishedPointer({
+    current: null,
+    manifest,
+    manifest_sha: manifestSha,
+    shards: [reference("30"), reference("31", { source_blob_sha: "bad" }), reference("32")],
+    published_at: "2026-08-21T00:00:00Z",
+  }),
+  /shard_source_blob_sha_invalid:31/,
+);
+
+console.log("PASS market-data publish fence v3 compatibility + v4 references");
