@@ -5,6 +5,8 @@ import { decideExtendedMarketDataSchedule } from "../src/v6/market-data-schedule
 
 const legacyRunner = fs.readFileSync("src/v6/market-data-cloudflare-runner.ts", "utf8");
 const runner = fs.readFileSync("src/v6/market-data-cloudflare-chunked-runner.ts", "utf8");
+const captureContext = fs.readFileSync("src/v6/market-data-capture-context.ts", "utf8");
+const incremental = fs.readFileSync("src/v6/market-data-incremental-controller.ts", "utf8");
 const publisher = fs.readFileSync("src/v6/market-data-publisher.ts", "utf8");
 const dispatcher = fs.readFileSync("src/v6/market-data-scheduled-dispatch.ts", "utf8");
 const schedule = fs.readFileSync("src/v6/market-data-schedule.ts", "utf8");
@@ -21,11 +23,14 @@ assert.match(runner, /dueLayerKeys/);
 assert.match(runner, /mergeReadyMonotonic/);
 assert.match(runner, /MARKET_DATA_CAPTURE_BATCH_SIZE = 1/);
 assert.match(runner, /MARKET_DATA_INDEX_PREFIX_BATCH_SIZE = 1/);
-assert.match(runner, /allowedKinds/);
-assert.match(runner, /checkpointStartedAt/);
-assert.match(runner, /last_attempt_at/);
 assert.match(runner, /processIndexBatch/);
 assert.match(runner, /completed_prefixes/);
+assert.match(captureContext, /setMarketDataCapturePolicy/);
+assert.match(captureContext, /allowedKinds/);
+assert.match(captureContext, /checkpointStartedAt/);
+assert.match(incremental, /getMarketDataCapturePolicy/);
+assert.match(incremental, /last_attempt_at/);
+assert.match(incremental, /lastAttempt >= checkpointStart/);
 assert.match(publisher, /validateMarketReadPublishPrerequisites/);
 assert.match(publisher, /auditMaterializedPrefix/);
 assert.match(publisher, /putImmutableGitHubJson/);
