@@ -78,6 +78,8 @@ assert.match(dispatcher, /runSubrequestSafeMarketDataCapture/);
 assert.match(dispatcher, /runMarketDataPublisher/);
 assert.match(schedule, /hour === 18 && minute >= 15/);
 assert.match(schedule, /hour >= 19 && hour <= 23/);
+assert.match(schedule, /previousDayCatchup/);
+assert.match(schedule, /hour < 18 \|\| \(hour === 18 && minute < 15\)/);
 assert.match(schedule, /PREVIOUS_DAY_OVERNIGHT_CATCHUP/);
 assert.match(schedule, /PREVIOUS_DAY_FINAL_AUDIT/);
 assert.match(schedule, /WEEKEND_PREFLIGHT/);
@@ -111,6 +113,16 @@ assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T08:30:00"))
   finalAudit: true,
   reason: "PREVIOUS_DAY_FINAL_AUDIT",
 });
+assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T10:42:00")), {
+  tradeDate: "2026-08-20",
+  finalAudit: false,
+  reason: "PREVIOUS_DAY_OVERNIGHT_CATCHUP",
+});
+assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-22T12:00:00")), {
+  tradeDate: "2026-08-21",
+  finalAudit: false,
+  reason: "PREVIOUS_DAY_OVERNIGHT_CATCHUP",
+});
 assert.equal(decideExtendedMarketDataSchedule(taipei("2026-08-24T00:10:00")), null);
 
 const csv = [
@@ -124,4 +136,4 @@ assert.equal(parsed[0]?.open, false);
 assert.equal(parsed[1]?.date, "2026-02-23");
 assert.equal(parsed[1]?.open, true);
 
-console.log("market-data Cloudflare cron, verified TPEx relay, live/published read gateway tests passed");
+console.log("market-data Cloudflare cron, daytime catchup, verified TPEx relay, live/published read gateway tests passed");
