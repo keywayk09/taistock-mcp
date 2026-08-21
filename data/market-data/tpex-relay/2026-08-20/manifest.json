@@ -1,7 +1,7 @@
 {
   "canonical_storage": "keywayk09/tv-papertrader main/data",
   "capture_errors": {},
-  "captured_at_utc": "2026-08-21T10:50:38.604744Z",
+  "captured_at_utc": "2026-08-21T13:08:07.093585Z",
   "datasets": {
     "margin": {
       "endpoint": "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance",

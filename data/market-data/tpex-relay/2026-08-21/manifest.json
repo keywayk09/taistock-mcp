@@ -1,13 +1,13 @@
 {
   "canonical_storage": "keywayk09/tv-papertrader main/data",
   "capture_errors": {},
-  "captured_at_utc": "2026-08-21T10:50:38.604744Z",
+  "captured_at_utc": "2026-08-21T13:08:07.093585Z",
   "datasets": {
     "institutional": {
       "endpoint": "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading",
       "file": "institutional.json",
       "row_count": 912,
-      "sha256": "45608eb15ed1dfd945375439785f6cfa1ae808ad7acec9bb5aee449a6d9750a5",
+      "sha256": "8b011051fa749694be5d4e9ef277edb110de06b379ce77668344e20769989139",
       "source_date": "2026-08-21"
     }
   },
