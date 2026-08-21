@@ -1,4 +1,5 @@
 import { runSubrequestSafeMarketDataCapture } from "./market-data-cloudflare-chunked-runner";
+import { runMarketDataPublisher } from "./market-data-publisher";
 import { decideExtendedMarketDataSchedule } from "./market-data-schedule";
 
 export { decideExtendedMarketDataSchedule } from "./market-data-schedule";
@@ -13,6 +14,10 @@ export async function runExtendedScheduledMarketDataController(env: Env, schedul
     finalAudit: decision.finalAudit,
     now,
   });
-  console.log("market-data-cloudflare-cron-subrequest-safe", { decision, result });
-  return { decision, result };
+  const publication = await runMarketDataPublisher(env, {
+    tradeDate: decision.tradeDate,
+    now,
+  });
+  console.log("market-data-cloudflare-cron-subrequest-safe", { decision, result, publication });
+  return { decision, result, publication };
 }
