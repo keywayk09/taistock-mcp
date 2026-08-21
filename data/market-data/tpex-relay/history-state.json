@@ -1,13 +1,13 @@
 {
   "anchor_trade_date": "2026-08-21",
   "completed_at": null,
-  "cursor_date": "2026-06-14",
+  "cursor_date": "2026-05-31",
   "last_skip_evidence": "ALL_EXACT_DATE_TPEX_DATASETS_EMPTY",
   "last_skipped_no_trading_date": "2026-06-19",
-  "processed_dates": 45,
+  "processed_dates": 55,
   "schema": "TPEX_HISTORICAL_RELAY_STATE_V1",
   "skipped_no_trading_dates": 2,
   "status": "RUNNING",
   "target_start_date": "2026-02-23",
-  "updated_at": "2026-08-21T19:20:32.223225Z"
+  "updated_at": "2026-08-21T19:45:45.592327Z"
 }
