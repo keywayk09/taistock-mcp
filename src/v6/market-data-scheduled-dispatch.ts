@@ -1,6 +1,6 @@
 import { runMarketData360dBackfillStep } from "./market-data-360d-backfill";
 import { setMarketDataCapturePolicy, setMarketDataCaptureTradeDate } from "./market-data-capture-context";
-import { runSubrequestSafeMarketDataCapture } from "./market-data-cloudflare-chunked-runner";
+import { runAdaptiveDailyMarketDataCapture } from "./market-data-daily-capture";
 import { runMarketDataPublisher } from "./market-data-publisher";
 import { decideExtendedMarketDataSchedule } from "./market-data-schedule";
 import {
@@ -24,12 +24,13 @@ function statusOf(value: any) {
 
 function estimateCaptureSubrequests(result: any) {
   if (Number.isFinite(Number(result?.estimated_subrequests))) return Number(result.estimated_subrequests);
+  const preflight = Math.max(0, Number(result?.preflight_subrequests ?? 0));
   const status = statusOf(result);
-  if (["NOOP_NOT_DUE", "NOOP_ALREADY_COMPLETE", "NOOP_NO_TRADING_DAY"].includes(status)) return 2;
-  if (["INDEX_PROGRESS", "INDEX_COMPLETE", "INDEX_WAITING_FOR_COMPLETE_DAY", "INDEX_YIELD"].includes(status)) return 7;
-  if (status === "NO_TRADING_DAY") return 5;
-  if (Array.isArray(result?.attempted_layers) && result.attempted_layers.length) return 9;
-  return 6;
+  if (["NOOP_NOT_DUE", "NOOP_ALREADY_COMPLETE", "NOOP_NO_TRADING_DAY"].includes(status)) return 2 + preflight;
+  if (["INDEX_PROGRESS", "INDEX_COMPLETE", "INDEX_WAITING_FOR_COMPLETE_DAY", "INDEX_YIELD"].includes(status)) return 7 + preflight;
+  if (status === "NO_TRADING_DAY") return 5 + preflight;
+  if (Array.isArray(result?.attempted_layers) && result.attempted_layers.length) return 9 + preflight;
+  return 6 + preflight;
 }
 
 function estimatePublisherSubrequests(result: any) {
@@ -63,10 +64,16 @@ async function runDailyLane(env: Env, decision: ReturnType<typeof decideExtended
   });
   try {
     while (hasSafeMarketDataBudget(budget, { nextEstimatedSubrequests: CAPTURE_UNIT_RESERVE })) {
-      const result = await runSubrequestSafeMarketDataCapture(env, {
+      const remainingSubrequests = Math.max(
+        0,
+        budget.subrequest_budget - budget.estimated_subrequests,
+      );
+      const result = await runAdaptiveDailyMarketDataCapture(env, {
         tradeDate: decision.tradeDate,
         finalAudit: decision.finalAudit,
         now: new Date(),
+        deadlineAtMs: budget.deadline_at_ms,
+        subrequestBudget: remainingSubrequests,
       });
       hotResults.push(result);
       chargeMarketDataWorkBudget(budget, estimateCaptureSubrequests(result));
@@ -77,6 +84,8 @@ async function runDailyLane(env: Env, decision: ReturnType<typeof decideExtended
         "NOOP_NO_TRADING_DAY",
         "NO_TRADING_DAY",
         "INDEX_COMPLETE",
+        "INDEX_WAITING_FOR_COMPLETE_DAY",
+        "INDEX_YIELD",
       ].includes(status)) break;
     }
   } finally {
