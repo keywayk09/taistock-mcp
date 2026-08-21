@@ -11,7 +11,7 @@ import {
   type TwMarketDataKind,
 } from "./tw-market-data";
 
-export const MARKET_DATA_FAST_GATEWAY_VERSION = "diamond-market-data-fast-gateway/v1";
+export const MARKET_DATA_FAST_GATEWAY_VERSION = "diamond-market-data-fast-gateway/v2-compact-first";
 
 type SymbolMonthShard = {
   schema_version: "diamond-market-data-symbol-shard/v2";
@@ -70,9 +70,20 @@ function monthRange(start: string, end: string) {
   return out;
 }
 
-function shardPath(month: string, symbol: string) {
+function shardPath(month: string, prefix: string) {
   const [year, mon] = month.split("-");
-  return `data/market-data/index/${year}/${mon}/${symbol.slice(0, 2)}.json`;
+  return `data/market-data/index/${year}/${mon}/${prefix}.json`;
+}
+
+async function readMonthState(env: Env, month: string, symbol: string) {
+  const compactPrefix = symbol.slice(0, 1);
+  const compact = await readGitHubJson<SymbolMonthShard>(env, shardPath(month, compactPrefix));
+  if (compact.value?.symbols?.[symbol]) {
+    return { read: compact, state: compact.value.symbols[symbol], role: "PREFIX_MONTH_COMPACT" };
+  }
+  const legacyPrefix = symbol.slice(0, 2);
+  const legacy = await readGitHubJson<SymbolMonthShard>(env, shardPath(month, legacyPrefix));
+  return { read: legacy, state: legacy.value?.symbols?.[symbol] ?? {}, role: "PREFIX_MONTH_LEGACY_FALLBACK" };
 }
 
 function manifestPath(date: string) {
@@ -137,7 +148,7 @@ export async function getTwMarketChipSummaryFast(env: Env, input: FastGatewayInp
   const calendarDays = Math.max(30, Math.min(180, Number(input.calendar_days ?? 60)));
   const start = subtractDays(asOf, calendarDays);
   const months = monthRange(start, asOf);
-  const monthReads = await Promise.all(months.map((month) => readGitHubJson<SymbolMonthShard>(env, shardPath(month, input.symbol))));
+  const monthReads = await Promise.all(months.map((month) => readMonthState(env, month, input.symbol)));
 
   const institutionalRows: InstitutionalRow[] = [];
   const marginRows: MarginRow[] = [];
@@ -145,13 +156,13 @@ export async function getTwMarketChipSummaryFast(env: Env, input: FastGatewayInp
   const sblShortSaleRows: SblShortSaleRow[] = [];
   const datasets: Array<{ path: string; sha: string | null; role: string }> = [];
 
-  for (const read of monthReads) {
-    const state = read.value?.symbols?.[input.symbol] ?? {};
+  for (const monthRead of monthReads) {
+    const state = monthRead.state;
     for (const row of state.institutional ?? []) if (row.trade_date >= start && row.trade_date <= asOf) institutionalRows.push(row as InstitutionalRow);
     for (const row of state.margin ?? []) if (row.trade_date >= start && row.trade_date <= asOf) marginRows.push(row as MarginRow);
     for (const row of state.securities_lending ?? []) if (row.trade_date >= start && row.trade_date <= asOf) securitiesLendingRows.push(row as SecuritiesLendingRow);
     for (const row of state.sbl_short_sale ?? []) if (row.trade_date >= start && row.trade_date <= asOf) sblShortSaleRows.push(row as SblShortSaleRow);
-    if (Object.keys(state).length) datasets.push({ path: read.path, sha: read.sha, role: "PREFIX_MONTH_READ_MODEL" });
+    if (Object.keys(state).length) datasets.push({ path: monthRead.read.path, sha: monthRead.read.sha, role: monthRead.role });
   }
 
   const manifest = await readGitHubJson<DailyManifest>(env, manifestPath(asOf));
@@ -180,14 +191,15 @@ export async function getTwMarketChipSummaryFast(env: Env, input: FastGatewayInp
     ok: true,
     version: MARKET_DATA_FAST_GATEWAY_VERSION,
     storage: "GITHUB_ONLY",
-    read_strategy: "PREFIX_MONTH_READ_MODEL_PLUS_DAILY_SNAPSHOT_OVERLAY",
+    read_strategy: "COMPACT_PREFIX_MONTH_READ_MODEL_PLUS_DAILY_SNAPSHOT_OVERLAY",
     symbol: input.symbol,
     requested_as_of: asOf,
     data_as_of: dataAsOf(groups),
     calendar_days: calendarDays,
     status: unavailable === 0 ? "READY" : unavailable === 4 ? "UNAVAILABLE" : "DEGRADED",
     read_efficiency: {
-      prefix: input.symbol.slice(0, 2),
+      prefix: input.symbol.slice(0, 1),
+      legacy_prefix_fallback: input.symbol.slice(0, 2),
       month_shards_requested: months.length,
       daily_manifest_reads: 1,
       daily_snapshot_reads: liveReads.length,

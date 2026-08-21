@@ -29,7 +29,7 @@ import {
   type TwMarketDataKind,
 } from "./tw-market-data.ts";
 
-export const MARKET_DATA_PUBLISHED_GATEWAY_VERSION = "diamond-market-data-published-gateway/v3-generation-manifest";
+export const MARKET_DATA_PUBLISHED_GATEWAY_VERSION = "diamond-market-data-published-gateway/v4-universal-compact";
 export const MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS = 180;
 
 type ClosedMonthShard = {
@@ -71,17 +71,20 @@ function closedMonthShardPath(month: string, prefix: string) {
   return `data/market-data/index/${year}/${mon}/${prefix}.json`;
 }
 
+function prefixCandidates(symbol: string) {
+  return [symbol.slice(0, 1), symbol.slice(0, 2)];
+}
+
 async function readClosedMonthState(env: Env, month: string, symbol: string) {
-  const compactPrefix = symbol.slice(0, 1);
+  const [compactPrefix, legacyPrefix] = prefixCandidates(symbol);
   const compact = await readGitHubJson<ClosedMonthShard>(env, closedMonthShardPath(month, compactPrefix));
   if (compact.value?.symbols?.[symbol]) {
-    return { state: compact.value.symbols[symbol], dataset: { path: compact.path, sha: compact.sha, role: "CLOSED_MONTH_HISTORY_SHARD_COMPACT" } };
+    return { state: compact.value.symbols[symbol], dataset: { path: compact.path, sha: compact.sha, role: "MONTH_SHARD_COMPACT" } };
   }
-  const legacyPrefix = symbol.slice(0, 2);
   const legacy = await readGitHubJson<ClosedMonthShard>(env, closedMonthShardPath(month, legacyPrefix));
   return {
     state: legacy.value?.symbols?.[symbol] ?? {},
-    dataset: legacy.value?.symbols?.[symbol] ? { path: legacy.path, sha: legacy.sha, role: "CLOSED_MONTH_HISTORY_SHARD_LEGACY" } : null,
+    dataset: legacy.value?.symbols?.[symbol] ? { path: legacy.path, sha: legacy.sha, role: "MONTH_SHARD_LEGACY_FALLBACK" } : null,
   };
 }
 
@@ -179,15 +182,16 @@ async function stateFromPinnedReference(
 async function stateFromPublishedGeneration(
   env: Env,
   pointer: MarketReadPublishedPointer,
-  prefix: string,
   symbol: string,
 ) {
+  const [compactPrefix, legacyPrefix] = prefixCandidates(symbol);
   const generationManifestPath = marketReadPublishedGenerationManifestPath(pointer.trade_date, pointer.generation);
   const generationRead = await readGitHubJson<MarketReadGenerationManifestV5>(env, generationManifestPath);
   if (generationRead.value?.schema_version === "diamond-market-data-generation-ref/v5") {
     assertPublishedGenerationManifest(pointer, generationRead.value);
+    const prefix = generationRead.value.prefixes[compactPrefix] ? compactPrefix : legacyPrefix;
     const reference = generationRead.value.prefixes[prefix];
-    if (!reference) throw new Error(`published_generation_prefix_missing:${prefix}`);
+    if (!reference) throw new Error(`published_generation_prefix_missing:${compactPrefix}|${legacyPrefix}`);
     const pinned = await stateFromPinnedReference(env, pointer, prefix, symbol, reference);
     return {
       state: pinned.state,
@@ -196,12 +200,17 @@ async function stateFromPublishedGeneration(
         pinned.sourceDataset,
       ],
       format: "GENERATION_MANIFEST_V5" as const,
+      prefix,
     };
   }
 
-  const receiptPath = marketReadPublishedShardPath(pointer.trade_date, pointer.generation, prefix);
-  const read = await readGitHubJson<MarketReadShardReceipt>(env, receiptPath);
-  if (!read.value) throw new Error(`published_shard_missing:${prefix}`);
+  let prefix = compactPrefix;
+  let read = await readGitHubJson<MarketReadShardReceipt>(env, marketReadPublishedShardPath(pointer.trade_date, pointer.generation, prefix));
+  if (!read.value) {
+    prefix = legacyPrefix;
+    read = await readGitHubJson<MarketReadShardReceipt>(env, marketReadPublishedShardPath(pointer.trade_date, pointer.generation, prefix));
+  }
+  if (!read.value) throw new Error(`published_shard_missing:${compactPrefix}|${legacyPrefix}`);
   assertPublishedShard(pointer, read.value);
 
   if (read.value.schema_version === "diamond-market-data-symbol-shard/v3") {
@@ -209,6 +218,7 @@ async function stateFromPublishedGeneration(
       state: (read.value.symbols?.[symbol] ?? {}) as Partial<Record<TwMarketDataKind, any[]>>,
       datasets: [{ path: read.path, sha: read.sha, role: "PUBLISHED_GENERATION_SHARD_V3" }],
       format: "LEGACY_V3" as const,
+      prefix,
     };
   }
 
@@ -221,6 +231,7 @@ async function stateFromPublishedGeneration(
       pinned.sourceDataset,
     ],
     format: "LEGACY_V4" as const,
+    prefix,
   };
 }
 
@@ -239,7 +250,6 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
   const start = subtractDays(asOf, calendarDays);
   const months = monthRange(start, asOf);
   const publishedMonth = pointer.trade_date.slice(0, 7);
-  const prefix = input.symbol.slice(0, 2);
 
   const institutionalRows: InstitutionalRow[] = [];
   const marginRows: MarginRow[] = [];
@@ -248,15 +258,17 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
   const datasets: Array<{ path: string; sha: string | null; role: string }> = [];
   const logicalBundles: Array<{ month: string; symbol: string; logical_path: string }> = [];
   let publishedFormat: "GENERATION_MANIFEST_V5" | "LEGACY_V3" | "LEGACY_V4" | null = null;
+  let publishedPrefix: string | null = null;
 
   for (const month of months) {
     let state: Partial<Record<TwMarketDataKind, any[]>> = {};
     if (month === publishedMonth) {
       try {
-        const resolved = await stateFromPublishedGeneration(env, pointer, prefix, input.symbol);
+        const resolved = await stateFromPublishedGeneration(env, pointer, input.symbol);
         state = resolved.state;
         datasets.push(...resolved.datasets);
         publishedFormat = resolved.format;
+        publishedPrefix = resolved.prefix;
       } catch (error) {
         return unavailable(input, `published_shard_invalid:${String(error)}`, pointer);
       }
@@ -288,7 +300,7 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
     version: MARKET_DATA_PUBLISHED_GATEWAY_VERSION,
     storage: "GITHUB_ONLY",
     consistency: "PUBLISHED" as const,
-    read_strategy: "LOGICAL_MONTH_SYMBOL_BUNDLE_OVER_GENERATION_FENCED_PREFIX_STORAGE",
+    read_strategy: "LOGICAL_MONTH_SYMBOL_BUNDLE_OVER_COMPACT_GENERATION_FENCED_STORAGE",
     symbol: input.symbol,
     requested_as_of: asOf,
     data_as_of: dataAsOf(groups),
@@ -311,8 +323,8 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
       current_month_generation_fenced: true,
       mixed_generation_current_day: false,
       daily_snapshot_overlay: false,
-      historical_closed_months_use_terminal_month_index: true,
-      closed_month_compact_shard_fallback: true,
+      universal_compact_shard_write: true,
+      legacy_two_digit_shard_read_fallback: true,
       published_generation_uses_blob_reference: publishedFormat === "GENERATION_MANIFEST_V5" || publishedFormat === "LEGACY_V4",
       single_generation_manifest: publishedFormat === "GENERATION_MANIFEST_V5",
     },
@@ -323,7 +335,9 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
       bundles: logicalBundles,
     },
     read_efficiency: {
-      prefix,
+      prefix: publishedPrefix ?? input.symbol.slice(0, 1),
+      compact_prefix: input.symbol.slice(0, 1),
+      legacy_prefix_fallback: input.symbol.slice(0, 2),
       months_requested: months.length,
       physical_reads_per_month: 1,
       published_generation_shards: months.includes(publishedMonth) ? 1 : 0,

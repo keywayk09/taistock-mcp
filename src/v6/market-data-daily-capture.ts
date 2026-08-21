@@ -25,9 +25,8 @@ function manifestPath(tradeDate: string) {
  * Daily capture facade.
  *
  * Capture remains one-layer resumable. Once canonical 8/8 is terminal COMPLETE,
- * indexing is handed to the same budget-driven, multi-file atomic indexer used
- * by History. This prevents the legacy 1-prefix/1-commit index path from being
- * exercised by the scheduled Daily lane.
+ * indexing is handed to the same budget-driven, multi-file atomic compact
+ * indexer used by History. New Daily dates never create legacy two-digit shards.
  */
 export async function runAdaptiveDailyMarketDataCapture(env: Env, input: {
   tradeDate: string;
@@ -51,11 +50,13 @@ export async function runAdaptiveDailyMarketDataCapture(env: Env, input: {
       capturedAt: now.toISOString(),
       deadlineAtMs: input.deadlineAtMs ?? (Date.now() + 30_000),
       subrequestBudget: Math.max(0, Math.floor(input.subrequestBudget ?? 32)),
+      prefixLength: 1,
     });
     return {
       ...indexed,
       estimated_subrequests: 1 + Number(indexed.estimated_subrequests ?? 0),
       daily_index_mode: "ADAPTIVE_ATOMIC" as const,
+      compact_prefix_length: 1 as const,
     };
   }
 

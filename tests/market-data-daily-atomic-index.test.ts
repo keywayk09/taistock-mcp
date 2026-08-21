@@ -7,6 +7,8 @@ const sharedIndexer = fs.readFileSync("src/v6/market-data-history-index-v2.ts", 
 
 assert.match(facade, /runAdaptiveHistoryIndexSlice/);
 assert.match(facade, /daily_index_mode:\s*"ADAPTIVE_ATOMIC"/);
+assert.match(facade, /compact_prefix_length:\s*1/);
+assert.match(facade, /prefixLength:\s*1/);
 assert.match(facade, /manifest\?\.terminal === true/);
 assert.match(facade, /manifest\?\.day_status === "COMPLETE"/);
 assert.match(dispatcher, /runAdaptiveDailyMarketDataCapture/);
@@ -14,7 +16,8 @@ assert.doesNotMatch(dispatcher, /runSubrequestSafeMarketDataCapture/);
 assert.match(dispatcher, /deadlineAtMs:\s*budget\.deadline_at_ms/);
 assert.match(dispatcher, /subrequestBudget:\s*remainingSubrequests/);
 assert.match(sharedIndexer, /atomicUpdateGitHubJsonFiles/);
-assert.match(sharedIndexer, /history index slice/);
+assert.match(sharedIndexer, /compact index slice/);
+assert.match(sharedIndexer, /MARKET_DATA_DAILY_INDEX_PREFIX_LENGTH = 1/);
 assert.match(sharedIndexer, /adaptiveHistoryIndexCapacity/);
 
-console.log("PASS daily lane shares adaptive atomic indexer with history");
+console.log("PASS Daily and History share universal compact adaptive atomic indexer");
