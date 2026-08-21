@@ -1,4 +1,4 @@
-import { readGitHubJson } from "./github-data-store";
+import { readGitHubJson } from "./github-data-store.ts";
 import {
   assertPublishedShard,
   marketReadCacheKey,
@@ -6,7 +6,7 @@ import {
   marketReadPublishedShardPath,
   type MarketReadPublishedPointer,
   type MarketReadShardReceipt,
-} from "./market-data-publish-fence";
+} from "./market-data-publish-fence.ts";
 import {
   institutionalWindows,
   marginWindows,
@@ -17,7 +17,7 @@ import {
   type SecuritiesLendingRow,
   type SblShortSaleRow,
   type TwMarketDataKind,
-} from "./tw-market-data";
+} from "./tw-market-data.ts";
 
 export const MARKET_DATA_PUBLISHED_GATEWAY_VERSION = "diamond-market-data-published-gateway/v1";
 
