@@ -11,6 +11,13 @@ import {
 
 export { decideExtendedMarketDataSchedule } from "./market-data-schedule";
 
+// These are safety headroom estimates for the next atomic unit, not work-count
+// ceilings. The loops remain unbounded by step count and continue while the
+// measured/estimated remaining budget can safely fit another unit.
+const CAPTURE_UNIT_RESERVE = 10;
+const PUBLISH_UNIT_RESERVE = 12;
+const BACKFILL_UNIT_RESERVE = 13;
+
 function statusOf(value: any) {
   return String(value?.status ?? "");
 }
@@ -26,7 +33,7 @@ function estimateCaptureSubrequests(result: any) {
 
 function estimatePublisherSubrequests(result: any) {
   const status = statusOf(result);
-  if (["PUBLISH_WAITING_MANIFEST", "PUBLISH_WAITING_CANONICAL", "PUBLISH_WAITING_INDEX", "PUBLISH_NO_TRADING_DAY"].includes(status)) return 2;
+  if (["PUBLISH_WAITING_MANIFEST", "PUBLISH_WAITING_CANONICAL", "PUBLISH_WAITING_INDEX", "PUBLISH_NO_TRADING_DAY", "PUBLISH_WAITING_HISTORY_MONTH"].includes(status)) return 2;
   if (status === "PUBLISHED") return 8;
   if (status === "PUBLISH_PROGRESS") return 10;
   return 5;
@@ -51,7 +58,7 @@ async function runDailyLane(env: Env, decision: ReturnType<typeof decideExtended
     checkpointStartedAt: decision.checkpointStartedAt,
   });
   try {
-    while (hasSafeMarketDataBudget(budget, { nextEstimatedSubrequests: 4 })) {
+    while (hasSafeMarketDataBudget(budget, { nextEstimatedSubrequests: CAPTURE_UNIT_RESERVE })) {
       const result = await runSubrequestSafeMarketDataCapture(env, {
         tradeDate: decision.tradeDate,
         finalAudit: decision.finalAudit,
@@ -73,7 +80,7 @@ async function runDailyLane(env: Env, decision: ReturnType<typeof decideExtended
     setMarketDataCaptureTradeDate(null);
   }
 
-  while (hasSafeMarketDataBudget(budget, { nextEstimatedSubrequests: 4 })) {
+  while (hasSafeMarketDataBudget(budget, { nextEstimatedSubrequests: PUBLISH_UNIT_RESERVE })) {
     const publication = await runMarketDataPublisher(env, {
       tradeDate: decision.tradeDate,
       now: new Date(),
@@ -101,7 +108,7 @@ async function runHistoryLane(env: Env, decision: ReturnType<typeof decideExtend
   const budget = createMarketDataWorkBudget();
   const backfillResults: any[] = [];
 
-  while (hasSafeMarketDataBudget(budget, { nextEstimatedSubrequests: 4 })) {
+  while (hasSafeMarketDataBudget(budget, { nextEstimatedSubrequests: BACKFILL_UNIT_RESERVE })) {
     const backfill = await runMarketData360dBackfillStep(env, {
       anchorTradeDate: decision.tradeDate,
       now: new Date(),
