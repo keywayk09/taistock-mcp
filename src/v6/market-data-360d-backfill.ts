@@ -15,8 +15,6 @@ import {
 export { MARKET_DATA_BACKFILL_HORIZON_DAYS } from "./market-data-backfill-policy.ts";
 
 export function marketDataBackfillStatePath() {
-  // Compatibility path retained so the live one-shot cursor is migrated in
-  // place instead of restarting from scratch when retention policy changes.
   return "data/market-data/backfill/360d-state.json";
 }
 
@@ -87,6 +85,9 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
 
   const tradeDate = state.cursor_date;
   const preparedManifest = await prepareHistoryManifest(env, tradeDate, now.toISOString());
+  const anchorMonth = state.anchor_trade_date.slice(0, 7);
+  const historyMonth = tradeDate.slice(0, 7);
+  const prefixLength: 1 | 2 = historyMonth < anchorMonth ? 1 : 2;
 
   setMarketDataCapturePolicy({ storageMode: "HISTORY_COMPRESSED" });
   setMarketDataCaptureTradeDate(tradeDate);
@@ -103,6 +104,7 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
         capturedAt: now.toISOString(),
         deadlineAtMs: input.deadlineAtMs ?? (Date.now() + 30_000),
         subrequestBudget: Math.max(0, Math.floor(input.subrequestBudget ?? 32)),
+        prefixLength,
       });
     } else {
       capture = await runSubrequestSafeMarketDataCapture(env, { tradeDate, now });
@@ -148,6 +150,7 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
     captures: [capture],
     steps_run: 1,
     state,
+    index_prefix_length: prefixLength,
     estimated_subrequests: estimatedSubrequests,
   };
 }
