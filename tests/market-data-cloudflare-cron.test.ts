@@ -7,7 +7,7 @@ const legacyRunner = fs.readFileSync("src/v6/market-data-cloudflare-runner.ts", 
 const runner = fs.readFileSync("src/v6/market-data-cloudflare-chunked-runner.ts", "utf8");
 const captureContext = fs.readFileSync("src/v6/market-data-capture-context.ts", "utf8");
 const incremental = fs.readFileSync("src/v6/market-data-incremental-controller.ts", "utf8");
-const publisher = fs.readFileSync("src/v6/market-data-publisher.ts", "utf8");
+const publisher = fs.readFileSync("src/v6/market-data-publisher-v4.ts", "utf8");
 const dispatcher = fs.readFileSync("src/v6/market-data-scheduled-dispatch.ts", "utf8");
 const schedule = fs.readFileSync("src/v6/market-data-schedule.ts", "utf8");
 const wrangler = fs.readFileSync("wrangler.jsonc", "utf8");
@@ -28,12 +28,15 @@ assert.match(runner, /completed_prefixes/);
 assert.match(captureContext, /setMarketDataCapturePolicy/);
 assert.match(captureContext, /allowedKinds/);
 assert.match(captureContext, /checkpointStartedAt/);
+assert.match(captureContext, /HISTORY_COMPRESSED/);
 assert.match(incremental, /getMarketDataCapturePolicy/);
 assert.match(incremental, /last_attempt_at/);
 assert.match(incremental, /lastAttempt >= checkpointStart/);
 assert.match(publisher, /validateMarketReadPublishPrerequisites/);
 assert.match(publisher, /auditMaterializedPrefix/);
-assert.match(publisher, /putImmutableGitHubJson/);
+assert.match(publisher, /atomicUpdateGitHubJsonFiles/);
+assert.match(publisher, /source_blob_sha/);
+assert.doesNotMatch(publisher, /symbols:\s*sourceRead\.value\.symbols/);
 
 assert.doesNotMatch(dispatcher, /MARKET_DATA_HOT_STEPS_PER_CRON/);
 assert.doesNotMatch(dispatcher, /MARKET_DATA_PUBLISH_STEPS_PER_CRON/);
