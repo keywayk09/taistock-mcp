@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import {
+  assertPublishedGenerationManifest,
   assertPublishedShard,
   buildMarketReadGeneration,
   buildPublishedPointer,
   marketReadCacheKey,
   type MarketReadEmbeddedShardReceiptV3,
+  type MarketReadGenerationManifestV5,
   type MarketReadManifest,
   type MarketReadPublishedPointer,
   type MarketReadReferenceShardReceiptV4,
@@ -173,7 +175,50 @@ assert.throws(
     shards: [reference("30"), reference("31", { source_blob_sha: "bad" }), reference("32")],
     published_at: "2026-08-21T00:00:00Z",
   }),
-  /shard_source_blob_sha_invalid:31/,
+  /generation_source_blob_sha_invalid:31|shard_source_blob_sha_invalid:31/,
 );
 
-console.log("PASS market-data publish fence v3 compatibility + v4 references");
+const v5Pointer: MarketReadPublishedPointer = {
+  schema_version: "diamond-market-data-published-pointer/v1",
+  trade_date: tradeDate,
+  generation,
+  source_manifest_sha: manifestSha,
+  prefix_count: prefixes.length,
+  published_at: "2026-08-21T00:00:00Z",
+  previous_generation: null,
+};
+const v5Manifest: MarketReadGenerationManifestV5 = {
+  schema_version: "diamond-market-data-generation-ref/v5",
+  month: "2026-08",
+  trade_date: tradeDate,
+  generation,
+  source_manifest_sha: manifestSha,
+  audit_status: "PASS",
+  prefix_count: prefixes.length,
+  prefixes: Object.fromEntries(prefixes.map((prefix, index) => [prefix, {
+    source_path: `data/market-data/index/2026/08/${prefix}.json`,
+    source_blob_sha: (index + 1).toString(16).padStart(40, "0"),
+    source_logical_sha256: (index + 1).toString(16).padStart(64, "0"),
+  }])),
+  created_at: "2026-08-21T00:00:00Z",
+};
+assert.doesNotThrow(() => assertPublishedGenerationManifest(v5Pointer, v5Manifest));
+assert.throws(
+  () => assertPublishedGenerationManifest(v5Pointer, {
+    ...v5Manifest,
+    prefix_count: 2,
+  }),
+  /published_generation_declared_prefix_count_mismatch/,
+);
+assert.throws(
+  () => assertPublishedGenerationManifest(v5Pointer, {
+    ...v5Manifest,
+    prefixes: {
+      ...v5Manifest.prefixes,
+      "31": { ...v5Manifest.prefixes["31"], source_blob_sha: "bad" },
+    },
+  }),
+  /generation_source_blob_sha_invalid:31/,
+);
+
+console.log("PASS market-data publish fence legacy compatibility + compact v5 generation manifest");
