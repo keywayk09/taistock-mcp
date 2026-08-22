@@ -18,28 +18,35 @@ assert.equal(state.anchor_trade_date, "2026-08-20");
 assert.equal(state.cursor_date, "2026-08-19");
 assert.equal(state.target_start_date, "2026-02-22");
 assert.equal(state.status, "RUNNING");
+assert.equal(state.phase, "CAPTURE");
 assert.equal(state.completed_at, null);
-assert.equal(shouldAdvanceBackfillCursor("INDEX_COMPLETE"), true);
+assert.equal(shouldAdvanceBackfillCursor("HISTORY_CAPTURE_COMPLETE"), true);
+assert.equal(shouldAdvanceBackfillCursor("NOOP_ALREADY_COMPLETE"), true);
 assert.equal(shouldAdvanceBackfillCursor("NO_TRADING_DAY"), true);
+assert.equal(shouldAdvanceBackfillCursor("INDEX_COMPLETE"), true, "legacy indexed dates stay resumable");
 assert.equal(shouldAdvanceBackfillCursor("INDEX_PROGRESS"), false);
 
 // A legacy RUNNING 360-day state is allowed to shrink to the new 180-day
-// retention target, preserving its cursor/progress instead of restarting.
+// retention target, preserving its cursor/progress instead of restarting and
+// migrating in place into the V2 CAPTURE phase.
 const legacyRunning = {
   ...state,
+  phase: undefined,
   target_start_date: "2025-08-26",
   cursor_date: "2026-08-18",
   processed_dates: 2,
 };
-const migrated = refreshBackfillAnchor(legacyRunning, "2026-08-21", new Date("2026-08-21T15:00:00Z"));
+const migrated = refreshBackfillAnchor(legacyRunning as any, "2026-08-21", new Date("2026-08-21T15:00:00Z"));
 assert.equal(migrated.target_start_date, "2026-02-22");
 assert.equal(migrated.cursor_date, "2026-08-18");
 assert.equal(migrated.processed_dates, 2);
+assert.equal(migrated.phase, "CAPTURE");
 
 // A completed bootstrap is terminal. A newer daily anchor must never reopen
 // or roll the history cursor.
 const complete = {
   ...state,
+  phase: "BUILD" as const,
   status: "COMPLETE" as const,
   cursor_date: "2026-02-21",
   completed_at: "2026-08-21T01:00:00.000Z",
@@ -49,11 +56,22 @@ assert.deepEqual(frozen, complete);
 
 const runtime = fs.readFileSync("src/v6/market-data-360d-backfill.ts", "utf8");
 assert.match(runtime, /runSubrequestSafeMarketDataCapture/);
+assert.match(runtime, /stageHistoryDayV2/);
+assert.match(runtime, /runHistoryMonthBuildV2/);
+assert.match(runtime, /HISTORY_CAPTURE_COMPLETE/);
+assert.match(runtime, /HISTORY_V2_BUILD_PHASE_STARTED/);
+assert.match(runtime, /phase:\s*"BUILD"/);
+assert.doesNotMatch(runtime, /runAdaptiveHistoryIndexSlice/);
 assert.match(runtime, /360d-state\.json/); // compatibility path; state policy controls retention.
 assert.doesNotMatch(runtime, /MARKET_DATA_BACKFILL_STEPS_PER_CRON/);
 assert.doesNotMatch(runtime, /for \(let step = 0; step < MARKET_DATA_BACKFILL_STEPS_PER_CRON/);
 assert.match(runtime, /BACKFILL_COMPLETE/);
 assert.match(runtime, /completed_at/);
+
+// History Builder V2 owns bulk month indexing. Capture must never declare
+// COMPLETE merely because the cursor crossed the retention target.
+assert.doesNotMatch(runtime, /cursor_date:\s*next,[\s\S]{0,250}status:\s*complete \? "COMPLETE"/);
+assert.match(runtime, /HISTORY_V2_ALL_MONTHS_READY/);
 
 const dispatch = fs.readFileSync("src/v6/market-data-scheduled-dispatch.ts", "utf8");
 assert.doesNotMatch(dispatch, /MARKET_DATA_HOT_STEPS_PER_CRON/);
@@ -76,4 +94,4 @@ assert.match(published, /Math\.min\(MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS/);
 assert.match(published, /slice\(-MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS\)/);
 assert.match(published, /GENERATION_MANIFEST_V5/);
 
-console.log("PASS market-data one-shot 180d bootstrap + adaptive scheduler contract");
+console.log("PASS market-data one-shot 180d staged capture + autonomous History Builder V2 contract");

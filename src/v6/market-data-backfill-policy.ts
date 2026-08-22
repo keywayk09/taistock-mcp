@@ -1,15 +1,19 @@
 export const MARKET_DATA_BACKFILL_HORIZON_DAYS = 180;
 export const MARKET_DATA_BACKFILL_STATE_VERSION = "diamond-market-data-backfill-state/v2";
 
+export type MarketDataBackfillPhase = "CAPTURE" | "BUILD";
+
 export type MarketDataBackfillState = {
   schema_version: typeof MARKET_DATA_BACKFILL_STATE_VERSION;
   anchor_trade_date: string;
   target_start_date: string;
   cursor_date: string;
+  phase: MarketDataBackfillPhase;
   status: "RUNNING" | "COMPLETE";
   processed_dates: number;
   updated_at: string;
   completed_at: string | null;
+  history_builder?: string;
 };
 
 function assertDate(value: string) {
@@ -34,6 +38,7 @@ export function initialMarketDataBackfillState(anchorTradeDate: string, now = ne
     anchor_trade_date: anchorTradeDate,
     target_start_date: marketDataBackfillStart(anchorTradeDate),
     cursor_date: shiftIsoDate(anchorTradeDate, -1),
+    phase: "CAPTURE",
     status: "RUNNING",
     processed_dates: 0,
     updated_at: now.toISOString(),
@@ -41,16 +46,25 @@ export function initialMarketDataBackfillState(anchorTradeDate: string, now = ne
   };
 }
 
+function normalizedPhase(state: MarketDataBackfillState) {
+  return state.phase ?? (state.cursor_date < state.target_start_date ? "BUILD" : "CAPTURE");
+}
+
 // The history bootstrap stays one-shot. COMPLETE is permanently terminal.
 // A RUNNING legacy 360-day state may only shrink to the current retention
-// window; it can never be extended by a newer daily anchor.
-export function refreshBackfillAnchor(state: MarketDataBackfillState, anchorTradeDate: string, now = new Date()) {
+// window; it can never be extended by a newer daily anchor. Legacy v2 states
+// without `phase` are migrated in place without resetting the cursor.
+export function refreshBackfillAnchor(state: MarketDataBackfillState, anchorTradeDate: string, now = new Date()): MarketDataBackfillState {
   assertDate(anchorTradeDate);
-  if (state.status === "COMPLETE") return state;
-  const desiredTarget = marketDataBackfillStart(state.anchor_trade_date);
-  if (state.target_start_date >= desiredTarget) return state;
-  return {
+  const normalized: MarketDataBackfillState = {
     ...state,
+    phase: normalizedPhase(state),
+  };
+  if (normalized.status === "COMPLETE") return normalized;
+  const desiredTarget = marketDataBackfillStart(normalized.anchor_trade_date);
+  if (normalized.target_start_date >= desiredTarget) return normalized;
+  return {
+    ...normalized,
     target_start_date: desiredTarget,
     updated_at: now.toISOString(),
   };
@@ -58,8 +72,9 @@ export function refreshBackfillAnchor(state: MarketDataBackfillState, anchorTrad
 
 export function shouldAdvanceBackfillCursor(status: string) {
   return [
+    "HISTORY_CAPTURE_COMPLETE",
     "NOOP_ALREADY_COMPLETE",
-    "INDEX_COMPLETE",
+    "INDEX_COMPLETE", // legacy already-indexed dates remain resumable.
     "NOOP_NO_TRADING_DAY",
     "NO_TRADING_DAY",
   ].includes(status);
