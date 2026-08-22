@@ -36,14 +36,19 @@ assert.match(oauth, /CHATGPT_CONNECTOR_CALLBACK_PATH/);
 assert.match(oauth, /CHATGPT_LEGACY_CONNECTOR_CALLBACK_PATH/);
 assert.match(oauth, /CHATGPT_ACTION_CALLBACK_PATH/);
 assert.match(oauth, /TRUSTED_CHATGPT_HOSTS = new Set\(\["chatgpt\.com", "chat\.openai\.com"\]\)/);
-assert.match(oauth, /RECOVERY_COMPAT_SCOPES = new Set\(\[FAMILY_SCOPE, "offline_access"\]\)/);
+assert.match(oauth, /OAUTH_SCOPE_TOKEN/);
+assert.match(oauth, /MAX_RECOVERY_SCOPE_TOKENS = 24/);
+assert.match(oauth, /MAX_RECOVERY_SCOPE_LENGTH = 2_048/);
+assert.match(oauth, /ACTION_RECOVERY_COMPAT_SCOPES = new Set\(\[FAMILY_SCOPE, "offline_access"\]\)/);
+assert.match(oauth, /function validConnectorRequestedScopes/);
 assert.match(oauth, /TRUSTED_CHATGPT_HOSTS\.has\(redirect\.hostname\)/);
 assert.match(oauth, /kind === "connector"/);
 assert.match(oauth, /kind === "gpt_action"/);
 assert.match(oauth, /code_challenge_method/);
 assert.match(oauth, /method !== "S256"/);
 assert.match(oauth, /PKCE_S256_CHALLENGE/);
-assert.match(oauth, /scopes\.some\(\(scope\) => !RECOVERY_COMPAT_SCOPES\.has\(scope\)\)/);
+assert.match(oauth, /validConnectorRequestedScopes\(rawScope, scopes\)/);
+assert.match(oauth, /scopes\.some\(\(scope\) => !ACTION_RECOVERY_COMPAT_SCOPES\.has\(scope\)\)/);
 assert.match(oauth, /new URL\(resourceRaw\)\.origin !== url\.origin/);
 assert.match(oauth, /missingRecoverableChatGptClient/);
 assert.match(oauth, /registerRecoveredChatGptClient/);
@@ -60,12 +65,14 @@ assert.match(oauth, /ChatGPT Family Action/);
 assert.match(oauth, /Storage format is pinned to @cloudflare\/workers-oauth-provider 0\.10\.3/);
 assert.doesNotMatch(oauth, /OAUTH_PROVIDER\.createClient/);
 
-// Compatibility must never widen Family permissions: regardless of an omitted
-// scope or offline_access transport scope, reconstructed authorization grants
-// only the single Family read scope.
+// Connector request scopes are compatibility metadata only. Even if ChatGPT
+// asks for OIDC, offline, MCP or other syntactically-valid scopes,
+// reconstructed authorization and issued permissions remain only Family read.
 assert.match(oauth, /scope: \[FAMILY_SCOPE\]/);
 assert.match(oauth, /const grantedScopes = oauthRequest\.scope\.filter\(\(scope\) => scope === FAMILY_SCOPE\)/);
 assert.doesNotMatch(oauth, /scope: \[FAMILY_SCOPE, "offline_access"\]/);
+assert.match(oauth, /These names are deliberately/);
+assert.match(oauth, /completeAuthorization\(\{/);
 
 // Invalid-client diagnostics are intentionally categorical only: no raw
 // client_id, redirect URI, state or resource value is echoed back.

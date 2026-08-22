@@ -70,7 +70,10 @@ const CHATGPT_ACTION_CALLBACK_PATH = /^\/aip\/[A-Za-z0-9_-]{3,256}\/oauth\/callb
 const OPAQUE_CLIENT_ID = /^[A-Za-z0-9._~-]{8,256}$/;
 const PKCE_S256_CHALLENGE = /^[A-Za-z0-9_-]{43,128}$/;
 const TRUSTED_CHATGPT_HOSTS = new Set(["chatgpt.com", "chat.openai.com"]);
-const RECOVERY_COMPAT_SCOPES = new Set([FAMILY_SCOPE, "offline_access"]);
+const OAUTH_SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]{1,128}$/;
+const MAX_RECOVERY_SCOPE_TOKENS = 24;
+const MAX_RECOVERY_SCOPE_LENGTH = 2_048;
+const ACTION_RECOVERY_COMPAT_SCOPES = new Set([FAMILY_SCOPE, "offline_access"]);
 
 function escapeHtml(value: unknown) {
   return String(value ?? "")
@@ -130,6 +133,16 @@ function classifyChatGptRedirect(redirect: URL): RecoverableClientKind | null {
   return null;
 }
 
+function validConnectorRequestedScopes(rawScope: string, scopes: string[]) {
+  // Incoming ChatGPT Plugin/MCP scopes are transport/request metadata,
+  // never Family authorization. Keep only a bounded RFC 6749-style
+  // syntax check here; recoveredAuthRequest() below normalizes every
+  // accepted connector request to the single FAMILY_SCOPE.
+  if (rawScope.length > MAX_RECOVERY_SCOPE_LENGTH) return false;
+  if (scopes.length > MAX_RECOVERY_SCOPE_TOKENS) return false;
+  return scopes.every((scope) => OAUTH_SCOPE_TOKEN.test(scope));
+}
+
 function safeAuthDiagnostic(request: Request) {
   const url = new URL(request.url);
   const responseType = url.searchParams.get("response_type") === "code" ? "code" : "other";
@@ -152,10 +165,13 @@ function safeAuthDiagnostic(request: Request) {
     ? "none"
     : (method === "S256" && PKCE_S256_CHALLENGE.test(challenge) ? "s256" : "invalid");
 
-  const scopes = String(url.searchParams.get("scope") || "").split(/\s+/).filter(Boolean);
+  const rawScope = String(url.searchParams.get("scope") || "");
+  const scopes = rawScope.split(/\s+/).filter(Boolean);
   const scopeMode = scopes.length === 0
     ? "none"
-    : (scopes.every((scope) => RECOVERY_COMPAT_SCOPES.has(scope)) ? "compatible" : "unsupported");
+    : redirectMode === "connector"
+      ? (validConnectorRequestedScopes(rawScope, scopes) ? "normalized" : "malformed")
+      : (scopes.every((scope) => ACTION_RECOVERY_COMPAT_SCOPES.has(scope)) ? "compatible" : "unsupported");
   const state = String(url.searchParams.get("state") || "");
 
   let resource = "none";
@@ -212,13 +228,19 @@ function recoverableChatGptClient(request: Request): RecoverableChatGptClient | 
     if (method !== "S256" || !PKCE_S256_CHALLENGE.test(challenge)) return null;
   }
 
-  // MCP clients are allowed to omit scope when the resource metadata already
-  // describes the protected scope. Some OpenAI linking surfaces also include
-  // the standard offline_access transport scope for refresh-token continuity.
-  // Accept only those compatibility forms; the server still grants only
-  // FAMILY_SCOPE below, so this cannot widen Family privileges.
-  const scopes = String(url.searchParams.get("scope") || "").split(/\s+/).filter(Boolean);
-  if (scopes.some((scope) => !RECOVERY_COMPAT_SCOPES.has(scope))) return null;
+  const rawScope = String(url.searchParams.get("scope") || "");
+  const scopes = rawScope.split(/\s+/).filter(Boolean);
+  if (kind === "connector") {
+    // ChatGPT may evolve the OAuth/OIDC scopes it requests. For a trusted
+    // ChatGPT connector callback protected by PKCE S256, validate only a
+    // bounded OAuth scope-token syntax here. These names are deliberately
+    // NOT permissions: recoveredAuthRequest() always replaces them with
+    // [FAMILY_SCOPE], and completeAuthorization() filters again.
+    if (!validConnectorRequestedScopes(rawScope, scopes)) return null;
+  } else if (scopes.some((scope) => !ACTION_RECOVERY_COMPAT_SCOPES.has(scope))) {
+    // Custom GPT Action compatibility remains intentionally strict.
+    return null;
+  }
 
   const state = String(url.searchParams.get("state") || "");
   if (!state || state.length > 2_000) return null;
