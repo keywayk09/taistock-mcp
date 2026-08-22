@@ -1,0 +1,65 @@
+name: OAuth KV client diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.head_ref == 'ops/oauth-kv-client-diagnostic-20260823'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect OAuth KV namespaces without reading values
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${base}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' > /tmp/namespaces.json
+          python - <<'PY' > /tmp/targets.tsv
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/namespaces.json').read_text())
+          if not body.get('success'):
+              raise SystemExit('namespace_list_failed')
+          wanted={'OAUTH_KV','taistock-mcp-OAUTH_KV'}
+          rows=[x for x in (body.get('result') or []) if x.get('title') in wanted]
+          for x in rows:
+              print(f"{x.get('title')}\t{x.get('id')}")
+          PY
+          if [ ! -s /tmp/targets.tsv ]; then
+            echo 'NO_MATCHING_OAUTH_KV_NAMESPACES'
+            exit 1
+          fi
+          while IFS=$'\t' read -r title nsid; do
+            echo "NAMESPACE=${title}"
+            for prefix in 'client:' 'grant:' 'token:'; do
+              enc_prefix="$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$prefix")"
+              curl -fsS "${base}/${nsid}/keys?prefix=${enc_prefix}&limit=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' > /tmp/keys.json
+              PREFIX="$prefix" python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          body=json.loads(Path('/tmp/keys.json').read_text())
+          if not body.get('success'):
+              raise SystemExit('key_list_failed')
+          rows=body.get('result') or []
+          prefix=os.environ['PREFIX']
+          print(f"{prefix}count={len(rows)}")
+          if prefix=='client:':
+              # Client IDs are not secrets, but print only one-way fingerprints in CI logs.
+              fps=[]
+              for row in rows:
+                  name=str(row.get('name') or '')
+                  cid=name[len(prefix):] if name.startswith(prefix) else name
+                  fps.append(hashlib.sha256(cid.encode()).hexdigest()[:12])
+              print('client_fingerprints=' + ','.join(sorted(fps)))
+          PY
+            done
+          done < /tmp/targets.tsv
