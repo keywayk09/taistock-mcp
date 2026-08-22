@@ -1,6 +1,7 @@
 /**
  * Cloudflare is the execution/MCP layer only.
  * Application persistence is GitHub-only under keywayk09/tv-papertrader main/data; D1 and R2 are forbidden for app data.
+ * OAUTH_KV is ephemeral OAuth/session state owned by @cloudflare/workers-oauth-provider; it is not application market-data persistence.
  * OHLC/K-line remains owned by OHLC MCP even though canonical files share one GitHub repository.
  * Durable Object lifecycle uses declarative exports; production deploys must use `wrangler deploy`.
  * Existing MyMCP/FamilyMCP namespaces are preserved as live exports; deletion tombstones are forbidden without explicit review.
@@ -17,6 +18,11 @@
 		"GITHUB_DATA_REPO": "keywayk09/tv-papertrader",
 		"GITHUB_DATA_BRANCH": "main"
 	},
+	"kv_namespaces": [
+		{
+			"binding": "OAUTH_KV"
+		}
+	],
 	"triggers": {
 		"crons": ["*/5 * * * *"]
 	},
