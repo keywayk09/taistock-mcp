@@ -1,11 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { z } from "zod";
-import { runFamilyActionCompatQuery } from "./family-action-compat";
+import { runSmartFamilyAnalysis } from "./family-analysis";
 import { registerFamilyStockSelectionTools } from "./family-stock-selection";
 import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
 
-export const FAMILY_MCP_VERSION = "family-mcp/v1.0.0";
+export const FAMILY_MCP_VERSION = "family-mcp/v1.1.0";
 export const FAMILY_MCP_TOOL_NAMES = [
   "family_engine_status",
   "screen_family_swing_candidates",
@@ -24,7 +24,7 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export class FamilyMCP extends McpAgent<Env> {
   server = new McpServer({
     name: "Taiwan Stock AI Family",
-    version: "1.0.0",
+    version: "1.1.0",
   });
 
   async init() {
@@ -48,10 +48,13 @@ export class FamilyMCP extends McpAgent<Env> {
         finmind_price_is_formal_ohlc: false,
       },
       capability_notes: {
-        stock_analysis: "READY",
-        stock_compare: "READY",
+        stock_analysis: "READY_NORMALIZED",
+        stock_compare: "READY_NORMALIZED",
         swing_screening: "READY",
         formal_chip_history: "READY",
+        monthly_revenue_summary: "READY_WITH_MOM_YOY",
+        accounting_summary: "READY_WITH_MARGIN_EPS_CASHFLOW_RISK_FLAGS",
+        official_valuation: "TWSE_TPEX_OPENAPI_FAIL_SOFT",
         global_supply_chain: "ONLY_WHEN_VERIFIED_DATASET_IS_AVAILABLE; NEVER_GUESS",
       },
     }));
@@ -72,43 +75,38 @@ export class FamilyMCP extends McpAgent<Env> {
     }, async (input) => out(await getTwMarketChipSummaryPublished(this.env, input)));
 
     this.server.registerTool("analyze_family_stock", {
-      description: "家人版單股綜合資料入口。整合顯示用即時行情、技術摘要、月營收、財報摘要、官方估值與正式 published 籌碼；資料不足會明示，不會自行補值。正式OHLC仍由OHLC MCP負責。",
+      description: "家人版單股綜合資料入口。整合顯示用即時行情、技術摘要、月營收MoM/YoY、財報毛利/營益/EPS/現金流風險摘要、TWSE/TPEx官方估值與正式published籌碼；資料不足明示null，不自行補值。正式OHLC仍由OHLC MCP負責。",
       inputSchema: {
         symbol: symbolSchema,
         as_of_date: dateSchema.optional(),
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     }, async ({ symbol, as_of_date }) => {
-      const result = await runFamilyActionCompatQuery(this.env, {
-        query: symbol,
-        mode: "auto",
+      const result = await runSmartFamilyAnalysis(this.env, {
+        symbols: [symbol],
         as_of_date,
       });
       return out({
         ...result,
         requested_tool: "analyze_family_stock",
-        family_policy: "READ_ONLY; FORMAL_CHIP=PUBLISHED; FORMAL_OHLC=OHLC_MCP_ONLY",
       });
     });
 
     this.server.registerTool("compare_family_stocks", {
-      description: "家人版2到5檔股票比較。使用相同唯讀資料契約逐檔整理，不因缺資料而猜測；正式籌碼只讀 published generation。",
+      description: "家人版2到5檔股票比較。逐檔使用相同唯讀標準化資料：技術、月營收、財報摘要、官方估值與正式published籌碼；缺資料不猜測。",
       inputSchema: {
         symbols: z.array(symbolSchema).min(2).max(5),
         as_of_date: dateSchema.optional(),
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     }, async ({ symbols, as_of_date }) => {
-      const unique = [...new Set(symbols)];
-      const result = await runFamilyActionCompatQuery(this.env, {
-        query: unique.join(" "),
-        mode: "auto",
+      const result = await runSmartFamilyAnalysis(this.env, {
+        symbols: [...new Set(symbols)],
         as_of_date,
       });
       return out({
         ...result,
         requested_tool: "compare_family_stocks",
-        family_policy: "READ_ONLY; FORMAL_CHIP=PUBLISHED; FORMAL_OHLC=OHLC_MCP_ONLY",
       });
     });
   }
