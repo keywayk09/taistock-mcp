@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import type { MarketDataBackfillState } from "../src/v6/market-data-backfill-policy.ts";
 import { shouldWaitForHistoryMonth } from "../src/v6/market-data-publish-history-fence.ts";
 import {
@@ -52,6 +53,14 @@ assert.equal(
   "must yield before starting a persistence unit that cannot safely finish inside the cron-safe slice",
 );
 
+// The helper is only useful if every Production lane actually supplies a
+// remaining-time admission guard. Lock the three scheduler call sites too.
+const dispatcher = fs.readFileSync("src/v6/market-data-scheduled-dispatch.ts", "utf8");
+assert.match(dispatcher, /CAPTURE_UNIT_MIN_REMAINING_MS\s*=\s*8_000/);
+assert.match(dispatcher, /PUBLISH_UNIT_MIN_REMAINING_MS\s*=\s*12_000/);
+assert.match(dispatcher, /BACKFILL_UNIT_MIN_REMAINING_MS\s*=\s*10_000/);
+assert.ok((dispatcher.match(/minimumRemainingMs:/g) ?? []).length >= 3, "Daily capture, publisher, and History must all use remaining-time admission guards");
+
 const runningAugust: MarketDataBackfillState = {
   schema_version: "diamond-market-data-backfill-state/v2",
   anchor_trade_date: "2026-08-21",
@@ -67,4 +76,4 @@ assert.equal(shouldWaitForHistoryMonth({ ...runningAugust, cursor_date: "2026-07
 assert.equal(shouldWaitForHistoryMonth({ ...runningAugust, status: "COMPLETE", completed_at: "2026-08-21T13:00:00.000Z" }, "2026-08-21"), false);
 assert.equal(shouldWaitForHistoryMonth(null, "2026-08-21"), false);
 
-console.log("market-data cron CPU-safe adaptive work budget + history publish fence tests passed");
+console.log("market-data cron CPU-safe adaptive work budget + scheduler guards + history publish fence tests passed");
