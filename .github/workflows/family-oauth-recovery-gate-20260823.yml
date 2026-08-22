@@ -108,17 +108,12 @@ jobs:
           code="$(curl --max-time 60 -sS -D /tmp/bad.headers -o /tmp/bad.html -w '%{http_code}' "$bad_url")"
           echo "BAD_HTTP_CODE=${code}"
           if grep -qi '^location: *https://evil\.example' /tmp/bad.headers; then
-            echo 'unsafe_redirect_to_untrusted_origin' >&2
-            exit 1
+            echo 'unsafe_redirect_to_untrusted_origin' >&2; exit 1
           fi
           if grep -q '家人連線驗證碼' /tmp/bad.html; then
-            echo 'untrusted_request_reached_login_page' >&2
-            exit 1
+            echo 'untrusted_request_reached_login_page' >&2; exit 1
           fi
-          case "$code" in
-            4??) ;;
-            *) echo "unexpected_untrusted_status:${code}" >&2; exit 1 ;;
-          esac
+          case "$code" in 4??) ;; *) echo "unexpected_untrusted_status:${code}" >&2; exit 1 ;; esac
           endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}/keys?prefix=client%3A&limit=100"
           curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/bad-keys.json
           python - <<'PY'
@@ -130,7 +125,37 @@ jobs:
           print('UNTRUSTED_REDIRECT_REJECTED=PASS')
           PY
 
-      - name: Recover stale ChatGPT client and render login
+      - name: Build real PKCE stale ChatGPT authorization request
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64,hashlib,os,urllib.parse
+          from pathlib import Path
+          verifier='family-recovery-gate-verifier-' + 'v'*48
+          challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
+          callback='https://chatgpt.com/connector/oauth/familyrecoverygate1234567890'
+          client_id='chatgpt-stale-client-1234567890'
+          state='family-recovery-state-1234567890'
+          params={
+            'response_type':'code',
+            'client_id':client_id,
+            'redirect_uri':callback,
+            'scope':'family:read',
+            'state':state,
+            'code_challenge':challenge,
+            'code_challenge_method':'S256',
+          }
+          query=urllib.parse.urlencode(params)
+          Path('/tmp/oauth-query.txt').write_text(query)
+          Path('/tmp/verifier.txt').write_text(verifier)
+          Path('/tmp/callback.txt').write_text(callback)
+          Path('/tmp/client-id.txt').write_text(client_id)
+          Path('/tmp/state.txt').write_text(state)
+          Path('/tmp/good-url.txt').write_text(os.environ['BASE_URL']+'/authorize?'+query)
+          PY
+
+      - name: Stale ChatGPT GET renders login without mutation
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -138,45 +163,106 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          good_url="$(python - <<'PY'
-          import os,urllib.parse
-          q=urllib.parse.urlencode({
-            'response_type':'code',
-            'client_id':'chatgpt-stale-client-1234567890',
-            'redirect_uri':'https://chatgpt.com/connector/oauth/testcallback1234567890',
-            'scope':'family:read',
-            'state':'state-good',
-            'code_challenge':'B'*43,
-            'code_challenge_method':'S256',
-          })
-          print(os.environ['BASE_URL']+'/authorize?'+q)
-          PY
-          )"
-          code="$(curl --max-time 60 -sS -D /tmp/good.headers -o /tmp/good.html -w '%{http_code}' "$good_url")"
-          echo "GOOD_HTTP_CODE=${code}"
-          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}/keys?prefix=client%3A&limit=100"
-          curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/good-keys.json
-          python - <<'PY'
-          import json,re
-          from pathlib import Path
-          body=json.loads(Path('/tmp/good-keys.json').read_text())
-          assert body.get('success') is True, body
-          print('GOOD_CLIENT_COUNT=' + str(len(body.get('result') or [])))
-          text=Path('/tmp/good.html').read_text(errors='replace')[:1200]
-          text=text.replace('chatgpt-stale-client-1234567890','[CLIENT_ID]')
-          text=re.sub(r'(?i)(state[-_=A-Za-z0-9]*)', '[STATE]', text)
-          text=re.sub(r'(?i)(code_challenge[^&< ]*)', '[PKCE]', text)
-          print('GOOD_BODY_SNIPPET=' + ' '.join(text.split())[:600])
-          PY
+          code="$(curl --max-time 60 -sS -D /tmp/get.headers -o /tmp/get.html -w '%{http_code}' "$(cat /tmp/good-url.txt)")"
           test "$code" = '200'
-          grep -q '家人連線驗證碼' /tmp/good.html
-          grep -q 'ChatGPT Family Connector' /tmp/good.html
+          grep -q '家人連線驗證碼' /tmp/get.html
+          grep -q 'ChatGPT Family Connector' /tmp/get.html
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}/keys?prefix=client%3A&limit=100"
+          curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/get-keys.json
           python - <<'PY'
           import json
           from pathlib import Path
-          body=json.loads(Path('/tmp/good-keys.json').read_text())
+          body=json.loads(Path('/tmp/get-keys.json').read_text())
+          assert body.get('success') is True, body
+          assert len(body.get('result') or []) == 0, body.get('result')
+          print('STALE_GET_LOGIN_WITHOUT_MUTATION=PASS')
+          PY
+
+      - name: Correct Family secret restores client and completes authorization
+        id: authpost
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GATE_KV_ID: ${{ steps.kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 60 -sS -D /tmp/post.headers -o /tmp/post.body -w '%{http_code}' \
+            -X POST "$BASE_URL/authorize" \
+            -H 'content-type: application/x-www-form-urlencoded' \
+            --data-urlencode "oauth_query=$(cat /tmp/oauth-query.txt)" \
+            --data-urlencode 'login_secret=isolated-test-secret-never-production')"
+          echo "AUTH_POST_HTTP_CODE=${code}"
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}/keys?limit=1000"
+          curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/post-keys.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/post-keys.json').read_text())
+          assert body.get('success') is True, body
+          names=[str(x.get('name') or '') for x in (body.get('result') or [])]
+          print('POST_CLIENT_COUNT=' + str(sum(x.startswith('client:') for x in names)))
+          print('POST_GRANT_COUNT=' + str(sum(x.startswith('grant:') for x in names)))
+          PY
+          if [ "$code" != '302' ]; then
+            if grep -q 'error code: 1042' /tmp/post.body; then
+              echo 'TEMP_WORKERS_DEV_PROVIDER_HELPER_LIMIT=1042' >&2
+            else
+              echo 'AUTHORIZED_RECOVERY_POST_FAILED' >&2
+            fi
+            exit 1
+          fi
+          location="$(awk 'BEGIN{IGNORECASE=1} /^location:/{sub(/\r$/,""); sub(/^[^:]+:[[:space:]]*/,""); print; exit}' /tmp/post.headers)"
+          test -n "$location"
+          LOCATION="$location" CALLBACK="$(cat /tmp/callback.txt)" EXPECTED_STATE="$(cat /tmp/state.txt)" python - <<'PY'
+          import os,urllib.parse
+          loc=urllib.parse.urlsplit(os.environ['LOCATION'])
+          cb=urllib.parse.urlsplit(os.environ['CALLBACK'])
+          assert (loc.scheme,loc.netloc,loc.path)==(cb.scheme,cb.netloc,cb.path), os.environ['LOCATION']
+          q=urllib.parse.parse_qs(loc.query)
+          assert q.get('state')==[os.environ['EXPECTED_STATE']], q
+          assert len(q.get('code',[]))==1 and q['code'][0], q
+          print('AUTHORIZATION_REDIRECT=PASS')
+          PY
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}/keys?prefix=client%3A&limit=100"
+          curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/post-client-keys.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/post-client-keys.json').read_text())
           assert len(body.get('result') or []) == 1, body.get('result')
-          print('STALE_CHATGPT_CLIENT_RECOVERY=PASS')
+          print('STALE_CHATGPT_CLIENT_RESTORED=PASS')
+          PY
+
+      - name: Exchange authorization code when prior step succeeded
+        if: steps.authpost.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          location="$(awk 'BEGIN{IGNORECASE=1} /^location:/{sub(/\r$/,""); sub(/^[^:]+:[[:space:]]*/,""); print; exit}' /tmp/post.headers)"
+          code="$(LOCATION="$location" python - <<'PY'
+          import os,urllib.parse
+          q=urllib.parse.parse_qs(urllib.parse.urlsplit(os.environ['LOCATION']).query)
+          print(q['code'][0])
+          PY
+          )"
+          client_id="$(cat /tmp/client-id.txt)"
+          verifier="$(cat /tmp/verifier.txt)"
+          callback="$(cat /tmp/callback.txt)"
+          curl --max-time 60 -fsS -X POST "$BASE_URL/oauth/token" \
+            -H 'content-type: application/x-www-form-urlencoded' \
+            --data-urlencode 'grant_type=authorization_code' \
+            --data-urlencode "client_id=${client_id}" \
+            --data-urlencode "code=${code}" \
+            --data-urlencode "redirect_uri=${callback}" \
+            --data-urlencode "code_verifier=${verifier}" > /tmp/token.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/token.json').read_text())
+          assert isinstance(body.get('access_token'),str) and body['access_token'], body.keys()
+          assert str(body.get('token_type','')).lower()=='bearer', body.get('token_type')
+          print('TOKEN_EXCHANGE=PASS')
           PY
 
       - name: Cleanup isolated Worker and KV
