@@ -1,0 +1,171 @@
+name: Family OAuth stale-client recovery gate
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  oauth-recovery-gate:
+    if: github.head_ref == 'fix/family-oauth-stale-chatgpt-client-20260823'
+    runs-on: ubuntu-latest
+    env:
+      GATE_WORKER_NAME: taistock-mcp-family-oauth-recovery-gate
+      GATE_KV_TITLE: taistock-mcp-family-oauth-recovery-gate-kv
+      BASE_URL: https://taistock-mcp-family-oauth-recovery-gate.keywayk09.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+
+      - name: Create isolated OAuth KV
+        id: kv
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS -X POST "$endpoint" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data "{\"title\":\"${GATE_KV_TITLE}\"}" > /tmp/kv-create.json
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/kv-create.json').read_text())
+          if not body.get('success'):
+              raise SystemExit(f"kv_create_failed:{body.get('errors')}")
+          kv_id=str((body.get('result') or {}).get('id') or '')
+          if len(kv_id) != 32:
+              raise SystemExit('invalid_kv_id')
+          print(f'id={kv_id}')
+          PY
+
+      - name: Build isolated Worker config
+        env:
+          GATE_KV_ID: ${{ steps.kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          kv=os.environ['GATE_KV_ID']; worker=os.environ['GATE_WORKER_NAME']
+          Path('wrangler.family-oauth-recovery-gate.jsonc').write_text(f'''{{
+            "$schema": "node_modules/wrangler/config-schema.json",
+            "name": "{worker}",
+            "main": "src/index-v6.ts",
+            "compatibility_date": "2025-03-10",
+            "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+            "vars": {{
+              "RESEARCH_MAX_SYMBOLS":"40",
+              "RESEARCH_MAX_ONE_MINUTE":"8",
+              "GITHUB_DATA_REPO":"keywayk09/tv-papertrader",
+              "GITHUB_DATA_BRANCH":"main",
+              "FAMILY_OAUTH_LOGIN_SECRET":"isolated-test-secret-never-production"
+            }},
+            "kv_namespaces": [{{"binding":"OAUTH_KV","id":"{kv}"}}],
+            "exports": {{"MyMCP":{{"type":"durable-object","storage":"sqlite"}},"FamilyMCP":{{"type":"durable-object","storage":"sqlite"}}}},
+            "durable_objects": {{"bindings":[{{"class_name":"MyMCP","name":"MCP_OBJECT"}},{{"class_name":"FamilyMCP","name":"FAMILY_MCP_OBJECT"}}]}},
+            "observability": {{"enabled":false}}
+          }}\n''')
+          PY
+
+      - name: Deploy isolated recovery Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --config wrangler.family-oauth-recovery-gate.jsonc
+
+      - name: Reject untrusted redirect without creating client
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GATE_KV_ID: ${{ steps.kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bad_url="$(python - <<'PY'
+          import os,urllib.parse
+          q=urllib.parse.urlencode({
+            'response_type':'code',
+            'client_id':'untrusted-stale-client-12345678',
+            'redirect_uri':'https://evil.example/callback',
+            'scope':'family:read',
+            'state':'state-bad',
+            'code_challenge':'A'*43,
+            'code_challenge_method':'S256',
+          })
+          print(os.environ['BASE_URL']+'/authorize?'+q)
+          PY
+          )"
+          code="$(curl --max-time 60 -sS -o /tmp/bad.html -w '%{http_code}' "$bad_url")"
+          test "$code" = '400'
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}/keys?prefix=client%3A&limit=100"
+          curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/bad-keys.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/bad-keys.json').read_text())
+          assert body.get('success') is True, body
+          assert len(body.get('result') or []) == 0, body.get('result')
+          print('UNTRUSTED_REDIRECT_REJECTED=PASS')
+          PY
+
+      - name: Recover stale ChatGPT client and render login
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GATE_KV_ID: ${{ steps.kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          good_url="$(python - <<'PY'
+          import os,urllib.parse
+          q=urllib.parse.urlencode({
+            'response_type':'code',
+            'client_id':'chatgpt-stale-client-1234567890',
+            'redirect_uri':'https://chatgpt.com/connector/oauth/testcallback1234567890',
+            'scope':'family:read',
+            'state':'state-good',
+            'code_challenge':'B'*43,
+            'code_challenge_method':'S256',
+          })
+          print(os.environ['BASE_URL']+'/authorize?'+q)
+          PY
+          )"
+          curl --max-time 60 -fsS "$good_url" > /tmp/good.html
+          grep -q '家人連線驗證碼' /tmp/good.html
+          grep -q 'ChatGPT Family Connector' /tmp/good.html
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}/keys?prefix=client%3A&limit=100"
+          curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/good-keys.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/good-keys.json').read_text())
+          assert body.get('success') is True, body
+          assert len(body.get('result') or []) == 1, body.get('result')
+          print('STALE_CHATGPT_CLIENT_RECOVERY=PASS')
+          PY
+
+      - name: Cleanup isolated Worker and KV
+        if: always()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GATE_KV_ID: ${{ steps.kv.outputs.id }}
+        shell: bash
+        run: |
+          set +e
+          npx wrangler delete --name "$GATE_WORKER_NAME" --force >/tmp/worker-delete.log 2>&1
+          if [ -n "${GATE_KV_ID:-}" ]; then
+            curl -sS -X DELETE "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" >/tmp/kv-delete.json 2>&1
+          fi
+          exit 0
