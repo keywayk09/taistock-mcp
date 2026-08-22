@@ -46,19 +46,117 @@ jobs:
           else
             echo 'account_id_configured=false' >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Resolve or create dedicated OAuth KV
+        id: oauth_kv
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo 'Cloudflare token/account ID is required to resolve OAuth KV.' >&2
+            exit 78
+          fi
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' > /tmp/oauth-kv-list.json
+          python - <<'PY' > /tmp/oauth-kv-choice.json
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/oauth-kv-list.json').read_text())
+          if not body.get('success'):
+              raise SystemExit(f"kv_list_failed:{body.get('errors')}")
+          rows=body.get('result') or []
+          preferred=[x for x in rows if x.get('title')=='taistock-mcp-OAUTH_KV']
+          legacy=[x for x in rows if x.get('title')=='OAUTH_KV']
+          if len(preferred)>1:
+              raise SystemExit('ambiguous_preferred_oauth_kv')
+          if preferred:
+              chosen=preferred[0]
+          elif len(legacy)==1:
+              chosen=legacy[0]
+          elif len(legacy)>1:
+              raise SystemExit('ambiguous_legacy_oauth_kv')
+          else:
+              chosen=None
+          print(json.dumps(chosen or {}))
+          PY
+          kv_id="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          print((json.loads(Path('/tmp/oauth-kv-choice.json').read_text()) or {}).get('id',''))
+          PY
+          )"
+          kv_title="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          print((json.loads(Path('/tmp/oauth-kv-choice.json').read_text()) or {}).get('title',''))
+          PY
+          )"
+          created=false
+          if [ -z "${kv_id}" ]; then
+            curl -fsS -X POST "$endpoint" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H 'Content-Type: application/json' \
+              --data '{"title":"taistock-mcp-OAUTH_KV"}' > /tmp/oauth-kv-create.json
+            kv_id="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/oauth-kv-create.json').read_text())
+          if not body.get('success'):
+              raise SystemExit(f"kv_create_failed:{body.get('errors')}")
+          print((body.get('result') or {}).get('id',''))
+          PY
+            )"
+            kv_title='taistock-mcp-OAUTH_KV'
+            created=true
+          fi
+          if ! [[ "$kv_id" =~ ^[0-9a-fA-F]{32}$ ]]; then
+            echo "invalid OAuth KV namespace id" >&2
+            exit 1
+          fi
+          echo "id=${kv_id}" >> "$GITHUB_OUTPUT"
+          echo "title=${kv_title}" >> "$GITHUB_OUTPUT"
+          echo "created=${created}" >> "$GITHUB_OUTPUT"
+          echo "OAuth KV ready: ${kv_title} (created=${created})"
+
       - name: Deploy production Worker
         id: deploy
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
         run: |
           set -euo pipefail
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
             echo 'CLOUDFLARE_API_TOKEN is not configured for this repository.' >&2
             exit 78
           fi
-          npx wrangler deploy
+          if [ "${{ steps.oauth_kv.outcome }}" != 'success' ] || [ -z "${OAUTH_KV_ID:-}" ]; then
+            echo 'OAuth KV resolution failed; refusing Production deploy.' >&2
+            exit 78
+          fi
+          cp wrangler.jsonc wrangler.production.jsonc
+          trap 'rm -f wrangler.production.jsonc' EXIT
+          python - <<'PY'
+          import os,re
+          from pathlib import Path
+          path=Path('wrangler.production.jsonc')
+          text=path.read_text()
+          kv=os.environ['OAUTH_KV_ID']
+          pattern=r'("binding"\s*:\s*"OAUTH_KV")(\s*)(\})'
+          updated,n=re.subn(pattern, lambda m: m.group(1)+',\n\t\t\t"id": "'+kv+'"'+m.group(2)+m.group(3), text, count=1)
+          if n != 1:
+              raise SystemExit('oauth_kv_binding_injection_failed')
+          path.write_text(updated)
+          PY
+          npx wrangler deploy --config wrangler.production.jsonc
+
       - name: Install and verify five-minute Cron Trigger
         id: cron
         continue-on-error: true
@@ -89,6 +187,7 @@ jobs:
               raise SystemExit(f'cron_verify_failed:{crons}')
           print('cron trigger verified:', crons)
           PY
+
       - name: Persist deploy receipt
         if: always()
         run: |
@@ -96,16 +195,21 @@ jobs:
           mkdir -p tmp/deploy-receipts
           if [ "${{ steps.auth.outputs.token_configured }}" != 'true' ]; then
             reason='MISSING_CLOUDFLARE_API_TOKEN'
+          elif [ "${{ steps.oauth_kv.outcome }}" != 'success' ]; then
+            reason='OAUTH_KV_RESOLUTION_FAILED'
           elif [ "${{ steps.deploy.outcome }}" != 'success' ]; then
             reason='WRANGLER_DEPLOY_FAILED'
           elif [ "${{ steps.cron.outcome }}" != 'success' ]; then
             reason='CRON_TRIGGER_INSTALL_FAILED'
           else
-            reason='DEPLOYED_AND_CRON_VERIFIED'
+            reason='DEPLOYED_OAUTH_KV_AND_CRON_VERIFIED'
           fi
           cat > tmp/deploy-receipts/taistock-mcp-cloudflare.json <<EOF
           {
             "source_sha": "${GITHUB_SHA}",
+            "oauth_kv_outcome": "${{ steps.oauth_kv.outcome }}",
+            "oauth_kv_title": "${{ steps.oauth_kv.outputs.title }}",
+            "oauth_kv_created": "${{ steps.oauth_kv.outputs.created }}",
             "deploy_outcome": "${{ steps.deploy.outcome }}",
             "cron_outcome": "${{ steps.cron.outcome }}",
             "reason": "${reason}",
@@ -128,6 +232,7 @@ jobs:
           done
           echo 'deploy receipt push retries exhausted' >&2
           exit 1
+
       - name: Enforce deployment result
-        if: steps.deploy.outcome != 'success' || steps.cron.outcome != 'success'
+        if: steps.oauth_kv.outcome != 'success' || steps.deploy.outcome != 'success' || steps.cron.outcome != 'success'
         run: exit 1
