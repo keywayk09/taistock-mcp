@@ -1,0 +1,151 @@
+name: Force Family OAuth Production 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-and-live-smoke:
+    if: github.head_ref == 'ops/force-family-oauth-production-20260823'
+    runs-on: ubuntu-latest
+    env:
+      PROD_URL: https://taistock-mcp.keywayk09.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+
+      - name: Resolve existing Production OAuth KV
+        id: oauth_kv
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' > /tmp/kv.json
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/kv.json').read_text())
+          if not body.get('success'):
+              raise SystemExit('kv_list_failed')
+          rows=[x for x in (body.get('result') or []) if x.get('title')=='taistock-mcp-OAUTH_KV']
+          if len(rows) != 1:
+              raise SystemExit(f'expected_exactly_one_production_oauth_kv:{len(rows)}')
+          kv_id=str(rows[0].get('id') or '')
+          if len(kv_id) != 32:
+              raise SystemExit('invalid_oauth_kv_id')
+          print(f'id={kv_id}')
+          print('title=taistock-mcp-OAUTH_KV')
+          PY
+
+      - name: Build Production config
+        env:
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp wrangler.jsonc wrangler.force-production.jsonc
+          python - <<'PY'
+          import os,re
+          from pathlib import Path
+          p=Path('wrangler.force-production.jsonc')
+          text=p.read_text()
+          kv=os.environ['OAUTH_KV_ID']
+          pattern=r'("binding"\s*:\s*"OAUTH_KV")(\s*)(\})'
+          out,n=re.subn(pattern, lambda m: m.group(1)+',\n\t\t\t"id": "'+kv+'"'+m.group(2)+m.group(3), text, count=1)
+          if n != 1:
+              raise SystemExit('oauth_kv_binding_injection_failed')
+          p.write_text(out)
+          PY
+
+      - name: Deploy verified Family OAuth recovery to Production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --config wrangler.force-production.jsonc
+
+      - name: Verify Production Cron
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/taistock-mcp/schedules"
+          curl -fsS -X PUT "$endpoint" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data '[{"cron":"*/5 * * * *"}]' > /tmp/cron-put.json
+          curl -fsS "$endpoint" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/cron-get.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          put=json.loads(Path('/tmp/cron-put.json').read_text())
+          get=json.loads(Path('/tmp/cron-get.json').read_text())
+          if not put.get('success'):
+              raise SystemExit('cron_put_failed')
+          schedules=((get.get('result') or {}).get('schedules') or [])
+          crons=[x.get('cron') for x in schedules if isinstance(x,dict)]
+          if '*/5 * * * *' not in crons:
+              raise SystemExit(f'cron_verify_failed:{crons}')
+          print('PRODUCTION_CRON=PASS')
+          PY
+
+      - name: Production health smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 5 --retry-delay 2 --max-time 30 -fsS "$PROD_URL/health" > /tmp/health.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/health.json').read_text())
+          text=json.dumps(body, ensure_ascii=False)
+          if 'SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS' not in text:
+              raise SystemExit('family_v3_health_marker_missing')
+          print('PRODUCTION_HEALTH=PASS')
+          PY
+
+      - name: Production stale-client recovery smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth_url="$(python - <<'PY'
+          import base64,hashlib,os,urllib.parse
+          verifier='production-family-oauth-live-smoke-'+'v'*48
+          challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
+          params={
+            'response_type':'code',
+            'client_id':'chatgpt-production-live-smoke-20260823',
+            'redirect_uri':'https://chatgpt.com/connector/oauth/familyproductionlive20260823',
+            'scope':'family:read',
+            'state':'family-production-live-smoke-state',
+            'code_challenge':challenge,
+            'code_challenge_method':'S256',
+          }
+          print(os.environ['PROD_URL']+'/authorize?'+urllib.parse.urlencode(params))
+          PY
+          )"
+          code="$(curl --retry 5 --retry-delay 2 --max-time 30 -sS -o /tmp/authorize.html -w '%{http_code}' "$auth_url")"
+          echo "PRODUCTION_STALE_CLIENT_HTTP=${code}"
+          test "$code" = '200'
+          grep -q '家人連線驗證碼' /tmp/authorize.html
+          grep -q 'ChatGPT Family Connector' /tmp/authorize.html
+          if grep -q 'Invalid client_id' /tmp/authorize.html; then
+            echo 'stale_client_recovery_not_live' >&2
+            exit 1
+          fi
+          echo 'PRODUCTION_STALE_CLIENT_RECOVERY=PASS'
