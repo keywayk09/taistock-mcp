@@ -31,17 +31,19 @@ assert.match(oauth, /FamilyMCP\.serve\("\/family-mcp", \{ binding: "FAMILY_MCP_O
 assert.match(oauth, /refusing to fall back to the full MCP_OBJECT namespace/);
 assert.doesNotMatch(oauth, /binding: "MCP_OBJECT"/);
 
-// Stale ChatGPT client recovery must stay narrow and fail closed.
+// Stale ChatGPT Plugin/MCP and Custom GPT Action recovery must stay narrow.
 assert.match(oauth, /CHATGPT_CONNECTOR_CALLBACK_PATH/);
 assert.match(oauth, /CHATGPT_LEGACY_CONNECTOR_CALLBACK_PATH/);
 assert.match(oauth, /CHATGPT_ACTION_CALLBACK_PATH/);
-assert.match(oauth, /TRUSTED_ACTION_HOSTS = new Set\(\["chatgpt\.com", "chat\.openai\.com"\]\)/);
+assert.match(oauth, /TRUSTED_CHATGPT_HOSTS = new Set\(\["chatgpt\.com", "chat\.openai\.com"\]\)/);
+assert.match(oauth, /RECOVERY_COMPAT_SCOPES = new Set\(\[FAMILY_SCOPE, "offline_access"\]\)/);
+assert.match(oauth, /TRUSTED_CHATGPT_HOSTS\.has\(redirect\.hostname\)/);
 assert.match(oauth, /kind === "connector"/);
 assert.match(oauth, /kind === "gpt_action"/);
 assert.match(oauth, /code_challenge_method/);
 assert.match(oauth, /method !== "S256"/);
 assert.match(oauth, /PKCE_S256_CHALLENGE/);
-assert.match(oauth, /scopes\.includes\(FAMILY_SCOPE\)/);
+assert.match(oauth, /scopes\.some\(\(scope\) => !RECOVERY_COMPAT_SCOPES\.has\(scope\)\)/);
 assert.match(oauth, /new URL\(resourceRaw\)\.origin !== url\.origin/);
 assert.match(oauth, /missingRecoverableChatGptClient/);
 assert.match(oauth, /registerRecoveredChatGptClient/);
@@ -53,10 +55,26 @@ assert.match(oauth, /ACTION_SECRET_BOOTSTRAP_TTL_SECONDS = 10 \* 60/);
 assert.match(oauth, /tokenEndpointAuthMethod: candidate\.kind === "gpt_action" \? "client_secret_post" : "none"/);
 assert.match(oauth, /authMethodExplicit: true/);
 assert.match(oauth, /grantTypes: \["authorization_code", "refresh_token"\]/);
-assert.match(oauth, /ChatGPT Family Connector/);
+assert.match(oauth, /ChatGPT Family Plugin \/ MCP App/);
 assert.match(oauth, /ChatGPT Family Action/);
 assert.match(oauth, /Storage format is pinned to @cloudflare\/workers-oauth-provider 0\.10\.3/);
 assert.doesNotMatch(oauth, /OAUTH_PROVIDER\.createClient/);
+
+// Compatibility must never widen Family permissions: regardless of an omitted
+// scope or offline_access transport scope, reconstructed authorization grants
+// only the single Family read scope.
+assert.match(oauth, /scope: \[FAMILY_SCOPE\]/);
+assert.match(oauth, /const grantedScopes = oauthRequest\.scope\.filter\(\(scope\) => scope === FAMILY_SCOPE\)/);
+assert.doesNotMatch(oauth, /scope: \[FAMILY_SCOPE, "offline_access"\]/);
+
+// Invalid-client diagnostics are intentionally categorical only: no raw
+// client_id, redirect URI, state or resource value is echoed back.
+assert.match(oauth, /function safeAuthDiagnostic/);
+assert.match(oauth, /FAM-OAUTH-DIAG/);
+assert.match(oauth, /redirect=\$\{redirectMode\}@\$\{redirectHost\}/);
+assert.match(oauth, /scope=\$\{scopeMode\}/);
+assert.match(oauth, /resource=\$\{resource\}/);
+assert.match(oauth, /authorizationErrorResponse\(error, request\)/);
 
 // Custom GPT Actions are confidential OAuth clients. The original registry can
 // be lost while ChatGPT still retains the client_id/client_secret. Recovery must
@@ -98,4 +116,4 @@ assert.match(deploy, /taistock-mcp-OAUTH_KV/);
 assert.match(deploy, /OAUTH_KV_RESOLUTION_FAILED/);
 assert.match(deploy, /refusing Production deploy/);
 
-console.log("Family OAuth connector + Custom GPT Action recovery contract tests passed");
+console.log("Family OAuth Plugin/MCP DCR + Custom GPT Action recovery contract tests passed");
