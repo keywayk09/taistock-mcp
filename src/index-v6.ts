@@ -108,6 +108,8 @@ const appHandler = {
           web_research: "OPEN_WORLD_AUTONOMOUS_ALLOWED",
           swing_screen: "V2_FULL_SNAPSHOT_PREFILTER_BOUNDED_DEEP_SCAN",
         },
+        // Backward-compatible health alias for older Custom GPT / monitoring consumers.
+        family_read_only_action: "/api/family/query",
         family_read_only_actions: {
           legacy_query: "/api/family/query",
           analyze_11_point: "/api/family/analyze",
