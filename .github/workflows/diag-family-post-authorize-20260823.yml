@@ -1,0 +1,163 @@
+name: Diagnose Family Post Authorize 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.head_ref == 'ops/diag-family-post-authorize-20260823'
+    runs-on: ubuntu-latest
+    env:
+      PROD_URL: https://taistock-mcp.keywayk09.workers.dev
+      MOM_CLIENT_ID: 41i_gRq63zL6r2tO
+    steps:
+      - name: Resolve Production OAuth KV
+        id: oauth_kv
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/kv.json
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          body=json.load(open('/tmp/kv.json'))
+          rows=[x for x in body.get('result',[]) if x.get('title')=='taistock-mcp-OAUTH_KV']
+          if not body.get('success') or len(rows)!=1:
+              raise SystemExit('production_oauth_kv_resolution_failed')
+          kv_id=str(rows[0].get('id') or '')
+          if len(kv_id)!=32:
+              raise SystemExit('invalid_oauth_kv_id')
+          print('id='+kv_id)
+          PY
+
+      - name: Production health
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --retry 3 --retry-delay 1 --max-time 30 -sS -o /tmp/health.json -w '%{http_code}' "$PROD_URL/health")"
+          echo "HEALTH_HTTP=${code}"
+          test "$code" = '200'
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/health.json'))
+          print('HEALTH_STATUS='+str(body.get('status')))
+          fam=body.get('family_mcp') or {}
+          print('FAMILY_OAUTH_REQUIRED='+str(fam.get('oauth_required')).upper())
+          print('FAMILY_OAUTH_KV_BOUND='+str(fam.get('oauth_kv_bound')).upper())
+          print('FAMILY_LOGIN_SECRET_CONFIGURED='+str(fam.get('login_secret_configured')).upper())
+          print('FAMILY_PERMISSION_MODEL='+str(fam.get('permission_model')))
+          PY
+
+      - name: Inspect Mom client state without secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          encoded="$(python - <<'PY'
+          import os,urllib.parse
+          print(urllib.parse.quote('client:'+os.environ['MOM_CLIENT_ID'], safe=''))
+          PY
+          )"
+          base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${OAUTH_KV_ID}"
+          status="$(curl -sS -o /tmp/mom-client.raw -w '%{http_code}' "$base/values/$encoded" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+          echo "MOM_CLIENT_HTTP=${status}"
+          if [ "$status" = '404' ]; then
+            echo 'MOM_CLIENT_STATE=MISSING'
+            exit 0
+          fi
+          test "$status" = '200'
+          python - <<'PY'
+          import json,time
+          from urllib.parse import urlparse
+          x=json.load(open('/tmp/mom-client.raw'))
+          print('MOM_CLIENT_STATE=PRESENT')
+          print('CLIENT_ID_MATCH='+str(x.get('clientId')=='41i_gRq63zL6r2tO').upper())
+          print('TOKEN_AUTH_METHOD='+str(x.get('tokenEndpointAuthMethod')))
+          print('AUTH_METHOD_EXPLICIT='+str(x.get('authMethodExplicit')).upper())
+          print('GRANT_TYPES='+','.join(map(str,x.get('grantTypes') or [])))
+          print('RESPONSE_TYPES='+','.join(map(str,x.get('responseTypes') or [])))
+          print('HAS_CLIENT_SECRET='+str(bool(x.get('clientSecret'))).upper())
+          print('RECOVERY_KIND='+str(x.get('recoveryKind')))
+          reg=x.get('registrationDate')
+          if isinstance(reg,(int,float)):
+              print('REGISTRATION_AGE_SECONDS='+str(max(0,int(time.time()-reg))))
+          uris=x.get('redirectUris') or []
+          print('REDIRECT_COUNT='+str(len(uris)))
+          for i,u in enumerate(uris[:3]):
+              try:
+                  p=urlparse(u)
+                  print(f'REDIRECT_{i}_HOST={p.hostname}')
+                  print(f'REDIRECT_{i}_PATH={p.path}')
+                  print(f'REDIRECT_{i}_HAS_QUERY={bool(p.query)}')
+              except Exception:
+                  print(f'REDIRECT_{i}=UNPARSEABLE')
+          PY
+
+      - name: Inspect OAuth state counts only
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${OAUTH_KV_ID}"
+          for prefix in 'client:' 'grant:' 'token:' 'refresh:' 'refresh_token:' 'family-oauth:'; do
+            enc="$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "$prefix")"
+            curl -fsS "$base/keys?prefix=$enc&limit=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/keys.json
+            PREFIX="$prefix" python - <<'PY'
+          import json,os
+          body=json.load(open('/tmp/keys.json'))
+          if not body.get('success'):
+              raise SystemExit('key_list_failed')
+          print('COUNT_'+os.environ['PREFIX'].replace(':','').replace('-','_').upper()+'='+str(len(body.get('result') or [])))
+          PY
+          done
+
+      - name: Classify observed stage
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${OAUTH_KV_ID}"
+          python - <<'PY' >/tmp/prefixes
+          import urllib.parse
+          for p in ('grant:','token:'):
+              print(p+'\t'+urllib.parse.quote(p,safe=''))
+          PY
+          declare -A counts
+          while IFS=$'\t' read -r p enc; do
+            curl -fsS "$base/keys?prefix=$enc&limit=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" >/tmp/state.json
+            c="$(python -c 'import json; print(len(json.load(open("/tmp/state.json")).get("result") or []))')"
+            counts[$p]="$c"
+          done </tmp/prefixes
+          encoded="$(python - <<'PY'
+          import os,urllib.parse
+          print(urllib.parse.quote('client:'+os.environ['MOM_CLIENT_ID'], safe=''))
+          PY
+          )"
+          client_status="$(curl -sS -o /dev/null -w '%{http_code}' "$base/values/$encoded" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+          if [ "$client_status" = '404' ]; then
+            echo 'OBSERVED_STAGE=BEFORE_CLIENT_RESTORE_OR_SECRET_REJECTED'
+          elif [ "${counts[token:]}" -gt 0 ]; then
+            echo 'OBSERVED_STAGE=TOKEN_EXISTS_OAUTH_LIKELY_COMPLETED'
+          elif [ "${counts[grant:]}" -gt 0 ]; then
+            echo 'OBSERVED_STAGE=AUTHORIZATION_COMPLETED_BUT_TOKEN_NOT_ISSUED'
+          else
+            echo 'OBSERVED_STAGE=CLIENT_RESTORED_BUT_NO_GRANT_OR_TOKEN'
+          fi
