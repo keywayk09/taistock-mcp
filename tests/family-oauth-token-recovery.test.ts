@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createFamilyOAuthTokenRecoveryWrapper } from "../src/v6/family-oauth-token-recovery";
+import { createFamilyOAuthTokenRecoveryWrapper } from "../src/v6/family-oauth-token-recovery.ts";
 
 const CLIENT_ID = "41i_gRq63zL6r2tO";
 const REDIRECT_URI = "https://chatgpt.com/connector/oauth/gDokJPX2DaM_";
