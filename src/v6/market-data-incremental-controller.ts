@@ -113,24 +113,51 @@ function normalizeCalendarDate(text: string, yearHint?: string | number) {
   return null;
 }
 
+function calendarEntryFromCells(cells: string[], yearHint?: string | number): TradingCalendarEntry | null {
+  const joined = cells.join(" ");
+  const date = normalizeCalendarDate(joined, yearHint);
+  if (!date) return null;
+  const dateCell = cells.find((cell) => normalizeCalendarDate(cell, yearHint) === date) ?? "";
+  const nonDateCells = cells.filter((cell) => cell && cell !== dateCell);
+  const name = nonDateCells[0] ?? "";
+  const description = nonDateCells.slice(1).join(" ");
+  return { date, name, description, open: looksOpenEvent(`${name} ${description}`) };
+}
+
 export function parseTwseHolidayCsv(text: string, yearHint?: string | number): TradingCalendarEntry[] {
   const entries: TradingCalendarEntry[] = [];
   const seen = new Set<string>();
   for (const rawLine of String(text || "").replace(/^\uFEFF/, "").split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
-    const cells = parseCsvLine(line);
-    const joined = cells.join(" ");
-    const date = normalizeCalendarDate(joined, yearHint);
-    if (!date) continue;
-    const dateCell = cells.find((cell) => normalizeCalendarDate(cell, yearHint) === date) ?? "";
-    const nonDateCells = cells.filter((cell) => cell && cell !== dateCell);
-    const name = nonDateCells[0] ?? "";
-    const description = nonDateCells.slice(1).join(" ");
-    const key = `${date}|${name}|${description}`;
+    const entry = calendarEntryFromCells(parseCsvLine(line), yearHint);
+    if (!entry) continue;
+    const key = `${entry.date}|${entry.name}|${entry.description}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    entries.push({ date, name, description, open: looksOpenEvent(`${name} ${description}`) });
+    entries.push(entry);
+  }
+  return entries.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export function parseTwseHolidayJson(body: unknown, yearHint?: string | number): TradingCalendarEntry[] {
+  const source = body as { data?: unknown[] } | null;
+  const rows = Array.isArray(source?.data) ? source!.data! : [];
+  const entries: TradingCalendarEntry[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const cells = Array.isArray(row)
+      ? row.map((cell) => String(cell ?? "").trim())
+      : row && typeof row === "object"
+        ? Object.values(row as Record<string, unknown>).map((cell) => String(cell ?? "").trim())
+        : [];
+    if (!cells.length) continue;
+    const entry = calendarEntryFromCells(cells, yearHint);
+    if (!entry) continue;
+    const key = `${entry.date}|${entry.name}|${entry.description}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    entries.push(entry);
   }
   return entries.sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -192,11 +219,20 @@ export function classifyTradingDay(input: {
     };
   }
 
+  if (!input.calendarVerified) {
+    return {
+      status: "UNKNOWN",
+      terminal: false,
+      reason: "official_calendar_unavailable_fail_closed",
+      evidence: { source: "TWSE_HOLIDAY_SCHEDULE", verified: false, detail: null },
+    };
+  }
+
   return {
     status: "OPEN_EXPECTED",
     terminal: false,
-    reason: input.calendarVerified ? "weekday_not_listed_in_official_holiday_schedule" : "weekday_fail_open_calendar_unavailable",
-    evidence: { source: input.calendarVerified ? "TWSE_HOLIDAY_SCHEDULE" : "WEEKDAY_RULE", verified: Boolean(input.calendarVerified), detail: null },
+    reason: "weekday_not_listed_in_official_holiday_schedule",
+    evidence: { source: "TWSE_HOLIDAY_SCHEDULE", verified: true, detail: null },
   };
 }
 

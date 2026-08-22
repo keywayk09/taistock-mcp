@@ -6,6 +6,7 @@ import {
   makePendingLayer,
   mergeReadyMonotonic,
   parseTwseHolidayCsv,
+  parseTwseHolidayJson,
   summarizeDay,
   type MarketManifestLayer,
 } from "../src/v6/market-data-incremental-controller.ts";
@@ -16,7 +17,23 @@ assert.equal(calendar.length, 3);
 assert.equal(classifyTradingDay({ tradeDate: "2026-09-25", calendarEntries: calendar, calendarVerified: true }).status, "CLOSED_SCHEDULED");
 assert.equal(classifyTradingDay({ tradeDate: "2026-02-23", calendarEntries: calendar, calendarVerified: true }).status, "OPEN_EXPECTED");
 assert.equal(classifyTradingDay({ tradeDate: "2026-08-22", calendarEntries: calendar, calendarVerified: true }).status, "CLOSED_WEEKEND");
-assert.equal(classifyTradingDay({ tradeDate: "2026-08-20", calendarEntries: [], calendarVerified: false }).status, "OPEN_EXPECTED");
+
+const jsonCalendar = parseTwseHolidayJson({
+  fields: ["日期", "名稱", "說明"],
+  data: [
+    ["2月20日", "農曆除夕及春節", "依規定休市"],
+    ["2月23日", "農曆春節後開始交易日", "農曆春節後開始交易"],
+  ],
+}, "2026");
+assert.equal(jsonCalendar.length, 2);
+assert.equal(classifyTradingDay({ tradeDate: "2026-02-20", calendarEntries: jsonCalendar, calendarVerified: true }).status, "CLOSED_SCHEDULED");
+assert.equal(classifyTradingDay({ tradeDate: "2026-02-23", calendarEntries: jsonCalendar, calendarVerified: true }).status, "OPEN_EXPECTED");
+
+const unavailable = classifyTradingDay({ tradeDate: "2026-08-20", calendarEntries: [], calendarVerified: false });
+assert.equal(unavailable.status, "UNKNOWN");
+assert.equal(unavailable.terminal, false);
+assert.equal(unavailable.reason, "official_calendar_unavailable_fail_closed");
+assert.equal(unavailable.evidence.verified, false);
 assert.equal(classifyTradingDay({ tradeDate: "2026-08-20", override: { status: "CLOSED", reason: "typhoon", source: "TWSE_NOTICE" } }).status, "CLOSED_EMERGENCY");
 
 const ready: MarketManifestLayer = {
@@ -63,4 +80,4 @@ const identities = [
 const layers = [ready, ...identities.map(([kind, market]) => makePendingLayer({ kind, market }, "2026-08-20T10:15:00Z"))];
 assert.equal(summarizeDay(layers).terminal, false);
 
-console.log("market-data incremental controller + staged checkpoint tests passed");
+console.log("market-data incremental controller + official calendar fail-closed tests passed");

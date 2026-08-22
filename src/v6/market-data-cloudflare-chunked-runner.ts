@@ -13,6 +13,7 @@ import {
   marketLayerKey,
   mergeReadyMonotonic,
   parseTwseHolidayCsv,
+  parseTwseHolidayJson,
   summarizeDay,
   type MarketManifestLayer,
   type TradingCalendarEntry,
@@ -144,20 +145,37 @@ async function loadCalendar(env: Env, tradeDate: string) {
   if (!verified) {
     try {
       const rocYear = Number(year) - 1911;
-      const csv = await getText(
-        `https://www.twse.com.tw/holidaySchedule/holidaySchedule?response=csv&queryYear=${rocYear}`,
-        "TWSE_HOLIDAY_SCHEDULE",
-      );
-      const parsed = parseTwseHolidayCsv(csv, year);
+      let parsed: TradingCalendarEntry[] = [];
+      let source = "TWSE_RWD_HOLIDAY_SCHEDULE_JSON";
+      try {
+        const body = await getJson(
+          `https://www.twse.com.tw/rwd/zh/holidaySchedule/holidaySchedule?response=json&queryYear=${rocYear}`,
+          "TWSE_HOLIDAY_SCHEDULE_JSON",
+        );
+        parsed = parseTwseHolidayJson(body, year);
+      } catch (caught) {
+        error = caught instanceof Error ? caught.message : String(caught);
+      }
+
+      if (!parsed.length) {
+        source = "TWSE_RWD_HOLIDAY_SCHEDULE_CSV";
+        const csv = await getText(
+          `https://www.twse.com.tw/rwd/zh/holidaySchedule/holidaySchedule?response=csv&queryYear=${rocYear}`,
+          "TWSE_HOLIDAY_SCHEDULE_CSV",
+        );
+        parsed = parseTwseHolidayCsv(csv, year);
+      }
+
       if (parsed.length) {
         entries = parsed;
         verified = true;
+        error = null;
         await updateGitHubJson(env, {
           path: calendarPath,
           defaultValue: {
             schema_version: "diamond-market-calendar/v1",
             year,
-            source: "TWSE_HOLIDAY_SCHEDULE_CSV",
+            source,
             entries: [] as TradingCalendarEntry[],
             updated_at: "",
           },
@@ -166,14 +184,14 @@ async function loadCalendar(env: Env, tradeDate: string) {
             ...current,
             schema_version: "diamond-market-calendar/v1",
             year,
-            source: "TWSE_HOLIDAY_SCHEDULE_CSV",
+            source,
             entries: parsed,
             updated_at: new Date().toISOString(),
           }),
           retries: 2,
         });
       } else {
-        error = "holiday_schedule_empty";
+        error = error ?? "holiday_schedule_empty";
       }
     } catch (caught) {
       error = caught instanceof Error ? caught.message : String(caught);
@@ -486,6 +504,19 @@ export async function runSubrequestSafeMarketDataCapture(env: Env, input: { trad
 
   const calendar = await loadCalendar(env, tradeDate);
   const gate = classifyTradingDay({ tradeDate, calendarEntries: calendar.entries, calendarVerified: calendar.verified, override: calendar.override });
+
+  if (gate.status === "UNKNOWN") {
+    return {
+      trade_date: tradeDate,
+      status: "CALENDAR_UNKNOWN" as const,
+      day_status: initial?.day_status ?? "PARTIAL",
+      terminal: false,
+      gate,
+      calendar_path: calendar.calendarPath,
+      calendar_error: calendar.error ?? "official_calendar_unavailable",
+      estimated_subrequests: 4,
+    };
+  }
 
   if (gate.terminal) {
     const result = await updateGitHubJson<any>(env, {
