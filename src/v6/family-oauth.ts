@@ -129,6 +129,10 @@ function recoverableChatGptClient(request: Request): RecoverableChatGptClient | 
 
   const scopes = String(url.searchParams.get("scope") || "").split(/\s+/).filter(Boolean);
   if (!scopes.includes(FAMILY_SCOPE)) return null;
+  if (scopes.some((scope) => scope !== FAMILY_SCOPE)) return null;
+
+  const state = String(url.searchParams.get("state") || "");
+  if (!state || state.length > 2_000) return null;
 
   const resourceRaw = String(url.searchParams.get("resource") || "").trim();
   if (resourceRaw) {
@@ -140,6 +144,30 @@ function recoverableChatGptClient(request: Request): RecoverableChatGptClient | 
   }
 
   return { clientId, redirectUri: redirect.toString() };
+}
+
+function recoveredAuthRequest(request: Request, candidate: RecoverableChatGptClient): AuthRequest | null {
+  // This path is called only after recoverableChatGptClient() has accepted the
+  // request and the Family login secret has been proven. Re-check every field
+  // needed by completeAuthorization so no unvalidated URL parameter crosses the
+  // compatibility boundary.
+  const revalidated = recoverableChatGptClient(request);
+  if (!revalidated || revalidated.clientId !== candidate.clientId || revalidated.redirectUri !== candidate.redirectUri) return null;
+  const url = new URL(request.url);
+  const state = String(url.searchParams.get("state") || "");
+  const codeChallenge = String(url.searchParams.get("code_challenge") || "");
+  const resourceRaw = String(url.searchParams.get("resource") || "").trim();
+  return {
+    responseType: "code",
+    clientId: candidate.clientId,
+    redirectUri: candidate.redirectUri,
+    scope: [FAMILY_SCOPE],
+    state,
+    codeChallenge,
+    codeChallengeMethod: "S256",
+    ...(resourceRaw ? { resource: resourceRaw } : {}),
+    issuer: url.origin,
+  };
 }
 
 function recoveredClientKey(clientId: string) {
@@ -280,6 +308,9 @@ async function handleAuthorize(request: Request, env: Env) {
     const syntheticRequest = new Request(syntheticUrl.toString(), { method: "GET", headers: request.headers });
     const recovery = await missingRecoverableChatGptClient(syntheticRequest, env);
 
+    let oauthRequest: AuthRequest;
+    let clientName: string;
+
     if (recovery) {
       const checked = await validateLoginSecret(
         request,
@@ -292,41 +323,46 @@ async function handleAuthorize(request: Request, env: Env) {
       if (!(await registerRecoveredChatGptClient(recovery, env))) {
         return html("<h2>Family OAuth client 恢復失敗</h2><p>請重新啟動連線流程。</p>", 409);
       }
-    }
-
-    const parsed = await parseAuthorizationRequest(syntheticRequest, env);
-    if (!parsed.ok) {
-      if (recovery) {
+      const reconstructed = recoveredAuthRequest(syntheticRequest, recovery);
+      if (!reconstructed) {
         await env.OAUTH_KV.delete(recoveredClientKey(recovery.clientId)).catch(() => undefined);
-        return html("<h2>Family OAuth client 同步失敗</h2><p>請重新按一次連線。</p>", 409);
+        return html("<h2>Family OAuth request 驗證失敗</h2><p>請重新啟動連線流程。</p>", 409);
       }
-      return parsed.response;
-    }
-
-    const oauthRequest: AuthRequest = parsed.value;
-    const client = await env.OAUTH_PROVIDER.lookupClient(oauthRequest.clientId);
-    if (!client) return html("<h2>Unknown OAuth client</h2>", 400);
-
-    if (!recovery) {
+      oauthRequest = reconstructed;
+      clientName = "ChatGPT Family Connector";
+    } else {
+      const parsed = await parseAuthorizationRequest(syntheticRequest, env);
+      if (!parsed.ok) return parsed.response;
+      oauthRequest = parsed.value;
+      const client = await env.OAUTH_PROVIDER.lookupClient(oauthRequest.clientId);
+      if (!client) return html("<h2>Unknown OAuth client</h2>", 400);
+      clientName = client.clientName || "MCP Client";
       const checked = await validateLoginSecret(
         request,
         env,
         String(form.get("login_secret") || ""),
         oauthQuery,
-        client.clientName || "MCP Client",
+        clientName,
       );
       if (!checked.ok) return checked.response;
     }
 
     const grantedScopes = oauthRequest.scope.filter((scope) => scope === FAMILY_SCOPE);
-    const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-      request: oauthRequest,
-      userId: "family",
-      metadata: { clientName: client.clientName || "MCP Client" },
-      scope: grantedScopes,
-      props: { userId: "family", role: "family" } satisfies FamilyAuthProps,
-    });
-    return Response.redirect(redirectTo, 302);
+    try {
+      const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
+        request: oauthRequest,
+        userId: "family",
+        metadata: { clientName },
+        scope: grantedScopes,
+        props: { userId: "family", role: "family" } satisfies FamilyAuthProps,
+      });
+      return Response.redirect(redirectTo, 302);
+    } catch (error) {
+      if (recovery) {
+        await env.OAUTH_KV.delete(recoveredClientKey(recovery.clientId)).catch(() => undefined);
+      }
+      throw error;
+    }
   }
 
   return new Response("Method Not Allowed", { status: 405, headers: { allow: "GET, POST" } });
