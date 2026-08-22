@@ -13,10 +13,16 @@ import {
 export { decideExtendedMarketDataSchedule } from "./market-data-schedule";
 
 const CAPTURE_UNIT_RESERVE = 10;
+// Leave enough wall-window headroom for the complete immutable raw/snapshot/
+// manifest persistence unit once it has been started. These are admission
+// guards, not fixed step limits: fast work can still perform multiple units.
+const CAPTURE_UNIT_MIN_REMAINING_MS = 8_000;
 // Publisher v5 needs enough room for at least one audited prefix plus the
 // worst-case final generation-manifest + pointer transaction.
 const PUBLISH_UNIT_RESERVE = 23;
+const PUBLISH_UNIT_MIN_REMAINING_MS = 12_000;
 const BACKFILL_UNIT_RESERVE = 13;
+const BACKFILL_UNIT_MIN_REMAINING_MS = 10_000;
 // This headroom is intentionally not handed to the backfill worker. It covers
 // coordinator reads and, on failure, the small idempotent Production diagnostic
 // write so the original runtime error can be identified without Cloudflare log access.
@@ -67,7 +73,10 @@ async function runDailyLane(env: Env, decision: ReturnType<typeof decideExtended
     storageMode: "HISTORY_COMPRESSED",
   });
   try {
-    while (hasSafeMarketDataBudget(budget, { nextEstimatedSubrequests: CAPTURE_UNIT_RESERVE })) {
+    while (hasSafeMarketDataBudget(budget, {
+      nextEstimatedSubrequests: CAPTURE_UNIT_RESERVE,
+      minimumRemainingMs: CAPTURE_UNIT_MIN_REMAINING_MS,
+    })) {
       const remainingSubrequests = Math.max(
         0,
         budget.subrequest_budget - budget.estimated_subrequests,
@@ -97,7 +106,10 @@ async function runDailyLane(env: Env, decision: ReturnType<typeof decideExtended
     setMarketDataCaptureTradeDate(null);
   }
 
-  while (hasSafeMarketDataBudget(budget, { nextEstimatedSubrequests: PUBLISH_UNIT_RESERVE })) {
+  while (hasSafeMarketDataBudget(budget, {
+    nextEstimatedSubrequests: PUBLISH_UNIT_RESERVE,
+    minimumRemainingMs: PUBLISH_UNIT_MIN_REMAINING_MS,
+  })) {
     const remainingSubrequests = Math.max(
       0,
       budget.subrequest_budget - budget.estimated_subrequests,
@@ -131,7 +143,10 @@ async function runHistoryLane(env: Env, decision: ReturnType<typeof decideExtend
   const budget = createMarketDataWorkBudget();
   const backfillResults: any[] = [];
 
-  while (hasSafeMarketDataBudget(budget, { nextEstimatedSubrequests: BACKFILL_UNIT_RESERVE })) {
+  while (hasSafeMarketDataBudget(budget, {
+    nextEstimatedSubrequests: BACKFILL_UNIT_RESERVE,
+    minimumRemainingMs: BACKFILL_UNIT_MIN_REMAINING_MS,
+  })) {
     const remainingSubrequests = Math.max(
       0,
       budget.subrequest_budget - budget.estimated_subrequests - BACKFILL_COORDINATOR_HEADROOM,
