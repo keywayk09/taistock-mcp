@@ -38,7 +38,7 @@ export class MyMCP extends BaseMCP {
   }
 }
 
-const appHandler: ExportedHandler<Env> = {
+const appHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
 
