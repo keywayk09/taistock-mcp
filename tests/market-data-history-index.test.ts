@@ -93,8 +93,10 @@ assert.match(historyIndex, /atomicUpdateGitHubJsonFiles/);
 assert.match(historyIndex, /retries:\s*HISTORY_INDEX_CAS_ATTEMPTS/);
 assert.match(historyIndex, /GITHUB_ATOMIC_CAS_EXHAUSTED/);
 assert.match(historyIndex, /yield_reason:\s*"CAS_CONFLICT"/);
-assert.doesNotMatch(backfill, /historyMonth < anchorMonth \? 1 : 2/);
-assert.match(backfill, /const prefixLength: 1 = 1/);
+// The atomic indexer remains the Daily compatibility path, but History
+// backfill itself must hand bulk month indexing to the canonical Builder V2.
+assert.doesNotMatch(backfill, /runAdaptiveHistoryIndexSlice/);
+assert.match(backfill, /DEFERRED_TO_HISTORY_BUILDER_V2/);
 assert.match(daily, /prefixLength:\s*1/);
 assert.match(daily, /daily_index_mode:\s*"ADAPTIVE_ATOMIC"/);
 assert.match(daily, /compact_prefix_length:\s*1/);
