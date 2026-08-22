@@ -8,7 +8,7 @@ import {
 } from "./common";
 import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
 
-export const FAMILY_ACTION_COMPAT_VERSION = "family-action-compat/v1";
+export const FAMILY_ACTION_COMPAT_VERSION = "family-action-compat/v2";
 
 type FamilyActionInput = {
   query: string;
@@ -70,8 +70,18 @@ function subtractDays(date: string, days: number) {
   return value.toISOString().slice(0, 10);
 }
 
-function extractSymbols(query: string) {
+export function extractFamilySymbols(query: string) {
   return [...new Set(query.match(/(?<!\d)\d{4,6}(?!\d)/g) ?? [])].slice(0, 5);
+}
+
+function looksLikeSwingSelection(query: string) {
+  return /波段|選股|選標的|找股票|找標的|有什麼.*股票|值得注意|比較穩|保守.*股票|積極.*股票|進攻.*股票|1\s*[～~-]\s*8\s*週/i.test(query);
+}
+
+function inferFamilyMode(query: string): "stable" | "balanced" | "aggressive" {
+  if (/保守|比較穩|穩健|低波動/i.test(query)) return "stable";
+  if (/積極|進攻|高成長|高動能/i.test(query)) return "aggressive";
+  return "balanced";
 }
 
 function errorText(error: unknown) {
@@ -146,7 +156,7 @@ async function buildStockRead(env: Env, symbol: string, asOf: string) {
       source: normalizedQuote?.close ? "FUGLE_DISPLAY_QUOTE" : latestBar ? "FINMIND_DISPLAY_FALLBACK" : "UNAVAILABLE",
       quote: normalizedQuote?.close ? normalizedQuote : null,
       latest_daily_bar: latestBar,
-      note: "此相容 REST API 僅提供家用顯示/研究資料；正式 OHLC/K線仍以 OHLC MCP 為準。",
+      note: "盤中可優先用Fugle即時行情；此REST資料仍屬家用顯示/研究層，正式OHLC/K線以OHLC MCP為準。",
     },
     technical: {
       status: technical ? "READY" : "UNAVAILABLE",
@@ -188,7 +198,7 @@ export async function runFamilyActionCompatQuery(env: Env, input: FamilyActionIn
   const asOf = input.as_of_date && /^\d{4}-\d{2}-\d{2}$/.test(input.as_of_date)
     ? input.as_of_date
     : taipeiDate();
-  const symbols = extractSymbols(query);
+  const symbols = extractFamilySymbols(query);
   const stockAnalyses = await Promise.all(symbols.map((symbol) => buildStockRead(env, symbol, asOf)));
   const route = symbols.length > 1 ? "stock_compare" : symbols.length === 1 ? "stock_analysis" : "read_only_query";
 
@@ -204,11 +214,12 @@ export async function runFamilyActionCompatQuery(env: Env, input: FamilyActionIn
     stock_analyses: stockAnalyses,
     global_search: symbols.length ? null : {
       status: "NO_EXPLICIT_SYMBOL",
-      note: "舊 Action 相容入口已恢復；無股票代號的全市場選股仍由 Family MCP 的 screen_family_swing_candidates 處理。",
+      note: "沒有代號時，若語意屬波段/選股，正式HTTP handler會智慧轉到Family Swing V2；其他文字查詢仍保留相容模式。",
     },
     response_instructions: [
       "請以繁體中文先給結論，再解釋理由。",
-      "正式 Published 籌碼與顯示/降級行情資料必須分開標示。",
+      "盤中可搭配Fugle即時資訊；正式Published籌碼與研究/降級行情資料必須分開標示。",
+      "Web可自由延伸研究，不限固定網站或關鍵字；但不可冒充正式OHLC或Published籌碼。",
       "資料不足時明示，不可自行補數字。",
       "不得聲稱已修改、修復、寫入或下單；此 API 永遠唯讀。",
     ],
@@ -221,14 +232,14 @@ export function familyActionOpenApi(origin: string) {
     info: {
       title: "Taiwan Stock AI Family Read-Only API",
       version: FAMILY_ACTION_COMPAT_VERSION,
-      description: "舊版 Custom GPT Action 相容入口；只讀，不允許任何 Production 寫入。",
+      description: "舊版 Custom GPT Action 相容入口；同一query端點會依語意智慧轉路由到Family V2，但永遠只讀。",
     },
     servers: [{ url: origin }],
     paths: {
       "/api/family/query": {
         post: {
           operationId: "queryTaiwanStockSystem",
-          summary: "智慧查詢台股唯讀資料",
+          summary: "智慧查詢台股唯讀資料；可自動做單股11點、多股比較或波段選股V2",
           security: [{ bearerAuth: [] }],
           requestBody: {
             required: true,
@@ -262,7 +273,7 @@ export function familyActionOpenApi(origin: string) {
 
 export function familyPrivacyHtml(origin: string) {
   const safeOrigin = origin.replace(/[<>&\"']/g, "");
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>台股引擎隱私權政策</title></head><body><main><h1>台股引擎隱私權政策</h1><p>本政策適用於台股引擎只讀 API（${safeOrigin}）。</p><p>服務僅處理使用者主動提交的股票查詢與提供查詢所需的公開市場資料；不提供下單，也不允許透過家人 API 修改 GitHub、策略或 Production 設定。</p><p>資料可能來自 TWSE、TPEx、Fugle、FinMind 與 GitHub canonical store。正式籌碼資料以 Published generation 為準；正式 OHLC/K線仍由 OHLC MCP 提供。</p><p>本服務為研究輔助，不構成投資建議或獲利保證。</p></main></body></html>`;
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>台股引擎隱私權政策</title></head><body><main><h1>台股引擎隱私權政策</h1><p>本政策適用於台股引擎只讀 API（${safeOrigin}）。</p><p>服務僅處理使用者主動提交的股票查詢與提供查詢所需的公開市場資料；不提供下單，也不允許透過家人 API 修改 GitHub、策略或 Production 設定。</p><p>資料可能來自 TWSE、TPEx、Fugle、FinMind、Web研究與 GitHub canonical store。正式籌碼資料以 Published generation 為準；正式 OHLC/K線仍由 OHLC MCP 提供。</p><p>本服務為研究輔助，不構成投資建議或獲利保證。</p></main></body></html>`;
 }
 
 export async function handleFamilyActionCompat(request: Request, env: Env, url: URL): Promise<Response | null> {
@@ -282,15 +293,41 @@ export async function handleFamilyActionCompat(request: Request, env: Env, url: 
     } catch {
       return jsonResponse({ error: "invalid_json" }, 400, corsHeaders());
     }
-    const input = body !== null && typeof body === "object" ? body as Record<string, unknown> : {};
-    const query = typeof input.query === "string" ? input.query.trim() : "";
+    const payload = body !== null && typeof body === "object" ? body as Record<string, unknown> : {};
+    const query = typeof payload.query === "string" ? payload.query.trim() : "";
     if (!query) return jsonResponse({ error: "query_required" }, 400, corsHeaders());
     if (query.length > 2_000) return jsonResponse({ error: "query_too_long" }, 400, corsHeaders());
+    const asOfDate = typeof payload.as_of_date === "string" ? payload.as_of_date : undefined;
+
     try {
+      const symbols = extractFamilySymbols(query);
+      if (symbols.length) {
+        // Dynamic import avoids a static initialization cycle: family-analysis uses the base read function above.
+        const { runSmartFamilyAnalysis } = await import("./family-analysis");
+        const result = await runSmartFamilyAnalysis(env, { symbols, as_of_date: asOfDate });
+        return jsonResponse({
+          ...result,
+          compatibility: "LEGACY_QUERY_SMART_ROUTED_TO_FAMILY_V2",
+          requested_via: "queryTaiwanStockSystem",
+        }, 200, corsHeaders());
+      }
+
+      if (looksLikeSwingSelection(query)) {
+        const { runFamilySwingScreenV2 } = await import("./family-stock-selection-v2");
+        const result = await runFamilySwingScreenV2(env, { mode: inferFamilyMode(query), top_n: 5 });
+        return jsonResponse({
+          ...result,
+          route: "smart_swing_screen_v2",
+          compatibility: "LEGACY_QUERY_SMART_ROUTED_TO_FAMILY_V2",
+          requested_via: "queryTaiwanStockSystem",
+          web_policy: "OPEN_WORLD_DISCOVERY_ALLOWED_BUT_WEB_CANDIDATE_IS_NOT_ENGINE_RANK_UNTIL_VALIDATED",
+        }, 200, corsHeaders());
+      }
+
       const result = await runFamilyActionCompatQuery(env, {
         query,
         mode: "auto",
-        as_of_date: typeof input.as_of_date === "string" ? input.as_of_date : undefined,
+        as_of_date: asOfDate,
       });
       return jsonResponse(result, 200, corsHeaders());
     } catch (error) {
