@@ -1,0 +1,74 @@
+name: Inspect Family Plugin OAuth Client 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-client:
+    if: github.head_ref == 'ops/force-family-action-oauth-production-20260823'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect sanitized Production OAuth client metadata
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ns_endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${ns_endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/ns.json
+          python - <<'PY' > /tmp/kvid
+          import json
+          body=json.load(open('/tmp/ns.json'))
+          rows=[x for x in body.get('result',[]) if x.get('title')=='taistock-mcp-OAUTH_KV']
+          assert len(rows)==1, len(rows)
+          print(rows[0]['id'])
+          PY
+          kvid="$(cat /tmp/kvid)"
+          key='client:41i_gRq63zL6r2tO'
+          encoded="$(python - <<'PY'
+          import urllib.parse
+          print(urllib.parse.quote('client:41i_gRq63zL6r2tO', safe=''))
+          PY
+          )"
+          url="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kvid}/values/${encoded}"
+          status="$(curl -sS -o /tmp/client.raw -w '%{http_code}' "$url" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+          echo "CLIENT_VALUE_HTTP=${status}"
+          if [ "$status" = '404' ]; then
+            echo 'MOM_PLUGIN_CLIENT_RECORD=MISSING'
+            exit 0
+          fi
+          test "$status" = '200'
+          python - <<'PY'
+          import json
+          from urllib.parse import urlparse
+          raw=open('/tmp/client.raw').read()
+          try:
+              x=json.loads(raw)
+          except Exception:
+              print('MOM_PLUGIN_CLIENT_RECORD=MALFORMED_JSON')
+              raise SystemExit(0)
+          print('MOM_PLUGIN_CLIENT_RECORD=PRESENT')
+          print('CLIENT_ID_MATCH=' + str(x.get('clientId')=='41i_gRq63zL6r2tO').upper())
+          print('TOKEN_AUTH_METHOD=' + str(x.get('tokenEndpointAuthMethod')))
+          print('AUTH_METHOD_EXPLICIT=' + str(x.get('authMethodExplicit')))
+          print('GRANT_TYPES=' + ','.join(map(str,x.get('grantTypes') or [])))
+          print('RESPONSE_TYPES=' + ','.join(map(str,x.get('responseTypes') or [])))
+          uris=x.get('redirectUris') or []
+          print('REDIRECT_COUNT=' + str(len(uris)))
+          for i,u in enumerate(uris[:5]):
+              try:
+                  p=urlparse(u)
+                  print(f'REDIRECT_{i}_HOST={p.hostname}')
+                  print(f'REDIRECT_{i}_PATH={p.path}')
+                  print(f'REDIRECT_{i}_HAS_QUERY={bool(p.query)}')
+              except Exception:
+                  print(f'REDIRECT_{i}=UNPARSEABLE')
+          print('HAS_CLIENT_SECRET=' + str(bool(x.get('clientSecret'))).upper())
+          print('RECOVERY_KIND=' + str(x.get('recoveryKind')))
+          PY
