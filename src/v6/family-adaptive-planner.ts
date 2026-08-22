@@ -1,4 +1,4 @@
-import { familySharedReadManifest } from "./family-shared-read-plane";
+import { familySharedReadManifest } from "./family-shared-read-plane.ts";
 
 export const FAMILY_ADAPTIVE_PLANNER_VERSION = "family-adaptive-planner/v1.0.1";
 
