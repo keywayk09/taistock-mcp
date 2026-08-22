@@ -1,9 +1,9 @@
 SAFE_WRANGLER_DEPLOY_DIAGNOSTIC_V1
-source_sha=e16058b1882e1db063937457657346d4e06ed454
+source_sha=6445f2923b7bd5bea7c6c0c43cdc15726204a587
 exit_code=1
 note=Sanitized error-relevant Wrangler output only; credentials are redacted.
 ---
-Total Upload: 3189.43 KiB / gzip: 602.63 KiB
+Total Upload: 3197.75 KiB / gzip: 603.82 KiB
 Your Worker has access to the following bindings:
 Binding                                                             Resource
 env.MCP_OBJECT (MyMCP)                                              Durable Object
