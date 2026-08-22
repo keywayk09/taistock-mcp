@@ -30,6 +30,17 @@ type RecoverableChatGptClient = {
   redirectUri: string;
 };
 
+type StoredRecoveredClient = {
+  clientId: string;
+  redirectUris: string[];
+  clientName: string;
+  grantTypes: string[];
+  responseTypes: string[];
+  registrationDate: number;
+  tokenEndpointAuthMethod: "none";
+  authMethodExplicit: true;
+};
+
 const FAMILY_SCOPE = "family:read";
 const LOGIN_FAIL_TTL_SECONDS = 15 * 60;
 const LOGIN_FAIL_MAX = 5;
@@ -94,12 +105,6 @@ function authorizationErrorResponse(error: AuthorizationError) {
   return Response.redirect(redirect.toString(), 302);
 }
 
-function isMissingClientError(error: AuthorizationError) {
-  if (error.redirectUri) return false;
-  const text = `${error.code} ${error.description}`.toLowerCase();
-  return text.includes("client") && (text.includes("invalid") || text.includes("unknown") || text.includes("not found"));
-}
-
 function recoverableChatGptClient(request: Request): RecoverableChatGptClient | null {
   const url = new URL(request.url);
   if (url.searchParams.get("response_type") !== "code") return null;
@@ -137,32 +142,51 @@ function recoverableChatGptClient(request: Request): RecoverableChatGptClient | 
   return { clientId, redirectUri: redirect.toString() };
 }
 
-async function recoverMissingChatGptClient(request: Request, env: Env) {
+function recoveredClientKey(clientId: string) {
+  return `client:${clientId}`;
+}
+
+function storedClientMatches(raw: string | null, candidate: RecoverableChatGptClient) {
+  if (!raw) return false;
+  try {
+    const stored = JSON.parse(raw) as Partial<StoredRecoveredClient>;
+    return stored.clientId === candidate.clientId
+      && Array.isArray(stored.redirectUris)
+      && stored.redirectUris.length === 1
+      && stored.redirectUris[0] === candidate.redirectUri
+      && stored.tokenEndpointAuthMethod === "none";
+  } catch {
+    return false;
+  }
+}
+
+async function missingRecoverableChatGptClient(request: Request, env: Env) {
   const candidate = recoverableChatGptClient(request);
-  if (!candidate) return false;
+  if (!candidate) return null;
+  const raw = await env.OAUTH_KV.get(recoveredClientKey(candidate.clientId));
+  return raw ? null : candidate;
+}
 
-  const existing = await env.OAUTH_PROVIDER.lookupClient(candidate.clientId);
-  if (existing) return existing.redirectUris.includes(candidate.redirectUri);
+async function registerRecoveredChatGptClient(candidate: RecoverableChatGptClient, env: Env) {
+  const key = recoveredClientKey(candidate.clientId);
+  const existing = await env.OAUTH_KV.get(key);
+  if (existing) return storedClientMatches(existing, candidate);
 
-  // Compatibility recovery is intentionally one-shot for an empty OAuth registry.
-  // Normal clients must continue to use DCR/CIMD. This prevents arbitrary callers
-  // from filling KV with guessed client IDs while allowing a published ChatGPT app
-  // to recover when ChatGPT retained its prior client_id but the server registry was lost.
-  const currentClients = await env.OAUTH_KV.list({ prefix: "client:", limit: 1 });
-  if (currentClients.keys.length !== 0) return false;
-
-  const created = await env.OAUTH_PROVIDER.createClient({
+  // Storage format is pinned to @cloudflare/workers-oauth-provider 0.10.3.
+  // This record contains public OAuth client metadata only: no client secret,
+  // authorization grant, access token or refresh token is created here.
+  const stored: StoredRecoveredClient = {
     clientId: candidate.clientId,
     redirectUris: [candidate.redirectUri],
     clientName: "ChatGPT Family Connector",
-    grantTypes: ["authorization_code"],
+    grantTypes: ["authorization_code", "refresh_token"],
     responseTypes: ["code"],
+    registrationDate: Math.floor(Date.now() / 1000),
     tokenEndpointAuthMethod: "none",
-  });
-  if (created.clientId !== candidate.clientId || !created.redirectUris.includes(candidate.redirectUri)) return false;
-
-  const verified = await env.OAUTH_PROVIDER.lookupClient(candidate.clientId);
-  return Boolean(verified && verified.redirectUris.includes(candidate.redirectUri));
+    authMethodExplicit: true,
+  };
+  await env.OAUTH_KV.put(key, JSON.stringify(stored));
+  return true;
 }
 
 async function parseAuthorizationRequest(request: Request, env: Env) {
@@ -170,19 +194,6 @@ async function parseAuthorizationRequest(request: Request, env: Env) {
     return { ok: true as const, value: await env.OAUTH_PROVIDER.parseAuthRequest(request) };
   } catch (error) {
     if (!(error instanceof AuthorizationError)) throw error;
-
-    if (isMissingClientError(error)) {
-      try {
-        const recovered = await recoverMissingChatGptClient(request, env);
-        if (recovered) {
-          return { ok: true as const, value: await env.OAUTH_PROVIDER.parseAuthRequest(request) };
-        }
-      } catch {
-        // Fail closed: recovery is compatibility-only. Any failure falls back to
-        // the provider's original authorization error without broadening access.
-      }
-    }
-
     return { ok: false as const, response: authorizationErrorResponse(error) };
   }
 }
@@ -200,6 +211,31 @@ ${error ? `<p style="color:#b42318"><strong>${escapeHtml(error)}</strong></p>` :
 </form>`);
 }
 
+async function readLoginFailures(request: Request, env: Env) {
+  const failKey = `family-oauth:loginfail:${clientIp(request)}`;
+  const failures = Number(await env.OAUTH_KV.get(failKey) || 0);
+  return { failKey, failures };
+}
+
+async function validateLoginSecret(
+  request: Request,
+  env: Env,
+  supplied: string,
+  oauthQuery: string,
+  clientName: string,
+) {
+  const { failKey, failures } = await readLoginFailures(request, env);
+  if (failures >= LOGIN_FAIL_MAX) {
+    return { ok: false as const, response: html("<h2>暫時鎖定</h2><p>驗證失敗次數過多，請 15 分鐘後再試。</p>", 429) };
+  }
+  if (!constantTimeEqual(supplied, loginSecret(env))) {
+    await env.OAUTH_KV.put(failKey, String(failures + 1), { expirationTtl: LOGIN_FAIL_TTL_SECONDS });
+    return { ok: false as const, response: renderLogin(oauthQuery, clientName, "驗證碼錯誤") };
+  }
+  await env.OAUTH_KV.delete(failKey).catch(() => undefined);
+  return { ok: true as const };
+}
+
 async function handleAuthorize(request: Request, env: Env) {
   const expected = loginSecret(env);
   if (!expected) {
@@ -207,12 +243,22 @@ async function handleAuthorize(request: Request, env: Env) {
   }
 
   if (request.method === "GET") {
+    const recovery = await missingRecoverableChatGptClient(request, env);
+    if (recovery) {
+      const { failures } = await readLoginFailures(request, env);
+      if (failures >= LOGIN_FAIL_MAX) {
+        return html("<h2>暫時鎖定</h2><p>驗證失敗次數過多，請 15 分鐘後再試。</p>", 429);
+      }
+      // Do not mutate OAuth client state on an unauthenticated GET. We only
+      // restore the stale ChatGPT client after the family secret is proven.
+      return renderLogin(new URL(request.url).searchParams.toString(), "ChatGPT Family Connector");
+    }
+
     const parsed = await parseAuthorizationRequest(request, env);
     if (!parsed.ok) return parsed.response;
     const client = await env.OAUTH_PROVIDER.lookupClient(parsed.value.clientId);
     if (!client) return html("<h2>Unknown OAuth client</h2>", 400);
-    const failKey = `family-oauth:loginfail:${clientIp(request)}`;
-    const failures = Number(await env.OAUTH_KV.get(failKey) || 0);
+    const { failures } = await readLoginFailures(request, env);
     if (failures >= LOGIN_FAIL_MAX) {
       return html("<h2>暫時鎖定</h2><p>驗證失敗次數過多，請 15 分鐘後再試。</p>", 429);
     }
@@ -232,24 +278,45 @@ async function handleAuthorize(request: Request, env: Env) {
     const syntheticUrl = new URL("/authorize", request.url);
     syntheticUrl.search = oauthQuery;
     const syntheticRequest = new Request(syntheticUrl.toString(), { method: "GET", headers: request.headers });
+    const recovery = await missingRecoverableChatGptClient(syntheticRequest, env);
+
+    if (recovery) {
+      const checked = await validateLoginSecret(
+        request,
+        env,
+        String(form.get("login_secret") || ""),
+        oauthQuery,
+        "ChatGPT Family Connector",
+      );
+      if (!checked.ok) return checked.response;
+      if (!(await registerRecoveredChatGptClient(recovery, env))) {
+        return html("<h2>Family OAuth client 恢復失敗</h2><p>請重新啟動連線流程。</p>", 409);
+      }
+    }
+
     const parsed = await parseAuthorizationRequest(syntheticRequest, env);
-    if (!parsed.ok) return parsed.response;
+    if (!parsed.ok) {
+      if (recovery) {
+        await env.OAUTH_KV.delete(recoveredClientKey(recovery.clientId)).catch(() => undefined);
+        return html("<h2>Family OAuth client 同步失敗</h2><p>請重新按一次連線。</p>", 409);
+      }
+      return parsed.response;
+    }
+
     const oauthRequest: AuthRequest = parsed.value;
     const client = await env.OAUTH_PROVIDER.lookupClient(oauthRequest.clientId);
     if (!client) return html("<h2>Unknown OAuth client</h2>", 400);
 
-    const failKey = `family-oauth:loginfail:${clientIp(request)}`;
-    const failures = Number(await env.OAUTH_KV.get(failKey) || 0);
-    if (failures >= LOGIN_FAIL_MAX) {
-      return html("<h2>暫時鎖定</h2><p>驗證失敗次數過多，請 15 分鐘後再試。</p>", 429);
+    if (!recovery) {
+      const checked = await validateLoginSecret(
+        request,
+        env,
+        String(form.get("login_secret") || ""),
+        oauthQuery,
+        client.clientName || "MCP Client",
+      );
+      if (!checked.ok) return checked.response;
     }
-
-    const supplied = String(form.get("login_secret") || "");
-    if (!constantTimeEqual(supplied, expected)) {
-      await env.OAUTH_KV.put(failKey, String(failures + 1), { expirationTtl: LOGIN_FAIL_TTL_SECONDS });
-      return renderLogin(oauthQuery, client.clientName || "MCP Client", "驗證碼錯誤");
-    }
-    await env.OAUTH_KV.delete(failKey).catch(() => undefined);
 
     const grantedScopes = oauthRequest.scope.filter((scope) => scope === FAMILY_SCOPE);
     const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
