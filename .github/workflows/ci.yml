@@ -103,7 +103,7 @@ jobs:
             }},
             "observability": {{"enabled": false}}
           }}\n'''
-          Path('/tmp/wrangler.family-v3-gate.jsonc').write_text(config)
+          Path('wrangler.family-v3-gate.jsonc').write_text(config)
           PY
 
       - name: Real Cloudflare upload and startup validation
@@ -113,7 +113,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx wrangler deploy --config /tmp/wrangler.family-v3-gate.jsonc 2>&1 | tee /tmp/family-v3-gate.log
+          npx wrangler deploy --config wrangler.family-v3-gate.jsonc 2>&1 | tee /tmp/family-v3-gate.log
           echo 'REAL_CLOUDFLARE_STARTUP_VALIDATION=PASS'
 
       - name: Delete isolated gate Worker
