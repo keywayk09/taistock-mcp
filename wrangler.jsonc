@@ -10,7 +10,7 @@
 	"name": "taistock-mcp",
 	"main": "src/index-v6.ts",
 	"compatibility_date": "2025-03-10",
-	"compatibility_flags": ["nodejs_compat"],
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
 	"vars": {
 		"RESEARCH_MAX_SYMBOLS": "40",
 		"RESEARCH_MAX_ONE_MINUTE": "8",
