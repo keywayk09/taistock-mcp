@@ -1,4 +1,4 @@
-import { familySharedReadManifest } from "./family-shared-read-plane";
+import { familySharedReadManifest } from "./family-shared-read-plane.ts";
 
 export const FAMILY_RESEARCH_POLICY_VERSION = "family-research-policy/v2.0.0";
 
