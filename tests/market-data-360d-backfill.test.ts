@@ -56,8 +56,10 @@ assert.deepEqual(frozen, complete);
 
 const runtime = fs.readFileSync("src/v6/market-data-360d-backfill.ts", "utf8");
 assert.match(runtime, /runSubrequestSafeMarketDataCapture/);
+assert.match(runtime, /stageHistoryDayV2/);
+assert.match(runtime, /runHistoryMonthBuildV2/);
 assert.match(runtime, /HISTORY_CAPTURE_COMPLETE/);
-assert.match(runtime, /WAITING_HISTORY_BUILDER_V2/);
+assert.match(runtime, /HISTORY_V2_BUILD_PHASE_STARTED/);
 assert.match(runtime, /phase:\s*"BUILD"/);
 assert.doesNotMatch(runtime, /runAdaptiveHistoryIndexSlice/);
 assert.match(runtime, /360d-state\.json/); // compatibility path; state policy controls retention.
@@ -66,9 +68,10 @@ assert.doesNotMatch(runtime, /for \(let step = 0; step < MARKET_DATA_BACKFILL_ST
 assert.match(runtime, /BACKFILL_COMPLETE/);
 assert.match(runtime, /completed_at/);
 
-// History Builder V2 owns bulk month indexing. Cloudflare capture must never
-// declare COMPLETE merely because the capture cursor crossed the retention target.
+// History Builder V2 owns bulk month indexing. Capture must never declare
+// COMPLETE merely because the cursor crossed the retention target.
 assert.doesNotMatch(runtime, /cursor_date:\s*next,[\s\S]{0,250}status:\s*complete \? "COMPLETE"/);
+assert.match(runtime, /HISTORY_V2_ALL_MONTHS_READY/);
 
 const dispatch = fs.readFileSync("src/v6/market-data-scheduled-dispatch.ts", "utf8");
 assert.doesNotMatch(dispatch, /MARKET_DATA_HOT_STEPS_PER_CRON/);
@@ -91,4 +94,4 @@ assert.match(published, /Math\.min\(MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS/);
 assert.match(published, /slice\(-MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS\)/);
 assert.match(published, /GENERATION_MANIFEST_V5/);
 
-console.log("PASS market-data one-shot 180d capture phase + History Builder V2 handoff contract");
+console.log("PASS market-data one-shot 180d staged capture + autonomous History Builder V2 contract");
