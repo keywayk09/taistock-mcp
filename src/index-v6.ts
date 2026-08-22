@@ -1,8 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { McpAgent } from "agents/mcp";
 import { MyMCP as BaseMCP } from "./index";
 import { registerDailyReportFormatTool } from "./v6/daily-report-format";
 import { handleFamilyActionCompat } from "./v6/family-action-compat";
+import { createFamilyOAuthProvider } from "./v6/family-oauth";
+import { FAMILY_MCP_TOOL_NAMES } from "./v6/family-mcp";
 import { registerAdvancedTools } from "./v6/register";
 import { registerFamilyStockSelectionTools } from "./v6/family-stock-selection";
 import { githubDataStoreHealth } from "./v6/github-data-store";
@@ -12,6 +13,8 @@ import { getResearchStatus, isAuthorizedResearchRequest } from "./v6/research-pi
 import { registerResearchTools } from "./v6/research-tools";
 import { TW_MARKET_DATA_VERSION } from "./v6/tw-market-data-github";
 import { registerTwMarketDataTools } from "./v6/tw-market-data-tools";
+
+export { FamilyMCP } from "./v6/family-mcp";
 
 function taipeiDateFromMs(ms: number) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -23,7 +26,7 @@ function taipeiDateFromMs(ms: number) {
 }
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "6.17.0" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "6.18.0" });
 
   async init() {
     await super.init();
@@ -35,48 +38,23 @@ export class MyMCP extends BaseMCP {
   }
 }
 
-/**
- * Compatibility class for the already-provisioned FamilyMCP Durable Object namespace.
- * The namespace remains live/read-only so declarative exports never retire existing data.
- */
-export class FamilyMCP extends McpAgent<Env> {
-  server = new McpServer({
-    name: "Taiwan Stock AI Family Namespace Compatibility",
-    version: "6.17.0",
-  });
-
-  async init() {
-    this.server.registerTool("familyNamespaceStatus", {
-      description: "唯讀確認舊 FamilyMCP Durable Object namespace 仍被保留；不寫入、不刪除、不重設任何資料。",
-      inputSchema: {},
-    }, async () => ({
-      content: [{
-        type: "text" as const,
-        text: JSON.stringify({
-          status: "PRESERVED_READ_ONLY",
-          namespace: "FamilyMCP",
-          storage: "sqlite",
-          active_family_runtime: "MyMCP family tools",
-          destructive_actions: false,
-        }, null, 2),
-      }],
-    }));
-  }
-}
-
-export default {
+const appHandler: ExportedHandler<Env> = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
+
+    // Legacy full MCP surface remains on /mcp for backward compatibility.
+    // The family Custom GPT must use the isolated OAuth-protected /family-mcp endpoint.
     if (url.pathname === "/mcp") return MyMCP.serve("/mcp").fetch(request, env, ctx);
 
     const familyCompat = await handleFamilyActionCompat(request, env, url);
     if (familyCompat) return familyCompat;
 
     if (url.pathname === "/" || url.pathname === "/health") {
+      const familyLoginConfigured = Boolean(String(env.FAMILY_OAUTH_LOGIN_SECRET || env.MOM_GPT_API_KEY || "").trim());
       return Response.json({
         service: "Taiwan Stock AI MCP",
         status: "ok",
-        version: "6.17.0",
+        version: "6.18.0",
         storage: {
           policy: "GITHUB_ONLY_NO_D1_NO_R2",
           github: githubDataStoreHealth(env),
@@ -86,7 +64,7 @@ export default {
         },
         durable_objects: {
           primary: "MyMCP",
-          legacy_family_namespace: "PRESERVED_READ_ONLY",
+          family: "FamilyMCP_READ_ONLY_ISOLATED",
           note: "Durable Object lifecycle namespaces are not application data persistence.",
         },
         market_data: {
@@ -111,6 +89,14 @@ export default {
           status_endpoint: "/market-data/status?trade_date=YYYY-MM-DD",
         },
         mcp_endpoint: "/mcp",
+        family_mcp: {
+          endpoint: "/family-mcp",
+          oauth_required: true,
+          oauth_kv_bound: Boolean(env.OAUTH_KV),
+          login_secret_configured: familyLoginConfigured,
+          access: "READ_ONLY_ALLOWLIST",
+          tools: FAMILY_MCP_TOOL_NAMES,
+        },
         family_read_only_action: "/api/family/query",
         family_openapi: "/family-openapi.json",
         privacy_policy: "/privacy",
@@ -143,6 +129,14 @@ export default {
     }
 
     return new Response("Not found", { status: 404 });
+  },
+};
+
+const familyOAuthProvider = createFamilyOAuthProvider(appHandler);
+
+export default {
+  fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    return familyOAuthProvider.fetch(request, env, ctx);
   },
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {
