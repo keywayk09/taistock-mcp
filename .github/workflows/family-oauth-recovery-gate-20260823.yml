@@ -105,8 +105,20 @@ jobs:
           print(os.environ['BASE_URL']+'/authorize?'+q)
           PY
           )"
-          code="$(curl --max-time 60 -sS -o /tmp/bad.html -w '%{http_code}' "$bad_url")"
-          test "$code" = '400'
+          code="$(curl --max-time 60 -sS -D /tmp/bad.headers -o /tmp/bad.html -w '%{http_code}' "$bad_url")"
+          echo "BAD_HTTP_CODE=${code}"
+          if grep -qi '^location: *https://evil\.example' /tmp/bad.headers; then
+            echo 'unsafe_redirect_to_untrusted_origin' >&2
+            exit 1
+          fi
+          if grep -q '家人連線驗證碼' /tmp/bad.html; then
+            echo 'untrusted_request_reached_login_page' >&2
+            exit 1
+          fi
+          case "$code" in
+            4??) ;;
+            *) echo "unexpected_untrusted_status:${code}" >&2; exit 1 ;;
+          esac
           endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}/keys?prefix=client%3A&limit=100"
           curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/bad-keys.json
           python - <<'PY'
