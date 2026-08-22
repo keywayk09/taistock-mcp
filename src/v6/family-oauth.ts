@@ -20,6 +20,10 @@ type FamilyAuthProps = {
   role: "family";
 };
 
+type ConcreteFetchHandler = {
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Response | Promise<Response>;
+};
+
 const FAMILY_SCOPE = "family:read";
 const LOGIN_FAIL_TTL_SECONDS = 15 * 60;
 const LOGIN_FAIL_MAX = 5;
@@ -167,18 +171,18 @@ async function handleAuthorize(request: Request, env: Env) {
   return new Response("Method Not Allowed", { status: 405, headers: { allow: "GET, POST" } });
 }
 
-export function createFamilyOAuthProvider(appHandler: ExportedHandler<Env>) {
-  const familyApiHandler: ExportedHandler<Env> = {
+export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
+  const familyApiHandler: ConcreteFetchHandler = {
     fetch(request, env, ctx) {
       return FamilyMCP.serve("/family-mcp").fetch(request, env, ctx);
     },
   };
 
-  const defaultHandler: ExportedHandler<Env> = {
+  const defaultHandler: ConcreteFetchHandler = {
     async fetch(request, env, ctx) {
       const url = new URL(request.url);
       if (url.pathname === "/authorize") return handleAuthorize(request, env);
-      return appHandler.fetch!(request, env, ctx);
+      return appHandler.fetch(request, env, ctx);
     },
   };
 
