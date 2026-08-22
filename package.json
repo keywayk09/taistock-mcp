@@ -34,7 +34,7 @@
 		"test:research": "npm run test:backtester && npm run test:ledger && npm run test:batch && npm run test:replay && npm run test:swing && npm run test:experiment && npm run test:capability && npm run test:validation && npm run test:strategy-lab && npm run test:supply-chain && npm run test:supply-chain-data && npm run test:txf && npm run test:orchestrator && npm run test:judgment-memory && npm run test:family-selection && npm run test:market-data && npm run test:github-store && npm run test:no-r2"
 	},
 	"dependencies": {
-		"@cloudflare/workers-oauth-provider": "^0.10.2",
+		"@cloudflare/workers-oauth-provider": "0.10.3",
 		"agents": "^0.17.1",
 		"zod": "4.3.6"
 	},

@@ -12,7 +12,7 @@ const wrangler = read("wrangler.jsonc");
 const deploy = read(".github/workflows/deploy-cloudflare-production.yml");
 const pkg = JSON.parse(read("package.json"));
 
-assert.equal(pkg.dependencies["@cloudflare/workers-oauth-provider"], "^0.10.2");
+assert.equal(pkg.dependencies["@cloudflare/workers-oauth-provider"], "0.10.3");
 assert.match(oauth, /new OAuthProvider<Env>/);
 assert.match(oauth, /apiRoute: "\/family-mcp"/);
 assert.match(oauth, /authorizeEndpoint: "\/authorize"/);
@@ -30,6 +30,40 @@ assert.match(oauth, /completeAuthorization/);
 assert.match(oauth, /FamilyMCP\.serve\("\/family-mcp", \{ binding: "FAMILY_MCP_OBJECT" \}\)/);
 assert.match(oauth, /refusing to fall back to the full MCP_OBJECT namespace/);
 assert.doesNotMatch(oauth, /binding: "MCP_OBJECT"/);
+
+// Stale ChatGPT client recovery must stay narrow and fail closed.
+assert.match(oauth, /redirect\.hostname !== "chatgpt\.com"/);
+assert.match(oauth, /CHATGPT_CALLBACK_PATH/);
+assert.match(oauth, /CHATGPT_LEGACY_CALLBACK_PATH/);
+assert.match(oauth, /code_challenge_method/);
+assert.match(oauth, /method !== "S256"/);
+assert.match(oauth, /PKCE_S256_CHALLENGE/);
+assert.match(oauth, /scopes\.includes\(FAMILY_SCOPE\)/);
+assert.match(oauth, /new URL\(resourceRaw\)\.origin !== url\.origin/);
+assert.match(oauth, /missingRecoverableChatGptClient/);
+assert.match(oauth, /registerRecoveredChatGptClient/);
+assert.match(oauth, /recoveredClientKey/);
+assert.match(oauth, /`client:\$\{clientId\}`/);
+assert.match(oauth, /tokenEndpointAuthMethod: "none"/);
+assert.match(oauth, /authMethodExplicit: true/);
+assert.match(oauth, /grantTypes: \["authorization_code", "refresh_token"\]/);
+assert.match(oauth, /clientName: "ChatGPT Family Connector"/);
+assert.match(oauth, /Storage format is pinned to @cloudflare\/workers-oauth-provider 0\.10\.3/);
+assert.doesNotMatch(oauth, /OAUTH_PROVIDER\.createClient/);
+
+// An unauthenticated stale-client GET may render the Family login form, but it
+// must not write client metadata. Registration only happens after the Family
+// secret has passed constant-time validation on POST.
+const getRecovery = oauth.indexOf("Do not mutate OAuth client state on an unauthenticated GET");
+const secretValidation = oauth.indexOf("validateLoginSecret(", oauth.indexOf('if (request.method === "POST")'));
+const registerRecovery = oauth.indexOf("registerRecoveredChatGptClient(recovery, env)");
+assert.ok(getRecovery >= 0);
+assert.ok(secretValidation >= 0);
+assert.ok(registerRecovery > secretValidation);
+assert.match(oauth, /if \(!constantTimeEqual\(supplied, loginSecret\(env\)\)\)/);
+assert.match(oauth, /OAUTH_KV\.put\(key, JSON\.stringify\(stored\)\)/);
+assert.match(oauth, /OAUTH_KV\.delete\(recoveredClientKey\(recovery\.clientId\)\)/);
+
 assert.match(wrangler, /global_fetch_strictly_public/);
 assert.match(wrangler, /"kv_namespaces"/);
 assert.match(wrangler, /"binding"\s*:\s*"OAUTH_KV"/);
