@@ -1,13 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { z } from "zod";
-import { runSmartFamilyAnalysis } from "./family-analysis";
 import { familyResearchDirective } from "./family-research-policy";
 import { familySharedReadManifest } from "./family-shared-read-plane";
-import { registerFamilyStockSelectionToolsV2 } from "./family-stock-selection-v2";
 import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
 
-export const FAMILY_MCP_VERSION = "family-mcp/v3.0.0";
+export const FAMILY_MCP_VERSION = "family-mcp/v3.0.1";
 export const FAMILY_MCP_TOOL_NAMES = [
   "family_engine_status",
   "screen_family_swing_candidates",
@@ -26,7 +24,7 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export class FamilyMCP extends McpAgent<Env> {
   server = new McpServer({
     name: "Taiwan Stock AI Family",
-    version: "3.0.0",
+    version: "3.0.1",
   });
 
   async init() {
@@ -41,6 +39,7 @@ export class FamilyMCP extends McpAgent<Env> {
       intelligence_model: "SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS",
       access: "READ_ONLY_FAMILY_SURFACE",
       tools: FAMILY_MCP_TOOL_NAMES,
+      startup_graph: "LAZY_DEEP_FAMILY_MODULES",
       shared_read_plane: familySharedReadManifest(),
       boundaries: {
         production_writes: false,
@@ -70,6 +69,10 @@ export class FamilyMCP extends McpAgent<Env> {
       research_policy: familyResearchDirective([]),
     }));
 
+    // Family Swing V2 is registered when the Family Durable Object is actually
+    // initialized, not during Worker top-level module evaluation. Tool surface is
+    // unchanged; this only isolates the heavy V2 research/schema graph from startup.
+    const { registerFamilyStockSelectionToolsV2 } = await import("./family-stock-selection-v2");
     registerFamilyStockSelectionToolsV2(this.server, this.env);
 
     this.server.registerTool("get_family_market_chip_summary", {
@@ -93,6 +96,7 @@ export class FamilyMCP extends McpAgent<Env> {
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     }, async ({ symbol, as_of_date }) => {
+      const { runSmartFamilyAnalysis } = await import("./family-analysis");
       const result = await runSmartFamilyAnalysis(this.env, { symbols: [symbol], as_of_date });
       return out({ ...result, requested_tool: "analyze_family_stock" });
     });
@@ -105,6 +109,7 @@ export class FamilyMCP extends McpAgent<Env> {
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     }, async ({ symbols, as_of_date }) => {
+      const { runSmartFamilyAnalysis } = await import("./family-analysis");
       const result = await runSmartFamilyAnalysis(this.env, { symbols: [...new Set(symbols)], as_of_date });
       return out({ ...result, requested_tool: "compare_family_stocks" });
     });
