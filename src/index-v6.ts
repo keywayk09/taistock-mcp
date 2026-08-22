@@ -49,7 +49,7 @@ const appHandler = {
     // The family Custom GPT should use the isolated OAuth-protected /family-mcp endpoint.
     if (url.pathname === "/mcp") return MyMCP.serve("/mcp").fetch(request, env, ctx);
 
-    // V2 read-only REST routes and OpenAPI must win before the legacy compatibility handler.
+    // Family V3 read-only REST routes and OpenAPI must win before the legacy compatibility handler.
     const familySmart = await handleFamilySmartRest(request, env, url);
     if (familySmart) return familySmart;
 
@@ -103,15 +103,17 @@ const appHandler = {
           login_secret_configured: familyLoginConfigured,
           access: "READ_ONLY_ALLOWLIST",
           tools: FAMILY_MCP_TOOL_NAMES,
-          intelligence: "V2_FIXED_11_POINT_OPEN_WORLD_REALTIME_FUSION",
+          intelligence: "V3_ADAPTIVE_SHARED_READ_OPEN_WORLD",
+          permission_model: "SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS",
+          owner_market_research_reads: "SHARED_BY_DEFAULT_WHEN_AVAILABLE",
+          owner_private_context: "DENY_BY_DEFAULT_UNLESS_EXPLICITLY_SHARED",
           realtime: "FUGLE_PRIMARY_WHEN_AVAILABLE",
           web_research: "OPEN_WORLD_AUTONOMOUS_ALLOWED",
           swing_screen: "V2_FULL_SNAPSHOT_PREFILTER_BOUNDED_DEEP_SCAN",
         },
-        // Backward-compatible health alias for older Custom GPT / monitoring consumers.
         family_read_only_action: "/api/family/query",
         family_read_only_actions: {
-          legacy_query: "/api/family/query",
+          adaptive_query: "/api/family/query",
           analyze_11_point: "/api/family/analyze",
           compare_11_point: "/api/family/compare",
           swing_screen_v2: "/api/family/screen",
