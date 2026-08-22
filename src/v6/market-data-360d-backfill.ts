@@ -238,6 +238,7 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
   }
 
   const waiting = captureStatus === "NOOP_NOT_DUE"
+    || captureStatus === "CALENDAR_UNKNOWN"
     || captureStatus === "INDEX_WAITING_FOR_COMPLETE_DAY"
     || captureStatus === "INDEX_YIELD"
     || captureStatus === "HISTORY_V2_STAGE_YIELD"
@@ -248,11 +249,13 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
 
   return {
     status: waiting ? "BACKFILL_WAITING" as const : "BACKFILL_PROGRESS" as const,
-    reason: captureStatus === "HISTORY_V2_STAGE_YIELD"
-      ? "HISTORY_V2_STAGE_CAS_CONFLICT"
-      : state.phase === "BUILD"
-        ? "HISTORY_V2_BUILD_PHASE_STARTED"
-        : undefined,
+    reason: captureStatus === "CALENDAR_UNKNOWN"
+      ? "OFFICIAL_CALENDAR_UNAVAILABLE"
+      : captureStatus === "HISTORY_V2_STAGE_YIELD"
+        ? "HISTORY_V2_STAGE_CAS_CONFLICT"
+        : state.phase === "BUILD"
+          ? "HISTORY_V2_BUILD_PHASE_STARTED"
+          : undefined,
     terminal: false,
     trade_date: tradeDate,
     captures: [capture],
