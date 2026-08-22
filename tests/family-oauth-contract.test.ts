@@ -32,9 +32,12 @@ assert.match(oauth, /refusing to fall back to the full MCP_OBJECT namespace/);
 assert.doesNotMatch(oauth, /binding: "MCP_OBJECT"/);
 
 // Stale ChatGPT client recovery must stay narrow and fail closed.
-assert.match(oauth, /redirect\.hostname !== "chatgpt\.com"/);
-assert.match(oauth, /CHATGPT_CALLBACK_PATH/);
-assert.match(oauth, /CHATGPT_LEGACY_CALLBACK_PATH/);
+assert.match(oauth, /CHATGPT_CONNECTOR_CALLBACK_PATH/);
+assert.match(oauth, /CHATGPT_LEGACY_CONNECTOR_CALLBACK_PATH/);
+assert.match(oauth, /CHATGPT_ACTION_CALLBACK_PATH/);
+assert.match(oauth, /TRUSTED_ACTION_HOSTS = new Set\(\["chatgpt\.com", "chat\.openai\.com"\]\)/);
+assert.match(oauth, /kind === "connector"/);
+assert.match(oauth, /kind === "gpt_action"/);
 assert.match(oauth, /code_challenge_method/);
 assert.match(oauth, /method !== "S256"/);
 assert.match(oauth, /PKCE_S256_CHALLENGE/);
@@ -44,12 +47,34 @@ assert.match(oauth, /missingRecoverableChatGptClient/);
 assert.match(oauth, /registerRecoveredChatGptClient/);
 assert.match(oauth, /recoveredClientKey/);
 assert.match(oauth, /`client:\$\{clientId\}`/);
-assert.match(oauth, /tokenEndpointAuthMethod: "none"/);
+assert.match(oauth, /pendingActionKey/);
+assert.match(oauth, /family-oauth:action-bootstrap/);
+assert.match(oauth, /ACTION_SECRET_BOOTSTRAP_TTL_SECONDS = 10 \* 60/);
+assert.match(oauth, /tokenEndpointAuthMethod: candidate\.kind === "gpt_action" \? "client_secret_post" : "none"/);
 assert.match(oauth, /authMethodExplicit: true/);
 assert.match(oauth, /grantTypes: \["authorization_code", "refresh_token"\]/);
-assert.match(oauth, /clientName: "ChatGPT Family Connector"/);
+assert.match(oauth, /ChatGPT Family Connector/);
+assert.match(oauth, /ChatGPT Family Action/);
 assert.match(oauth, /Storage format is pinned to @cloudflare\/workers-oauth-provider 0\.10\.3/);
 assert.doesNotMatch(oauth, /OAUTH_PROVIDER\.createClient/);
+
+// Custom GPT Actions are confidential OAuth clients. The original registry can
+// be lost while ChatGPT still retains the client_id/client_secret. Recovery must
+// learn the secret only during the exact one-time authorization-code exchange,
+// then store only the SHA-256 hash expected by workers-oauth-provider.
+assert.match(oauth, /prepareActionSecretBootstrap/);
+assert.match(oauth, /decodeBasicClientAuth/);
+assert.match(oauth, /client_secret_basic/);
+assert.match(oauth, /client_secret_post/);
+assert.match(oauth, /sha256Hex/);
+assert.match(oauth, /crypto\.subtle\.digest\("SHA-256"/);
+assert.match(oauth, /constantTimeEqual\(code, pending\.authorizationCode\)/);
+assert.match(oauth, /equivalentActionRedirect/);
+assert.match(oauth, /stored\.clientSecret = await sha256Hex\(presented\.clientSecret\)/);
+assert.match(oauth, /delete stored\.recoveryKind/);
+assert.match(oauth, /rollbackPreparedTokenBootstrap/);
+assert.match(oauth, /if \(response\.ok\)/);
+assert.match(oauth, /env\.OAUTH_KV\.delete\(prepared\.pendingKey\)/);
 
 // An unauthenticated stale-client GET may render the Family login form, but it
 // must not write client metadata. Registration only happens after the Family
@@ -73,4 +98,4 @@ assert.match(deploy, /taistock-mcp-OAUTH_KV/);
 assert.match(deploy, /OAUTH_KV_RESOLUTION_FAILED/);
 assert.match(deploy, /refusing Production deploy/);
 
-console.log("Family OAuth 2.1 explicit-DO/KV deployment contract tests passed");
+console.log("Family OAuth connector + Custom GPT Action recovery contract tests passed");
