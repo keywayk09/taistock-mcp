@@ -1,13 +1,13 @@
 {
-  "source_sha": "fe152fc160e65e3972999fd70035626e573e7d57",
+  "source_sha": "085676ae3b04ae88e8378d8a2b34723e0424c896",
   "oauth_kv_outcome": "success",
   "oauth_kv_title": "taistock-mcp-OAUTH_KV",
-  "oauth_kv_created": "true",
-  "deploy_outcome": "success",
+  "oauth_kv_created": "false",
+  "deploy_outcome": "failure",
   "cron_outcome": "success",
-  "reason": "DEPLOYED_OAUTH_KV_AND_CRON_VERIFIED",
+  "reason": "WRANGLER_DEPLOY_FAILED",
   "token_configured": true,
   "account_id_configured": true,
   "cron": "*/5 * * * *",
-  "recorded_at": "2026-08-22T11:12:29Z"
+  "recorded_at": "2026-08-22T13:59:24Z"
 }
