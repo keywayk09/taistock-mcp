@@ -27,6 +27,10 @@ assert.match(family, /OHLC_MCP_ONLY/);
 assert.match(family, /production_writes: false/);
 assert.match(family, /github_writes: false/);
 assert.match(family, /diamond_judgment_writes: false/);
+assert.match(family, /runSmartFamilyAnalysis/);
+assert.match(family, /READY_WITH_MOM_YOY/);
+assert.match(family, /READY_WITH_MARGIN_EPS_CASHFLOW_RISK_FLAGS/);
+assert.match(family, /TWSE_TPEX_OPENAPI_FAIL_SOFT/);
 
 for (const forbidden of [
   "save_watchlist",
@@ -39,16 +43,18 @@ for (const forbidden of [
   assert.doesNotMatch(family, new RegExp(`registerTool\\(\\"${forbidden}\\"`));
 }
 
-// McpAgent.serve() consumes MCP_OBJECT. The family path must explicitly remap
-// that conventional binding to the dedicated FamilyMCP namespace and fail
-// closed when the dedicated namespace is unavailable.
-assert.match(oauth, /FAMILY_MCP_OBJECT/);
-assert.match(oauth, /if \(property === "MCP_OBJECT"\) return familyNamespace/);
+// Family must use the Agents SDK's explicit Durable Object binding option.
+// Missing/invalid FAMILY_MCP_OBJECT fails closed; no Proxy remap and no fallback
+// to the full MCP_OBJECT/MyMCP namespace is allowed.
+assert.match(oauth, /FamilyMCP\.serve\("\/family-mcp", \{ binding: "FAMILY_MCP_OBJECT" \}\)/);
 assert.match(oauth, /family_mcp_binding_missing/);
 assert.match(oauth, /refusing to fall back to the full MCP_OBJECT namespace/);
+assert.doesNotMatch(oauth, /new Proxy\(/);
+assert.doesNotMatch(oauth, /if \(property === "MCP_OBJECT"\)/);
+assert.doesNotMatch(oauth, /binding: "MCP_OBJECT"/);
 
 assert.match(index, /if \(url\.pathname === "\/mcp"\) return MyMCP\.serve/);
 assert.match(index, /createFamilyOAuthProvider\(appHandler\)/);
 assert.match(index, /family: "FamilyMCP_READ_ONLY_ISOLATED"/);
 
-console.log("Family MCP isolated read-only surface contract passed");
+console.log("Family MCP native-binding isolated read-only surface contract passed");
