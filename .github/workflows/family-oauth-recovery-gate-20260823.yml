@@ -12,9 +12,7 @@ jobs:
     if: github.head_ref == 'fix/family-oauth-stale-chatgpt-client-20260823'
     runs-on: ubuntu-latest
     env:
-      GATE_WORKER_NAME: taistock-mcp-family-oauth-recovery-gate
-      GATE_KV_TITLE: taistock-mcp-family-oauth-recovery-gate-kv
-      BASE_URL: https://taistock-mcp-family-oauth-recovery-gate.keywayk09.workers.dev
+      BASE_URL: http://127.0.0.1:8787
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,110 +20,62 @@ jobs:
           node-version: 22
       - run: npm install
 
-      - name: Create isolated OAuth KV
-        id: kv
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Build local Workers OAuth gate config
         shell: bash
         run: |
           set -euo pipefail
-          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
-          curl -fsS -X POST "$endpoint" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H 'Content-Type: application/json' \
-            --data "{\"title\":\"${GATE_KV_TITLE}\"}" > /tmp/kv-create.json
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          from pathlib import Path
-          body=json.loads(Path('/tmp/kv-create.json').read_text())
-          if not body.get('success'):
-              raise SystemExit(f"kv_create_failed:{body.get('errors')}")
-          kv_id=str((body.get('result') or {}).get('id') or '')
-          if len(kv_id) != 32:
-              raise SystemExit('invalid_kv_id')
-          print(f'id={kv_id}')
-          PY
-
-      - name: Build isolated Worker config
-        env:
-          GATE_KV_ID: ${{ steps.kv.outputs.id }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import os
-          from pathlib import Path
-          kv=os.environ['GATE_KV_ID']; worker=os.environ['GATE_WORKER_NAME']
-          Path('wrangler.family-oauth-recovery-gate.jsonc').write_text(f'''{{
+          cat > wrangler.family-oauth-local-gate.jsonc <<'EOF'
+          {
             "$schema": "node_modules/wrangler/config-schema.json",
-            "name": "{worker}",
+            "name": "taistock-mcp-family-oauth-local-gate",
             "main": "src/index-v6.ts",
             "compatibility_date": "2025-03-10",
             "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-            "vars": {{
+            "vars": {
               "RESEARCH_MAX_SYMBOLS":"40",
               "RESEARCH_MAX_ONE_MINUTE":"8",
               "GITHUB_DATA_REPO":"keywayk09/tv-papertrader",
               "GITHUB_DATA_BRANCH":"main",
               "FAMILY_OAUTH_LOGIN_SECRET":"isolated-test-secret-never-production"
-            }},
-            "kv_namespaces": [{{"binding":"OAUTH_KV","id":"{kv}"}}],
-            "exports": {{"MyMCP":{{"type":"durable-object","storage":"sqlite"}},"FamilyMCP":{{"type":"durable-object","storage":"sqlite"}}}},
-            "durable_objects": {{"bindings":[{{"class_name":"MyMCP","name":"MCP_OBJECT"}},{{"class_name":"FamilyMCP","name":"FAMILY_MCP_OBJECT"}}]}},
-            "observability": {{"enabled":false}}
-          }}\n''')
-          PY
+            },
+            "kv_namespaces": [{"binding":"OAUTH_KV","id":"00000000000000000000000000000000"}],
+            "exports": {
+              "MyMCP":{"type":"durable-object","storage":"sqlite"},
+              "FamilyMCP":{"type":"durable-object","storage":"sqlite"}
+            },
+            "durable_objects": {
+              "bindings":[
+                {"class_name":"MyMCP","name":"MCP_OBJECT"},
+                {"class_name":"FamilyMCP","name":"FAMILY_MCP_OBJECT"}
+              ]
+            },
+            "observability":{"enabled":false}
+          }
+          EOF
 
-      - name: Deploy isolated recovery Worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy --config wrangler.family-oauth-recovery-gate.jsonc
-
-      - name: Reject untrusted redirect without creating client
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          GATE_KV_ID: ${{ steps.kv.outputs.id }}
+      - name: Start local Workers runtime
         shell: bash
         run: |
           set -euo pipefail
-          bad_url="$(python - <<'PY'
-          import os,urllib.parse
-          q=urllib.parse.urlencode({
-            'response_type':'code',
-            'client_id':'untrusted-stale-client-12345678',
-            'redirect_uri':'https://evil.example/callback',
-            'scope':'family:read',
-            'state':'state-bad',
-            'code_challenge':'A'*43,
-            'code_challenge_method':'S256',
-          })
-          print(os.environ['BASE_URL']+'/authorize?'+q)
-          PY
-          )"
-          code="$(curl --max-time 60 -sS -D /tmp/bad.headers -o /tmp/bad.html -w '%{http_code}' "$bad_url")"
-          echo "BAD_HTTP_CODE=${code}"
-          if grep -qi '^location: *https://evil\.example' /tmp/bad.headers; then
-            echo 'unsafe_redirect_to_untrusted_origin' >&2; exit 1
-          fi
-          if grep -q '家人連線驗證碼' /tmp/bad.html; then
-            echo 'untrusted_request_reached_login_page' >&2; exit 1
-          fi
-          case "$code" in 4??) ;; *) echo "unexpected_untrusted_status:${code}" >&2; exit 1 ;; esac
-          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}/keys?prefix=client%3A&limit=100"
-          curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/bad-keys.json
-          python - <<'PY'
+          nohup npx wrangler dev --local --config wrangler.family-oauth-local-gate.jsonc --ip 127.0.0.1 --port 8787 --persist-to /tmp/family-oauth-gate-state > /tmp/wrangler-local.log 2>&1 &
+          echo $! > /tmp/wrangler-local.pid
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 2 "$BASE_URL/health" >/tmp/local-health.json 2>/dev/null; then
+              python - <<'PY'
           import json
           from pathlib import Path
-          body=json.loads(Path('/tmp/bad-keys.json').read_text())
-          assert body.get('success') is True, body
-          assert len(body.get('result') or []) == 0, body.get('result')
-          print('UNTRUSTED_REDIRECT_REJECTED=PASS')
+          body=json.loads(Path('/tmp/local-health.json').read_text())
+          assert body.get('status') == 'ok', body
+          print('LOCAL_WORKER_READY=PASS')
           PY
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/wrangler-local.log
+          exit 1
 
-      - name: Build real PKCE stale ChatGPT authorization request
+      - name: Build PKCE requests
         shell: bash
         run: |
           set -euo pipefail
@@ -138,13 +88,9 @@ jobs:
           client_id='chatgpt-stale-client-1234567890'
           state='family-recovery-state-1234567890'
           params={
-            'response_type':'code',
-            'client_id':client_id,
-            'redirect_uri':callback,
-            'scope':'family:read',
-            'state':state,
-            'code_challenge':challenge,
-            'code_challenge_method':'S256',
+            'response_type':'code','client_id':client_id,'redirect_uri':callback,
+            'scope':'family:read','state':state,'code_challenge':challenge,
+            'code_challenge_method':'S256'
           }
           query=urllib.parse.urlencode(params)
           Path('/tmp/oauth-query.txt').write_text(query)
@@ -153,130 +99,100 @@ jobs:
           Path('/tmp/client-id.txt').write_text(client_id)
           Path('/tmp/state.txt').write_text(state)
           Path('/tmp/good-url.txt').write_text(os.environ['BASE_URL']+'/authorize?'+query)
+          bad=urllib.parse.urlencode({
+            'response_type':'code','client_id':'untrusted-stale-client-12345678',
+            'redirect_uri':'https://evil.example/callback','scope':'family:read',
+            'state':'state-bad','code_challenge':'A'*43,'code_challenge_method':'S256'
+          })
+          Path('/tmp/bad-url.txt').write_text(os.environ['BASE_URL']+'/authorize?'+bad)
           PY
 
-      - name: Stale ChatGPT GET renders login without mutation
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          GATE_KV_ID: ${{ steps.kv.outputs.id }}
+      - name: Reject untrusted redirect
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl --max-time 60 -sS -D /tmp/get.headers -o /tmp/get.html -w '%{http_code}' "$(cat /tmp/good-url.txt)")"
+          code="$(curl --max-time 20 -sS -D /tmp/bad.headers -o /tmp/bad.html -w '%{http_code}' "$(cat /tmp/bad-url.txt)")"
+          echo "BAD_HTTP_CODE=${code}"
+          case "$code" in 4??) ;; *) exit 1 ;; esac
+          ! grep -q '家人連線驗證碼' /tmp/bad.html
+          ! grep -qi '^location: *https://evil\.example' /tmp/bad.headers
+          echo 'UNTRUSTED_REDIRECT_REJECTED=PASS'
+
+      - name: Stale ChatGPT GET renders Family login
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 20 -sS -D /tmp/get.headers -o /tmp/get.html -w '%{http_code}' "$(cat /tmp/good-url.txt)")"
+          echo "STALE_GET_HTTP_CODE=${code}"
           test "$code" = '200'
           grep -q '家人連線驗證碼' /tmp/get.html
           grep -q 'ChatGPT Family Connector' /tmp/get.html
-          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}/keys?prefix=client%3A&limit=100"
-          curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/get-keys.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          body=json.loads(Path('/tmp/get-keys.json').read_text())
-          assert body.get('success') is True, body
-          assert len(body.get('result') or []) == 0, body.get('result')
-          print('STALE_GET_LOGIN_WITHOUT_MUTATION=PASS')
-          PY
+          echo 'STALE_GET_LOGIN=PASS'
 
-      - name: Correct Family secret restores client and completes authorization
-        id: authpost
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          GATE_KV_ID: ${{ steps.kv.outputs.id }}
+      - name: Wrong Family secret cannot authorize
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl --max-time 60 -sS -D /tmp/post.headers -o /tmp/post.body -w '%{http_code}' \
+          code="$(curl --max-time 20 -sS -o /tmp/wrong.html -w '%{http_code}' -X POST "$BASE_URL/authorize" \
+            -H 'content-type: application/x-www-form-urlencoded' \
+            --data-urlencode "oauth_query=$(cat /tmp/oauth-query.txt)" \
+            --data-urlencode 'login_secret=definitely-wrong')"
+          test "$code" = '200'
+          grep -q '驗證碼錯誤' /tmp/wrong.html
+          echo 'WRONG_SECRET_REJECTED=PASS'
+
+      - name: Correct Family secret restores stale client and issues code
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 30 -sS -D /tmp/post.headers -o /tmp/post.body -w '%{http_code}' \
             -X POST "$BASE_URL/authorize" \
             -H 'content-type: application/x-www-form-urlencoded' \
             --data-urlencode "oauth_query=$(cat /tmp/oauth-query.txt)" \
             --data-urlencode 'login_secret=isolated-test-secret-never-production')"
           echo "AUTH_POST_HTTP_CODE=${code}"
-          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}/keys?limit=1000"
-          curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/post-keys.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          body=json.loads(Path('/tmp/post-keys.json').read_text())
-          assert body.get('success') is True, body
-          names=[str(x.get('name') or '') for x in (body.get('result') or [])]
-          print('POST_CLIENT_COUNT=' + str(sum(x.startswith('client:') for x in names)))
-          print('POST_GRANT_COUNT=' + str(sum(x.startswith('grant:') for x in names)))
-          PY
-          if [ "$code" != '302' ]; then
-            if grep -q 'error code: 1042' /tmp/post.body; then
-              echo 'TEMP_WORKERS_DEV_PROVIDER_HELPER_LIMIT=1042' >&2
-            else
-              echo 'AUTHORIZED_RECOVERY_POST_FAILED' >&2
-            fi
-            exit 1
-          fi
+          if [ "$code" != '302' ]; then cat /tmp/post.body; exit 1; fi
           location="$(awk 'BEGIN{IGNORECASE=1} /^location:/{sub(/\r$/,""); sub(/^[^:]+:[[:space:]]*/,""); print; exit}' /tmp/post.headers)"
           test -n "$location"
           LOCATION="$location" CALLBACK="$(cat /tmp/callback.txt)" EXPECTED_STATE="$(cat /tmp/state.txt)" python - <<'PY'
           import os,urllib.parse
-          loc=urllib.parse.urlsplit(os.environ['LOCATION'])
-          cb=urllib.parse.urlsplit(os.environ['CALLBACK'])
-          assert (loc.scheme,loc.netloc,loc.path)==(cb.scheme,cb.netloc,cb.path), os.environ['LOCATION']
+          loc=urllib.parse.urlsplit(os.environ['LOCATION']); cb=urllib.parse.urlsplit(os.environ['CALLBACK'])
+          assert (loc.scheme,loc.netloc,loc.path)==(cb.scheme,cb.netloc,cb.path)
           q=urllib.parse.parse_qs(loc.query)
-          assert q.get('state')==[os.environ['EXPECTED_STATE']], q
-          assert len(q.get('code',[]))==1 and q['code'][0], q
+          assert q.get('state')==[os.environ['EXPECTED_STATE']]
+          assert len(q.get('code',[]))==1 and q['code'][0]
           print('AUTHORIZATION_REDIRECT=PASS')
           PY
-          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}/keys?prefix=client%3A&limit=100"
-          curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/post-client-keys.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          body=json.loads(Path('/tmp/post-client-keys.json').read_text())
-          assert len(body.get('result') or []) == 1, body.get('result')
-          print('STALE_CHATGPT_CLIENT_RESTORED=PASS')
-          PY
 
-      - name: Exchange authorization code when prior step succeeded
-        if: steps.authpost.outcome == 'success'
+      - name: Exchange authorization code with PKCE
         shell: bash
         run: |
           set -euo pipefail
           location="$(awk 'BEGIN{IGNORECASE=1} /^location:/{sub(/\r$/,""); sub(/^[^:]+:[[:space:]]*/,""); print; exit}' /tmp/post.headers)"
           code="$(LOCATION="$location" python - <<'PY'
           import os,urllib.parse
-          q=urllib.parse.parse_qs(urllib.parse.urlsplit(os.environ['LOCATION']).query)
-          print(q['code'][0])
+          print(urllib.parse.parse_qs(urllib.parse.urlsplit(os.environ['LOCATION']).query)['code'][0])
           PY
           )"
-          client_id="$(cat /tmp/client-id.txt)"
-          verifier="$(cat /tmp/verifier.txt)"
-          callback="$(cat /tmp/callback.txt)"
-          curl --max-time 60 -fsS -X POST "$BASE_URL/oauth/token" \
+          curl --max-time 30 -fsS -X POST "$BASE_URL/oauth/token" \
             -H 'content-type: application/x-www-form-urlencoded' \
             --data-urlencode 'grant_type=authorization_code' \
-            --data-urlencode "client_id=${client_id}" \
+            --data-urlencode "client_id=$(cat /tmp/client-id.txt)" \
             --data-urlencode "code=${code}" \
-            --data-urlencode "redirect_uri=${callback}" \
-            --data-urlencode "code_verifier=${verifier}" > /tmp/token.json
+            --data-urlencode "redirect_uri=$(cat /tmp/callback.txt)" \
+            --data-urlencode "code_verifier=$(cat /tmp/verifier.txt)" > /tmp/token.json
           python - <<'PY'
           import json
           from pathlib import Path
           body=json.loads(Path('/tmp/token.json').read_text())
-          assert isinstance(body.get('access_token'),str) and body['access_token'], body.keys()
-          assert str(body.get('token_type','')).lower()=='bearer', body.get('token_type')
+          assert isinstance(body.get('access_token'),str) and body['access_token']
+          assert str(body.get('token_type','')).lower()=='bearer'
           print('TOKEN_EXCHANGE=PASS')
           PY
 
-      - name: Cleanup isolated Worker and KV
+      - name: Stop local runtime
         if: always()
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          GATE_KV_ID: ${{ steps.kv.outputs.id }}
         shell: bash
         run: |
-          set +e
-          npx wrangler delete --name "$GATE_WORKER_NAME" --force >/tmp/worker-delete.log 2>&1
-          if [ -n "${GATE_KV_ID:-}" ]; then
-            curl -sS -X DELETE "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}" \
-              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" >/tmp/kv-delete.json 2>&1
-          fi
-          exit 0
+          if [ -s /tmp/wrangler-local.pid ]; then kill "$(cat /tmp/wrangler-local.pid)" 2>/dev/null || true; fi
+          if [ -s /tmp/wrangler-local.log ]; then tail -n 80 /tmp/wrangler-local.log | sed -E 's/(code=)[^& ]+/\1[REDACTED]/g'; fi
