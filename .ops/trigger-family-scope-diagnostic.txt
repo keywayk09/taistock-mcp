@@ -1,1 +1,2 @@
 trigger-only; do not merge
+synchronize=2
