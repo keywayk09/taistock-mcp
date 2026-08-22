@@ -1,20 +1,20 @@
-# trigger: third push with completion marker
 name: One-shot Family OAuth Scope Diagnostic Production 20260823
 
 on:
-  push:
+  pull_request:
     branches: [main]
-    paths:
-      - '.github/workflows/one-shot-family-scope-diagnostic-prod-20260823.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   deploy-diagnostic:
+    if: github.head_ref == 'diag/family-plugin-scope-20260823'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -98,15 +98,3 @@ jobs:
           assert body.get('status')=='ok', body
           print('PRODUCTION_SCOPE_DIAGNOSTIC_READY=PASS')
           PY
-
-      - name: Write READY marker
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p .ops
-          printf '%s\n' 'production_scope_diagnostic_ready=true' 'diagnostic=scopes-safe-names' > .ops/family-scope-diagnostic-ready.txt
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .ops/family-scope-diagnostic-ready.txt
-          git commit -m 'ops: mark Family scope diagnostic ready'
-          git push origin HEAD:main
