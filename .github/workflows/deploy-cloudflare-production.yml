@@ -131,6 +131,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
         run: |
           set -euo pipefail
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
@@ -155,7 +156,44 @@ jobs:
               raise SystemExit('oauth_kv_binding_injection_failed')
           path.write_text(updated)
           PY
-          npx wrangler deploy --config wrangler.production.jsonc
+
+          rm -f /tmp/wrangler-deploy.log /tmp/wrangler-deploy-diagnostic.txt
+          set +e
+          npx wrangler deploy --config wrangler.production.jsonc 2>&1 | tee /tmp/wrangler-deploy.log
+          deploy_status=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$deploy_status" -ne 0 ]; then
+            DEPLOY_EXIT_CODE="$deploy_status" python - <<'PY'
+          import os,re
+          from pathlib import Path
+
+          source=Path('/tmp/wrangler-deploy.log')
+          text=source.read_text(errors='replace') if source.exists() else ''
+
+          # Redact credentials or credential-like values before anything is persisted.
+          text=re.sub(r'(?i)(authorization\s*:\s*bearer\s+)[^\s]+', r'\1[REDACTED]', text)
+          text=re.sub(r'(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{16,}', r'\1[REDACTED]', text)
+          text=re.sub(r'(?i)((?:api[_ -]?token|token|secret|password)\s*[=:]\s*)[^\s]+', r'\1[REDACTED]', text)
+          text=re.sub(r'(?i)(CLOUDFLARE_API_TOKEN\s*[=:]\s*)[^\s]+', r'\1[REDACTED]', text)
+
+          keywords=re.compile(r'(?i)(error|failed|failure|code\s*[:=]|startup|exceed|limit|size|durable|migration|binding|validation|worker|script|module|compatib|subrequest|cpu|memory|upload)')
+          lines=[line.rstrip() for line in text.splitlines()]
+          selected=[line for line in lines if keywords.search(line)]
+          if not selected:
+              selected=lines[-60:]
+          selected=selected[-120:]
+          header=[
+              'SAFE_WRANGLER_DEPLOY_DIAGNOSTIC_V1',
+              f'source_sha={os.environ.get("GITHUB_SHA", "unknown")}',
+              f'exit_code={os.environ.get("DEPLOY_EXIT_CODE", "unknown")}',
+              'note=Sanitized error-relevant Wrangler output only; credentials are redacted.',
+              '---',
+          ]
+          Path('/tmp/wrangler-deploy-diagnostic.txt').write_text('\n'.join(header+selected)+'\n')
+          PY
+            exit "$deploy_status"
+          fi
 
       - name: Install and verify five-minute Cron Trigger
         id: cron
@@ -193,6 +231,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p tmp/deploy-receipts
+          diagnostic_path='tmp/deploy-receipts/taistock-mcp-cloudflare-error.txt'
           if [ "${{ steps.auth.outputs.token_configured }}" != 'true' ]; then
             reason='MISSING_CLOUDFLARE_API_TOKEN'
           elif [ "${{ steps.oauth_kv.outcome }}" != 'success' ]; then
@@ -204,6 +243,21 @@ jobs:
           else
             reason='DEPLOYED_OAUTH_KV_AND_CRON_VERIFIED'
           fi
+
+          if [ "${{ steps.deploy.outcome }}" != 'success' ]; then
+            if [ -s /tmp/wrangler-deploy-diagnostic.txt ]; then
+              cp /tmp/wrangler-deploy-diagnostic.txt "$diagnostic_path"
+            else
+              cat > "$diagnostic_path" <<EOF
+          SAFE_WRANGLER_DEPLOY_DIAGNOSTIC_V1
+          source_sha=${GITHUB_SHA}
+          note=Deploy failed before a Wrangler diagnostic could be captured.
+          EOF
+            fi
+          else
+            rm -f "$diagnostic_path"
+          fi
+
           cat > tmp/deploy-receipts/taistock-mcp-cloudflare.json <<EOF
           {
             "source_sha": "${GITHUB_SHA}",
@@ -213,6 +267,7 @@ jobs:
             "deploy_outcome": "${{ steps.deploy.outcome }}",
             "cron_outcome": "${{ steps.cron.outcome }}",
             "reason": "${reason}",
+            "diagnostic_path": "${diagnostic_path}",
             "token_configured": ${{ steps.auth.outputs.token_configured }},
             "account_id_configured": ${{ steps.auth.outputs.account_id_configured }},
             "cron": "*/5 * * * *",
@@ -222,6 +277,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add tmp/deploy-receipts/taistock-mcp-cloudflare.json
+          git add -A "$diagnostic_path"
           git commit -m 'ops: record Cloudflare production deploy result' || exit 0
           for attempt in 1 2 3 4 5; do
             if git push origin HEAD:main; then
