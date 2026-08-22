@@ -19,7 +19,7 @@ export const HISTORY_V2_PREFIXES = ["0", "1", "2", "3", "4", "5", "6", "7", "8",
 export const HISTORY_V2_MANIFEST_FINALIZE_BATCH = 4;
 
 const HISTORY_V2_STAGE_SNAPSHOT_READS = 8;
-const HISTORY_V2_STAGE_ATOMIC_FILES = 11; // 10 immutable daily-prefix files + month capture catalog.
+const HISTORY_V2_STAGE_ATOMIC_FILES = 11;
 
 export type HistoryV2Manifest = {
   layers?: MarketManifestLayer[];
@@ -407,24 +407,25 @@ async function buildOnePrefix(env: Env, input: {
             symbols: {},
             updated_at: "",
           } satisfies SymbolMonthShard,
-          merge: (current: SymbolMonthShard) => mergeDailyPrefixIntoMonth(current, input.month, input.prefix, stageReads, input.capturedAt),
+          merge: (current: any) => mergeDailyPrefixIntoMonth(current as SymbolMonthShard, input.month, input.prefix, stageReads, input.capturedAt),
         },
         {
           path: buildPath,
           defaultValue: defaultBuild(input.month, input.state, stagedDates, input.capturedAt),
-          merge: (current: HistoryV2MonthBuild) => {
-            const completed = [...new Set([...(current.completed_prefixes ?? []), input.prefix])]
+          merge: (current: any) => {
+            const typed = current as HistoryV2MonthBuild;
+            const completed = [...new Set([...(typed.completed_prefixes ?? []), input.prefix])]
               .filter((prefix) => HISTORY_V2_PREFIXES.includes(prefix as any))
               .sort();
             return {
-              ...current,
+              ...typed,
               schema_version: HISTORY_V2_MONTH_BUILD_VERSION,
               month: input.month,
               staged_trade_dates: stagedDates,
               completed_prefixes: completed,
               status: completed.length === HISTORY_V2_PREFIXES.length ? "FINALIZING" : "BUILDING",
               updated_at: input.capturedAt,
-            };
+            } satisfies HistoryV2MonthBuild;
           },
         },
       ],
@@ -470,7 +471,7 @@ async function finalizeManifestBatch(env: Env, input: {
       updates: [{
         path: buildPath,
         defaultValue: input.build,
-        merge: (current: HistoryV2MonthBuild) => ({ ...current, status: "READY" as const, updated_at: input.capturedAt }),
+        merge: (current: any) => ({ ...(current as HistoryV2MonthBuild), status: "READY" as const, updated_at: input.capturedAt }),
       }],
     });
     return {
