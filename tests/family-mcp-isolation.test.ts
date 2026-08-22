@@ -8,6 +8,7 @@ const root = path.resolve(here, "..");
 const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
 
 const family = read("src/v6/family-mcp.ts");
+const oauth = read("src/v6/family-oauth.ts");
 const index = read("src/index-v6.ts");
 
 for (const tool of [
@@ -37,6 +38,14 @@ for (const forbidden of [
 ]) {
   assert.doesNotMatch(family, new RegExp(`registerTool\\(\\"${forbidden}\\"`));
 }
+
+// McpAgent.serve() consumes MCP_OBJECT. The family path must explicitly remap
+// that conventional binding to the dedicated FamilyMCP namespace and fail
+// closed when the dedicated namespace is unavailable.
+assert.match(oauth, /FAMILY_MCP_OBJECT/);
+assert.match(oauth, /if \(property === "MCP_OBJECT"\) return familyNamespace/);
+assert.match(oauth, /family_mcp_binding_missing/);
+assert.match(oauth, /refusing to fall back to the full MCP_OBJECT namespace/);
 
 assert.match(index, /if \(url\.pathname === "\/mcp"\) return MyMCP\.serve/);
 assert.match(index, /createFamilyOAuthProvider\(appHandler\)/);
