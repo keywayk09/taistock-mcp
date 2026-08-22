@@ -1,0 +1,199 @@
+name: Deploy Family Scope Normalization Production 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-and-smoke:
+    if: github.head_ref == 'ops/deploy-family-scope-normalization-20260823'
+    runs-on: ubuntu-latest
+    env:
+      PROD_URL: https://taistock-mcp.keywayk09.workers.dev
+      MOM_CLIENT_ID: 41i_gRq63zL6r2tO
+      SYNTH_CLIENT_ID: scopeNormalizationProductionSmoke20260823
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+
+      - name: Resolve existing Production OAuth KV
+        id: oauth_kv
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/kv.json
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          body=json.load(open('/tmp/kv.json'))
+          rows=[x for x in body.get('result',[]) if x.get('title')=='taistock-mcp-OAUTH_KV']
+          if not body.get('success') or len(rows)!=1:
+              raise SystemExit('production_oauth_kv_resolution_failed')
+          kv_id=str(rows[0].get('id') or '')
+          if len(kv_id)!=32:
+              raise SystemExit('invalid_oauth_kv_id')
+          print('id='+kv_id)
+          PY
+
+      - name: Confirm Mom real client remains missing before user proof
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          encoded="$(python - <<'PY'
+          import os,urllib.parse
+          print(urllib.parse.quote('client:'+os.environ['MOM_CLIENT_ID'], safe=''))
+          PY
+          )"
+          url="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${OAUTH_KV_ID}/values/${encoded}"
+          status="$(curl -sS -o /tmp/mom-client.raw -w '%{http_code}' "$url" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+          echo "MOM_CLIENT_PREDEPLOY_HTTP=${status}"
+          test "$status" = '404'
+          echo 'MOM_REAL_CLIENT_STILL_REQUIRES_USER_PROOF=PASS'
+
+      - name: Build Production config
+        env:
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp wrangler.jsonc wrangler.scope-normalization-production.jsonc
+          python - <<'PY'
+          import os,re
+          from pathlib import Path
+          p=Path('wrangler.scope-normalization-production.jsonc')
+          s=p.read_text(); kv=os.environ['OAUTH_KV_ID']
+          pat=r'("binding"\s*:\s*"OAUTH_KV")(\s*)(\})'
+          out,n=re.subn(pat, lambda m: m.group(1)+',\n\t\t\t"id": "'+kv+'"'+m.group(2)+m.group(3), s, count=1)
+          if n!=1: raise SystemExit('oauth_kv_binding_injection_failed')
+          p.write_text(out)
+          PY
+
+      - name: Deploy merged scope normalization to Production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --config wrangler.scope-normalization-production.jsonc
+
+      - name: Verify Production Cron
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/taistock-mcp/schedules"
+          curl -fsS -X PUT "$endpoint" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data '[{"cron":"*/5 * * * *"}]' > /tmp/cron-put.json
+          curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/cron-get.json
+          python - <<'PY'
+          import json
+          put=json.load(open('/tmp/cron-put.json')); get=json.load(open('/tmp/cron-get.json'))
+          assert put.get('success'), put
+          schedules=((get.get('result') or {}).get('schedules') or [])
+          crons=[x.get('cron') for x in schedules if isinstance(x,dict)]
+          assert '*/5 * * * *' in crons, crons
+          print('PRODUCTION_CRON=PASS')
+          PY
+
+      - name: Production health smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 5 --retry-delay 2 --max-time 30 -fsS "$PROD_URL/health" > /tmp/health.json
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/health.json'))
+          assert body.get('status')=='ok', body
+          text=json.dumps(body,ensure_ascii=False)
+          assert 'SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS' in text, body
+          print('PRODUCTION_HEALTH=PASS')
+          PY
+
+      - name: Build Production synthetic connector URLs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64,hashlib,os,urllib.parse
+          from pathlib import Path
+          base=os.environ['PROD_URL']
+          verifier='production-scope-normalization-verifier-'+'p'*48
+          challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
+          callback='https://chatgpt.com/connector/oauth/productionscopenormalize20260823'
+          params={
+            'response_type':'code',
+            'client_id':os.environ['SYNTH_CLIENT_ID'],
+            'redirect_uri':callback,
+            'scope':'openid profile email offline_access mcp:tools files:write',
+            'state':'production-scope-normalization-state',
+            'code_challenge':challenge,
+            'code_challenge_method':'S256',
+            'resource':base+'/family-mcp',
+          }
+          Path('/tmp/good-url.txt').write_text(base+'/authorize?'+urllib.parse.urlencode(params))
+          bad=dict(params); bad['client_id']='scopeNormalizationMalformedProd20260823'; bad['scope']='openid bad\\scope'
+          Path('/tmp/bad-url.txt').write_text(base+'/authorize?'+urllib.parse.urlencode(bad))
+          PY
+
+      - name: Production trusted connector normalizes requested scopes
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --retry 3 --retry-delay 1 --max-time 30 -sS -o /tmp/good.html -w '%{http_code}' "$(cat /tmp/good-url.txt)")"
+          echo "PRODUCTION_NORMALIZED_SCOPE_HTTP=${code}"
+          test "$code" = '200'
+          grep -q '家人連線驗證碼' /tmp/good.html
+          grep -q 'ChatGPT Family Plugin / MCP App' /tmp/good.html
+          ! grep -q 'Invalid client_id' /tmp/good.html
+          echo 'PRODUCTION_SCOPE_NORMALIZATION_LOGIN=PASS'
+
+      - name: Production malformed scopes remain fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --retry 3 --retry-delay 1 --max-time 30 -sS -o /tmp/bad.html -w '%{http_code}' "$(cat /tmp/bad-url.txt)")"
+          echo "PRODUCTION_MALFORMED_SCOPE_HTTP=${code}"
+          test "$code" = '400'
+          ! grep -q '家人連線驗證碼' /tmp/bad.html
+          echo 'PRODUCTION_MALFORMED_SCOPE_REJECTED=PASS'
+
+      - name: Confirm GET smoke wrote no client registrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' >/tmp/keys.txt
+          import os,urllib.parse
+          for client in (os.environ['SYNTH_CLIENT_ID'], os.environ['MOM_CLIENT_ID']):
+              print(urllib.parse.quote('client:'+client,safe=''))
+          PY
+          while IFS= read -r encoded; do
+            url="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${OAUTH_KV_ID}/values/${encoded}"
+            status="$(curl -sS -o /tmp/client-check.raw -w '%{http_code}' "$url" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+            echo "CLIENT_POSTSMOKE_HTTP=${status}"
+            test "$status" = '404'
+          done </tmp/keys.txt
+          echo 'PRODUCTION_GET_SMOKE_NO_CLIENT_WRITE=PASS'
