@@ -192,3 +192,95 @@ jobs:
           if [ "$status" -eq 0 ]; then exit 0; fi
           code="$(curl -sS -o /tmp/lkg-check.json -w '%{http_code}' "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${GATE_WORKER_NAME}" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
           test "$code" = '404'
+
+  family-v3-production-live-smoke:
+    if: github.event_name == 'pull_request' && github.head_ref == 'ops/family-v3-live-smoke-20260822'
+    runs-on: ubuntu-latest
+    env:
+      BASE_URL: https://taistock-mcp.keywayk09.workers.dev
+      MOM_GPT_API_KEY: ${{ secrets.MOM_GPT_API_KEY }}
+    steps:
+      - name: Verify live health and Family V3 contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 3 --retry-delay 2 --max-time 60 -fsS "$BASE_URL/health" > /tmp/health.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/health.json').read_text())
+          assert body.get('status') == 'ok', body
+          family=body.get('family_mcp') or {}
+          assert family.get('intelligence') == 'V3_ADAPTIVE_SHARED_READ_OPEN_WORLD', family
+          assert family.get('permission_model') == 'SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS', family
+          expected=[
+            'family_engine_status',
+            'screen_family_swing_candidates',
+            'get_family_market_chip_summary',
+            'analyze_family_stock',
+            'compare_family_stocks',
+          ]
+          assert family.get('tools') == expected, family.get('tools')
+          actions=body.get('family_read_only_actions') or {}
+          for key in ['adaptive_query','analyze_11_point','compare_11_point','swing_screen_v2','status']:
+              assert key in actions, actions
+          print('LIVE_HEALTH_V3=PASS')
+          PY
+
+      - name: Verify live Family OpenAPI routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 3 --retry-delay 2 --max-time 60 -fsS "$BASE_URL/family-openapi.json" > /tmp/openapi.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/openapi.json').read_text())
+          assert body.get('openapi') == '3.1.0', body.get('openapi')
+          assert (body.get('info') or {}).get('version') == 'family-action-openapi/v3.0.0', body.get('info')
+          paths=body.get('paths') or {}
+          expected={'/api/family/query','/api/family/analyze','/api/family/compare','/api/family/screen','/api/family/status'}
+          assert expected.issubset(paths.keys()), paths.keys()
+          print('LIVE_OPENAPI_V3=PASS')
+          PY
+
+      - name: Verify Family REST stays protected
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --retry 3 --retry-delay 2 --max-time 60 -sS -o /tmp/unauth.json -w '%{http_code}' -X POST "$BASE_URL/api/family/analyze" -H 'content-type: application/json' --data '{"symbol":"2317"}')"
+          test "$code" = '401'
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/unauth.json').read_text())
+          assert body.get('error') == 'unauthorized', body
+          print('LIVE_READ_ONLY_AUTH_GATE=PASS')
+          PY
+
+      - name: Verify authenticated 2317 eleven-point contract when repo key exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${MOM_GPT_API_KEY:-}" ]; then
+            echo 'LIVE_AUTHENTICATED_2317=SKIP_NO_REPO_SECRET'
+            exit 0
+          fi
+          curl --retry 2 --retry-delay 2 --max-time 180 -fsS -X POST "$BASE_URL/api/family/analyze" \
+            -H "Authorization: Bearer ${MOM_GPT_API_KEY}" \
+            -H 'content-type: application/json' \
+            --data '{"symbol":"2317"}' > /tmp/analyze-2317.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/analyze-2317.json').read_text())
+          assert body.get('version') == 'family-smart-analysis/v3.0.0', body.get('version')
+          rows=body.get('stock_analyses') or []
+          assert len(rows) == 1 and str(rows[0].get('symbol')) == '2317', rows
+          eleven=rows[0].get('eleven_point_analysis') or {}
+          assert (eleven.get('coverage') or {}).get('point_count') == 11, eleven.get('coverage')
+          assert len(eleven.get('points') or []) == 11, len(eleven.get('points') or [])
+          assert (body.get('family_policy') or {}).get('read_only') is True, body.get('family_policy')
+          assert (body.get('family_policy') or {}).get('same_research_brain_as_owner') is True, body.get('family_policy')
+          print('LIVE_AUTHENTICATED_2317=PASS')
+          PY
