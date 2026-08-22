@@ -10,6 +10,7 @@ declare global {
   interface Env {
     OAUTH_KV: KVNamespace;
     OAUTH_PROVIDER: OAuthHelpers;
+    FAMILY_MCP_OBJECT: DurableObjectNamespace<FamilyMCP>;
     FAMILY_OAUTH_LOGIN_SECRET?: string;
     MOM_GPT_API_KEY?: string;
   }
@@ -53,21 +54,6 @@ function loginSecret(env: Env) {
 
 function clientIp(request: Request) {
   return request.headers.get("cf-connecting-ip")?.trim() || "unknown";
-}
-
-function familyMcpEnv(env: Env): Env | null {
-  // McpAgent.serve() reads the conventional MCP_OBJECT binding. Production keeps
-  // MCP_OBJECT pointed at the full MyMCP namespace, so remap it only for the
-  // isolated family request. Never fall back to the full namespace: missing
-  // FAMILY_MCP_OBJECT must fail closed instead of exposing the 113-tool surface.
-  const familyNamespace = (env as unknown as Record<string, unknown>).FAMILY_MCP_OBJECT;
-  if (!familyNamespace) return null;
-  return new Proxy(env as unknown as object, {
-    get(target, property, receiver) {
-      if (property === "MCP_OBJECT") return familyNamespace;
-      return Reflect.get(target, property, receiver);
-    },
-  }) as Env;
 }
 
 function html(body: string, status = 200) {
@@ -188,15 +174,19 @@ async function handleAuthorize(request: Request, env: Env) {
 
 export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
   const familyApiHandler: ConcreteFetchHandler = {
-    fetch(request, env, ctx) {
-      const isolatedEnv = familyMcpEnv(env);
-      if (!isolatedEnv) {
-        return Response.json({
-          error: "family_mcp_binding_missing",
-          message: "FAMILY_MCP_OBJECT is required; refusing to fall back to the full MCP_OBJECT namespace.",
-        }, { status: 503 });
+    async fetch(request, env, ctx) {
+      try {
+        return await FamilyMCP.serve("/family-mcp", { binding: "FAMILY_MCP_OBJECT" }).fetch(request, env, ctx);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("FAMILY_MCP_OBJECT") && message.includes("binding")) {
+          return Response.json({
+            error: "family_mcp_binding_missing",
+            message: "FAMILY_MCP_OBJECT is required; refusing to fall back to the full MCP_OBJECT namespace.",
+          }, { status: 503 });
+        }
+        throw error;
       }
-      return FamilyMCP.serve("/family-mcp").fetch(request, isolatedEnv, ctx);
     },
   };
 
