@@ -69,7 +69,8 @@ const CHATGPT_LEGACY_CONNECTOR_CALLBACK_PATH = "/connector_platform_oauth_redire
 const CHATGPT_ACTION_CALLBACK_PATH = /^\/aip\/[A-Za-z0-9_-]{3,256}\/oauth\/callback$/;
 const OPAQUE_CLIENT_ID = /^[A-Za-z0-9._~-]{8,256}$/;
 const PKCE_S256_CHALLENGE = /^[A-Za-z0-9_-]{43,128}$/;
-const TRUSTED_ACTION_HOSTS = new Set(["chatgpt.com", "chat.openai.com"]);
+const TRUSTED_CHATGPT_HOSTS = new Set(["chatgpt.com", "chat.openai.com"]);
+const RECOVERY_COMPAT_SCOPES = new Set([FAMILY_SCOPE, "offline_access"]);
 
 function escapeHtml(value: unknown) {
   return String(value ?? "")
@@ -115,9 +116,65 @@ ${body}</main></body></html>`, {
   });
 }
 
-function authorizationErrorResponse(error: AuthorizationError) {
+function classifyChatGptRedirect(redirect: URL): RecoverableClientKind | null {
+  if (redirect.protocol !== "https:" || redirect.username || redirect.password || redirect.hash || redirect.search) return null;
+  if (
+    TRUSTED_CHATGPT_HOSTS.has(redirect.hostname)
+    && (CHATGPT_CONNECTOR_CALLBACK_PATH.test(redirect.pathname) || redirect.pathname === CHATGPT_LEGACY_CONNECTOR_CALLBACK_PATH)
+  ) {
+    return "connector";
+  }
+  if (TRUSTED_CHATGPT_HOSTS.has(redirect.hostname) && CHATGPT_ACTION_CALLBACK_PATH.test(redirect.pathname)) {
+    return "gpt_action";
+  }
+  return null;
+}
+
+function safeAuthDiagnostic(request: Request) {
+  const url = new URL(request.url);
+  const responseType = url.searchParams.get("response_type") === "code" ? "code" : "other";
+  const clientId = String(url.searchParams.get("client_id") || "");
+  const clientMode = OPAQUE_CLIENT_ID.test(clientId) ? "opaque" : (clientId.startsWith("https://") ? "url" : "invalid");
+
+  let redirectMode = "invalid";
+  let redirectHost = "invalid";
+  try {
+    const redirect = new URL(String(url.searchParams.get("redirect_uri") || ""));
+    redirectHost = TRUSTED_CHATGPT_HOSTS.has(redirect.hostname) ? redirect.hostname : "untrusted";
+    redirectMode = classifyChatGptRedirect(redirect) || "unrecognized";
+  } catch {
+    // Keep the safe summary only; never echo the raw redirect URI.
+  }
+
+  const method = String(url.searchParams.get("code_challenge_method") || "");
+  const challenge = String(url.searchParams.get("code_challenge") || "");
+  const pkce = !method && !challenge
+    ? "none"
+    : (method === "S256" && PKCE_S256_CHALLENGE.test(challenge) ? "s256" : "invalid");
+
+  const scopes = String(url.searchParams.get("scope") || "").split(/\s+/).filter(Boolean);
+  const scopeMode = scopes.length === 0
+    ? "none"
+    : (scopes.every((scope) => RECOVERY_COMPAT_SCOPES.has(scope)) ? "compatible" : "unsupported");
+  const state = String(url.searchParams.get("state") || "");
+
+  let resource = "none";
+  const resourceRaw = String(url.searchParams.get("resource") || "").trim();
+  if (resourceRaw) {
+    try {
+      resource = new URL(resourceRaw).origin === url.origin ? "same-origin" : "other-origin";
+    } catch {
+      resource = "invalid";
+    }
+  }
+
+  return `FAM-OAUTH-DIAG response=${responseType} client=${clientMode} redirect=${redirectMode}@${redirectHost} pkce=${pkce} scope=${scopeMode} state=${state ? "present" : "missing"} resource=${resource}`;
+}
+
+function authorizationErrorResponse(error: AuthorizationError, request?: Request) {
   if (!error.redirectUri) {
-    return html(`<h2>授權要求無效</h2><p>${escapeHtml(error.description)}</p>`, 400);
+    const diagnostic = request ? `<p><code>${escapeHtml(safeAuthDiagnostic(request))}</code></p>` : "";
+    return html(`<h2>授權要求無效</h2><p>${escapeHtml(error.description)}</p>${diagnostic}`, 400);
   }
   const redirect = new URL(error.redirectUri);
   redirect.searchParams.set("error", error.code);
@@ -125,20 +182,6 @@ function authorizationErrorResponse(error: AuthorizationError) {
   if (error.state) redirect.searchParams.set("state", error.state);
   if (error.issuer) redirect.searchParams.set("iss", error.issuer);
   return Response.redirect(redirect.toString(), 302);
-}
-
-function classifyChatGptRedirect(redirect: URL): RecoverableClientKind | null {
-  if (redirect.protocol !== "https:" || redirect.username || redirect.password || redirect.hash || redirect.search) return null;
-  if (
-    redirect.hostname === "chatgpt.com"
-    && (CHATGPT_CONNECTOR_CALLBACK_PATH.test(redirect.pathname) || redirect.pathname === CHATGPT_LEGACY_CONNECTOR_CALLBACK_PATH)
-  ) {
-    return "connector";
-  }
-  if (TRUSTED_ACTION_HOSTS.has(redirect.hostname) && CHATGPT_ACTION_CALLBACK_PATH.test(redirect.pathname)) {
-    return "gpt_action";
-  }
-  return null;
 }
 
 function recoverableChatGptClient(request: Request): RecoverableChatGptClient | null {
@@ -161,6 +204,7 @@ function recoverableChatGptClient(request: Request): RecoverableChatGptClient | 
   const method = String(url.searchParams.get("code_challenge_method") || "");
   const challenge = String(url.searchParams.get("code_challenge") || "");
   if (kind === "connector") {
+    // ChatGPT Plugin / Apps SDK MCP clients use authorization-code + PKCE S256.
     if (method !== "S256" || !PKCE_S256_CHALLENGE.test(challenge)) return null;
   } else if (method || challenge) {
     // Custom GPT Actions historically use a confidential client secret instead
@@ -168,9 +212,13 @@ function recoverableChatGptClient(request: Request): RecoverableChatGptClient | 
     if (method !== "S256" || !PKCE_S256_CHALLENGE.test(challenge)) return null;
   }
 
+  // MCP clients are allowed to omit scope when the resource metadata already
+  // describes the protected scope. Some OpenAI linking surfaces also include
+  // the standard offline_access transport scope for refresh-token continuity.
+  // Accept only those compatibility forms; the server still grants only
+  // FAMILY_SCOPE below, so this cannot widen Family privileges.
   const scopes = String(url.searchParams.get("scope") || "").split(/\s+/).filter(Boolean);
-  if (!scopes.includes(FAMILY_SCOPE)) return null;
-  if (scopes.some((scope) => scope !== FAMILY_SCOPE)) return null;
+  if (scopes.some((scope) => !RECOVERY_COMPAT_SCOPES.has(scope))) return null;
 
   const state = String(url.searchParams.get("state") || "");
   if (!state || state.length > 2_000) return null;
@@ -225,7 +273,7 @@ function pendingActionKey(clientId: string) {
 }
 
 function recoveredClientName(candidate: RecoverableChatGptClient) {
-  return candidate.kind === "gpt_action" ? "ChatGPT Family Action" : "ChatGPT Family Connector";
+  return candidate.kind === "gpt_action" ? "ChatGPT Family Action" : "ChatGPT Family Plugin / MCP App";
 }
 
 function storedClientMatches(raw: string | null, candidate: RecoverableChatGptClient) {
@@ -266,9 +314,10 @@ async function registerRecoveredChatGptClient(candidate: RecoverableChatGptClien
   if (existing) return storedClientMatches(existing, candidate);
 
   // Storage format is pinned to @cloudflare/workers-oauth-provider 0.10.3.
-  // Connector recovery is a public PKCE client. Custom GPT Action recovery is
-  // temporarily secretless and is upgraded to the exact secret presented by
-  // ChatGPT only during the matching one-time authorization-code exchange.
+  // Connector/Plugin recovery is a public PKCE client. Custom GPT Action
+  // recovery is temporarily secretless and is upgraded to the exact secret
+  // presented by ChatGPT only during the matching one-time authorization-code
+  // exchange.
   const stored: StoredRecoveredClient = {
     clientId: candidate.clientId,
     redirectUris: [candidate.redirectUri],
@@ -289,7 +338,7 @@ async function parseAuthorizationRequest(request: Request, env: Env) {
     return { ok: true as const, value: await env.OAUTH_PROVIDER.parseAuthRequest(request) };
   } catch (error) {
     if (!(error instanceof AuthorizationError)) throw error;
-    return { ok: false as const, response: authorizationErrorResponse(error) };
+    return { ok: false as const, response: authorizationErrorResponse(error, request) };
   }
 }
 
@@ -483,8 +532,8 @@ function equivalentActionRedirect(leftRaw: string, rightRaw: string) {
     const right = new URL(rightRaw);
     return left.protocol === "https:"
       && right.protocol === "https:"
-      && TRUSTED_ACTION_HOSTS.has(left.hostname)
-      && TRUSTED_ACTION_HOSTS.has(right.hostname)
+      && TRUSTED_CHATGPT_HOSTS.has(left.hostname)
+      && TRUSTED_CHATGPT_HOSTS.has(right.hostname)
       && CHATGPT_ACTION_CALLBACK_PATH.test(left.pathname)
       && left.pathname === right.pathname
       && !left.search && !right.search
