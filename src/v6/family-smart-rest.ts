@@ -1,5 +1,6 @@
 import { runSmartFamilyAnalysis } from "./family-analysis";
 import { familyOpenApiV2 } from "./family-openapi-v2";
+import { familyResearchDirective } from "./family-research-policy";
 import { runFamilySwingScreenV2 } from "./family-stock-selection-v2";
 
 type RuntimeFamilyEnv = Env & { MOM_GPT_API_KEY?: string };
@@ -77,15 +78,17 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
     return json({
       ok: true,
       service: "Taiwan Stock AI Family Read-Only API",
-      version: "family-rest/v2.0.0",
+      version: "family-rest/v2.1.0",
       capabilities: {
-        single_stock: "FIXED_11_POINT",
-        compare_2_to_5: "FIXED_11_POINT",
+        single_stock: "FIXED_11_POINT_PLUS_OPEN_WORLD_RESEARCH",
+        compare_2_to_5: "SAME_11_POINT_EVIDENCE_MODEL",
         swing_screen: "V2_FULL_SNAPSHOT_PREFILTER_BOUNDED_DEEP_SCAN",
-        web_research: "ALLOWED_AS_EVIDENCE_LAYER",
+        realtime: "FUGLE_PRIMARY_WHEN_AVAILABLE",
+        web_research: "OPEN_WORLD_AUTONOMOUS_NOT_FIXED_SITES_OR_KEYWORDS",
         formal_chip: "PUBLISHED_GENERATION_ONLY",
         formal_ohlc: "OHLC_MCP_ONLY",
       },
+      research_policy: familyResearchDirective([]),
       endpoints: ["/api/family/analyze", "/api/family/compare", "/api/family/screen", "/api/family/query"],
       read_only: true,
     }, 200, cors());
@@ -104,13 +107,14 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
     if (url.pathname === "/api/family/analyze") {
       const symbol = validSymbol(body.symbol);
       if (!symbol) return json({ error: "invalid_symbol" }, 400, cors());
-      return json(await runSmartFamilyAnalysis(env, { symbol: undefined as never, symbols: [symbol], as_of_date: validDate(body.as_of_date) }), 200, cors());
+      return json(await runSmartFamilyAnalysis(env, { symbols: [symbol], as_of_date: validDate(body.as_of_date) }), 200, cors());
     }
 
     if (url.pathname === "/api/family/compare") {
       if (!Array.isArray(body.symbols)) return json({ error: "symbols_required" }, 400, cors());
-      const symbols = [...new Set(body.symbols.map(validSymbol).filter((value): value is string => Boolean(value)))];
-      if (symbols.length < 2 || symbols.length > 5 || symbols.length !== body.symbols.length) {
+      const rawSymbols = body.symbols.map((value: unknown) => String(value ?? "").trim());
+      const symbols = [...new Set(rawSymbols.map(validSymbol).filter((value): value is string => Boolean(value)))];
+      if (symbols.length < 2 || symbols.length > 5 || symbols.length !== rawSymbols.length) {
         return json({ error: "symbols_must_be_2_to_5_unique_valid_codes" }, 400, cors());
       }
       return json(await runSmartFamilyAnalysis(env, { symbols, as_of_date: validDate(body.as_of_date) }), 200, cors());
@@ -118,7 +122,8 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
 
     const mode = ["stable", "balanced", "aggressive"].includes(String(body.mode)) ? body.mode as "stable" | "balanced" | "aggressive" : "balanced";
     const topN = Number.isFinite(Number(body.top_n)) ? Math.max(1, Math.min(10, Math.floor(Number(body.top_n)))) : 5;
-    return json(await runFamilySwingScreenV2(env, { mode, top_n: topN }), 200, cors());
+    const result = await runFamilySwingScreenV2(env, { mode, top_n: topN });
+    return json({ ...result, open_world_research: familyResearchDirective(result.candidates?.map((row: any) => String(row.symbol)) ?? []) }, 200, cors());
   } catch (error) {
     return json({ error: "family_request_failed", message: errorText(error) }, 500, cors());
   }
