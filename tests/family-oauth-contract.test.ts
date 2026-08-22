@@ -30,6 +30,25 @@ assert.match(oauth, /completeAuthorization/);
 assert.match(oauth, /FamilyMCP\.serve\("\/family-mcp", \{ binding: "FAMILY_MCP_OBJECT" \}\)/);
 assert.match(oauth, /refusing to fall back to the full MCP_OBJECT namespace/);
 assert.doesNotMatch(oauth, /binding: "MCP_OBJECT"/);
+
+// Stale ChatGPT client recovery must stay narrow and fail closed.
+assert.match(oauth, /redirect\.hostname !== "chatgpt\.com"/);
+assert.match(oauth, /CHATGPT_CALLBACK_PATH/);
+assert.match(oauth, /CHATGPT_LEGACY_CALLBACK_PATH/);
+assert.match(oauth, /code_challenge_method/);
+assert.match(oauth, /method !== "S256"/);
+assert.match(oauth, /PKCE_S256_CHALLENGE/);
+assert.match(oauth, /scopes\.includes\(FAMILY_SCOPE\)/);
+assert.match(oauth, /new URL\(resourceRaw\)\.origin !== url\.origin/);
+assert.match(oauth, /OAUTH_KV\.list\(\{ prefix: "client:", limit: 1 \}\)/);
+assert.match(oauth, /currentClients\.keys\.length !== 0/);
+assert.match(oauth, /OAUTH_PROVIDER\.createClient/);
+assert.match(oauth, /tokenEndpointAuthMethod: "none"/);
+assert.match(oauth, /clientName: "ChatGPT Family Connector"/);
+assert.match(oauth, /isMissingClientError/);
+assert.match(oauth, /recoverMissingChatGptClient/);
+assert.match(oauth, /Fail closed/);
+
 assert.match(wrangler, /global_fetch_strictly_public/);
 assert.match(wrangler, /"kv_namespaces"/);
 assert.match(wrangler, /"binding"\s*:\s*"OAUTH_KV"/);
