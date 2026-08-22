@@ -1,0 +1,244 @@
+name: Family Custom GPT Action OAuth E2E
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  action-oauth-e2e:
+    if: github.head_ref == 'fix/family-gpt-action-oauth-recovery-20260823'
+    runs-on: ubuntu-latest
+    env:
+      BASE_URL: http://127.0.0.1:8787
+      FAMILY_SECRET: isolated-action-test-secret-never-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+
+      - name: Build local Workers config
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > wrangler.family-action-oauth-local.jsonc <<'EOF'
+          {
+            "$schema": "node_modules/wrangler/config-schema.json",
+            "name": "taistock-mcp-family-action-oauth-local",
+            "main": "src/index-v6.ts",
+            "compatibility_date": "2025-03-10",
+            "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+            "vars": {
+              "RESEARCH_MAX_SYMBOLS":"40",
+              "RESEARCH_MAX_ONE_MINUTE":"8",
+              "GITHUB_DATA_REPO":"keywayk09/tv-papertrader",
+              "GITHUB_DATA_BRANCH":"main",
+              "FAMILY_OAUTH_LOGIN_SECRET":"isolated-action-test-secret-never-production"
+            },
+            "kv_namespaces": [{"binding":"OAUTH_KV","id":"00000000000000000000000000000000"}],
+            "exports": {
+              "MyMCP":{"type":"durable-object","storage":"sqlite"},
+              "FamilyMCP":{"type":"durable-object","storage":"sqlite"}
+            },
+            "durable_objects": {
+              "bindings":[
+                {"class_name":"MyMCP","name":"MCP_OBJECT"},
+                {"class_name":"FamilyMCP","name":"FAMILY_MCP_OBJECT"}
+              ]
+            },
+            "observability":{"enabled":false}
+          }
+          EOF
+
+      - name: Start local Workers runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup npx wrangler dev --local --config wrangler.family-action-oauth-local.jsonc --ip 127.0.0.1 --port 8787 --persist-to /tmp/family-action-oauth-state > /tmp/wrangler-local.log 2>&1 &
+          echo $! > /tmp/wrangler-local.pid
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 2 "$BASE_URL/health" >/tmp/local-health.json 2>/dev/null; then
+              python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/local-health.json').read_text())
+          assert body.get('status') == 'ok', body
+          print('LOCAL_WORKER_READY=PASS')
+          PY
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/wrangler-local.log
+          exit 1
+
+      - name: Build Custom GPT Action requests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, urllib.parse
+          from pathlib import Path
+          base=os.environ['BASE_URL']
+          def build(client, callback, state):
+              q=urllib.parse.urlencode({
+                  'response_type':'code',
+                  'client_id':client,
+                  'redirect_uri':callback,
+                  'scope':'family:read',
+                  'state':state,
+              })
+              return q, base+'/authorize?'+q
+          q1,u1=build('gpt-action-stale-post-1234567890','https://chat.openai.com/aip/g-family-test/oauth/callback','state-post-1234567890')
+          q2,u2=build('gpt-action-stale-basic-1234567890','https://chatgpt.com/aip/g-family-basic/oauth/callback','state-basic-1234567890')
+          bad=urllib.parse.urlencode({
+              'response_type':'code','client_id':'gpt-action-untrusted-12345678',
+              'redirect_uri':'https://evil.example/aip/g-family-test/oauth/callback',
+              'scope':'family:read','state':'state-bad-1234567890'
+          })
+          Path('/tmp/query-post.txt').write_text(q1)
+          Path('/tmp/url-post.txt').write_text(u1)
+          Path('/tmp/query-basic.txt').write_text(q2)
+          Path('/tmp/url-basic.txt').write_text(u2)
+          Path('/tmp/url-bad.txt').write_text(base+'/authorize?'+bad)
+          PY
+
+      - name: Reject untrusted Action redirect
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 20 -sS -D /tmp/bad.headers -o /tmp/bad.html -w '%{http_code}' "$(cat /tmp/url-bad.txt)")"
+          echo "UNTRUSTED_HTTP_CODE=${code}"
+          case "$code" in 4??) ;; *) exit 1 ;; esac
+          ! grep -q '家人連線驗證碼' /tmp/bad.html
+          ! grep -qi '^location: *https://evil\.example' /tmp/bad.headers
+          echo 'UNTRUSTED_ACTION_REDIRECT_REJECTED=PASS'
+
+      - name: Stale Action GET renders Family login
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 20 -sS -D /tmp/get.headers -o /tmp/get.html -w '%{http_code}' "$(cat /tmp/url-post.txt)")"
+          echo "ACTION_GET_HTTP_CODE=${code}"
+          test "$code" = '200'
+          grep -q '家人連線驗證碼' /tmp/get.html
+          grep -q 'ChatGPT Family Action' /tmp/get.html
+          echo 'STALE_ACTION_LOGIN=PASS'
+
+      - name: Wrong Family secret is rejected
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 20 -sS -o /tmp/wrong.html -w '%{http_code}' -X POST "$BASE_URL/authorize" \
+            -H 'content-type: application/x-www-form-urlencoded' \
+            --data-urlencode "oauth_query=$(cat /tmp/query-post.txt)" \
+            --data-urlencode 'login_secret=definitely-wrong')"
+          test "$code" = '200'
+          grep -q '驗證碼錯誤' /tmp/wrong.html
+          echo 'WRONG_FAMILY_SECRET_REJECTED=PASS'
+
+      - name: Authorize Action for client_secret_post
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 30 -sS -D /tmp/post-auth.headers -o /tmp/post-auth.body -w '%{http_code}' -X POST "$BASE_URL/authorize" \
+            -H 'content-type: application/x-www-form-urlencoded' \
+            --data-urlencode "oauth_query=$(cat /tmp/query-post.txt)" \
+            --data-urlencode "login_secret=$FAMILY_SECRET")"
+          echo "ACTION_POST_AUTH_HTTP_CODE=${code}"
+          test "$code" = '302'
+          python - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urlparse, parse_qs
+          headers=Path('/tmp/post-auth.headers').read_text().splitlines()
+          loc=next(x.split(':',1)[1].strip() for x in headers if x.lower().startswith('location:'))
+          u=urlparse(loc); q=parse_qs(u.query)
+          assert u.hostname == 'chat.openai.com', loc
+          assert u.path == '/aip/g-family-test/oauth/callback', loc
+          code=q.get('code',[''])[0]
+          assert code, loc
+          assert q.get('state',[''])[0] == 'state-post-1234567890', loc
+          Path('/tmp/auth-code-post.txt').write_text(code)
+          print('ACTION_AUTH_CODE_POST=PASS')
+          PY
+
+      - name: Exchange Action code with client_secret_post and host switch
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 30 -sS -o /tmp/token-post.json -w '%{http_code}' -X POST "$BASE_URL/oauth/token" \
+            -H 'content-type: application/x-www-form-urlencoded' \
+            --data-urlencode 'grant_type=authorization_code' \
+            --data-urlencode 'client_id=gpt-action-stale-post-1234567890' \
+            --data-urlencode 'client_secret=synthetic-action-post-secret-1234567890' \
+            --data-urlencode "code=$(cat /tmp/auth-code-post.txt)" \
+            --data-urlencode 'redirect_uri=https://chatgpt.com/aip/g-family-test/oauth/callback')"
+          echo "ACTION_TOKEN_POST_HTTP_CODE=${code}"
+          test "$code" = '200'
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/token-post.json').read_text())
+          assert isinstance(body.get('access_token'), str) and body['access_token'], body
+          assert body.get('token_type','').lower() == 'bearer', body
+          print('ACTION_CLIENT_SECRET_POST_TOKEN=PASS')
+          PY
+
+      - name: Authorize second Action for client_secret_basic
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 30 -sS -D /tmp/basic-auth.headers -o /tmp/basic-auth.body -w '%{http_code}' -X POST "$BASE_URL/authorize" \
+            -H 'content-type: application/x-www-form-urlencoded' \
+            --data-urlencode "oauth_query=$(cat /tmp/query-basic.txt)" \
+            --data-urlencode "login_secret=$FAMILY_SECRET")"
+          test "$code" = '302'
+          python - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urlparse, parse_qs
+          headers=Path('/tmp/basic-auth.headers').read_text().splitlines()
+          loc=next(x.split(':',1)[1].strip() for x in headers if x.lower().startswith('location:'))
+          u=urlparse(loc); q=parse_qs(u.query)
+          assert u.hostname == 'chatgpt.com', loc
+          assert u.path == '/aip/g-family-basic/oauth/callback', loc
+          code=q.get('code',[''])[0]
+          assert code, loc
+          Path('/tmp/auth-code-basic.txt').write_text(code)
+          print('ACTION_AUTH_CODE_BASIC=PASS')
+          PY
+
+      - name: Exchange second Action code with client_secret_basic
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth="$(printf '%s' 'gpt-action-stale-basic-1234567890:synthetic-action-basic-secret-1234567890' | base64 -w0)"
+          code="$(curl --max-time 30 -sS -o /tmp/token-basic.json -w '%{http_code}' -X POST "$BASE_URL/oauth/token" \
+            -H 'content-type: application/x-www-form-urlencoded' \
+            -H "Authorization: Basic $auth" \
+            --data-urlencode 'grant_type=authorization_code' \
+            --data-urlencode "code=$(cat /tmp/auth-code-basic.txt)" \
+            --data-urlencode 'redirect_uri=https://chat.openai.com/aip/g-family-basic/oauth/callback')"
+          echo "ACTION_TOKEN_BASIC_HTTP_CODE=${code}"
+          test "$code" = '200'
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/token-basic.json').read_text())
+          assert isinstance(body.get('access_token'), str) and body['access_token'], body
+          assert body.get('token_type','').lower() == 'bearer', body
+          print('ACTION_CLIENT_SECRET_BASIC_TOKEN=PASS')
+          PY
+
+      - name: Stop local runtime
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/wrangler-local.pid ]; then kill "$(cat /tmp/wrangler-local.pid)" 2>/dev/null || true; fi
+          if [ "${{ job.status }}" != 'success' ]; then
+            echo '--- wrangler local log ---'
+            tail -200 /tmp/wrangler-local.log || true
+          fi
