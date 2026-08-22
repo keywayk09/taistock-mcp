@@ -4,8 +4,6 @@ import { registerDailyReportFormatTool } from "./v6/daily-report-format";
 import { handleFamilyActionCompat } from "./v6/family-action-compat";
 import { createFamilyOAuthProvider } from "./v6/family-oauth";
 import { FAMILY_MCP_TOOL_NAMES } from "./v6/family-mcp";
-import { handleFamilySmartRest } from "./v6/family-smart-rest";
-import { registerFamilyStockSelectionToolsV2 } from "./v6/family-stock-selection-v2";
 import { githubDataStoreHealth } from "./v6/github-data-store";
 import { runExtendedScheduledMarketDataController } from "./v6/market-data-scheduled-dispatch";
 import { getTwMarketDataDayStatus } from "./v6/market-data-day-status";
@@ -16,6 +14,15 @@ import { TW_MARKET_DATA_VERSION } from "./v6/tw-market-data-github";
 import { registerTwMarketDataTools } from "./v6/tw-market-data-tools";
 
 export { FamilyMCP } from "./v6/family-mcp";
+
+const FAMILY_SMART_REST_PATHS = new Set([
+  "/family-openapi.json",
+  "/api/family/query",
+  "/api/family/analyze",
+  "/api/family/compare",
+  "/api/family/screen",
+  "/api/family/status",
+]);
 
 function taipeiDateFromMs(ms: number) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -34,8 +41,12 @@ export class MyMCP extends BaseMCP {
     registerAdvancedTools(this.server, this.env);
     registerDailyReportFormatTool(this.server);
     registerResearchTools(this.server, this.env);
-    // Keep the legacy full MCP route compatible, but use the same V2 family selector logic
-    // so /mcp and the isolated /family-mcp cannot disagree on the meaning of the tool name.
+
+    // IMPORTANT: Family V2 selector is intentionally loaded only when MyMCP is
+    // instantiated. Keeping the deep Family research graph out of Worker module
+    // evaluation prevents Cloudflare startup validation from executing unrelated
+    // MCP/Zod schema modules before a request actually needs them.
+    const { registerFamilyStockSelectionToolsV2 } = await import("./v6/family-stock-selection-v2");
     registerFamilyStockSelectionToolsV2(this.server, this.env);
     registerTwMarketDataTools(this.server, this.env);
   }
@@ -49,9 +60,13 @@ const appHandler = {
     // The family Custom GPT should use the isolated OAuth-protected /family-mcp endpoint.
     if (url.pathname === "/mcp") return MyMCP.serve("/mcp").fetch(request, env, ctx);
 
-    // V2 read-only REST routes and OpenAPI must win before the legacy compatibility handler.
-    const familySmart = await handleFamilySmartRest(request, env, url);
-    if (familySmart) return familySmart;
+    // Family V3 smart REST is intentionally lazy-loaded only for Family routes.
+    // The route contract remains identical; only Worker startup evaluation changes.
+    if (FAMILY_SMART_REST_PATHS.has(url.pathname)) {
+      const { handleFamilySmartRest } = await import("./v6/family-smart-rest");
+      const familySmart = await handleFamilySmartRest(request, env, url);
+      if (familySmart) return familySmart;
+    }
 
     const familyCompat = await handleFamilyActionCompat(request, env, url);
     if (familyCompat) return familyCompat;
@@ -103,15 +118,18 @@ const appHandler = {
           login_secret_configured: familyLoginConfigured,
           access: "READ_ONLY_ALLOWLIST",
           tools: FAMILY_MCP_TOOL_NAMES,
-          intelligence: "V2_FIXED_11_POINT_OPEN_WORLD_REALTIME_FUSION",
+          intelligence: "V3_ADAPTIVE_SHARED_READ_OPEN_WORLD",
+          permission_model: "SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS",
+          owner_market_research_reads: "SHARED_BY_DEFAULT_WHEN_AVAILABLE",
+          owner_private_context: "DENY_BY_DEFAULT_UNLESS_EXPLICITLY_SHARED",
           realtime: "FUGLE_PRIMARY_WHEN_AVAILABLE",
           web_research: "OPEN_WORLD_AUTONOMOUS_ALLOWED",
           swing_screen: "V2_FULL_SNAPSHOT_PREFILTER_BOUNDED_DEEP_SCAN",
+          startup_graph: "LAZY_DEEP_FAMILY_MODULES",
         },
-        // Backward-compatible health alias for older Custom GPT / monitoring consumers.
         family_read_only_action: "/api/family/query",
         family_read_only_actions: {
-          legacy_query: "/api/family/query",
+          adaptive_query: "/api/family/query",
           analyze_11_point: "/api/family/analyze",
           compare_11_point: "/api/family/compare",
           swing_screen_v2: "/api/family/screen",

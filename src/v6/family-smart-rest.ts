@@ -1,6 +1,8 @@
 import { runSmartFamilyAnalysis } from "./family-analysis";
+import { extractFamilyQuerySymbols, planFamilyQuery } from "./family-adaptive-planner";
 import { familyOpenApiV2 } from "./family-openapi-v2";
 import { familyResearchDirective } from "./family-research-policy";
+import { familySharedReadManifest } from "./family-shared-read-plane";
 import { runFamilySwingScreenV2 } from "./family-stock-selection-v2";
 
 type RuntimeFamilyEnv = Env & { MOM_GPT_API_KEY?: string };
@@ -57,10 +59,17 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function inferScreenMode(query: string): "stable" | "balanced" | "aggressive" {
+  if (/保守|穩健|比較穩|低波動/i.test(query)) return "stable";
+  if (/積極|進攻|高成長|高動能/i.test(query)) return "aggressive";
+  return "balanced";
+}
+
 export async function handleFamilySmartRest(request: Request, env: Env, url: URL): Promise<Response | null> {
   if (url.pathname === "/family-openapi.json") return json(familyOpenApiV2(url.origin));
 
   const familyPaths = new Set([
+    "/api/family/query",
     "/api/family/analyze",
     "/api/family/compare",
     "/api/family/screen",
@@ -78,18 +87,23 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
     return json({
       ok: true,
       service: "Taiwan Stock AI Family Read-Only API",
-      version: "family-rest/v2.1.0",
+      version: "family-rest/v3.0.0",
+      intelligence_model: "SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS",
       capabilities: {
-        single_stock: "FIXED_11_POINT_PLUS_OPEN_WORLD_RESEARCH",
-        compare_2_to_5: "SAME_11_POINT_EVIDENCE_MODEL",
+        natural_language_query: "ADAPTIVE_INTENT_PLANNER",
+        single_stock: "INTENT_ADAPTIVE_WITH_11_POINT_FULL_ANALYSIS_CONTRACT",
+        compare_2_to_5: "SAME_EVIDENCE_MODEL_ADAPTIVE_RENDERING",
         swing_screen: "V2_FULL_SNAPSHOT_PREFILTER_BOUNDED_DEEP_SCAN",
         realtime: "FUGLE_PRIMARY_WHEN_AVAILABLE",
         web_research: "OPEN_WORLD_AUTONOMOUS_NOT_FIXED_SITES_OR_KEYWORDS",
         formal_chip: "PUBLISHED_GENERATION_ONLY",
         formal_ohlc: "OHLC_MCP_ONLY",
+        owner_market_research_reads: "SHARED_BY_DEFAULT_WHEN_AVAILABLE",
+        writes: "DENIED",
       },
+      shared_read_plane: familySharedReadManifest(),
       research_policy: familyResearchDirective([]),
-      endpoints: ["/api/family/analyze", "/api/family/compare", "/api/family/screen", "/api/family/query"],
+      endpoints: ["/api/family/query", "/api/family/analyze", "/api/family/compare", "/api/family/screen"],
       read_only: true,
     }, 200, cors());
   }
@@ -104,6 +118,58 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
   }
 
   try {
+    if (url.pathname === "/api/family/query") {
+      const query = String(body.query ?? "").trim();
+      if (!query) return json({ error: "query_required" }, 400, cors());
+      if (query.length > 2_000) return json({ error: "query_too_long" }, 400, cors());
+
+      const symbols = extractFamilyQuerySymbols(query);
+      const adaptivePlan = planFamilyQuery(query, symbols);
+      const asOfDate = validDate(body.as_of_date);
+
+      if (adaptivePlan.intent === "SWING_DISCOVERY") {
+        const result = await runFamilySwingScreenV2(env, { mode: inferScreenMode(query), top_n: 5 });
+        return json({
+          ...result,
+          route: "adaptive_swing_discovery",
+          requested_via: "queryTaiwanStockSystem",
+          adaptive_plan: adaptivePlan,
+          shared_read_plane: familySharedReadManifest(),
+          open_world_research: familyResearchDirective(result.candidates?.map((row: any) => String(row.symbol)) ?? []),
+          candidate_identity_rule: "WEB_RESEARCH_CANDIDATE_IS_NOT_ENGINE_RANK_UNTIL_ENGINE_VALIDATED",
+        }, 200, cors());
+      }
+
+      if (symbols.length) {
+        const result = await runSmartFamilyAnalysis(env, { symbols, as_of_date: asOfDate, question: query });
+        return json({
+          ...result,
+          requested_via: "queryTaiwanStockSystem",
+          compatibility: "LEGACY_QUERY_NOW_ADAPTIVE_FAMILY_V3",
+        }, 200, cors());
+      }
+
+      return json({
+        ok: true,
+        service: "Taiwan Stock AI Family Read-Only API",
+        version: "family-rest/v3.0.0",
+        route: "adaptive_open_research",
+        query,
+        resolved_symbols: [],
+        adaptive_plan: adaptivePlan,
+        shared_read_plane: familySharedReadManifest(),
+        open_world_research: familyResearchDirective([]),
+        engine_result: null,
+        response_instructions: [
+          "先依使用者真正問題回答，不要求使用者改成固定指令。",
+          "可自由使用 Open Web 與 Family 已共享的市場研究讀取能力追查新線索。",
+          "若之後辨識到股票代號、公司、產業、客戶、供應商或事件，可自主深化研究。",
+          "正式 OHLC 與 Published 籌碼身份不可被 Web/Fugle/FinMind 取代。",
+          "Family 永遠唯讀；不得修改 GitHub、策略、Production、OHLC canonical 或 Diamond Judgment。",
+        ],
+      }, 200, cors());
+    }
+
     if (url.pathname === "/api/family/analyze") {
       const symbol = validSymbol(body.symbol);
       if (!symbol) return json({ error: "invalid_symbol" }, 400, cors());
@@ -123,7 +189,12 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
     const mode = ["stable", "balanced", "aggressive"].includes(String(body.mode)) ? body.mode as "stable" | "balanced" | "aggressive" : "balanced";
     const topN = Number.isFinite(Number(body.top_n)) ? Math.max(1, Math.min(10, Math.floor(Number(body.top_n)))) : 5;
     const result = await runFamilySwingScreenV2(env, { mode, top_n: topN });
-    return json({ ...result, open_world_research: familyResearchDirective(result.candidates?.map((row: any) => String(row.symbol)) ?? []) }, 200, cors());
+    return json({
+      ...result,
+      adaptive_plan: planFamilyQuery("波段選股", []),
+      shared_read_plane: familySharedReadManifest(),
+      open_world_research: familyResearchDirective(result.candidates?.map((row: any) => String(row.symbol)) ?? []),
+    }, 200, cors());
   } catch (error) {
     return json({ error: "family_request_failed", message: errorText(error) }, 500, cors());
   }

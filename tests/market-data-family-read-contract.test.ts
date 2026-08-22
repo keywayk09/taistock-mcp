@@ -15,7 +15,10 @@ assert.match(tools, /get_family_market_chip_summary[\s\S]*getTwMarketChipSummary
 assert.doesNotMatch(tools.match(/server\.registerTool\("get_family_market_chip_summary"[\s\S]*?\n\s*server\.registerTool/)?.[0] ?? "", /getTwMarketChipSummaryFast/);
 assert.match(entrypoint, /registerTwMarketDataTools\(this\.server, this\.env\)/);
 assert.match(familyInstructions, /get_family_market_chip_summary/);
-assert.match(familyInstructions, /正式 published generation/);
-assert.match(familyInstructions, /最多 180 自然日/);
+assert.match(familyInstructions, /正式[^\n]*Published generation/i);
+assert.match(familyInstructions, /Published generation[^\n]*(?:只認|只讀|正式)/i);
+assert.match(familyInstructions, /最多\s*180\s*自然日/);
+assert.match(familyInstructions, /Family[^\n]*(?:READ-ONLY|唯讀)/i);
+assert.match(familyInstructions, /OHLC[^\n]*OHLC MCP/);
 
-console.log("PASS family GPT read-only published market-data 180d retention contract");
+console.log("PASS family GPT read-only Published market-data 180d identity/retention contract");

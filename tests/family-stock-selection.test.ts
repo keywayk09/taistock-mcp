@@ -41,17 +41,22 @@ assert.doesNotMatch(index, /registerFamilyStockSelectionTools\(this\.server, thi
 assert.match(index, /handleFamilySmartRest/);
 assert.match(index, /family_mcp:/);
 assert.match(index, /endpoint: "\/family-mcp"/);
-assert.match(index, /V2_FIXED_11_POINT_OPEN_WORLD_REALTIME_FUSION/);
+assert.match(index, /V3_ADAPTIVE_SHARED_READ_OPEN_WORLD/);
+assert.match(index, /SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS/);
+assert.match(index, /owner_market_research_reads: "SHARED_BY_DEFAULT_WHEN_AVAILABLE"/);
+assert.match(index, /owner_private_context: "DENY_BY_DEFAULT_UNLESS_EXPLICITLY_SHARED"/);
 assert.match(index, /FUGLE_PRIMARY_WHEN_AVAILABLE/);
 assert.match(index, /tools: 113/);
 
 const familyMcp = read("src/v6/family-mcp.ts");
 assert.match(familyMcp, /registerFamilyStockSelectionToolsV2/);
 assert.match(familyMcp, /OPEN_WORLD_AUTONOMOUS_NO_FIXED_SITE_OR_KEYWORD_LIMIT/);
+assert.match(familyMcp, /READ_ONLY_FAMILY_SURFACE/);
+assert.match(familyMcp, /github_writes: false/);
 
 const instructions = read("docs/family-custom-gpt-instructions.md");
 assert.match(instructions, /必須優先呼叫 MCP 工具 `screen_family_swing_candidates`/);
 assert.match(instructions, /好公司不等於現在就是好買點/);
 assert.match(instructions, /目前沒有需要追的股票/);
 
-console.log("Family V2 stock selection and routing contract tests passed");
+console.log("Family V3 shared-read stock selection and routing contract tests passed");
