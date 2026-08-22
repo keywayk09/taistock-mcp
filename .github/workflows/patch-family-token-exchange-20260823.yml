@@ -1,0 +1,314 @@
+name: Apply Family Token Exchange Recovery Patch
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'fix/family-token-exchange-recovery-20260823'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Apply exact Family OAuth patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/v6/family-oauth.ts')
+          s = p.read_text()
+
+          def once(old: str, new: str, label: str):
+              global s
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected 1 match, got {n}')
+              s = s.replace(old, new, 1)
+
+          once('  recoveryKind?: "gpt_action";\n', '  recoveryKind?: RecoverableClientKind;\n', 'recoveryKind type')
+          once(
+              'type PendingActionSecretBootstrap = {\n  clientId: string;\n  redirectUri: string;\n  authorizationCode: string;\n  createdAt: number;\n};',
+              'type PendingActionSecretBootstrap = {\n  clientId: string;\n  redirectUri: string;\n  authorizationCode: string;\n  createdAt: number;\n  kind: RecoverableClientKind;\n};',
+              'pending bootstrap kind',
+          )
+          once(
+              'type PreparedTokenBootstrap = {\n  request: Request;\n  clientKey?: string;\n  pendingKey?: string;\n  previousClientRaw?: string;\n};',
+              'type PreparedTokenBootstrap = {\n  request: Request;\n  clientKey?: string;\n  pendingKey?: string;\n  previousClientRaw?: string;\n  response?: Response;\n};',
+              'prepared early response',
+          )
+
+          start = s.index('function storedClientMatches(')
+          end = s.index('\nasync function missingRecoverableChatGptClient', start)
+          new_stored_match = '''function storedClientMatches(raw: string | null, candidate: RecoverableChatGptClient) {
+  if (!raw) return false;
+  try {
+    const stored = JSON.parse(raw) as Partial<StoredRecoveredClient>;
+    const baseMatches = stored.clientId === candidate.clientId
+      && Array.isArray(stored.redirectUris)
+      && stored.redirectUris.length === 1
+      && stored.redirectUris[0] === candidate.redirectUri;
+    if (!baseMatches) return false;
+
+    if (candidate.kind === "gpt_action") {
+      return stored.tokenEndpointAuthMethod === "client_secret_post"
+        && (stored.recoveryKind === "gpt_action" || Boolean(stored.clientSecret));
+    }
+
+    // A stale Plugin/MCP DCR client may have originally been either public
+    // (PKCE + token_endpoint_auth_method=none) or confidential. We restore it
+    // public first, then learn a confidential method only from the exact
+    // matching one-time token exchange. Keep recovered confidential connector
+    // records identifiable so future ChatGPT scope metadata is normalized too.
+    if (stored.tokenEndpointAuthMethod === "none" && !stored.clientSecret) return true;
+    return stored.recoveryKind === "connector"
+      && Boolean(stored.clientSecret)
+      && (stored.tokenEndpointAuthMethod === "client_secret_post" || stored.tokenEndpointAuthMethod === "client_secret_basic");
+  } catch {
+    return false;
+  }
+}
+'''
+          s = s[:start] + new_stored_match + s[end:]
+
+          start = s.index('async function missingRecoverableChatGptClient(')
+          end = s.index('\nasync function registerRecoveredChatGptClient', start)
+          new_missing = '''async function missingRecoverableChatGptClient(request: Request, env: Env) {
+  const candidate = recoverableChatGptClient(request);
+  if (!candidate) return null;
+  const raw = await env.OAUTH_KV.get(recoveredClientKey(candidate.clientId));
+  if (!raw) return candidate;
+  try {
+    const stored = JSON.parse(raw) as Partial<StoredRecoveredClient>;
+    if (candidate.kind === "gpt_action") {
+      if (stored.recoveryKind === "gpt_action" && !stored.clientSecret && storedClientMatches(raw, candidate)) return candidate;
+    } else if (storedClientMatches(raw, candidate)) {
+      // Connector recovery remains active after the stale client is restored.
+      // This is required because ChatGPT can keep sending compatibility/OIDC
+      // scope names on later authorization attempts; Family permissions must
+      // still normalize to family:read and never inherit those names.
+      return candidate;
+    }
+  } catch {
+    // Fail closed below: malformed existing records are not auto-replaced.
+  }
+  return null;
+}
+'''
+          s = s[:start] + new_missing + s[end:]
+
+          once(
+              '    ...(candidate.kind === "gpt_action" ? { recoveryKind: "gpt_action" as const } : {}),',
+              '    recoveryKind: candidate.kind,',
+              'record recovery kind',
+          )
+          once('      if (recovery?.kind === "gpt_action") {', '      if (recovery) {', 'pending for connector too')
+          once(
+              '          authorizationCode,\n          createdAt: Date.now(),',
+              '          authorizationCode,\n          createdAt: Date.now(),\n          kind: recovery.kind,',
+              'pending kind value',
+          )
+
+          start = s.index('async function prepareActionSecretBootstrap(')
+          end = s.index('\nasync function rollbackPreparedTokenBootstrap', start)
+          new_prepare = '''async function prepareActionSecretBootstrap(request: Request, env: Env): Promise<PreparedTokenBootstrap> {
+  if (request.method !== "POST" || new URL(request.url).pathname !== "/oauth/token") return { request };
+
+  const contentType = request.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("application/x-www-form-urlencoded")) return { request };
+
+  let bodyText: string;
+  try {
+    bodyText = await request.clone().text();
+  } catch {
+    return { request };
+  }
+  const params = new URLSearchParams(bodyText);
+  if (params.get("grant_type") !== "authorization_code") return { request };
+
+  const basic = decodeBasicClientAuth(request.headers.get("authorization") || "");
+  const postedClientId = String(params.get("client_id") || "");
+  const postedClientSecret = String(params.get("client_secret") || "");
+  const presented = basic || (
+    postedClientId && postedClientSecret
+      ? { clientId: postedClientId, clientSecret: postedClientSecret, method: "client_secret_post" as const }
+      : postedClientId
+        ? { clientId: postedClientId, clientSecret: "", method: "none" as const }
+        : null
+  );
+  if (!presented || !OPAQUE_CLIENT_ID.test(presented.clientId) || presented.clientSecret.length > 4_096) {
+    return { request };
+  }
+
+  const pendingKey = pendingActionKey(presented.clientId);
+  const pendingRaw = await env.OAUTH_KV.get(pendingKey);
+  if (!pendingRaw) return { request };
+
+  let pending: PendingActionSecretBootstrap;
+  try {
+    pending = JSON.parse(pendingRaw) as PendingActionSecretBootstrap;
+  } catch {
+    return { request };
+  }
+  // Pending records created before this version were Action-only and had no kind.
+  const pendingKind: RecoverableClientKind = pending.kind === "connector" ? "connector" : "gpt_action";
+  const code = String(params.get("code") || "");
+  const suppliedRedirect = String(params.get("redirect_uri") || "");
+  const redirectMatches = pendingKind === "connector"
+    ? suppliedRedirect === pending.redirectUri
+    : (suppliedRedirect === pending.redirectUri || equivalentActionRedirect(suppliedRedirect, pending.redirectUri));
+  if (
+    pending.clientId !== presented.clientId
+    || !code
+    || !constantTimeEqual(code, pending.authorizationCode)
+    || !suppliedRedirect
+    || !redirectMatches
+  ) {
+    return { request };
+  }
+
+  let rewriteBody = false;
+  if (pendingKind === "connector" && params.has("scope")) {
+    const rawScope = String(params.get("scope") || "");
+    const scopes = rawScope.split(/\\s+/).filter(Boolean);
+    if (!validConnectorRequestedScopes(rawScope, scopes)) {
+      return {
+        request,
+        response: Response.json({ error: "invalid_scope", error_description: "Malformed connector scope metadata" }, {
+          status: 400,
+          headers: { "cache-control": "no-store" },
+        }),
+      };
+    }
+    // Token-request scope is compatibility metadata exactly like authorize scope.
+    // The real grant remains and is reasserted as family:read only.
+    params.set("scope", FAMILY_SCOPE);
+    rewriteBody = true;
+  }
+
+  const clientKey = recoveredClientKey(presented.clientId);
+  const previousClientRaw = await env.OAUTH_KV.get(clientKey);
+  if (!previousClientRaw) return { request };
+
+  let stored: StoredRecoveredClient;
+  try {
+    stored = JSON.parse(previousClientRaw) as StoredRecoveredClient;
+  } catch {
+    return { request };
+  }
+  if (
+    stored.clientId !== presented.clientId
+    || !Array.isArray(stored.redirectUris)
+    || stored.redirectUris.length !== 1
+    || stored.redirectUris[0] !== pending.redirectUri
+  ) {
+    return { request };
+  }
+
+  if (pendingKind === "connector") {
+    if (stored.recoveryKind && stored.recoveryKind !== "connector") return { request };
+    if (presented.method === "none") {
+      if (stored.clientSecret || stored.tokenEndpointAuthMethod !== "none") return { request };
+    } else {
+      if (!presented.clientSecret) return { request };
+      if (stored.clientSecret) {
+        // Already learned on an earlier successful connector exchange. Do not
+        // overwrite it; the provider performs the actual secret verification.
+        if (stored.recoveryKind !== "connector" || stored.tokenEndpointAuthMethod !== presented.method) return { request };
+      } else {
+        if (stored.tokenEndpointAuthMethod !== "none") return { request };
+        stored.clientSecret = await sha256Hex(presented.clientSecret);
+        stored.tokenEndpointAuthMethod = presented.method;
+        stored.authMethodExplicit = true;
+        stored.recoveryKind = "connector";
+        await env.OAUTH_KV.put(clientKey, JSON.stringify(stored));
+      }
+    }
+  } else {
+    if (
+      presented.method === "none"
+      || !presented.clientSecret
+      || stored.recoveryKind !== "gpt_action"
+      || stored.clientSecret
+    ) {
+      return { request };
+    }
+    stored.clientSecret = await sha256Hex(presented.clientSecret);
+    stored.tokenEndpointAuthMethod = presented.method;
+    stored.authMethodExplicit = true;
+    delete stored.recoveryKind;
+    await env.OAUTH_KV.put(clientKey, JSON.stringify(stored));
+  }
+
+  if (suppliedRedirect !== pending.redirectUri) {
+    params.set("redirect_uri", pending.redirectUri);
+    rewriteBody = true;
+  }
+
+  let forwardedRequest = request;
+  if (rewriteBody) {
+    const headers = new Headers(request.headers);
+    headers.delete("content-length");
+    forwardedRequest = new Request(request.url, {
+      method: request.method,
+      headers,
+      body: params.toString(),
+    });
+  }
+
+  return { request: forwardedRequest, clientKey, pendingKey, previousClientRaw };
+}
+'''
+          s = s[:start] + new_prepare + s[end:]
+
+          once(
+              '      const prepared = await prepareActionSecretBootstrap(request, env);\n      try {',
+              '      const prepared = await prepareActionSecretBootstrap(request, env);\n      if (prepared.response) return prepared.response;\n      try {',
+              'early token error response',
+          )
+
+          p.write_text(s)
+
+          t = Path('tests/family-oauth-contract.test.ts')
+          ts = t.read_text()
+          anchor = 'assert.match(oauth, /env\\.OAUTH_KV\\.delete\\(prepared\\.pendingKey\\)/);\n'
+          if ts.count(anchor) != 1:
+              raise SystemExit('test anchor mismatch')
+          addition = '''assert.match(oauth, /recoveryKind\\?: RecoverableClientKind/);
+assert.match(oauth, /kind: RecoverableClientKind/);
+assert.match(oauth, /recoveryKind: candidate\\.kind/);
+assert.match(oauth, /pendingKind === "connector"/);
+assert.match(oauth, /method: "none" as const/);
+assert.match(oauth, /stored\\.recoveryKind = "connector"/);
+assert.match(oauth, /params\\.set\\("scope", FAMILY_SCOPE\\)/);
+assert.match(oauth, /Malformed connector scope metadata/);
+assert.match(oauth, /if \\(prepared\\.response\\) return prepared\\.response/);
+'''
+          ts = ts.replace(anchor, anchor + addition, 1)
+          t.write_text(ts)
+          PY
+
+          git diff --check
+          git diff -- src/v6/family-oauth.ts tests/family-oauth-contract.test.ts
+
+      - name: Commit patch to fix branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/v6/family-oauth.ts tests/family-oauth-contract.test.ts
+          if git diff --cached --quiet; then
+            echo 'Patch already applied.'
+            exit 0
+          fi
+          git commit -m 'Fix Family connector token exchange recovery'
+          git push origin HEAD:${GITHUB_HEAD_REF}
