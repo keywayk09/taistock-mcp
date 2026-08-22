@@ -1,4 +1,4 @@
-import { arr, fetchJson, rec, round, type Obj } from "./common";
+import { arr, fetchJson, rec, round, type Obj } from "./common.ts";
 
 const TWSE_VALUATION = "https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL";
 const TPEX_VALUATION = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis";
