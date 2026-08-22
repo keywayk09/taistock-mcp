@@ -24,7 +24,7 @@
 		"test:txf": "node --experimental-strip-types tests/txf-review.test.ts",
 		"test:orchestrator": "node --experimental-strip-types tests/review-orchestrator.test.ts",
 		"test:judgment-memory": "node --experimental-strip-types tests/gpt-judgment-memory.test.ts",
-		"test:family-selection": "node --experimental-strip-types tests/family-stock-selection.test.ts && node --experimental-strip-types tests/market-data-family-read-contract.test.ts && node --experimental-strip-types tests/family-action-compat.test.ts",
+		"test:family-selection": "node --experimental-strip-types tests/family-stock-selection.test.ts && node --experimental-strip-types tests/market-data-family-read-contract.test.ts && node --experimental-strip-types tests/family-action-compat.test.ts && node --experimental-strip-types tests/family-mcp-isolation.test.ts && node --experimental-strip-types tests/family-oauth-contract.test.ts",
 		"test:market-read-publish": "node --experimental-strip-types tests/market-data-publish-fence.test.ts && node --experimental-strip-types tests/market-data-publisher.test.ts",
 		"test:monthly-symbol-bundle": "node --experimental-strip-types tests/market-data-monthly-symbol-bundle.test.ts",
 		"test:market-data-backfill": "node --experimental-strip-types tests/market-data-360d-backfill.test.ts && node --experimental-strip-types tests/market-data-work-budget.test.ts && node --experimental-strip-types tests/market-data-history-index.test.ts && node --experimental-strip-types tests/market-data-history-builder-v2.test.ts && node --experimental-strip-types tests/market-data-history-diagnostic.test.ts && node --experimental-strip-types tests/market-data-history-storage.test.ts && node --experimental-strip-types tests/market-data-daily-atomic-index.test.ts",
@@ -34,6 +34,7 @@
 		"test:research": "npm run test:backtester && npm run test:ledger && npm run test:batch && npm run test:replay && npm run test:swing && npm run test:experiment && npm run test:capability && npm run test:validation && npm run test:strategy-lab && npm run test:supply-chain && npm run test:supply-chain-data && npm run test:txf && npm run test:orchestrator && npm run test:judgment-memory && npm run test:family-selection && npm run test:market-data && npm run test:github-store && npm run test:no-r2"
 	},
 	"dependencies": {
+		"@cloudflare/workers-oauth-provider": "^0.10.2",
 		"agents": "^0.17.1",
 		"zod": "^4.4.3"
 	},
