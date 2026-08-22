@@ -1,6 +1,6 @@
 import { familySharedReadManifest } from "./family-shared-read-plane";
 
-export const FAMILY_ADAPTIVE_PLANNER_VERSION = "family-adaptive-planner/v1.0.0";
+export const FAMILY_ADAPTIVE_PLANNER_VERSION = "family-adaptive-planner/v1.0.1";
 
 export type FamilyIntent =
   | "QUICK_STOCK_QUESTION"
@@ -18,6 +18,10 @@ function unique<T>(items: T[]) {
 
 function includesAny(query: string, patterns: RegExp[]) {
   return patterns.some((pattern) => pattern.test(query));
+}
+
+export function extractFamilyQuerySymbols(query: string) {
+  return unique(String(query ?? "").match(/(?<!\d)\d{4,6}(?!\d)/g) ?? []).slice(0, 5);
 }
 
 export function inferFamilyAdaptiveIntent(query: string, symbols: string[]): FamilyIntent {
