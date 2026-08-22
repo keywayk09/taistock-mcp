@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import {
-  historyV2DailyStagePath,
-  historyV2DailyStageProgressPath,
   historyV2MonthBuildPath,
   historyV2MonthCapturePath,
   runHistoryMonthBuildV2,
-  stageHistoryDayV2,
 } from "../src/v6/market-data-history-builder-v2.ts";
+import {
+  historyV2DailyStagePath,
+  historyV2DailyStageProgressPath,
+  stageHistoryDayV2,
+} from "../src/v6/market-data-history-staging-v2.ts";
 import { stableJson, type MemoryGitHubDataStore } from "../src/v6/github-data-store.ts";
 
 const memory: MemoryGitHubDataStore = new Map();
