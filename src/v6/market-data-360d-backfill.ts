@@ -4,8 +4,8 @@ import { runSubrequestSafeMarketDataCapture } from "./market-data-cloudflare-chu
 import {
   HISTORY_BUILDER_V2_VERSION,
   runHistoryMonthBuildV2,
-  stageHistoryDayV2,
 } from "./market-data-history-builder-v2.ts";
+import { stageHistoryDayV2 } from "./market-data-history-staging-v2.ts";
 import { promoteLegacyCompleteManifest } from "./market-data-legacy-manifest.ts";
 import {
   MARKET_DATA_BACKFILL_STATE_VERSION,
@@ -199,11 +199,16 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
           tradeDate,
           manifest: preparedManifest,
           capturedAt: now.toISOString(),
+          deadlineAtMs: input.deadlineAtMs,
+          subrequestBudget: input.subrequestBudget,
         });
-        if (staged.status === "HISTORY_V2_STAGE_YIELD") {
-          capture = staged;
-        } else {
+        if (staged.status === "HISTORY_V2_DAY_STAGED" || staged.status === "HISTORY_V2_DAY_ALREADY_STAGED") {
           capture = historyCaptureComplete(tradeDate, staged);
+        } else {
+          // Partial prefix progress and budget/CAS yields are durable waiting
+          // states. The cursor must not move until all 10 prefixes and the month
+          // capture catalog are committed atomically.
+          capture = staged;
         }
       }
     } else {
@@ -241,6 +246,7 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
     || captureStatus === "CALENDAR_UNKNOWN"
     || captureStatus === "INDEX_WAITING_FOR_COMPLETE_DAY"
     || captureStatus === "INDEX_YIELD"
+    || captureStatus === "HISTORY_V2_STAGE_PROGRESS"
     || captureStatus === "HISTORY_V2_STAGE_YIELD"
     || state.phase === "BUILD";
   const estimatedSubrequests = 2
@@ -251,11 +257,13 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
     status: waiting ? "BACKFILL_WAITING" as const : "BACKFILL_PROGRESS" as const,
     reason: captureStatus === "CALENDAR_UNKNOWN"
       ? "OFFICIAL_CALENDAR_UNAVAILABLE"
-      : captureStatus === "HISTORY_V2_STAGE_YIELD"
-        ? "HISTORY_V2_STAGE_CAS_CONFLICT"
-        : state.phase === "BUILD"
-          ? "HISTORY_V2_BUILD_PHASE_STARTED"
-          : undefined,
+      : captureStatus === "HISTORY_V2_STAGE_PROGRESS"
+        ? "HISTORY_V2_STAGE_CHECKPOINTED"
+        : captureStatus === "HISTORY_V2_STAGE_YIELD"
+          ? `HISTORY_V2_STAGE_${String(capture?.yield_reason ?? "YIELD")}`
+          : state.phase === "BUILD"
+            ? "HISTORY_V2_BUILD_PHASE_STARTED"
+            : undefined,
     terminal: false,
     trade_date: tradeDate,
     captures: [capture],
