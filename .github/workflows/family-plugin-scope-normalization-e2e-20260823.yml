@@ -1,0 +1,216 @@
+name: Family Plugin Scope Normalization E2E 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  oauth-scope-e2e:
+    if: github.head_ref == 'fix/family-plugin-scope-normalization-20260823'
+    runs-on: ubuntu-latest
+    env:
+      BASE_URL: http://127.0.0.1:8787
+      FAMILY_SECRET: isolated-scope-normalization-secret-never-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+
+      - name: Build local Workers config
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > wrangler.family-scope-local.jsonc <<'EOF'
+          {
+            "$schema": "node_modules/wrangler/config-schema.json",
+            "name": "taistock-mcp-family-scope-local",
+            "main": "src/index-v6.ts",
+            "compatibility_date": "2025-03-10",
+            "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+            "vars": {
+              "RESEARCH_MAX_SYMBOLS":"40",
+              "RESEARCH_MAX_ONE_MINUTE":"8",
+              "GITHUB_DATA_REPO":"keywayk09/tv-papertrader",
+              "GITHUB_DATA_BRANCH":"main",
+              "FAMILY_OAUTH_LOGIN_SECRET":"isolated-scope-normalization-secret-never-production"
+            },
+            "kv_namespaces": [{"binding":"OAUTH_KV","id":"00000000000000000000000000000000"}],
+            "exports": {
+              "MyMCP":{"type":"durable-object","storage":"sqlite"},
+              "FamilyMCP":{"type":"durable-object","storage":"sqlite"}
+            },
+            "durable_objects": {
+              "bindings":[
+                {"class_name":"MyMCP","name":"MCP_OBJECT"},
+                {"class_name":"FamilyMCP","name":"FAMILY_MCP_OBJECT"}
+              ]
+            },
+            "observability":{"enabled":false}
+          }
+          EOF
+
+      - name: Start local Workers runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup npx wrangler dev --local --config wrangler.family-scope-local.jsonc --ip 127.0.0.1 --port 8787 --persist-to /tmp/family-scope-state > /tmp/wrangler-local.log 2>&1 &
+          echo $! > /tmp/wrangler-local.pid
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 2 "$BASE_URL/health" >/tmp/local-health.json 2>/dev/null; then
+              python - <<'PY'
+          import json
+          body=json.load(open('/tmp/local-health.json'))
+          assert body.get('status') == 'ok', body
+          print('LOCAL_WORKER_READY=PASS')
+          PY
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/wrangler-local.log
+          exit 1
+
+      - name: Build adversarial connector requests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, os, urllib.parse
+          from pathlib import Path
+          base=os.environ['BASE_URL']
+          verifier='family-scope-normalization-verifier-' + 'a'*48
+          challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
+          callback='https://chatgpt.com/connector/oauth/familyscopenormalize20260823'
+          params={
+            'response_type':'code',
+            'client_id':'scopeNormalizeClient20260823',
+            'redirect_uri':callback,
+            'scope':'openid profile email offline_access mcp:tools files:write',
+            'state':'scope-normalization-state-20260823',
+            'code_challenge':challenge,
+            'code_challenge_method':'S256',
+            'resource':base+'/family-mcp',
+          }
+          q=urllib.parse.urlencode(params)
+          Path('/tmp/query.txt').write_text(q)
+          Path('/tmp/url.txt').write_text(base+'/authorize?'+q)
+          Path('/tmp/verifier.txt').write_text(verifier)
+          Path('/tmp/callback.txt').write_text(callback)
+
+          malformed=dict(params)
+          malformed['client_id']='scopeMalformedClient20260823'
+          malformed['scope']='openid bad\\scope'
+          Path('/tmp/malformed-url.txt').write_text(base+'/authorize?'+urllib.parse.urlencode(malformed))
+
+          many=dict(params)
+          many['client_id']='scopeTooManyClient20260823'
+          many['scope']=' '.join('scope'+str(i) for i in range(25))
+          Path('/tmp/many-url.txt').write_text(base+'/authorize?'+urllib.parse.urlencode(many))
+
+          huge=dict(params)
+          huge['client_id']='scopeHugeClient20260823'
+          huge['scope']='x'*2049
+          Path('/tmp/huge-url.txt').write_text(base+'/authorize?'+urllib.parse.urlencode(huge))
+          PY
+
+      - name: Trusted connector accepts unknown requested scope names
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 20 -sS -o /tmp/login.html -w '%{http_code}' "$(cat /tmp/url.txt)")"
+          echo "ADVERSARIAL_SCOPE_LOGIN_HTTP=${code}"
+          test "$code" = '200'
+          grep -q '家人連線驗證碼' /tmp/login.html
+          grep -q 'ChatGPT Family Plugin / MCP App' /tmp/login.html
+          ! grep -q 'Invalid client_id' /tmp/login.html
+          echo 'REQUEST_SCOPE_NORMALIZATION_LOGIN=PASS'
+
+      - name: Malformed and unbounded scope inputs fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in malformed many huge; do
+            code="$(curl --max-time 20 -sS -o "/tmp/${name}.html" -w '%{http_code}' "$(cat "/tmp/${name}-url.txt")")"
+            echo "${name^^}_HTTP=${code}"
+            test "$code" = '400'
+            ! grep -q '家人連線驗證碼' "/tmp/${name}.html"
+          done
+          echo 'SCOPE_BOUNDS_FAIL_CLOSED=PASS'
+
+      - name: Wrong Family secret still cannot restore client
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 20 -sS -o /tmp/wrong.html -w '%{http_code}' -X POST "$BASE_URL/authorize" \
+            -H 'content-type: application/x-www-form-urlencoded' \
+            --data-urlencode "oauth_query=$(cat /tmp/query.txt)" \
+            --data-urlencode 'login_secret=wrong-secret')"
+          test "$code" = '200'
+          grep -q '驗證碼錯誤' /tmp/wrong.html
+          echo 'WRONG_FAMILY_SECRET_REJECTED=PASS'
+
+      - name: Correct Family secret issues authorization code
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 30 -sS -D /tmp/auth.headers -o /tmp/auth.body -w '%{http_code}' -X POST "$BASE_URL/authorize" \
+            -H 'content-type: application/x-www-form-urlencoded' \
+            --data-urlencode "oauth_query=$(cat /tmp/query.txt)" \
+            --data-urlencode "login_secret=$FAMILY_SECRET")"
+          echo "AUTH_HTTP=${code}"
+          test "$code" = '302'
+          python - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urlparse, parse_qs
+          headers=Path('/tmp/auth.headers').read_text().splitlines()
+          loc=next(x.split(':',1)[1].strip() for x in headers if x.lower().startswith('location:'))
+          u=urlparse(loc); q=parse_qs(u.query)
+          assert u.hostname == 'chatgpt.com', loc
+          assert u.path == '/connector/oauth/familyscopenormalize20260823', loc
+          code=q.get('code',[''])[0]
+          assert code, loc
+          assert q.get('state',[''])[0] == 'scope-normalization-state-20260823', loc
+          Path('/tmp/code.txt').write_text(code)
+          print('NORMALIZED_AUTH_CODE=PASS')
+          PY
+
+      - name: PKCE token exchange grants exactly family read
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 30 -sS -o /tmp/token.json -w '%{http_code}' -X POST "$BASE_URL/oauth/token" \
+            -H 'content-type: application/x-www-form-urlencoded' \
+            --data-urlencode 'grant_type=authorization_code' \
+            --data-urlencode 'client_id=scopeNormalizeClient20260823' \
+            --data-urlencode "code=$(cat /tmp/code.txt)" \
+            --data-urlencode "code_verifier=$(cat /tmp/verifier.txt)" \
+            --data-urlencode "redirect_uri=$(cat /tmp/callback.txt)" \
+            --data-urlencode "resource=$BASE_URL/family-mcp")"
+          echo "TOKEN_HTTP=${code}"
+          test "$code" = '200'
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/token.json'))
+          assert isinstance(body.get('access_token'), str) and body['access_token'], body
+          assert body.get('token_type','').lower() == 'bearer', body
+          scopes=set(str(body.get('scope') or '').split())
+          assert scopes == {'family:read'}, body
+          forbidden={'openid','profile','email','offline_access','mcp:tools','files:write'}
+          assert scopes.isdisjoint(forbidden), body
+          print('TOKEN_SCOPE_EXACT_FAMILY_READ=PASS')
+          PY
+
+      - name: Stop local runtime
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/wrangler-local.pid ]; then kill "$(cat /tmp/wrangler-local.pid)" 2>/dev/null || true; fi
+          if [ "${{ job.status }}" != 'success' ]; then
+            echo '--- wrangler local log ---'
+            tail -250 /tmp/wrangler-local.log || true
+          fi
