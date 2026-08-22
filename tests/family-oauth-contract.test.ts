@@ -8,6 +8,8 @@ const root = path.resolve(here, "..");
 const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
 
 const oauth = read("src/v6/family-oauth.ts");
+const tokenRecovery = read("src/v6/family-oauth-token-recovery.ts");
+const indexV6 = read("src/index-v6.ts");
 const wrangler = read("wrangler.jsonc");
 const deploy = read(".github/workflows/deploy-cloudflare-production.yml");
 const pkg = JSON.parse(read("package.json"));
@@ -101,6 +103,37 @@ assert.match(oauth, /rollbackPreparedTokenBootstrap/);
 assert.match(oauth, /if \(response\.ok\)/);
 assert.match(oauth, /env\.OAUTH_KV\.delete\(prepared\.pendingKey\)/);
 
+// Plugin/MCP stale-client recovery must also cover the final /oauth/token step.
+// The wrapper only accepts trusted ChatGPT connector callbacks, proves an exact
+// unconsumed Family authorization code/grant, retains PKCE S256 enforcement in
+// the provider, and can recover either public or confidential DCR auth methods.
+assert.match(indexV6, /createFamilyOAuthTokenRecoveryWrapper/);
+assert.match(indexV6, /createFamilyOAuthTokenRecoveryWrapper\(createFamilyOAuthProvider\(appHandler\)\)/);
+assert.match(tokenRecovery, /FAMILY_SCOPE = "family:read"/);
+assert.match(tokenRecovery, /FAMILY_CONNECTOR_NAME = "ChatGPT Family Plugin \/ MCP App"/);
+assert.match(tokenRecovery, /TRUSTED_CHATGPT_HOSTS = new Set\(\["chatgpt\.com", "chat\.openai\.com"\]\)/);
+assert.match(tokenRecovery, /code_challenge_method/);
+assert.match(tokenRecovery, /method !== "S256"/);
+assert.match(tokenRecovery, /normalizeConnectorAuthorizeUrl/);
+assert.match(tokenRecovery, /normalized\.searchParams\.set\("scope", FAMILY_SCOPE\)/);
+assert.match(tokenRecovery, /validateFamilyAuthorizationCode/);
+assert.match(tokenRecovery, /grant\.userId !== "family"/);
+assert.match(tokenRecovery, /constantTimeEqual\(await sha256Hex\(code\), grant\.authCodeId\)/);
+assert.match(tokenRecovery, /grant\.scope\.length !== 1 \|\| grant\.scope\[0\] !== FAMILY_SCOPE/);
+assert.match(tokenRecovery, /grant\.codeChallengeMethod !== "S256"/);
+assert.match(tokenRecovery, /grant\.redirectUri !== redirectUri/);
+assert.match(tokenRecovery, /params\.set\("scope", FAMILY_SCOPE\)/);
+assert.match(tokenRecovery, /client_secret_basic/);
+assert.match(tokenRecovery, /client_secret_post/);
+assert.match(tokenRecovery, /method: "none" as const/);
+assert.match(tokenRecovery, /stored\.clientSecret = presentedHash/);
+assert.match(tokenRecovery, /stored\.recoveryKind = "connector"/);
+assert.match(tokenRecovery, /rollbackConnectorClient/);
+assert.match(tokenRecovery, /tokenPrepared\.matched && !response\.ok/);
+assert.match(tokenRecovery, /Malformed connector scope metadata/);
+assert.doesNotMatch(tokenRecovery, /MCP_OBJECT/);
+assert.doesNotMatch(tokenRecovery, /Diamond/);
+
 // An unauthenticated stale-client GET may render the Family login form, but it
 // must not write client metadata. Registration only happens after the Family
 // secret has passed constant-time validation on POST.
@@ -123,4 +156,4 @@ assert.match(deploy, /taistock-mcp-OAUTH_KV/);
 assert.match(deploy, /OAUTH_KV_RESOLUTION_FAILED/);
 assert.match(deploy, /refusing Production deploy/);
 
-console.log("Family OAuth Plugin/MCP DCR + Custom GPT Action recovery contract tests passed");
+console.log("Family OAuth Plugin/MCP DCR + token-exchange + Custom GPT Action recovery contract tests passed");
