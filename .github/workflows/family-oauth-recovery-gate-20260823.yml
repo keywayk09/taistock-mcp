@@ -152,16 +152,29 @@ jobs:
           print(os.environ['BASE_URL']+'/authorize?'+q)
           PY
           )"
-          curl --max-time 60 -fsS "$good_url" > /tmp/good.html
-          grep -q '家人連線驗證碼' /tmp/good.html
-          grep -q 'ChatGPT Family Connector' /tmp/good.html
+          code="$(curl --max-time 60 -sS -D /tmp/good.headers -o /tmp/good.html -w '%{http_code}' "$good_url")"
+          echo "GOOD_HTTP_CODE=${code}"
           endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${GATE_KV_ID}/keys?prefix=client%3A&limit=100"
           curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/good-keys.json
+          python - <<'PY'
+          import json,re
+          from pathlib import Path
+          body=json.loads(Path('/tmp/good-keys.json').read_text())
+          assert body.get('success') is True, body
+          print('GOOD_CLIENT_COUNT=' + str(len(body.get('result') or [])))
+          text=Path('/tmp/good.html').read_text(errors='replace')[:1200]
+          text=text.replace('chatgpt-stale-client-1234567890','[CLIENT_ID]')
+          text=re.sub(r'(?i)(state[-_=A-Za-z0-9]*)', '[STATE]', text)
+          text=re.sub(r'(?i)(code_challenge[^&< ]*)', '[PKCE]', text)
+          print('GOOD_BODY_SNIPPET=' + ' '.join(text.split())[:600])
+          PY
+          test "$code" = '200'
+          grep -q '家人連線驗證碼' /tmp/good.html
+          grep -q 'ChatGPT Family Connector' /tmp/good.html
           python - <<'PY'
           import json
           from pathlib import Path
           body=json.loads(Path('/tmp/good-keys.json').read_text())
-          assert body.get('success') is True, body
           assert len(body.get('result') or []) == 1, body.get('result')
           print('STALE_CHATGPT_CLIENT_RECOVERY=PASS')
           PY
