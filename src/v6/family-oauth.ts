@@ -25,9 +25,18 @@ type ConcreteFetchHandler = {
   fetch(request: Request, env: Env, ctx: ExecutionContext): Response | Promise<Response>;
 };
 
+type RecoverableChatGptClient = {
+  clientId: string;
+  redirectUri: string;
+};
+
 const FAMILY_SCOPE = "family:read";
 const LOGIN_FAIL_TTL_SECONDS = 15 * 60;
 const LOGIN_FAIL_MAX = 5;
+const CHATGPT_CALLBACK_PATH = /^\/connector\/oauth\/[A-Za-z0-9_-]{8,256}$/;
+const CHATGPT_LEGACY_CALLBACK_PATH = "/connector_platform_oauth_redirect";
+const OPAQUE_CLIENT_ID = /^[A-Za-z0-9._~-]{8,256}$/;
+const PKCE_S256_CHALLENGE = /^[A-Za-z0-9_-]{43,128}$/;
 
 function escapeHtml(value: unknown) {
   return String(value ?? "")
@@ -85,11 +94,95 @@ function authorizationErrorResponse(error: AuthorizationError) {
   return Response.redirect(redirect.toString(), 302);
 }
 
+function isMissingClientError(error: AuthorizationError) {
+  if (error.redirectUri) return false;
+  const text = `${error.code} ${error.description}`.toLowerCase();
+  return text.includes("client") && (text.includes("invalid") || text.includes("unknown") || text.includes("not found"));
+}
+
+function recoverableChatGptClient(request: Request): RecoverableChatGptClient | null {
+  const url = new URL(request.url);
+  if (url.searchParams.get("response_type") !== "code") return null;
+
+  const clientId = String(url.searchParams.get("client_id") || "");
+  if (!OPAQUE_CLIENT_ID.test(clientId)) return null;
+
+  const redirectRaw = String(url.searchParams.get("redirect_uri") || "");
+  let redirect: URL;
+  try {
+    redirect = new URL(redirectRaw);
+  } catch {
+    return null;
+  }
+  if (redirect.protocol !== "https:" || redirect.hostname !== "chatgpt.com") return null;
+  if (redirect.username || redirect.password || redirect.hash || redirect.search) return null;
+  if (!CHATGPT_CALLBACK_PATH.test(redirect.pathname) && redirect.pathname !== CHATGPT_LEGACY_CALLBACK_PATH) return null;
+
+  const method = String(url.searchParams.get("code_challenge_method") || "");
+  const challenge = String(url.searchParams.get("code_challenge") || "");
+  if (method !== "S256" || !PKCE_S256_CHALLENGE.test(challenge)) return null;
+
+  const scopes = String(url.searchParams.get("scope") || "").split(/\s+/).filter(Boolean);
+  if (!scopes.includes(FAMILY_SCOPE)) return null;
+
+  const resourceRaw = String(url.searchParams.get("resource") || "").trim();
+  if (resourceRaw) {
+    try {
+      if (new URL(resourceRaw).origin !== url.origin) return null;
+    } catch {
+      return null;
+    }
+  }
+
+  return { clientId, redirectUri: redirect.toString() };
+}
+
+async function recoverMissingChatGptClient(request: Request, env: Env) {
+  const candidate = recoverableChatGptClient(request);
+  if (!candidate) return false;
+
+  const existing = await env.OAUTH_PROVIDER.lookupClient(candidate.clientId);
+  if (existing) return existing.redirectUris.includes(candidate.redirectUri);
+
+  // Compatibility recovery is intentionally one-shot for an empty OAuth registry.
+  // Normal clients must continue to use DCR/CIMD. This prevents arbitrary callers
+  // from filling KV with guessed client IDs while allowing a published ChatGPT app
+  // to recover when ChatGPT retained its prior client_id but the server registry was lost.
+  const currentClients = await env.OAUTH_KV.list({ prefix: "client:", limit: 1 });
+  if (currentClients.keys.length !== 0) return false;
+
+  const created = await env.OAUTH_PROVIDER.createClient({
+    clientId: candidate.clientId,
+    redirectUris: [candidate.redirectUri],
+    clientName: "ChatGPT Family Connector",
+    grantTypes: ["authorization_code"],
+    responseTypes: ["code"],
+    tokenEndpointAuthMethod: "none",
+  });
+  if (created.clientId !== candidate.clientId || !created.redirectUris.includes(candidate.redirectUri)) return false;
+
+  const verified = await env.OAUTH_PROVIDER.lookupClient(candidate.clientId);
+  return Boolean(verified && verified.redirectUris.includes(candidate.redirectUri));
+}
+
 async function parseAuthorizationRequest(request: Request, env: Env) {
   try {
     return { ok: true as const, value: await env.OAUTH_PROVIDER.parseAuthRequest(request) };
   } catch (error) {
     if (!(error instanceof AuthorizationError)) throw error;
+
+    if (isMissingClientError(error)) {
+      try {
+        const recovered = await recoverMissingChatGptClient(request, env);
+        if (recovered) {
+          return { ok: true as const, value: await env.OAUTH_PROVIDER.parseAuthRequest(request) };
+        }
+      } catch {
+        // Fail closed: recovery is compatibility-only. Any failure falls back to
+        // the provider's original authorization error without broadening access.
+      }
+    }
+
     return { ok: false as const, response: authorizationErrorResponse(error) };
   }
 }
