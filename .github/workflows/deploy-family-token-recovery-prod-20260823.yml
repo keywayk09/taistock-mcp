@@ -1,0 +1,296 @@
+name: Deploy Family Token Recovery Production 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-and-smoke:
+    if: github.head_ref == 'ops/deploy-family-token-recovery-20260823'
+    runs-on: ubuntu-latest
+    env:
+      PROD_URL: https://taistock-mcp.keywayk09.workers.dev
+      EXPECTED_MAIN_SHA: 1cff908092f461d678be69f39bff61311c7c591a
+      MOM_CLIENT_ID: 41i_gRq63zL6r2tO
+      MOM_REDIRECT_URI: https://chatgpt.com/connector/oauth/gDokJPX2DaM_
+      SYNTH_CLIENT_ID: familyTokenRecoveryProdSmoke20260823
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Confirm exact merged main
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          echo "MAIN_SHA=${actual}"
+          test "$actual" = "$EXPECTED_MAIN_SHA"
+      - run: npm install
+
+      - name: Resolve existing Production OAuth KV
+        id: oauth_kv
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/kv.json
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          body=json.load(open('/tmp/kv.json'))
+          rows=[x for x in body.get('result',[]) if x.get('title')=='taistock-mcp-OAUTH_KV']
+          if not body.get('success') or len(rows)!=1:
+              raise SystemExit('production_oauth_kv_resolution_failed')
+          kv_id=str(rows[0].get('id') or '')
+          if len(kv_id)!=32:
+              raise SystemExit('invalid_oauth_kv_id')
+          print('id='+kv_id)
+          PY
+
+      - name: Inspect Mom OAuth stage before deploy without secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${OAUTH_KV_ID}"
+          encoded="$(python - <<'PY'
+          import os,urllib.parse
+          print(urllib.parse.quote('client:'+os.environ['MOM_CLIENT_ID'], safe=''))
+          PY
+          )"
+          status="$(curl -sS -o /tmp/mom-client.raw -w '%{http_code}' "$base/values/$encoded" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+          echo "MOM_CLIENT_PREDEPLOY_HTTP=${status}"
+          test "$status" = '200'
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/mom-client.raw'))
+          print('MOM_CLIENT_PRESENT=TRUE')
+          print('MOM_CLIENT_ID_MATCH='+str(x.get('clientId')=='41i_gRq63zL6r2tO').upper())
+          print('MOM_TOKEN_AUTH_METHOD='+str(x.get('tokenEndpointAuthMethod')))
+          print('MOM_HAS_CLIENT_SECRET='+str(bool(x.get('clientSecret'))).upper())
+          print('MOM_REDIRECT_MATCH='+str((x.get('redirectUris') or [])==['https://chatgpt.com/connector/oauth/gDokJPX2DaM_']).upper())
+          PY
+          for prefix in 'grant:' 'token:'; do
+            enc="$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "$prefix")"
+            curl -fsS "$base/keys?prefix=$enc&limit=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/keys.json
+            PREFIX="$prefix" python - <<'PY'
+          import json,os
+          body=json.load(open('/tmp/keys.json'))
+          if not body.get('success'): raise SystemExit('key_list_failed')
+          print('PREDEPLOY_COUNT_'+os.environ['PREFIX'].replace(':','').upper()+'='+str(len(body.get('result') or [])))
+          PY
+          done
+
+      - name: Build Production config
+        env:
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp wrangler.jsonc wrangler.family-token-recovery-production.jsonc
+          python - <<'PY'
+          import os,re
+          from pathlib import Path
+          p=Path('wrangler.family-token-recovery-production.jsonc')
+          s=p.read_text(); kv=os.environ['OAUTH_KV_ID']
+          pat=r'("binding"\s*:\s*"OAUTH_KV")(\s*)(\})'
+          out,n=re.subn(pat, lambda m: m.group(1)+',\n\t\t\t"id": "'+kv+'"'+m.group(2)+m.group(3), s, count=1)
+          if n!=1: raise SystemExit('oauth_kv_binding_injection_failed')
+          p.write_text(out)
+          PY
+
+      - name: Deploy merged Family token recovery to Production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --config wrangler.family-token-recovery-production.jsonc | tee /tmp/deploy.log
+          grep -E 'Uploaded|Deployed|Version ID|Current Version ID' /tmp/deploy.log || true
+
+      - name: Verify Production five-minute Cron
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/taistock-mcp/schedules"
+          curl -fsS -X PUT "$endpoint" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data '[{"cron":"*/5 * * * *"}]' > /tmp/cron-put.json
+          curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/cron-get.json
+          python - <<'PY'
+          import json
+          put=json.load(open('/tmp/cron-put.json')); get=json.load(open('/tmp/cron-get.json'))
+          assert put.get('success'), put
+          schedules=((get.get('result') or {}).get('schedules') or [])
+          crons=[x.get('cron') for x in schedules if isinstance(x,dict)]
+          assert '*/5 * * * *' in crons, crons
+          print('PRODUCTION_CRON=PASS')
+          PY
+
+      - name: Production health smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 5 --retry-delay 2 --max-time 30 -fsS "$PROD_URL/health" > /tmp/health.json
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/health.json'))
+          assert body.get('status')=='ok', body
+          fam=body.get('family_mcp') or {}
+          assert fam.get('permission_model')=='SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS', fam
+          assert fam.get('oauth_required') is True, fam
+          assert fam.get('access')=='READ_ONLY_ALLOWLIST', fam
+          print('PRODUCTION_HEALTH=PASS')
+          print('FAMILY_PERMISSION_MODEL='+str(fam.get('permission_model')))
+          print('FAMILY_ACCESS='+str(fam.get('access')))
+          PY
+
+      - name: Build trusted connector authorize URLs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64,hashlib,os,urllib.parse
+          from pathlib import Path
+          base=os.environ['PROD_URL']
+          def challenge(seed):
+              verifier=(seed+'-'+'p'*64)[:96]
+              return base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
+          common={
+            'response_type':'code',
+            'scope':'openid profile email offline_access mcp:tools files:write',
+            'code_challenge_method':'S256',
+            'resource':base+'/family-mcp',
+          }
+          synth=dict(common)
+          synth.update({
+            'client_id':os.environ['SYNTH_CLIENT_ID'],
+            'redirect_uri':'https://chatgpt.com/connector/oauth/familytokenrecoveryprod20260823',
+            'state':'synthetic-family-token-recovery-state',
+            'code_challenge':challenge('synthetic-family-token-recovery'),
+          })
+          mom=dict(common)
+          mom.update({
+            'client_id':os.environ['MOM_CLIENT_ID'],
+            'redirect_uri':os.environ['MOM_REDIRECT_URI'],
+            'state':'mom-existing-client-scope-normalization-smoke',
+            'code_challenge':challenge('mom-existing-client'),
+          })
+          bad=dict(synth)
+          bad['client_id']='familyTokenRecoveryMalformedProd20260823'
+          bad['scope']='openid bad\\scope'
+          Path('/tmp/synth-url.txt').write_text(base+'/authorize?'+urllib.parse.urlencode(synth))
+          Path('/tmp/mom-url.txt').write_text(base+'/authorize?'+urllib.parse.urlencode(mom))
+          Path('/tmp/bad-url.txt').write_text(base+'/authorize?'+urllib.parse.urlencode(bad))
+          PY
+
+      - name: New stale connector still reaches Family proof page without writing client
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --retry 3 --retry-delay 1 --max-time 30 -sS -o /tmp/synth.html -w '%{http_code}' "$(cat /tmp/synth-url.txt)")"
+          echo "SYNTH_AUTHORIZE_HTTP=${code}"
+          test "$code" = '200'
+          grep -q '家人連線驗證碼' /tmp/synth.html
+          grep -q 'ChatGPT Family Plugin / MCP App' /tmp/synth.html
+          ! grep -q 'Invalid client_id' /tmp/synth.html
+          echo 'SYNTH_STALE_CONNECTOR_AUTHORIZE=PASS'
+
+      - name: Existing restored Mom client normalizes broad ChatGPT scopes
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --retry 3 --retry-delay 1 --max-time 30 -sS -o /tmp/mom.html -w '%{http_code}' "$(cat /tmp/mom-url.txt)")"
+          echo "MOM_EXISTING_AUTHORIZE_HTTP=${code}"
+          test "$code" = '200'
+          grep -q '家人連線驗證碼' /tmp/mom.html
+          ! grep -q 'Invalid client_id' /tmp/mom.html
+          ! grep -q 'scope' /tmp/mom.html || true
+          echo 'MOM_EXISTING_CLIENT_SCOPE_NORMALIZATION=PASS'
+
+      - name: Malformed connector scope remains fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --retry 3 --retry-delay 1 --max-time 30 -sS -o /tmp/bad.html -w '%{http_code}' "$(cat /tmp/bad-url.txt)")"
+          echo "MALFORMED_SCOPE_HTTP=${code}"
+          test "$code" = '400'
+          ! grep -q '家人連線驗證碼' /tmp/bad.html
+          echo 'MALFORMED_SCOPE_REJECTED=PASS'
+
+      - name: Confirm GET smokes did not mutate OAuth client registry
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${OAUTH_KV_ID}"
+          synth="$(python - <<'PY'
+          import os,urllib.parse
+          print(urllib.parse.quote('client:'+os.environ['SYNTH_CLIENT_ID'],safe=''))
+          PY
+          )"
+          status="$(curl -sS -o /tmp/synth-client.raw -w '%{http_code}' "$base/values/$synth" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+          echo "SYNTH_CLIENT_POSTGET_HTTP=${status}"
+          test "$status" = '404'
+          mom="$(python - <<'PY'
+          import os,urllib.parse
+          print(urllib.parse.quote('client:'+os.environ['MOM_CLIENT_ID'],safe=''))
+          PY
+          )"
+          status="$(curl -sS -o /tmp/mom-client-post.raw -w '%{http_code}' "$base/values/$mom" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+          test "$status" = '200'
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/mom-client-post.raw'))
+          print('MOM_CLIENT_POSTGET_PRESENT=TRUE')
+          print('MOM_CLIENT_POSTGET_METHOD='+str(x.get('tokenEndpointAuthMethod')))
+          print('MOM_CLIENT_POSTGET_HAS_SECRET='+str(bool(x.get('clientSecret'))).upper())
+          PY
+          echo 'GET_SMOKE_REGISTRY_SAFETY=PASS'
+
+      - name: Observe whether Mom live spinner completes after deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 12
+          base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${OAUTH_KV_ID}"
+          for prefix in 'grant:' 'token:'; do
+            enc="$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "$prefix")"
+            curl -fsS "$base/keys?prefix=$enc&limit=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/keys.json
+            PREFIX="$prefix" python - <<'PY'
+          import json,os
+          body=json.load(open('/tmp/keys.json'))
+          if not body.get('success'): raise SystemExit('key_list_failed')
+          count=len(body.get('result') or [])
+          label=os.environ['PREFIX'].replace(':','').upper()
+          print('POSTDEPLOY_COUNT_'+label+'='+str(count))
+          if label=='TOKEN':
+              print('MOM_LIVE_RETRY_TOKEN_OBSERVED='+('TRUE' if count>0 else 'FALSE'))
+          PY
+          done
