@@ -27,6 +27,36 @@ async function safeFinmind(env: Env, dataset: string, params: Record<string, unk
   }
 }
 
+function openWorldElevenPoint(raw: any, symbol: string) {
+  const directive = familyResearchDirective([symbol]);
+  const points = Array.isArray(raw?.points) ? raw.points.map((item: any) => {
+    const { web_research, ...rest } = item ?? {};
+    return {
+      ...rest,
+      research: {
+        mode: "OPEN_WORLD_AUTONOMOUS",
+        seed_queries: Array.isArray(web_research) ? web_research : [],
+        seeds_are_non_binding: true,
+        may_rewrite_queries: true,
+        may_search_other_sites: true,
+        may_follow_new_entities_and_events: true,
+        instruction: "seed_queries只是可能的起點；可完全改寫、忽略或擴展，不得視為網站或關鍵字限制。",
+      },
+    };
+  }) : [];
+  return {
+    ...raw,
+    points,
+    web_research_plan: undefined,
+    open_world_research: directive,
+    final_answer_policy: [
+      ...(Array.isArray(raw?.final_answer_policy) ? raw.final_answer_policy : []),
+      "Web研究採open-world：可依新發現自主擴展搜尋，不限seed queries、網站、語言或預先定義主題。",
+      "即時異動可用Fugle與Web事件共同解釋；正式OHLC與Published籌碼的資料身份不可被取代。",
+    ],
+  };
+}
+
 export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) {
   const symbols = [...new Set(input.symbols.map((symbol) => String(symbol).trim()).filter(Boolean))].slice(0, 5);
   if (!symbols.length) throw new Error("at least one symbol is required");
@@ -95,7 +125,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       foreignShareholding.error,
     ].filter((value): value is string => Boolean(value));
 
-    const elevenPoint = buildFamilyElevenPointAnalysis({
+    const elevenPointRaw = buildFamilyElevenPointAnalysis({
       symbol,
       as_of_date: asOf,
       analysis,
@@ -106,6 +136,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       all_stock_info_rows: allInfo.data,
       enrichment_errors: enrichmentErrors,
     });
+    const elevenPoint = openWorldElevenPoint(elevenPointRaw, symbol);
 
     return {
       ...analysis,
@@ -134,7 +165,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
 
   return {
     ...base,
-    version: "family-smart-analysis/v2.1.0",
+    version: "family-smart-analysis/v2.2.0",
     route: symbols.length > 1 ? "smart_stock_compare_11_point" : "smart_stock_analysis_11_point",
     stock_analyses: enriched,
     open_world_research: familyResearchDirective(symbols),
@@ -152,7 +183,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       single_stock: "ALWAYS_RENDER_FIXED_1_TO_11_TEMPLATE",
       compare: "COMPARE_USING_THE_SAME_1_TO_11_EVIDENCE_MODEL",
       missing_data: "EXPLICIT_NULL_OR_UNKNOWN_NEVER_GUESS",
-      web: "OPEN_WORLD_AUTONOMOUS_RESEARCH_NOT_FIXED_KEYWORDS",
+      web: "OPEN_WORLD_AUTONOMOUS_RESEARCH_NOT_FIXED_KEYWORDS_OR_SITES",
       realtime: "FUGLE_AND_MARKET_SOURCES_ALLOWED_BUT_NOT_FORMAL_OHLC",
     },
   };
