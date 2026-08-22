@@ -1,4 +1,4 @@
-export const FAMILY_OPENAPI_V2_VERSION = "family-action-openapi/v2.1.0";
+export const FAMILY_OPENAPI_V2_VERSION = "family-action-openapi/v3.0.0";
 
 function postOperation(operationId: string, summary: string, schema: Record<string, unknown>) {
   return {
@@ -35,35 +35,12 @@ export function familyOpenApiV2(origin: string) {
     info: {
       title: "Taiwan Stock AI Family Read-Only API",
       version: FAMILY_OPENAPI_V2_VERSION,
-      description: "媽媽/家人版完整唯讀介面：單股固定11點、2-5檔比較、1-8週波段候選V2。盤中可搭配Fugle等即時來源；GPT可自由使用Web做open-world研究，不限固定網站或關鍵字，並可依新線索自主追客戶、供應鏈、同業、海外新聞、法說與政策。正式Published籌碼及OHLC MCP的資料身份不可被Web或研究型行情取代。",
+      description: "Family V3 採 Same Research Brain, Different Permissions：家人與Owner共用市場/研究讀取能力，Family永遠唯讀。自然語言query會先做意圖與研究規劃，不強迫固定模板；需要完整個股研究時仍以1到11點作完整性契約。Web為open-world研究層，不限固定網站或關鍵字；正式Published籌碼及OHLC MCP的資料身份不可被Web、Fugle或FinMind取代。",
     },
     servers: [{ url: origin }],
     paths: {
-      "/api/family/analyze": {
-        post: postOperation("analyzeFamilyStock11Point", "固定1到11完整分析；結構化資料打底並允許自主Web深化研究", {
-          required: ["symbol"],
-          properties: { symbol, as_of_date: asOf },
-        }),
-      },
-      "/api/family/compare": {
-        post: postOperation("compareFamilyStocks11Point", "用相同11點證據框架比較2到5檔，並允許自主Web補證", {
-          required: ["symbols"],
-          properties: {
-            symbols: { type: "array", minItems: 2, maxItems: 5, uniqueItems: true, items: symbol },
-            as_of_date: asOf,
-          },
-        }),
-      },
-      "/api/family/screen": {
-        post: postOperation("screenFamilySwingCandidates", "全市場快速預篩加受控深掃，產生1到8週引擎候選；Web可另外發現研究候選再交叉驗證", {
-          properties: {
-            mode: { type: "string", enum: ["stable", "balanced", "aggressive"], default: "balanced" },
-            top_n: { type: "integer", minimum: 1, maximum: 10, default: 5 },
-          },
-        }),
-      },
       "/api/family/query": {
-        post: postOperation("queryTaiwanStockSystem", "舊版相容智慧查詢；保留唯讀資料入口", {
+        post: postOperation("queryTaiwanStockSystem", "自然語言智能入口：依問題自動選擇快速單股、完整分析、多股比較、波段候選、市場背景或Open-World研究", {
           required: ["query"],
           properties: {
             query: { type: "string", minLength: 1, maxLength: 2000 },
@@ -72,10 +49,33 @@ export function familyOpenApiV2(origin: string) {
           },
         }),
       },
+      "/api/family/analyze": {
+        post: postOperation("analyzeFamilyStock11Point", "明確要求完整個股研究時使用固定1到11完整性契約；查詢順序與Web深化仍可自主決定", {
+          required: ["symbol"],
+          properties: { symbol, as_of_date: asOf },
+        }),
+      },
+      "/api/family/compare": {
+        post: postOperation("compareFamilyStocks11Point", "用相同證據模型比較2到5檔；不要求機械式顯示11個段落", {
+          required: ["symbols"],
+          properties: {
+            symbols: { type: "array", minItems: 2, maxItems: 5, uniqueItems: true, items: symbol },
+            as_of_date: asOf,
+          },
+        }),
+      },
+      "/api/family/screen": {
+        post: postOperation("screenFamilySwingCandidates", "全市場快速預篩加受控深掃，產生1到8週引擎候選；Web可另發現研究候選但不可冒充Engine Rank", {
+          properties: {
+            mode: { type: "string", enum: ["stable", "balanced", "aggressive"], default: "balanced" },
+            top_n: { type: "integer", minimum: 1, maximum: 10, default: 5 },
+          },
+        }),
+      },
       "/api/family/status": {
         get: {
           operationId: "getFamilyEngineCapabilities",
-          summary: "確認家人版引擎、即時來源與open-world研究能力",
+          summary: "確認Family Shared Read Plane、唯讀邊界、即時來源與Open-World研究能力",
           security: [{ bearerAuth: [] }],
           responses: { "200": { description: "成功" }, "401": { description: "未授權" } },
           "x-openai-isConsequential": false,
