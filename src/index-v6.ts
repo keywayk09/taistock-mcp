@@ -4,13 +4,14 @@ import { registerDailyReportFormatTool } from "./v6/daily-report-format";
 import { handleFamilyActionCompat } from "./v6/family-action-compat";
 import { createFamilyOAuthProvider } from "./v6/family-oauth";
 import { FAMILY_MCP_TOOL_NAMES } from "./v6/family-mcp";
-import { registerAdvancedTools } from "./v6/register";
-import { registerFamilyStockSelectionTools } from "./v6/family-stock-selection";
+import { handleFamilySmartRest } from "./v6/family-smart-rest";
+import { registerFamilyStockSelectionToolsV2 } from "./v6/family-stock-selection-v2";
 import { githubDataStoreHealth } from "./v6/github-data-store";
 import { runExtendedScheduledMarketDataController } from "./v6/market-data-scheduled-dispatch";
 import { getTwMarketDataDayStatus } from "./v6/market-data-day-status";
 import { getResearchStatus, isAuthorizedResearchRequest } from "./v6/research-pipeline";
 import { registerResearchTools } from "./v6/research-tools";
+import { registerAdvancedTools } from "./v6/register";
 import { TW_MARKET_DATA_VERSION } from "./v6/tw-market-data-github";
 import { registerTwMarketDataTools } from "./v6/tw-market-data-tools";
 
@@ -33,7 +34,9 @@ export class MyMCP extends BaseMCP {
     registerAdvancedTools(this.server, this.env);
     registerDailyReportFormatTool(this.server);
     registerResearchTools(this.server, this.env);
-    registerFamilyStockSelectionTools(this.server, this.env);
+    // Keep the legacy full MCP route compatible, but use the same V2 family selector logic
+    // so /mcp and the isolated /family-mcp cannot disagree on the meaning of the tool name.
+    registerFamilyStockSelectionToolsV2(this.server, this.env);
     registerTwMarketDataTools(this.server, this.env);
   }
 }
@@ -43,8 +46,12 @@ const appHandler = {
     const url = new URL(request.url);
 
     // Legacy full MCP surface remains on /mcp for backward compatibility.
-    // The family Custom GPT must use the isolated OAuth-protected /family-mcp endpoint.
+    // The family Custom GPT should use the isolated OAuth-protected /family-mcp endpoint.
     if (url.pathname === "/mcp") return MyMCP.serve("/mcp").fetch(request, env, ctx);
+
+    // V2 read-only REST routes and OpenAPI must win before the legacy compatibility handler.
+    const familySmart = await handleFamilySmartRest(request, env, url);
+    if (familySmart) return familySmart;
 
     const familyCompat = await handleFamilyActionCompat(request, env, url);
     if (familyCompat) return familyCompat;
@@ -96,8 +103,18 @@ const appHandler = {
           login_secret_configured: familyLoginConfigured,
           access: "READ_ONLY_ALLOWLIST",
           tools: FAMILY_MCP_TOOL_NAMES,
+          intelligence: "V2_FIXED_11_POINT_OPEN_WORLD_REALTIME_FUSION",
+          realtime: "FUGLE_PRIMARY_WHEN_AVAILABLE",
+          web_research: "OPEN_WORLD_AUTONOMOUS_ALLOWED",
+          swing_screen: "V2_FULL_SNAPSHOT_PREFILTER_BOUNDED_DEEP_SCAN",
         },
-        family_read_only_action: "/api/family/query",
+        family_read_only_actions: {
+          legacy_query: "/api/family/query",
+          analyze_11_point: "/api/family/analyze",
+          compare_11_point: "/api/family/compare",
+          swing_screen_v2: "/api/family/screen",
+          status: "/api/family/status",
+        },
         family_openapi: "/family-openapi.json",
         privacy_policy: "/privacy",
         research_status_endpoint: "/research/status",
