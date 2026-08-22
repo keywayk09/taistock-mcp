@@ -1,7 +1,6 @@
 import { readGitHubJson, updateGitHubJson } from "./github-data-store.ts";
 import { setMarketDataCapturePolicy, setMarketDataCaptureTradeDate } from "./market-data-capture-context.ts";
 import { runSubrequestSafeMarketDataCapture } from "./market-data-cloudflare-chunked-runner.ts";
-import { runAdaptiveHistoryIndexSlice } from "./market-data-history-index.ts";
 import { promoteLegacyCompleteManifest } from "./market-data-legacy-manifest.ts";
 import {
   MARKET_DATA_BACKFILL_STATE_VERSION,
@@ -48,6 +47,29 @@ async function prepareHistoryManifest(env: Env, tradeDate: string, capturedAt: s
   return promoted;
 }
 
+function historyCaptureComplete(tradeDate: string) {
+  return {
+    trade_date: tradeDate,
+    status: "HISTORY_CAPTURE_COMPLETE" as const,
+    day_status: "COMPLETE" as const,
+    terminal: true,
+    index_status: "DEFERRED_TO_HISTORY_BUILDER_V2" as const,
+    estimated_subrequests: 0,
+  };
+}
+
+function waitingForBuilder(state: MarketDataBackfillState, estimatedSubrequests = 1) {
+  return {
+    status: "BACKFILL_WAITING" as const,
+    reason: "WAITING_HISTORY_BUILDER_V2" as const,
+    terminal: false,
+    state,
+    captures: [],
+    steps_run: 0,
+    estimated_subrequests: estimatedSubrequests,
+  };
+}
+
 export async function runMarketData360dBackfillStep(env: Env, input: {
   anchorTradeDate: string;
   now?: Date;
@@ -62,6 +84,8 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
     ? refreshBackfillAnchor(existing, input.anchorTradeDate, now)
     : initialMarketDataBackfillState(input.anchorTradeDate, now);
 
+  // History Builder V2 is the only component allowed to turn BUILD -> COMPLETE.
+  // Once COMPLETE is observed from canonical state, the one-shot bootstrap is terminal.
   if (state.status === "COMPLETE") {
     return { status: "BACKFILL_COMPLETE" as const, terminal: true, state, estimated_subrequests: 1 };
   }
@@ -70,40 +94,40 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
     await persistState(env, state, "data(market): start one-shot retention backfill");
   } else if (state.target_start_date !== existing.target_start_date) {
     await persistState(env, state, "data(market): apply shortened history retention");
+  } else if (state.phase !== existing.phase) {
+    await persistState(env, state, "data(market): migrate History Builder V2 phase");
   }
 
+  if (state.phase === "BUILD") {
+    return waitingForBuilder(state);
+  }
+
+  // Crossing the retention target means capture is finished, not bootstrap complete.
+  // The canonical-repo History Builder V2 must still rebuild/audit every required month.
   if (state.cursor_date < state.target_start_date) {
     state = {
       ...state,
-      status: "COMPLETE",
-      completed_at: state.completed_at ?? now.toISOString(),
+      phase: "BUILD",
+      status: "RUNNING",
+      completed_at: null,
       updated_at: now.toISOString(),
     };
-    await persistState(env, state, "data(market): retention backfill complete");
-    return { status: "BACKFILL_COMPLETE" as const, terminal: true, state, estimated_subrequests: 3 };
+    await persistState(env, state, "data(market): History capture phase complete; waiting month builder");
+    return waitingForBuilder(state, 3);
   }
 
   const tradeDate = state.cursor_date;
   const preparedManifest = await prepareHistoryManifest(env, tradeDate, now.toISOString());
-  const prefixLength: 1 = 1;
 
   setMarketDataCapturePolicy({ storageMode: "HISTORY_COMPRESSED" });
   setMarketDataCaptureTradeDate(tradeDate);
   let capture: any;
   try {
-    if (
-      preparedManifest?.terminal === true
-      && preparedManifest?.day_status === "COMPLETE"
-      && preparedManifest?.index_state?.status !== "READY"
-    ) {
-      capture = await runAdaptiveHistoryIndexSlice(env, {
-        tradeDate,
-        manifest: preparedManifest,
-        capturedAt: now.toISOString(),
-        deadlineAtMs: input.deadlineAtMs ?? (Date.now() + 30_000),
-        subrequestBudget: Math.max(0, Math.floor(input.subrequestBudget ?? 32)),
-        prefixLength,
-      });
+    // Bulk historical indexing is intentionally NOT performed inside Cloudflare.
+    // A terminal canonical day is enough to advance the capture cursor; the
+    // canonical-repo History Builder V2 later rebuilds the whole month locally.
+    if (preparedManifest?.terminal === true && preparedManifest?.day_status === "COMPLETE") {
+      capture = historyCaptureComplete(tradeDate);
     } else {
       capture = await runSubrequestSafeMarketDataCapture(env, { tradeDate, now });
     }
@@ -112,43 +136,45 @@ export async function runMarketData360dBackfillStep(env: Env, input: {
     setMarketDataCaptureTradeDate(null);
   }
 
-  if (shouldAdvanceBackfillCursor(String(capture?.status ?? ""))) {
+  const captureStatus = String(capture?.status ?? "");
+  if (shouldAdvanceBackfillCursor(captureStatus)) {
     const next = shiftIsoDate(tradeDate, -1);
-    const complete = next < state.target_start_date;
+    const captureFinished = next < state.target_start_date;
     state = {
       ...state,
       cursor_date: next,
       processed_dates: state.processed_dates + 1,
-      status: complete ? "COMPLETE" : "RUNNING",
-      completed_at: complete ? (state.completed_at ?? now.toISOString()) : null,
+      phase: captureFinished ? "BUILD" : "CAPTURE",
+      status: "RUNNING",
+      completed_at: null,
       updated_at: now.toISOString(),
     };
     await persistState(
       env,
       state,
-      complete ? "data(market): retention backfill complete" : `data(market): backfill cursor ${tradeDate}`,
+      captureFinished
+        ? "data(market): History capture phase complete; waiting month builder"
+        : `data(market): backfill cursor ${tradeDate}`,
     );
   }
 
-  const captureStatus = String(capture?.status ?? "");
   const waiting = captureStatus === "NOOP_NOT_DUE"
     || captureStatus === "INDEX_WAITING_FOR_COMPLETE_DAY"
-    || captureStatus === "INDEX_YIELD";
+    || captureStatus === "INDEX_YIELD"
+    || state.phase === "BUILD";
   const estimatedSubrequests = 2
     + Number(capture?.estimated_subrequests ?? 6)
     + (shouldAdvanceBackfillCursor(captureStatus) ? 2 : 0);
+
   return {
-    status: state.status === "COMPLETE"
-      ? "BACKFILL_COMPLETE" as const
-      : waiting
-        ? "BACKFILL_WAITING" as const
-        : "BACKFILL_PROGRESS" as const,
-    terminal: state.status === "COMPLETE",
+    status: waiting ? "BACKFILL_WAITING" as const : "BACKFILL_PROGRESS" as const,
+    reason: state.phase === "BUILD" ? "WAITING_HISTORY_BUILDER_V2" as const : undefined,
+    terminal: false,
     trade_date: tradeDate,
     captures: [capture],
     steps_run: 1,
     state,
-    index_prefix_length: prefixLength,
+    history_builder: "diamond-market-data-history-builder/v2",
     estimated_subrequests: estimatedSubrequests,
   };
 }
