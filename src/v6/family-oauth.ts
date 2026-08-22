@@ -55,6 +55,21 @@ function clientIp(request: Request) {
   return request.headers.get("cf-connecting-ip")?.trim() || "unknown";
 }
 
+function familyMcpEnv(env: Env): Env | null {
+  // McpAgent.serve() reads the conventional MCP_OBJECT binding. Production keeps
+  // MCP_OBJECT pointed at the full MyMCP namespace, so remap it only for the
+  // isolated family request. Never fall back to the full namespace: missing
+  // FAMILY_MCP_OBJECT must fail closed instead of exposing the 113-tool surface.
+  const familyNamespace = (env as unknown as Record<string, unknown>).FAMILY_MCP_OBJECT;
+  if (!familyNamespace) return null;
+  return new Proxy(env as unknown as object, {
+    get(target, property, receiver) {
+      if (property === "MCP_OBJECT") return familyNamespace;
+      return Reflect.get(target, property, receiver);
+    },
+  }) as Env;
+}
+
 function html(body: string, status = 200) {
   return new Response(`<!doctype html>
 <html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -174,7 +189,14 @@ async function handleAuthorize(request: Request, env: Env) {
 export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
   const familyApiHandler: ConcreteFetchHandler = {
     fetch(request, env, ctx) {
-      return FamilyMCP.serve("/family-mcp").fetch(request, env, ctx);
+      const isolatedEnv = familyMcpEnv(env);
+      if (!isolatedEnv) {
+        return Response.json({
+          error: "family_mcp_binding_missing",
+          message: "FAMILY_MCP_OBJECT is required; refusing to fall back to the full MCP_OBJECT namespace.",
+        }, { status: 503 });
+      }
+      return FamilyMCP.serve("/family-mcp").fetch(request, isolatedEnv, ctx);
     },
   };
 
