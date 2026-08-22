@@ -155,7 +155,7 @@ function buildIndustryContext(symbol: string, company: AnyRecord, industryRows: 
         symbol: String(row.stock_id ?? ""),
         name: String(row.stock_name ?? ""),
         industry_category: String(row.industry_category ?? ""),
-        shared_chain_count: null,
+        shared_chain_count: 0,
         basis: "TaiwanStockInfo industry_category fallback",
       }));
   }
@@ -216,9 +216,7 @@ export function buildFamilyElevenPointAnalysis(input: ElevenPointInput) {
       market_type: company.type ?? null,
       industry_category: company.industry_category ?? null,
     }, ["公司主要產品、營收比重、商業模式、年報與法說"]),
-
     point(2, "產業位置｜市場地位與競爭優勢", industry.status === "READY" ? "PARTIAL_NEEDS_WEB" : "NEEDS_WEB_RESEARCH", { industry }, ["市佔率、競爭對手、技術優勢、議價能力、產業週期"]),
-
     point(3, "財務體質｜獲利品質、現金流與負債", accounting.status === "READY" ? "READY" : "DEGRADED", {
       latest: accounting.latest ?? null,
       previous: accounting.previous ?? null,
@@ -230,41 +228,34 @@ export function buildFamilyElevenPointAnalysis(input: ElevenPointInput) {
       operating_margin_trend_last_4_periods: opTrend,
       semantics: accounting.semantics ?? null,
     }, [], ["ROE期間估算不可冒充年化ROE。", "缺值保持null。"]),
-
     point(4, "成長性｜歷史成長與未來1–2年動能", revenue.status === "READY" || accounting.status === "READY" ? "PARTIAL_NEEDS_WEB" : "NEEDS_WEB_RESEARCH", {
       monthly_revenue: revenue,
       eps_trend_last_4_periods: epsTrend,
       gross_margin_trend_last_4_periods: grossTrend,
       operating_margin_trend_last_4_periods: opTrend,
     }, ["最新法說、公司展望、新產品、擴產、資本支出、產業需求與未來1–2年成長驅動"]),
-
     point(5, "全球產能與地緣政治配置｜China+1與供應風險", "NEEDS_WEB_RESEARCH", {
       industry_chain_context: industry.industry_chains,
       structured_status: "NO_VERIFIED_CAPACITY_DATABASE_IN_FAMILY_SURFACE",
     }, ["全球廠區與產能、海外布局、中國/東南亞/美洲、China+1、關稅與地緣政治"]),
-
     point(6, "客戶與訂單能見度｜訂單來源與持續性", "NEEDS_WEB_RESEARCH", {
       structured_status: "NO_VERIFIED_CUSTOMER_ORDER_DATABASE_IN_FAMILY_SURFACE",
     }, ["主要客戶、訂單、backlog、出貨、客戶資本支出與需求能見度"]),
-
     point(7, "催化劑與風險｜時間點具體", financialFlags.length ? "PARTIAL_NEEDS_WEB" : "NEEDS_WEB_RESEARCH", {
       structured_financial_risks: financialFlags,
       accounting_quality: accounting.quality ?? null,
       accounting_risk_score: accounting.risk_score ?? null,
     }, ["法說、財報、產品時程、報價、政策、產業事件、近期新聞與反向風險"]),
-
     point(8, "籌碼風向｜400/1000張大戶＋法人籌碼", chipReady || holding.status === "READY" || foreign.status === "READY" ? "READY_OR_DEGRADED" : "DEGRADED", {
       formal_published_chip: chip,
       holder_distribution: holding,
       foreign_shareholding: foreign,
       policy: "三大法人/融資融券/借券以Published generation為正式層；股權分級與外資持股為FinMind唯讀補充。",
     }, [], ["股權分級資料不足時不可用新聞猜400/1000張數字。"]),
-
     point(9, "同產業個股｜同族群與最像同業", industry.peer_candidates?.length ? "PARTIAL_NEEDS_WEB" : "NEEDS_WEB_RESEARCH", {
       peer_candidates: industry.peer_candidates ?? [],
       basis: industry.status,
     }, ["產品重疊、客戶結構、市場定位、同業法說與海外競爭者"]),
-
     point(10, "估值與目標價｜PE×EPS三情境", valuation.status === "READY" ? "PARTIAL_NEEDS_WEB" : "NEEDS_WEB_RESEARCH", {
       official_valuation: valuation,
       current_display_price: price,
@@ -281,7 +272,6 @@ export function buildFamilyElevenPointAnalysis(input: ElevenPointInput) {
         optimistic: { forward_eps: null, target_pe: null, fair_value: null },
       },
     }, ["外資/投信公開研究、未來EPS預估、歷史/同業PE區間與市場預期"]),
-
     point(11, "技術面與操作節奏｜型態、支撐壓力與追價風險", technical.status === "READY" ? "PARTIAL_NEEDS_OHLC_MCP" : "NEEDS_OHLC_MCP", {
       realtime_or_research_context: market,
       research_technical_fallback: technical,
