@@ -1,0 +1,99 @@
+name: One-shot Family OAuth Scope Diagnostic Production 20260823
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-shot-family-scope-diagnostic-prod-20260823.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+
+      - name: Patch safe scope-name diagnostic in runner only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/v6/family-oauth.ts')
+          s=p.read_text()
+          old='''  return `FAM-OAUTH-DIAG response=${responseType} client=${clientMode} redirect=${redirectMode}@${redirectHost} pkce=${pkce} scope=${scopeMode} state=${state ? "present" : "missing"} resource=${resource}`;'''
+          new='''  const scopeNames = scopes
+    .map((scope) => /^[A-Za-z0-9._:/-]{1,80}$/.test(scope) ? scope : "invalid-token")
+    .slice(0, 12)
+    .join(",") || "none";
+
+  return `FAM-OAUTH-DIAG response=${responseType} client=${clientMode} redirect=${redirectMode}@${redirectHost} pkce=${pkce} scope=${scopeMode} scopes=${scopeNames} state=${state ? "present" : "missing"} resource=${resource}`;'''
+          if old not in s:
+              raise SystemExit('diagnostic_return_pattern_not_found')
+          p.write_text(s.replace(old,new,1))
+          PY
+
+      - name: Resolve existing Production OAuth KV
+        id: oauth_kv
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/kv.json
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          body=json.load(open('/tmp/kv.json'))
+          rows=[x for x in body.get('result',[]) if x.get('title')=='taistock-mcp-OAUTH_KV']
+          if not body.get('success') or len(rows)!=1:
+              raise SystemExit('production_oauth_kv_resolution_failed')
+          print('id='+rows[0]['id'])
+          PY
+
+      - name: Build Production config
+        env:
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp wrangler.jsonc wrangler.scope-diag-production.jsonc
+          python - <<'PY'
+          import os,re
+          from pathlib import Path
+          p=Path('wrangler.scope-diag-production.jsonc')
+          s=p.read_text(); kv=os.environ['OAUTH_KV_ID']
+          pat=r'("binding"\s*:\s*"OAUTH_KV")(\s*)(\})'
+          out,n=re.subn(pat, lambda m: m.group(1)+',\n\t\t\t"id": "'+kv+'"'+m.group(2)+m.group(3), s, count=1)
+          if n!=1: raise SystemExit('oauth_kv_binding_injection_failed')
+          p.write_text(out)
+          PY
+
+      - name: Type check diagnostic build
+        run: npm run type-check
+
+      - name: Deploy temporary diagnostic build to Production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --config wrangler.scope-diag-production.jsonc
+
+      - name: Production health smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 5 --retry-delay 2 -fsS https://taistock-mcp.keywayk09.workers.dev/health >/tmp/health.json
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/health.json'))
+          assert body.get('status')=='ok', body
+          print('PRODUCTION_SCOPE_DIAGNOSTIC_READY=PASS')
+          PY
