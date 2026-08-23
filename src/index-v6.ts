@@ -4,6 +4,7 @@ import { registerDailyReportFormatTool } from "./v6/daily-report-format";
 import { handleFamilyActionCompat } from "./v6/family-action-compat";
 import { createFamilyOAuthProvider } from "./v6/family-oauth";
 import { createFamilyOAuthLegacyEndpointWrapper } from "./v6/family-oauth-legacy-endpoints";
+import { createFamilyOAuthPublicClientCompatWrapper } from "./v6/family-oauth-public-client-compat";
 import { createFamilyOAuthTokenRecoveryWrapper } from "./v6/family-oauth-token-recovery";
 import { FAMILY_MCP_TOOL_NAMES } from "./v6/family-mcp";
 import { githubDataStoreHealth } from "./v6/github-data-store";
@@ -172,7 +173,9 @@ const appHandler = {
 };
 
 const familyOAuthProvider = createFamilyOAuthLegacyEndpointWrapper(
-  createFamilyOAuthTokenRecoveryWrapper(createFamilyOAuthProvider(appHandler)),
+  createFamilyOAuthPublicClientCompatWrapper(
+    createFamilyOAuthTokenRecoveryWrapper(createFamilyOAuthProvider(appHandler)),
+  ),
 );
 
 export default {
