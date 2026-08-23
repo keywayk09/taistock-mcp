@@ -1,0 +1,207 @@
+name: Diagnose Family Spinner 20260823 1531
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.head_ref == 'ops/diag-family-spinner-20260823-1531'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query sanitized Production telemetry
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' > /tmp/query.json
+          import json,datetime
+          def ms(s): return int(datetime.datetime.fromisoformat(s.replace('Z','+00:00')).timestamp()*1000)
+          print(json.dumps({
+            'queryId':'family-spinner-after-openid-alias-20260823-1531',
+            'timeframe':{'from':ms('2026-08-23T07:25:20Z'),'to':ms('2026-08-23T07:32:30Z')},
+            'view':'events','limit':700,
+            'parameters':{
+              'datasets':['cloudflare-workers'],
+              'filterCombination':'and',
+              'filters':[{'key':'$metadata.service','operation':'eq','type':'string','value':'taistock-mcp'}]
+            }
+          }))
+          PY
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query"
+          http="$(curl -sS -o /tmp/obs.json -w '%{http_code}' -X POST "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data-binary @/tmp/query.json)"
+          echo "OBS_HTTP=$http"
+          test "$http" = '200'
+          python - <<'PY'
+          import json,urllib.parse,collections
+          x=json.load(open('/tmp/obs.json'))
+          events=((((x.get('result') or {}).get('events') or {}).get('events')) or [])
+          watched={
+            '/.well-known/oauth-protected-resource',
+            '/.well-known/oauth-protected-resource/family-mcp',
+            '/.well-known/oauth-authorization-server',
+            '/.well-known/openid-configuration',
+            '/oauth/register','/register','/authorize','/oauth/token','/token','/family-mcp'
+          }
+          rows=[]
+          for ev in events:
+              if not isinstance(ev,dict): continue
+              workers=ev.get('$workers') if isinstance(ev.get('$workers'),dict) else {}
+              we=workers.get('event') if isinstance(workers.get('event'),dict) else {}
+              req=we.get('request') if isinstance(we.get('request'),dict) else {}
+              resp=we.get('response') if isinstance(we.get('response'),dict) else {}
+              try:u=urllib.parse.urlsplit(str(req.get('url') or ''))
+              except:continue
+              if u.hostname!='taistock-mcp.keywayk09.workers.dev' or u.path not in watched: continue
+              method=str(req.get('method') or '').upper()
+              try:status=int(resp.get('status'))
+              except:status=0
+              rows.append((method,u.path,status,u.query))
+          print('RELEVANT_EVENT_COUNT='+str(len(rows)))
+          for (m,p,s),n in sorted(collections.Counter((m,p,s) for m,p,s,_ in rows).items()):
+              print(f'EVENT={m}|{p}|HTTP_{s}|COUNT_{n}')
+          auth_gets=[r for r in rows if r[0]=='GET' and r[1]=='/authorize']
+          print('AUTHORIZE_GET_COUNT='+str(len(auth_gets)))
+          for idx,(_,_,status,qraw) in enumerate(auth_gets,1):
+              q=urllib.parse.parse_qs(qraw,keep_blank_values=True)
+              scopes=' '.join(q.get('scope',[])).split()
+              safe=[s for s in scopes if len(s)<=128 and all(0x21<=ord(c)<=0x7e and c not in ('"','\\') for c in s)]
+              resource=(q.get('resource') or [''])[0]
+              try:
+                  ru=urllib.parse.urlsplit(resource)
+                  rc='family_mcp' if ru.hostname=='taistock-mcp.keywayk09.workers.dev' and ru.path=='/family-mcp' else ('worker_root' if ru.hostname=='taistock-mcp.keywayk09.workers.dev' and ru.path in ('','/') else ('none' if not resource else 'other'))
+              except: rc='invalid'
+              redirect=(q.get('redirect_uri') or [''])[0]
+              try:
+                  rd=urllib.parse.urlsplit(redirect)
+                  rdc='connector' if rd.hostname in ('chatgpt.com','chat.openai.com') and (rd.path.startswith('/connector/oauth/') or rd.path=='/connector_platform_oauth_redirect') else 'other'
+              except: rdc='invalid'
+              print(f'AUTH_{idx}_HTTP={status}')
+              print(f'AUTH_{idx}_SCOPES='+','.join(safe))
+              print(f'AUTH_{idx}_RESOURCE={rc}')
+              print(f'AUTH_{idx}_REDIRECT={rdc}')
+              print(f'AUTH_{idx}_PKCE_METHOD='+str((q.get('code_challenge_method') or [''])[0]))
+              print(f'AUTH_{idx}_STATE_PRESENT='+str(bool((q.get('state') or [''])[0])).upper())
+          print('OPENID_200_OBSERVED='+str(any(m=='GET' and p=='/.well-known/openid-configuration' and s==200 for m,p,s,_ in rows)).upper())
+          print('DCR_REQUEST_OBSERVED='+str(any(m=='POST' and p in ('/oauth/register','/register') for m,p,_,_ in rows)).upper())
+          print('TOKEN_REQUEST_OBSERVED='+str(any(m=='POST' and p in ('/oauth/token','/token') for m,p,_,_ in rows)).upper())
+          PY
+
+      - name: Compare sanitized current and historical OAuth client shapes
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/ns.json
+          python - <<'PY' > /tmp/ns-map.json
+          import json
+          body=json.load(open('/tmp/ns.json'))
+          if not body.get('success'): raise SystemExit('namespace_list_failed')
+          wanted={'current':'taistock-mcp-OAUTH_KV','historical':'taistock-mcp-oauth'}
+          out={}
+          for label,title in wanted.items():
+              rows=[r for r in body.get('result',[]) if r.get('title')==title]
+              if len(rows)==1: out[label]=rows[0]['id']
+          print(json.dumps(out))
+          PY
+          NS_MAP="$(cat /tmp/ns-map.json)" python - <<'PY'
+          import json,os,subprocess,urllib.parse,datetime
+          nsmap=json.loads(os.environ['NS_MAP'])
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']; token=os.environ['CLOUDFLARE_API_TOKEN']
+          start=int(datetime.datetime.fromisoformat('2026-08-23T07:25:20+00:00').timestamp())
+          end=int(datetime.datetime.fromisoformat('2026-08-23T07:32:30+00:00').timestamp())
+          def curl_json(url):
+              p=subprocess.run(['curl','-fsS',url,'-H',f'Authorization: Bearer {token}'],capture_output=True,text=True)
+              if p.returncode: return None
+              try:return json.loads(p.stdout)
+              except:return None
+          def list_keys(ns,prefix):
+              enc=urllib.parse.quote(prefix,safe='')
+              x=curl_json(f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{ns}/keys?prefix={enc}&limit=1000') or {}
+              return x.get('result') or []
+          def read(ns,key):
+              return curl_json(f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{ns}/values/'+urllib.parse.quote(key,safe=''))
+          def redirect_class(v):
+              try:
+                  u=urllib.parse.urlsplit(str(v or ''))
+                  if u.hostname not in ('chatgpt.com','chat.openai.com'): return 'other'
+                  if u.path.startswith('/connector/oauth/'): return 'connector'
+                  if u.path=='/connector_platform_oauth_redirect': return 'legacy_connector'
+                  if u.path.startswith('/aip/') and u.path.endswith('/oauth/callback'): return 'gpt_action'
+                  return 'chatgpt_other'
+              except:return 'invalid'
+          def client_shape(c):
+              redirects=c.get('redirectUris') if isinstance(c.get('redirectUris'),list) else []
+              return {
+                'auth_method':str(c.get('tokenEndpointAuthMethod') or 'missing'),
+                'auth_explicit':str(c.get('authMethodExplicit') is True).upper(),
+                'has_secret':str(bool(c.get('clientSecret'))).upper(),
+                'redirect_count':str(len(redirects)),
+                'redirect_classes':','.join(redirect_class(v) for v in redirects),
+                'grant_types':','.join(str(v) for v in (c.get('grantTypes') or [])),
+                'response_types':','.join(str(v) for v in (c.get('responseTypes') or [])),
+              }
+          current=nsmap.get('current')
+          if current:
+              recent=[]
+              for e in list_keys(current,'grant:'):
+                  k=e.get('name'); g=read(current,k) if k else None
+                  if not isinstance(g,dict): continue
+                  ts=int(g.get('createdAt') or 0)
+                  if start<=ts<=end: recent.append(g)
+              print('CURRENT_RECENT_GRANTS='+str(len(recent)))
+              cids=[]
+              for g in recent:
+                  cid=str(g.get('clientId') or '')
+                  if cid and cid not in cids:cids.append(cid)
+              print('CURRENT_UNIQUE_CLIENTS='+str(len(cids)))
+              for i,cid in enumerate(cids,1):
+                  c=read(current,'client:'+cid)
+                  print(f'CURRENT_CLIENT_{i}_EXISTS='+str(isinstance(c,dict)).upper())
+                  if isinstance(c,dict):
+                      for k,v in client_shape(c).items(): print(f'CURRENT_CLIENT_{i}_{k.upper()}={v}')
+              print('CURRENT_ANY_PENDING_CODE='+str(any(bool(g.get('authCodeId')) and bool(g.get('authCodeWrappedKey')) for g in recent)).upper())
+              print('CURRENT_ANY_REFRESH='+str(any(bool(g.get('refreshTokenId')) and bool(g.get('refreshTokenWrappedKey')) for g in recent)).upper())
+          else:
+              print('CURRENT_NAMESPACE_FOUND=FALSE')
+          hist=nsmap.get('historical')
+          if hist:
+              successful=[]
+              for e in list_keys(hist,'grant:'):
+                  k=e.get('name'); g=read(hist,k) if k else None
+                  if isinstance(g,dict) and bool(g.get('refreshTokenId')) and bool(g.get('refreshTokenWrappedKey')):
+                      successful.append(g)
+              print('HISTORICAL_SUCCESSFUL_GRANTS='+str(len(successful)))
+              hcids=[]
+              for g in successful:
+                  cid=str(g.get('clientId') or '')
+                  if cid and cid not in hcids:hcids.append(cid)
+              for i,cid in enumerate(hcids[:3],1):
+                  c=read(hist,'client:'+cid)
+                  print(f'HIST_CLIENT_{i}_EXISTS='+str(isinstance(c,dict)).upper())
+                  if isinstance(c,dict):
+                      for k,v in client_shape(c).items(): print(f'HIST_CLIENT_{i}_{k.upper()}={v}')
+          else:
+              print('HISTORICAL_NAMESPACE_FOUND=FALSE')
+          PY
+
+      - name: Verify Production safety boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS https://taistock-mcp.keywayk09.workers.dev/health > /tmp/health.json
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/health.json')); fam=body.get('family_mcp') or {}
+          print('PRODUCTION_HEALTH='+str(body.get('status')=='ok').upper())
+          print('FAMILY_READ_ONLY='+str(fam.get('access')=='READ_ONLY_ALLOWLIST').upper())
+          print('FAMILY_ENDPOINT='+str(fam.get('endpoint')=='/family-mcp').upper())
+          PY
