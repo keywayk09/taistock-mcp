@@ -1,0 +1,66 @@
+name: Family OAuth CSP Parity 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-gate:
+    if: github.head_ref == 'fix/family-oauth-authorize-csp-20260823'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply OHLC-proven authorize CSP fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          oauth = Path('src/v6/family-oauth.ts')
+          source = oauth.read_text()
+          old = "content-security-policy\": \"default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'\""
+          new = "content-security-policy\": \"default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://chatgpt.com https://chat.openai.com; base-uri 'none'; frame-ancestors 'none'\""
+          if old in source:
+              if source.count(old) != 1:
+                  raise SystemExit('family_oauth_csp_anchor_not_unique')
+              oauth.write_text(source.replace(old, new, 1))
+          elif new not in source:
+              raise SystemExit('family_oauth_csp_anchor_missing')
+
+          pkg_path = Path('package.json')
+          pkg = json.loads(pkg_path.read_text())
+          command = 'node --experimental-strip-types tests/family-oauth-authorize-csp.test.ts'
+          family = pkg['scripts']['test:family-selection']
+          if command not in family:
+              pkg['scripts']['test:family-selection'] = family + ' && ' + command
+              pkg_path.write_text(json.dumps(pkg, ensure_ascii=False, indent='\t') + '\n')
+          PY
+      - run: npm install
+      - run: npm run type-check
+      - run: node --experimental-strip-types tests/family-oauth-authorize-csp.test.ts
+      - run: npm run test:family-selection
+      - run: npx wrangler deploy --dry-run --outdir dist
+      - name: Commit source/test wiring back to PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/v6/family-oauth.ts package.json; then
+            echo 'Patch already committed'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/v6/family-oauth.ts package.json
+          git commit -m 'Fix Family OAuth authorize callback CSP'
+          git push origin HEAD:${{ github.head_ref }}
