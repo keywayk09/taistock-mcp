@@ -1,3 +1,7 @@
+type ConcreteFetchHandler = {
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Response | Promise<Response>;
+};
+
 export type FamilyTokenDiagnostic = {
   isTokenEndpoint: boolean;
   grantType?: string;
@@ -27,20 +31,14 @@ export async function getFamilyTokenDiagnostic(request: Request): Promise<Family
 
   const contentType = request.headers.get("content-type") || "";
   if (!contentType.toLowerCase().includes("application/x-www-form-urlencoded")) {
-    return {
-      isTokenEndpoint: true,
-      authMethod: "unknown",
-    };
+    return { isTokenEndpoint: true, authMethod: "unknown" };
   }
 
   let text = "";
   try {
     text = await request.clone().text();
   } catch {
-    return {
-      isTokenEndpoint: true,
-      authMethod: "unknown",
-    };
+    return { isTokenEndpoint: true, authMethod: "unknown" };
   }
 
   const form = new URLSearchParams(text);
@@ -74,4 +72,22 @@ export function logFamilyTokenDiagnostic(diag: FamilyTokenDiagnostic, status?: n
     has_code_verifier: Boolean(diag.hasCodeVerifier),
     ...(typeof status === "number" ? { response_status: status } : {}),
   }));
+}
+
+export function createFamilyOAuthTokenDiagnosticWrapper(provider: ConcreteFetchHandler): ConcreteFetchHandler {
+  return {
+    async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+      const diag = await getFamilyTokenDiagnostic(request);
+      if (!diag.isTokenEndpoint) return provider.fetch(request, env, ctx);
+
+      try {
+        const response = await provider.fetch(request, env, ctx);
+        logFamilyTokenDiagnostic(diag, response.status);
+        return response;
+      } catch (error) {
+        logFamilyTokenDiagnostic(diag, 599);
+        throw error;
+      }
+    },
+  };
 }
