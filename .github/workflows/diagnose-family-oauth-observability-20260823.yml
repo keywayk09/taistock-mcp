@@ -1,0 +1,96 @@
+name: Diagnose Family OAuth Observability 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    if: github.head_ref == 'ops/diag-family-oauth-after-press-20260823-1445'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query recent Production request telemetry safely
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          python - <<'PY' > /tmp/query.json
+          import json,time
+          now=int(time.time()*1000)
+          print(json.dumps({
+            'queryId':'adhoc-family-oauth-after-press',
+            'timeframe':{'from':now-15*60*1000,'to':now},
+            'view':'events',
+            'datasets':[],
+            'filterCombination':'and',
+            'filters':[{'key':'$metadata.service','operation':'eq','type':'string','value':'taistock-mcp'}],
+            'limit':500
+          }))
+          PY
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query"
+          http="$(curl -sS -o /tmp/obs.json -w '%{http_code}' -X POST "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data-binary @/tmp/query.json)"
+          echo "OBS_HTTP=$http"
+          if [ "$http" -lt 200 ] || [ "$http" -ge 300 ]; then
+            python - <<'PY'
+          import json
+          try: x=json.load(open('/tmp/obs.json'))
+          except: print('OBS_ERROR=NON_JSON'); raise SystemExit
+          errs=x.get('errors') or []
+          print('OBS_ERROR_COUNT='+str(len(errs)))
+          for e in errs[:3]: print('OBS_ERROR_TYPE='+str((e or {}).get('code') or (e or {}).get('message') or 'unknown')[:160])
+          PY
+            exit 0
+          fi
+          python - <<'PY'
+          import json,urllib.parse,collections
+          x=json.load(open('/tmp/obs.json'))
+          result=x.get('result') or {}
+          print('OBS_SUCCESS='+str(bool(x.get('success',True))).upper())
+          print('OBS_RESULT_KEYS='+','.join(sorted(str(k) for k in result.keys())))
+          paths=collections.Counter(); statuses=collections.Counter(); methods=collections.Counter(); triggers=collections.Counter()
+          seen=set()
+          def safe_path(raw):
+              try:
+                  u=urllib.parse.urlsplit(str(raw))
+                  if u.hostname and u.hostname!='taistock-mcp.keywayk09.workers.dev': return None
+                  return u.path or '/'
+              except: return None
+          def walk(v):
+              if isinstance(v,dict):
+                  # Flattened or direct observability fields only; never print source/message/body/headers.
+                  for k,val in v.items():
+                      lk=str(k).lower()
+                      if lk in ('url','$metadata.url') or lk.endswith('.url'):
+                          p=safe_path(val)
+                          if p and p in ('/authorize','/token','/oauth/token','/family-mcp','/.well-known/oauth-authorization-server','/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/family-mcp'):
+                              paths[p]+=1
+                      elif lk in ('statuscode','$metadata.statuscode') or lk.endswith('.statuscode'):
+                          try: statuses[str(int(val))]+=1
+                          except: pass
+                      elif lk in ('method','requestmethod','$metadata.method','$metadata.requestmethod') or lk.endswith('.method'):
+                          s=str(val).upper()
+                          if s in ('GET','POST','PUT','DELETE','PATCH','OPTIONS','HEAD'): methods[s]+=1
+                      elif lk in ('trigger','$metadata.trigger') or lk.endswith('.trigger'):
+                          s=str(val)
+                          for p in ('/authorize','/oauth/token','/token','/family-mcp'):
+                              if p in s: triggers[p]+=1
+                      # Explicitly skip raw source/message/body/header fields.
+                      if lk in ('source','message','headers','body','request','response') or lk.endswith('.source') or lk.endswith('.message'):
+                          continue
+                      walk(val)
+              elif isinstance(v,list):
+                  for item in v: walk(item)
+          walk(result)
+          for p in ('/authorize','/token','/oauth/token','/family-mcp'):
+              print('OBS_PATH_'+p.strip('/').replace('/','_').replace('-','_').upper()+'='+str(paths[p]))
+              print('OBS_TRIGGER_'+p.strip('/').replace('/','_').replace('-','_').upper()+'='+str(triggers[p]))
+          print('OBS_STATUS_COUNTS='+','.join(f'{k}:{v}' for k,v in statuses.most_common(12)))
+          print('OBS_METHOD_COUNTS='+','.join(f'{k}:{v}' for k,v in methods.most_common()))
+          PY
