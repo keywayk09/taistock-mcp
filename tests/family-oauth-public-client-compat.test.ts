@@ -63,6 +63,41 @@ function authorizeUrl(resource?: string) {
   assert.deepEqual(body.grant_types_supported, ["authorization_code", "refresh_token"]);
 }
 
+// ChatGPT probes the OpenID discovery path even for this OAuth-only provider.
+// Mirror the existing RFC 8414 OAuth metadata there without claiming `openid`
+// or adding ID-token capability. The inner provider must see only the canonical
+// OAuth authorization-server discovery path.
+{
+  let seenPath = "";
+  const wrapper = createFamilyOAuthPublicClientCompatWrapper({
+    async fetch(request) {
+      seenPath = new URL(request.url).pathname;
+      return Response.json({
+        issuer: ORIGIN,
+        authorization_endpoint: `${ORIGIN}/authorize`,
+        token_endpoint: `${ORIGIN}/oauth/token`,
+        scopes_supported: ["family:read"],
+        grant_types_supported: ["authorization_code", "refresh_token"],
+        response_types_supported: ["code"],
+        token_endpoint_auth_methods_supported: ["none"],
+        code_challenge_methods_supported: ["S256"],
+      });
+    },
+  });
+  const response = await wrapper.fetch(new Request(`${ORIGIN}/.well-known/openid-configuration`), env, ctx);
+  assert.equal(response.status, 200);
+  assert.equal(seenPath, "/.well-known/oauth-authorization-server");
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const body = await response.json() as Record<string, unknown>;
+  assert.equal(body.issuer, ORIGIN);
+  assert.equal(body.authorization_endpoint, `${ORIGIN}/authorize`);
+  assert.equal(body.token_endpoint, `${ORIGIN}/oauth/token`);
+  assert.deepEqual(body.scopes_supported, ["family:read", "offline_access"]);
+  assert.equal((body.scopes_supported as string[]).includes("openid"), false);
+  assert.equal("jwks_uri" in body, false);
+  assert.equal("id_token_signing_alg_values_supported" in body, false);
+}
+
 // Trusted ChatGPT connector authorization normalizes both a retained Worker-root
 // resource and a missing resource to the one canonical Family MCP resource.
 for (const resource of [ORIGIN, undefined]) {
