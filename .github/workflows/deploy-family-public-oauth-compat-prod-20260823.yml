@@ -1,0 +1,160 @@
+name: Deploy Family Public OAuth Compat Production 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-and-smoke:
+    if: github.head_ref == 'ops/deploy-family-public-oauth-compat-20260823'
+    runs-on: ubuntu-latest
+    env:
+      PROD_URL: https://taistock-mcp.keywayk09.workers.dev
+      EXPECTED_MAIN_SHA: 9be042427c1fe9ba7b58fe31a22fb50471a33d9b
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Confirm exact merged main
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          echo "MAIN_SHA=${actual}"
+          test "$actual" = "$EXPECTED_MAIN_SHA"
+
+      - run: npm install
+      - run: npm run type-check
+      - run: npm run test:family-selection
+
+      - name: Resolve existing Production OAuth KV
+        id: oauth_kv
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/kv.json
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          body=json.load(open('/tmp/kv.json'))
+          rows=[x for x in body.get('result',[]) if x.get('title')=='taistock-mcp-OAUTH_KV']
+          if not body.get('success') or len(rows)!=1:
+              raise SystemExit('production_oauth_kv_resolution_failed')
+          kv_id=str(rows[0].get('id') or '')
+          if len(kv_id)!=32: raise SystemExit('invalid_oauth_kv_id')
+          print('id='+kv_id)
+          PY
+
+      - name: Build exact Production config
+        env:
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp wrangler.jsonc wrangler.family-public-compat-production.jsonc
+          python - <<'PY'
+          import os,re
+          from pathlib import Path
+          p=Path('wrangler.family-public-compat-production.jsonc')
+          s=p.read_text(); kv=os.environ['OAUTH_KV_ID']
+          pat=r'("binding"\s*:\s*"OAUTH_KV")(\s*)(\})'
+          out,n=re.subn(pat, lambda m: m.group(1)+',\n\t\t\t"id": "'+kv+'"'+m.group(2)+m.group(3), s, count=1)
+          if n!=1: raise SystemExit('oauth_kv_binding_injection_failed')
+          p.write_text(out)
+          PY
+
+      - name: Deploy exact merged main to Production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --config wrangler.family-public-compat-production.jsonc | tee /tmp/deploy.log
+          grep -E 'Uploaded|Deployed|Version ID|Current Version ID' /tmp/deploy.log || true
+
+      - name: Verify Production health and Family safety boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 5 --retry-delay 2 --max-time 30 -fsS "$PROD_URL/health" > /tmp/health.json
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/health.json'))
+          assert body.get('status')=='ok', body
+          fam=body.get('family_mcp') or {}
+          assert fam.get('permission_model')=='SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS', fam
+          assert fam.get('access')=='READ_ONLY_ALLOWLIST', fam
+          assert fam.get('oauth_required') is True, fam
+          print('PRODUCTION_HEALTH=PASS')
+          print('FAMILY_ACCESS=READ_ONLY_ALLOWLIST')
+          PY
+
+      - name: Verify canonical Family protected resource metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 5 --retry-delay 2 --max-time 30 -fsS "$PROD_URL/.well-known/oauth-protected-resource" > /tmp/resource.json
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/resource.json'))
+          expected='https://taistock-mcp.keywayk09.workers.dev/family-mcp'
+          assert body.get('resource')==expected, body
+          assert body.get('scopes_supported')==['family:read'], body
+          assert body.get('authorization_servers')==['https://taistock-mcp.keywayk09.workers.dev'], body
+          print('CANONICAL_FAMILY_RESOURCE=PASS')
+          PY
+
+      - name: Verify Family MCP challenge points to canonical resource metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 30 -sS -D /tmp/family-headers.txt -o /tmp/family-body.txt -w '%{http_code}' -X POST "$PROD_URL/family-mcp" -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"safe-smoke","version":"1"}}}')"
+          echo "FAMILY_MCP_HTTP=${code}"
+          test "$code" = '401'
+          grep -F 'resource_metadata="https://taistock-mcp.keywayk09.workers.dev/.well-known/oauth-protected-resource/family-mcp"' /tmp/family-headers.txt >/dev/null
+          grep -F 'scope="family:read"' /tmp/family-headers.txt >/dev/null
+          echo 'FAMILY_MCP_CHALLENGE=PASS'
+
+      - name: Verify legacy and canonical token routes still reach provider
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in token oauth/token; do
+            code="$(curl --max-time 30 -sS -o /tmp/token-probe.json -w '%{http_code}' -X POST "$PROD_URL/$path" -H 'Content-Type: application/x-www-form-urlencoded' --data 'grant_type=definitely_unsupported')"
+            echo "TOKEN_ROUTE_${path//\//_}_HTTP=${code}"
+            test "$code" != '404'
+            test "$code" -ge 400
+            test "$code" -lt 500
+          done
+
+      - name: Verify five-minute Cron without changing it
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/taistock-mcp/schedules"
+          curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/cron.json
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/cron.json'))
+          assert body.get('success'), body
+          schedules=((body.get('result') or {}).get('schedules') or [])
+          assert '*/5 * * * *' in [x.get('cron') for x in schedules if isinstance(x,dict)], schedules
+          print('PRODUCTION_CRON=PASS')
+          PY
