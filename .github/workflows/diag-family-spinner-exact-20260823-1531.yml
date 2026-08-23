@@ -1,0 +1,130 @@
+name: Diagnose Exact Family Spinner 20260823 1531
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.head_ref == 'ops/diag-family-spinner-exact-20260823-1531'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query exact post-deployment reconnect window
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' > /tmp/query.json
+          import json,datetime
+          def ms(s): return int(datetime.datetime.fromisoformat(s.replace('Z','+00:00')).timestamp()*1000)
+          print(json.dumps({
+            'queryId':'exact-family-spinner-post-deploy-20260823-1531',
+            'timeframe':{'from':ms('2026-08-23T07:28:30Z'),'to':ms('2026-08-23T07:33:30Z')},
+            'view':'events','limit':500,
+            'parameters':{
+              'datasets':['cloudflare-workers'],
+              'filterCombination':'and',
+              'filters':[{'key':'$metadata.service','operation':'eq','type':'string','value':'taistock-mcp'}]
+            }
+          }))
+          PY
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query"
+          http="$(curl -sS -o /tmp/obs.json -w '%{http_code}' -X POST "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data-binary @/tmp/query.json)"
+          echo "OBS_HTTP=$http"
+          test "$http" = '200'
+          python - <<'PY'
+          import json,urllib.parse,collections
+          x=json.load(open('/tmp/obs.json'))
+          events=((((x.get('result') or {}).get('events') or {}).get('events')) or [])
+          watched={
+            '/.well-known/oauth-protected-resource/family-mcp',
+            '/.well-known/oauth-authorization-server',
+            '/.well-known/openid-configuration',
+            '/oauth/register','/register','/authorize','/oauth/token','/token','/family-mcp'
+          }
+          rows=[]
+          for ev in events:
+              if not isinstance(ev,dict): continue
+              workers=ev.get('$workers') if isinstance(ev.get('$workers'),dict) else {}
+              we=workers.get('event') if isinstance(workers.get('event'),dict) else {}
+              req=we.get('request') if isinstance(we.get('request'),dict) else {}
+              resp=we.get('response') if isinstance(we.get('response'),dict) else {}
+              try:u=urllib.parse.urlsplit(str(req.get('url') or ''))
+              except:continue
+              if u.hostname!='taistock-mcp.keywayk09.workers.dev' or u.path not in watched: continue
+              method=str(req.get('method') or '').upper()
+              try:status=int(resp.get('status'))
+              except:status=0
+              rows.append((method,u.path,status,u.query))
+          print('EXACT_RELEVANT_EVENT_COUNT='+str(len(rows)))
+          for (m,p,s),n in sorted(collections.Counter((m,p,s) for m,p,s,_ in rows).items()):
+              print(f'EVENT={m}|{p}|HTTP_{s}|COUNT_{n}')
+          auth_gets=[r for r in rows if r[0]=='GET' and r[1]=='/authorize']
+          print('AUTHORIZE_GET_COUNT='+str(len(auth_gets)))
+          for idx,(_,_,status,qraw) in enumerate(auth_gets,1):
+              q=urllib.parse.parse_qs(qraw,keep_blank_values=True)
+              scopes=' '.join(q.get('scope',[])).split()
+              safe=[s for s in scopes if len(s)<=128 and all(0x21<=ord(c)<=0x7e and c not in ('"','\\') for c in s)]
+              print(f'AUTH_{idx}_SCOPES='+','.join(safe))
+              print(f'AUTH_{idx}_PKCE_METHOD='+str((q.get('code_challenge_method') or [''])[0]))
+              print(f'AUTH_{idx}_HAS_STATE='+str(bool((q.get('state') or [''])[0])).upper())
+          print('OPENID_200_OBSERVED='+str(any(m=='GET' and p=='/.well-known/openid-configuration' and s==200 for m,p,s,_ in rows)).upper())
+          print('AUTHORIZE_302_OBSERVED='+str(any(m=='POST' and p=='/authorize' and s==302 for m,p,s,_ in rows)).upper())
+          print('DCR_REQUEST_OBSERVED='+str(any(m=='POST' and p in ('/oauth/register','/register') for m,p,_,_ in rows)).upper())
+          print('TOKEN_REQUEST_OBSERVED='+str(any(m=='POST' and p in ('/oauth/token','/token') for m,p,_,_ in rows)).upper())
+          print('TOKEN_401_OBSERVED='+str(any(m=='POST' and p in ('/oauth/token','/token') and s==401 for m,p,s,_ in rows)).upper())
+          PY
+
+      - name: Inspect exact current grant/client relation safely
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/ns.json
+          python - <<'PY' > /tmp/nsid
+          import json
+          body=json.load(open('/tmp/ns.json'))
+          rows=[r for r in body.get('result',[]) if r.get('title')=='taistock-mcp-OAUTH_KV']
+          if not body.get('success') or len(rows)!=1: raise SystemExit('oauth_namespace_not_unique')
+          print(rows[0]['id'])
+          PY
+          ns_id="$(cat /tmp/nsid)"
+          base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${ns_id}"
+          enc="$(python -c 'import urllib.parse; print(urllib.parse.quote("grant:",safe=""))')"
+          curl -fsS "$base/keys?prefix=$enc&limit=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/grants.json
+          NS_ID="$ns_id" python - <<'PY'
+          import json,os,subprocess,urllib.parse,datetime
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']; token=os.environ['CLOUDFLARE_API_TOKEN']; ns=os.environ['NS_ID']
+          start=int(datetime.datetime.fromisoformat('2026-08-23T07:28:30+00:00').timestamp())
+          end=int(datetime.datetime.fromisoformat('2026-08-23T07:33:30+00:00').timestamp())
+          base=f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{ns}'
+          def read(key):
+              p=subprocess.run(['curl','-sS','-o','/tmp/value.json','-w','%{http_code}',base+'/values/'+urllib.parse.quote(key,safe=''),'-H',f'Authorization: Bearer {token}'],capture_output=True,text=True)
+              if p.returncode:return None
+              if p.stdout.strip()!='200':return None
+              try:return json.load(open('/tmp/value.json'))
+              except:return None
+          recent=[]
+          for e in json.load(open('/tmp/grants.json')).get('result') or []:
+              k=e.get('name'); g=read(k) if k else None
+              if not isinstance(g,dict):continue
+              ts=int(g.get('createdAt') or 0)
+              if start<=ts<=end:recent.append(g)
+          print('RECENT_GRANTS='+str(len(recent)))
+          for i,g in enumerate(recent,1):
+              cid=str(g.get('clientId') or '')
+              c=read('client:'+cid) if cid else None
+              print(f'GRANT_{i}_SCOPE='+','.join(str(x) for x in (g.get('scope') or [])))
+              print(f'GRANT_{i}_PKCE_S256='+str(g.get('codeChallengeMethod')=='S256' and bool(g.get('codeChallenge'))).upper())
+              print(f'GRANT_{i}_PENDING_CODE='+str(bool(g.get('authCodeId')) and bool(g.get('authCodeWrappedKey'))).upper())
+              print(f'GRANT_{i}_HAS_REFRESH='+str(bool(g.get('refreshTokenId')) and bool(g.get('refreshTokenWrappedKey'))).upper())
+              print(f'GRANT_{i}_CLIENT_RECORD_EXISTS='+str(isinstance(c,dict)).upper())
+          PY
