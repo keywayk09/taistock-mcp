@@ -8,6 +8,11 @@ assert.equal(manifest.principle, "SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS");
 assert.equal(manifest.permission_model.market_and_research_reads, "ALLOW_WHEN_AVAILABLE");
 assert.equal(manifest.permission_model.all_mutations, "DENY");
 assert.equal(manifest.permission_model.owner_private_context, "DENY_BY_DEFAULT_UNLESS_EXPLICITLY_SHARED");
+assert.equal(manifest.evidence_contract, "family-evidence/v1");
+assert.equal(manifest.evidence_identity_policy, "EVIDENCE_CLASS_CANNOT_BE_SELF_PROMOTED");
+assert.ok(manifest.evidence_hierarchy.FORMAL_TRUTH.includes("PUBLISHED_GENERATION"));
+assert.ok(manifest.evidence_hierarchy.FORMAL_TRUTH.includes("OHLC_MCP_VERIFIED_CANONICAL"));
+assert.ok(manifest.evidence_hierarchy.DISPLAY_FALLBACK.includes("FUGLE_DISPLAY"));
 assert.ok(manifest.capabilities.some((item) => item.id === "canonical_ohlc" && item.sources.includes("OHLC_MCP")));
 assert.ok(manifest.capabilities.some((item) => item.id === "published_chip" && item.sources.includes("PUBLISHED_GENERATION")));
 assert.ok(manifest.capabilities.some((item) => item.id === "open_world_web"));
@@ -43,10 +48,13 @@ assert.match(smartRestSource, /SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS/);
 const analysisSource = fs.readFileSync(new URL("../src/v6/family-analysis.ts", import.meta.url), "utf8");
 assert.match(analysisSource, /ADAPTIVE_TO_USER_INTENT/);
 assert.match(analysisSource, /FULL_ANALYSIS_USES_FIXED_1_TO_11_COMPLETENESS_CONTRACT/);
+assert.match(analysisSource, /buildFamilyUnifiedEvidence/);
+assert.match(analysisSource, /evidence_bundle/);
 assert.doesNotMatch(analysisSource, /ALWAYS_RENDER_FIXED_1_TO_11_TEMPLATE/);
 
 const mcpSource = fs.readFileSync(new URL("../src/v6/family-mcp.ts", import.meta.url), "utf8");
 assert.match(mcpSource, /familySharedReadManifest/);
+assert.match(mcpSource, /FAMILY_EVIDENCE_V1_READY/);
 assert.match(mcpSource, /owner_private_context_shared_by_default: false/);
 assert.match(mcpSource, /github_writes: false/);
 
