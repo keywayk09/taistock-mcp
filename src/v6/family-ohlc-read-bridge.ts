@@ -1,4 +1,4 @@
-export const FAMILY_OHLC_READ_BRIDGE_VERSION = "family-ohlc-read-bridge/v1.0.1";
+export const FAMILY_OHLC_READ_BRIDGE_VERSION = "family-ohlc-read-bridge/v1.0.2";
 
 type AnyRecord = Record<string, any>;
 
@@ -71,6 +71,15 @@ function verificationLevel(raw: unknown, fallback: string) {
   );
 }
 
+function statusToken(raw: unknown) {
+  const value = rec(raw);
+  return String(value.data_status ?? value.status ?? "").trim().toUpperCase();
+}
+
+function statusIsReady(raw: unknown) {
+  return ["OK", "READY"].includes(statusToken(raw));
+}
+
 function compactOhlcResult(raw: unknown) {
   const value = rec(raw);
   const rows = Array.isArray(value.rows) ? value.rows : Array.isArray(value.bars) ? value.bars : [];
@@ -95,6 +104,34 @@ function compactOhlcResult(raw: unknown) {
     returned: Number(value.returned ?? value.count ?? rows.length ?? 0),
     rows,
   };
+}
+
+function formalStockOhlcReady(raw: unknown) {
+  const value = rec(raw);
+  const rows = Array.isArray(value.rows) ? value.rows : Array.isArray(value.bars) ? value.bars : [];
+  const quality = rec(value.quality);
+  return value.ok === true
+    && value.blocked !== true
+    && statusIsReady(value)
+    && value.formal_research_eligible === true
+    && value.dataset_complete_view === true
+    && Boolean(String(value.dataset_version ?? "").trim())
+    && rows.length > 0
+    && String(quality.gate ?? "").toUpperCase() === "PASS";
+}
+
+function verifiedGlobalFutureReady(raw: unknown) {
+  const value = rec(raw);
+  const rows = Array.isArray(value.rows) ? value.rows : [];
+  const provenance = rec(value.provenance);
+  return value.ok === true
+    && value.blocked !== true
+    && String(value.status ?? "").toUpperCase() === "READY"
+    && value.formal_research_eligible === true
+    && String(value.verification_level ?? "") === "VERIFIED_RECEIPT_GZIP_LOGICAL_SHA256_BOUND"
+    && Boolean(String(value.dataset_version ?? "").trim())
+    && Boolean(String(provenance.canonical_path ?? "").trim())
+    && rows.length > 0;
 }
 
 function canonicalUnavailable(error: string) {
@@ -147,14 +184,9 @@ export async function readFamilyCanonicalOhlc(
   if (!dailyCall.ok) return canonicalUnavailable(dailyCall.error);
 
   const daily = compactOhlcResult(dailyCall.data);
-  const dailyFormal = daily.ok
-    && !daily.blocked
-    && daily.formal_research_eligible
-    && daily.dataset_complete_view
-    && Boolean(daily.dataset_version);
-  if (!dailyFormal) {
+  if (!formalStockOhlcReady(dailyCall.data)) {
     return canonicalUnavailable(
-      String(rec(dailyCall.data).error ?? rec(dailyCall.data).data_status ?? "OHLC_MCP_FORMAL_GATE_NOT_READY"),
+      String(rec(dailyCall.data).error ?? rec(dailyCall.data).data_status ?? rec(dailyCall.data).status ?? "OHLC_MCP_FORMAL_GATE_NOT_READY"),
     );
   }
 
@@ -168,15 +200,8 @@ export async function readFamilyCanonicalOhlc(
       to: asOf,
       limit: 2000,
     }));
-    if (intradayCall.ok) {
-      const candidate = compactOhlcResult(intradayCall.data);
-      if (
-        candidate.ok
-        && !candidate.blocked
-        && candidate.formal_research_eligible
-        && candidate.dataset_complete_view
-        && Boolean(candidate.dataset_version)
-      ) intraday5m = candidate;
+    if (intradayCall.ok && formalStockOhlcReady(intradayCall.data)) {
+      intraday5m = compactOhlcResult(intradayCall.data);
     }
   }
 
@@ -197,8 +222,10 @@ export async function readFamilyCanonicalOhlc(
 
 function governedContext(raw: unknown, source: string, error: string | null = null) {
   const value = rec(raw);
-  const ready = value.ok === true && value.blocked !== true && (Array.isArray(value.rows) ? value.rows.length > 0 : true);
-  const rawStatus = String(value.status ?? "").toUpperCase();
+  const rowsOk = !Array.isArray(value.rows) || value.rows.length > 0;
+  const rawStatus = String(value.status ?? value.data_status ?? "").toUpperCase();
+  const statusOk = !rawStatus || ["OK", "READY", "DEGRADED"].includes(rawStatus);
+  const ready = value.ok === true && value.blocked !== true && rowsOk && statusOk;
   return {
     status: ready ? (rawStatus === "DEGRADED" ? "DEGRADED" : "READY") : "UNAVAILABLE",
     source,
@@ -208,7 +235,7 @@ function governedContext(raw: unknown, source: string, error: string | null = nu
     provenance: value.provenance ?? null,
     data_as_of: value.as_of ?? value.trade_date ?? value.resolved_date ?? null,
     data: ready ? value : null,
-    error: error ?? (ready ? null : String(value.error ?? value.status ?? "unavailable")),
+    error: error ?? (ready ? null : String(value.error ?? value.status ?? value.data_status ?? "unavailable")),
     bridge_version: FAMILY_OHLC_READ_BRIDGE_VERSION,
   };
 }
@@ -236,9 +263,15 @@ async function readGlobalFutureAsOf(
     }));
     if (!result.ok) return { product, trade_date: tradeDate, ...result };
     const value = rec(result.data);
-    if (value.ok === true && value.blocked !== true) return { product, trade_date: tradeDate, ...result };
+    if (verifiedGlobalFutureReady(value)) return { product, trade_date: tradeDate, ...result };
     if (String(value.error ?? "") === "DATA_NOT_FOUND") continue;
-    return { product, trade_date: tradeDate, ...result };
+    return {
+      product,
+      trade_date: tradeDate,
+      ok: true as const,
+      data: value,
+      error: value.error ? String(value.error) : "GLOBAL_FUTURES_NOT_VERIFIED_READY",
+    };
   }
   return {
     product,
@@ -264,6 +297,12 @@ export async function readFamilyMarketRegimeContext(
   const question = String(input.question ?? "");
   const intent = input.intent ?? "";
   const asOf = String(input.as_of_date ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
+    return {
+      txf_context: governedContext(null, "OHLC_MCP_TXF_READ", "INVALID_AS_OF_DATE"),
+      global_futures_context: governedContext(null, "OHLC_MCP_GLOBAL_FUTURES_READ", "INVALID_AS_OF_DATE"),
+    };
+  }
   if (!shouldUseFamilyRegimeContext(question, intent)) {
     return {
       txf_context: governedContext(null, "OHLC_MCP_TXF_READ", "NOT_REQUIRED_BY_ADAPTIVE_PLAN"),
@@ -286,11 +325,14 @@ export async function readFamilyMarketRegimeContext(
     : governedContext(null, "OHLC_MCP_TXF_READ", txfCall.error);
 
   const successful = futuresCalls
-    .filter((item) => item.ok && rec(item.data).ok === true && rec(item.data).blocked !== true)
+    .filter((item) => item.ok && verifiedGlobalFutureReady(item.data))
     .map((item) => ({ product: item.product, ...rec(item.data) }));
   const failures = futuresCalls
-    .filter((item) => !(item.ok && rec(item.data).ok === true && rec(item.data).blocked !== true))
-    .map((item) => ({ product: item.product, error: item.error ?? rec(item.data).error ?? "unavailable" }));
+    .filter((item) => !(item.ok && verifiedGlobalFutureReady(item.data)))
+    .map((item) => ({
+      product: item.product,
+      error: item.error ?? rec(item.data).error ?? "GLOBAL_FUTURES_NOT_VERIFIED_READY",
+    }));
   const resolvedDates = successful.map((item) => String(item.trade_date ?? "")).filter(Boolean).sort();
 
   const globalFuturesRaw = successful.length > 0 ? {
@@ -298,7 +340,7 @@ export async function readFamilyMarketRegimeContext(
     blocked: false,
     status: failures.length ? "DEGRADED" : "READY",
     source: "OHLC_MCP_GLOBAL_FUTURES_READ",
-    verification_level: "VERIFIED_CANONICAL_CONTEXT_WHEN_AVAILABLE",
+    verification_level: "VERIFIED_CANONICAL_CONTEXT",
     formal_research_eligible: false,
     trade_date: resolvedDates.at(-1) ?? null,
     products: successful,
@@ -310,6 +352,7 @@ export async function readFamilyMarketRegimeContext(
     blocked: true,
     status: "UNAVAILABLE",
     source: "OHLC_MCP_GLOBAL_FUTURES_READ",
+    verification_level: "NOT_VERIFIED",
     trade_date: null,
     products: [],
     failures,
