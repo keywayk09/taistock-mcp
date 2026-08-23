@@ -217,7 +217,20 @@ async function authorizationServerMetadataWithOfflineAccess(
   env: Env,
   ctx: ExecutionContext,
 ) {
-  const response = await provider.fetch(request, env, ctx);
+  // ChatGPT probes both RFC 8414 OAuth discovery and the historical OpenID
+  // discovery path. This service is OAuth-only, so the OpenID path is a
+  // compatibility alias to the same OAuth authorization-server metadata; it
+  // does not advertise `openid` and it does not add any ID-token capability.
+  const sourceUrl = new URL(request.url);
+  if (sourceUrl.pathname === "/.well-known/openid-configuration") {
+    sourceUrl.pathname = "/.well-known/oauth-authorization-server";
+    sourceUrl.search = "";
+    sourceUrl.hash = "";
+  }
+  const metadataRequest = sourceUrl.toString() === request.url
+    ? request
+    : new Request(sourceUrl.toString(), request);
+  const response = await provider.fetch(metadataRequest, env, ctx);
   if (!response.ok) return response;
 
   let body: Record<string, unknown>;
@@ -254,9 +267,11 @@ async function authorizationServerMetadataWithOfflineAccess(
  * 1) every Family protected-resource identifier is canonicalized to
  *    `<worker-origin>/family-mcp`;
  * 2) HTTP Basic `<client_id>:` is normalized to OAuth public-client `none`;
- * 3) authorization-server discovery advertises `offline_access` so a newly
- *    recreated ChatGPT app can request refresh-token continuity, while the
- *    actual Family permission grant remains exactly `family:read`.
+ * 3) OAuth discovery advertises `offline_access` so ChatGPT can maintain
+ *    refresh-token continuity;
+ * 4) `/.well-known/openid-configuration` safely mirrors the same OAuth metadata
+ *    because ChatGPT probes both discovery conventions. The mirror does not
+ *    advertise `openid` or any ID-token capability.
  *
  * The inner token-recovery wrapper still proves the exact authorization code,
  * trusted redirect and `family:read` grant, and the OAuth provider still proves
@@ -269,7 +284,10 @@ export function createFamilyOAuthPublicClientCompatWrapper(provider: ConcreteFet
       if (request.method === "GET" && url.pathname === "/.well-known/oauth-protected-resource") {
         return canonicalProtectedResourceMetadata(request);
       }
-      if (request.method === "GET" && url.pathname === "/.well-known/oauth-authorization-server") {
+      if (
+        request.method === "GET"
+        && (url.pathname === "/.well-known/oauth-authorization-server" || url.pathname === "/.well-known/openid-configuration")
+      ) {
         return authorizationServerMetadataWithOfflineAccess(request, provider, env, ctx);
       }
 
