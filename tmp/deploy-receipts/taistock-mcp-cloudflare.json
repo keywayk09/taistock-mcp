@@ -1,14 +1,14 @@
 {
-  "source_sha": "66f4deec3832e21c383fa67d1099e5a2eba51917",
+  "source_sha": "ba64ab9651214fca0fb6275f262768a9e84103e2",
   "oauth_kv_outcome": "success",
   "oauth_kv_title": "taistock-mcp-OAUTH_KV",
   "oauth_kv_created": "false",
-  "deploy_outcome": "success",
+  "deploy_outcome": "failure",
   "cron_outcome": "success",
-  "reason": "DEPLOYED_OAUTH_KV_AND_CRON_VERIFIED",
+  "reason": "WRANGLER_DEPLOY_FAILED",
   "diagnostic_path": "tmp/deploy-receipts/taistock-mcp-cloudflare-error.txt",
   "token_configured": true,
   "account_id_configured": true,
   "cron": "*/5 * * * *",
-  "recorded_at": "2026-08-22T15:26:10Z"
+  "recorded_at": "2026-08-23T20:33:45Z"
 }
