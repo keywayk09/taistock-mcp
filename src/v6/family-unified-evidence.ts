@@ -1,7 +1,7 @@
 import {
   summarizeFamilyForeignShareholding,
   summarizeFamilyHoldingDistribution,
-} from "./family-eleven-point";
+} from "./family-eleven-point.ts";
 
 export const FAMILY_UNIFIED_EVIDENCE_VERSION = "family-evidence/v1.0.0";
 
