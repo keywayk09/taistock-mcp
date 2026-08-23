@@ -1,4 +1,4 @@
-export const FAMILY_SHARED_READ_PLANE_VERSION = "family-shared-read-plane/v1.0.0";
+export const FAMILY_SHARED_READ_PLANE_VERSION = "family-shared-read-plane/v1.1.0";
 
 export type FamilySharedReadCapability = {
   id: string;
@@ -106,6 +106,14 @@ export function familySharedReadManifest() {
     version: FAMILY_SHARED_READ_PLANE_VERSION,
     principle: "SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS",
     owner_to_family_policy: "OWNER_MARKET_RESEARCH_READ_CAPABILITIES_SHARED_BY_DEFAULT",
+    evidence_contract: "family-evidence/v1",
+    evidence_identity_policy: "EVIDENCE_CLASS_CANNOT_BE_SELF_PROMOTED",
+    evidence_hierarchy: {
+      FORMAL_TRUTH: ["OHLC_MCP_VERIFIED_CANONICAL", "PUBLISHED_GENERATION"],
+      GOVERNED_CONTEXT: ["STRUCTURED_FUNDAMENTALS", "HOLDER_STRUCTURE", "TXF_CONTEXT", "GLOBAL_MARKET_CONTEXT", "GLOBAL_FUTURES_CONTEXT"],
+      DISPLAY_FALLBACK: ["FUGLE_DISPLAY", "FINMIND_PRICE_FALLBACK"],
+      WEB_EVIDENCE: ["OPEN_WORLD_WEB_WITH_SOURCE_AND_TIME"],
+    },
     permission_model: {
       market_and_research_reads: "ALLOW_WHEN_AVAILABLE",
       future_owner_read_capabilities: "SHARE_BY_DEFAULT_UNLESS_PRIVATE_OR_SENSITIVE",
@@ -117,7 +125,9 @@ export function familySharedReadManifest() {
     evidence_rules: [
       "能力共享不代表資料身份可互換：正式 OHLC 仍只認 OHLC MCP。",
       "正式籌碼仍只認 Published generation。",
+      "GOVERNED_CONTEXT、DISPLAY_FALLBACK、WEB_EVIDENCE 不能自行升級成 FORMAL_TRUTH。",
       "Web/研究資料可補充與解釋，但不能覆寫 canonical/official 事實。",
+      "資料不足必須維持 UNKNOWN/UNAVAILABLE，不得為湊結論補值。",
       "Owner 私人郵件、行事曆、聯絡人與未明確共享的私人檔案不屬於 Family shared plane。",
     ],
   } as const;
