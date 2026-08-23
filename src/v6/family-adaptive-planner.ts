@@ -1,6 +1,6 @@
 import { familySharedReadManifest } from "./family-shared-read-plane.ts";
 
-export const FAMILY_ADAPTIVE_PLANNER_VERSION = "family-adaptive-planner/v1.0.1";
+export const FAMILY_ADAPTIVE_PLANNER_VERSION = "family-adaptive-planner/v1.1.0";
 
 export type FamilyIntent =
   | "QUICK_STOCK_QUESTION"
@@ -54,21 +54,34 @@ function answerDepth(intent: FamilyIntent, query: string): FamilyAnswerDepth {
   return "STANDARD";
 }
 
-function preferredReads(intent: FamilyIntent) {
+function wantsRegimeContext(query: string) {
+  return /短線|當沖|盤中|技術|支撐|壓力|進場|位置|突破|回檔|趨勢|大盤|市場|期貨|台指|美股|那斯達克|日經|風險|risk|nasdaq|nikkei/i.test(query);
+}
+
+function preferredReads(intent: FamilyIntent, query: string) {
+  let base: string[];
   switch (intent) {
     case "QUICK_STOCK_QUESTION":
-      return ["realtime_market", "canonical_ohlc", "published_chip", "fundamentals", "open_world_web"];
+      base = ["realtime_market", "canonical_ohlc", "published_chip", "fundamentals", "open_world_web"];
+      break;
     case "FULL_STOCK_ANALYSIS":
-      return ["realtime_market", "canonical_ohlc", "published_chip", "fundamentals", "industry_supply_chain", "research_repository", "global_market_context", "open_world_web"];
+      base = ["realtime_market", "canonical_ohlc", "published_chip", "fundamentals", "industry_supply_chain", "research_repository", "txf_context", "global_futures_context", "global_market_context", "open_world_web"];
+      break;
     case "STOCK_COMPARE":
-      return ["realtime_market", "canonical_ohlc", "published_chip", "fundamentals", "industry_supply_chain", "open_world_web"];
+      base = ["realtime_market", "canonical_ohlc", "published_chip", "fundamentals", "industry_supply_chain", "txf_context", "global_futures_context", "open_world_web"];
+      break;
     case "SWING_DISCOVERY":
-      return ["realtime_market", "canonical_ohlc", "published_chip", "fundamentals", "industry_supply_chain", "open_world_web"];
+      base = ["realtime_market", "canonical_ohlc", "published_chip", "fundamentals", "industry_supply_chain", "txf_context", "global_futures_context", "open_world_web"];
+      break;
     case "MARKET_CONTEXT":
-      return ["realtime_market", "published_chip", "global_market_context", "research_repository", "open_world_web"];
+      base = ["realtime_market", "published_chip", "txf_context", "global_futures_context", "global_market_context", "research_repository", "open_world_web"];
+      break;
     case "OPEN_RESEARCH":
-      return ["fundamentals", "industry_supply_chain", "research_repository", "global_market_context", "open_world_web"];
+      base = ["fundamentals", "industry_supply_chain", "research_repository", "global_market_context", "open_world_web"];
+      break;
   }
+  if (wantsRegimeContext(query)) base.push("txf_context", "global_futures_context");
+  return unique(base);
 }
 
 export function planFamilyQuery(query: string, symbols: string[] = []) {
@@ -85,12 +98,13 @@ export function planFamilyQuery(query: string, symbols: string[] = []) {
     planner_role: "NON_BINDING_RESEARCH_PLAN",
     model_override_allowed: true,
     fixed_workflow: false,
-    preferred_reads: preferredReads(intent),
+    preferred_reads: preferredReads(intent, normalizedQuery),
     shared_read_plane: familySharedReadManifest(),
     execution_guidance: {
       quick_question: "先回答使用者真正問的事；只取足以支撐答案的證據，不因為有11點框架就強迫逐點念完。",
       full_analysis: "需要完整個股研究時，以1到11點作最終完整性契約，但查詢順序與來源可動態決定。",
       progressive_deepening: "先做高價值核心讀取；若發現重大催化劑、資料衝突、未知欄位或新線索，再自主擴展研究。",
+      market_regime: "短線/技術/完整研究才主動加入TXF與Global Futures；它們只作Market Regime Context，不覆寫個股正式OHLC。",
       conflict_resolution: "重大事實衝突不得直接選邊；優先官方/canonical，再找第二高權威來源，最後標 FACT/INFERENCE/JUDGMENT/CONFLICT/UNKNOWN。",
       web: "Open Web 永遠可用，不是 fallback-only；seed query 只是起點，可改寫、跨語言、跨網站與追新實體。",
       identity: "Web、Fugle、FinMind 與研究資料不得冒充正式 OHLC 或 Published 籌碼。",
