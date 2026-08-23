@@ -8,6 +8,7 @@ import {
   summarizeFamilyRevenue,
 } from "./family-fundamental-summary";
 import { familyResearchDirective } from "./family-research-policy";
+import { buildFamilyUnifiedEvidence } from "./family-unified-evidence";
 
 type SmartFamilyInput = {
   symbols: string[];
@@ -145,17 +146,28 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       enrichment_errors: enrichmentErrors,
     });
     const elevenPoint = openWorldElevenPoint(elevenPointRaw, symbol);
+    const evidenceBundle = buildFamilyUnifiedEvidence({
+      symbol,
+      as_of_date: asOf,
+      request_intent: adaptivePlan.intent,
+      analysis,
+      intelligence: familyIntelligence,
+      holding_distribution_rows: holdingDistribution.data,
+      foreign_shareholding_rows: foreignShareholding.data,
+    });
 
     return {
       ...analysis,
       family_intelligence: familyIntelligence,
+      evidence_bundle: evidenceBundle,
       eleven_point_analysis: elevenPoint,
       open_world_research: familyResearchDirective([symbol]),
       decision_readiness: {
-        realtime: Boolean(analysis?.market_snapshot?.quote?.close),
-        technical_research_fallback: analysis?.technical?.status === "READY",
-        formal_ohlc: false,
-        published_chip: Boolean(analysis?.data_quality?.published_chip),
+        ...evidenceBundle.decision_readiness,
+        realtime: evidenceBundle.evidence.realtime_market.status === "READY",
+        technical_research_fallback: evidenceBundle.evidence.technical_research_fallback.status === "READY",
+        formal_ohlc: evidenceBundle.evidence.canonical_ohlc.formal_research_eligible,
+        published_chip: evidenceBundle.evidence.published_chip.formal_research_eligible,
         monthly_revenue: monthlyRevenue.status === "READY",
         accounting: accounting.status === "READY",
         official_valuation: valuation.status === "READY",
@@ -173,7 +185,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
 
   return {
     ...base,
-    version: "family-smart-analysis/v3.0.0",
+    version: "family-smart-analysis/v3.1.0",
     route: symbols.length > 1 ? "adaptive_stock_compare" : adaptivePlan.intent === "FULL_STOCK_ANALYSIS" ? "adaptive_full_stock_analysis" : "adaptive_stock_question",
     question: userQuestion || null,
     adaptive_plan: adaptivePlan,
@@ -187,6 +199,8 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       production_writes: false,
       github_writes: false,
       strategy_changes: false,
+      evidence_contract: "family-evidence/v1",
+      evidence_identity: "EVIDENCE_CLASS_CANNOT_BE_SELF_PROMOTED",
       formal_chip: "PUBLISHED_GENERATION_ONLY",
       formal_ohlc: "OHLC_MCP_ONLY",
       realtime_display: "FUGLE_PRIMARY_WITH_RESEARCH_FALLBACKS",
@@ -197,6 +211,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       single_stock: "QUICK_QUESTION_CAN_BE_CONCISE; FULL_ANALYSIS_USES_FIXED_1_TO_11_COMPLETENESS_CONTRACT",
       compare: "COMPARE_USING_THE_SAME_1_TO_11_EVIDENCE_MODEL_WITHOUT_FORCING_11_VISIBLE_SECTIONS",
       missing_data: "EXPLICIT_NULL_OR_UNKNOWN_NEVER_GUESS",
+      evidence: "FORMAL_TRUTH_GOVERNED_CONTEXT_DISPLAY_FALLBACK_WEB_EVIDENCE_MUST_REMAIN_DISTINCT",
       web: "OPEN_WORLD_AUTONOMOUS_RESEARCH_NOT_FIXED_KEYWORDS_OR_SITES",
       realtime: "FUGLE_AND_MARKET_SOURCES_ALLOWED_BUT_NOT_FORMAL_OHLC",
       evidence_labels: ["FACT", "INFERENCE", "JUDGMENT", "CONFLICT", "UNKNOWN"],
