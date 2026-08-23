@@ -3,6 +3,7 @@ import { MyMCP as BaseMCP } from "./index";
 import { registerDailyReportFormatTool } from "./v6/daily-report-format";
 import { handleFamilyActionCompat } from "./v6/family-action-compat";
 import { createFamilyOAuthProvider } from "./v6/family-oauth";
+import { createFamilyOAuthLegacyEndpointWrapper } from "./v6/family-oauth-legacy-endpoints";
 import { createFamilyOAuthTokenRecoveryWrapper } from "./v6/family-oauth-token-recovery";
 import { FAMILY_MCP_TOOL_NAMES } from "./v6/family-mcp";
 import { githubDataStoreHealth } from "./v6/github-data-store";
@@ -170,7 +171,9 @@ const appHandler = {
   },
 };
 
-const familyOAuthProvider = createFamilyOAuthTokenRecoveryWrapper(createFamilyOAuthProvider(appHandler));
+const familyOAuthProvider = createFamilyOAuthLegacyEndpointWrapper(
+  createFamilyOAuthTokenRecoveryWrapper(createFamilyOAuthProvider(appHandler)),
+);
 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
