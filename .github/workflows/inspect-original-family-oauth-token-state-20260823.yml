@@ -42,7 +42,7 @@ jobs:
               curl -fsS "$base/keys?prefix=$enc&limit=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > "/tmp/${prefix%:}-keys.json"
             done
             NS_ID="$ns_id" NS_TITLE="$ns_title" python - <<'PY'
-          import json,os,subprocess,urllib.parse,time
+          import json,os,subprocess,urllib.parse,time,re
           account=os.environ['CLOUDFLARE_ACCOUNT_ID']; token=os.environ['CLOUDFLARE_API_TOKEN']; ns=os.environ['NS_ID']; title=os.environ['NS_TITLE']; cid=os.environ['MOM_CLIENT_ID']; redirect=os.environ['MOM_REDIRECT_URI']
           base=f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{ns}'
           def read(key):
@@ -60,6 +60,10 @@ jobs:
                   if u.path in ('','/'): return 'worker_root'
                   return 'same_worker_other_path'
               except: return 'invalid'
+          def safe_scope_token(v):
+              # OAuth scope names are authorization metadata, not credentials, but
+              # still bound output to printable RFC6749 scope-token characters.
+              return bool(re.fullmatch(r'[\x21\x23-\x5B\x5D-\x7E]{1,128}',v))
           gkeys=[x.get('name') for x in (json.load(open('/tmp/grant-keys.json')).get('result') or []) if x.get('name')]
           grants=[]; grant_ids=set()
           for key in gkeys:
@@ -71,14 +75,14 @@ jobs:
           print('MATCHING_GRANTS='+str(len(grants)))
           for i,g in enumerate(grants,1):
               scope=[str(v) for v in (g.get('scope') or [])]
-              known={'family:read','taistock.read','openid','profile','email','offline_access','mcp:tools','files:write'}
               print(f'GRANT_{i}_SCOPE_COUNT={len(scope)}')
-              for name in sorted(known):
-                  label=name.upper().replace(':','_').replace('.','_')
-                  print(f'GRANT_{i}_SCOPE_HAS_{label}='+str(name in scope).upper())
-              print(f'GRANT_{i}_SCOPE_ALL_KNOWN='+str(all(v in known for v in scope)).upper())
+              if all(safe_scope_token(v) for v in scope):
+                  print(f'GRANT_{i}_SCOPE_TOKENS='+','.join(scope))
+              else:
+                  print(f'GRANT_{i}_SCOPE_TOKENS=UNSAFE_TO_PRINT')
               print(f'GRANT_{i}_USER_IS_FAMILY='+str(g.get('userId')=='family').upper())
               print(f'GRANT_{i}_USER_ID_PRESENT='+str(bool(g.get('userId'))).upper())
+              print(f'GRANT_{i}_METADATA_ROLE_IS_FAMILY='+str(isinstance(g.get('metadata'),dict) and g['metadata'].get('role')=='family').upper())
               print(f'GRANT_{i}_REDIRECT_MATCH='+str(g.get('redirectUri')==redirect).upper())
               print(f'GRANT_{i}_RESOURCE_CLASS='+resource_class(g.get('resource')))
               print(f'GRANT_{i}_PKCE_S256='+str(g.get('codeChallengeMethod')=='S256' and bool(g.get('codeChallenge'))).upper())
@@ -86,12 +90,8 @@ jobs:
               print(f'GRANT_{i}_HAS_REFRESH_TOKEN='+str(bool(g.get('refreshTokenId'))).upper())
               print(f'GRANT_{i}_HAS_REFRESH_WRAPPED_KEY='+str(bool(g.get('refreshTokenWrappedKey'))).upper())
               print(f'GRANT_{i}_HAS_ENCRYPTED_PROPS='+str(bool(g.get('encryptedProps'))).upper())
-              print(f'GRANT_{i}_HAS_METADATA='+str(bool(g.get('metadata'))).upper())
               if isinstance(g.get('metadata'),dict):
-                  safe_keys=sorted(str(k) for k in g['metadata'].keys())
-                  print(f'GRANT_{i}_METADATA_KEYS='+','.join(safe_keys))
-              else:
-                  print(f'GRANT_{i}_METADATA_KEYS=')
+                  print(f'GRANT_{i}_METADATA_KEYS='+','.join(sorted(str(k) for k in g['metadata'].keys())))
               structural=sorted(str(k) for k in g.keys() if k not in {'encryptedProps','authCodeId','authCodeWrappedKey','refreshTokenId','refreshTokenWrappedKey','codeChallenge'})
               print(f'GRANT_{i}_SAFE_FIELD_NAMES='+','.join(structural))
           tkeys=[x.get('name') for x in (json.load(open('/tmp/token-keys.json')).get('result') or []) if x.get('name')]
