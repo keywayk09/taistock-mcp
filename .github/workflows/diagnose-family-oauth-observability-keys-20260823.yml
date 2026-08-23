@@ -1,0 +1,62 @@
+name: Diagnose Family OAuth Observability Keys 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  observe-keys:
+    if: github.head_ref == 'ops/diag-family-oauth-after-press-20260823-1445'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Discover observability keys and run minimal recent query
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry"
+          khttp="$(curl -sS -o /tmp/keys.json -w '%{http_code}' -X POST "$base/keys" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data '{}')"
+          echo "KEYS_HTTP=$khttp"
+          if [ "$khttp" -ge 200 ] && [ "$khttp" -lt 300 ]; then
+            python - <<'PY'
+          import json
+          x=json.load(open('/tmp/keys.json'))
+          rows=x.get('result') or []
+          wanted=[]
+          for r in rows:
+              k=str((r or {}).get('key') or '')
+              lk=k.lower()
+              if any(s in lk for s in ('service','trigger','url','method','status','request')):
+                  wanted.append((k,str((r or {}).get('type') or '')))
+          print('KEYS_SUCCESS='+str(bool(x.get('success'))).upper())
+          print('KEYS_MATCHED_COUNT='+str(len(wanted)))
+          for k,t in wanted[:40]: print('OBS_KEY='+k+'|'+t)
+          PY
+          else
+            python - <<'PY'
+          import json
+          try:x=json.load(open('/tmp/keys.json'))
+          except: print('KEYS_ERROR=NON_JSON'); raise SystemExit
+          print('KEYS_ERROR='+str((x.get('errors') or [{}])[0].get('message') or 'unknown')[:200])
+          PY
+          fi
+          python - <<'PY' > /tmp/min-query.json
+          import json,time
+          now=int(time.time()*1000)
+          print(json.dumps({'queryId':'oauth-min','timeframe':{'from':now-15*60*1000,'to':now}}))
+          PY
+          qhttp="$(curl -sS -o /tmp/query.json -w '%{http_code}' -X POST "$base/query" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data-binary @/tmp/min-query.json)"
+          echo "MIN_QUERY_HTTP=$qhttp"
+          python - <<'PY'
+          import json
+          try:x=json.load(open('/tmp/query.json'))
+          except: print('MIN_QUERY_JSON=FALSE'); raise SystemExit
+          if 'result' in x and isinstance(x['result'],dict): print('MIN_QUERY_RESULT_KEYS='+','.join(sorted(x['result'].keys())))
+          errs=x.get('errors') or []
+          if errs: print('MIN_QUERY_ERROR='+str((errs[0] or {}).get('message') or 'unknown')[:200])
+          PY
