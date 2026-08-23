@@ -1,0 +1,83 @@
+name: Deploy Family Token Diagnostic Production 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-diagnostic:
+    if: github.head_ref == 'ops/diag-family-oauth-live-20260823-1329'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Type check diagnostic build
+        run: npm run type-check
+      - name: Resolve existing Production OAuth KV
+        id: oauth_kv
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/kv.json
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          body=json.load(open('/tmp/kv.json'))
+          rows=[x for x in body.get('result',[]) if x.get('title')=='taistock-mcp-OAUTH_KV']
+          if not body.get('success') or len(rows)!=1: raise SystemExit('production_oauth_kv_resolution_failed')
+          kv_id=str(rows[0].get('id') or '')
+          if len(kv_id)!=32: raise SystemExit('invalid_oauth_kv_id')
+          print('id='+kv_id)
+          PY
+      - name: Build diagnostic Production config
+        env:
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp wrangler.jsonc wrangler.family-token-diagnostic-production.jsonc
+          python - <<'PY'
+          import os,re
+          from pathlib import Path
+          p=Path('wrangler.family-token-diagnostic-production.jsonc')
+          s=p.read_text(); kv=os.environ['OAUTH_KV_ID']
+          pat=r'("binding"\s*:\s*"OAUTH_KV")(\s*)(\})'
+          out,n=re.subn(pat, lambda m: m.group(1)+',\n\t\t\t"id": "'+kv+'"'+m.group(2)+m.group(3), s, count=1)
+          if n!=1: raise SystemExit('oauth_kv_binding_injection_failed')
+          p.write_text(out)
+          PY
+      - name: Deploy sanitized diagnostic to Production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --config wrangler.family-token-diagnostic-production.jsonc | tee /tmp/deploy.log
+          grep -E 'Uploaded|Deployed|Version ID|Current Version ID' /tmp/deploy.log || true
+      - name: Production health smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 5 --retry-delay 2 --max-time 30 -fsS https://taistock-mcp.keywayk09.workers.dev/health > /tmp/health.json
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/health.json'))
+          fam=body.get('family_mcp') or {}
+          assert body.get('status')=='ok', body
+          assert fam.get('access')=='READ_ONLY_ALLOWLIST', fam
+          assert fam.get('permission_model')=='SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS', fam
+          print('DIAGNOSTIC_PRODUCTION_READY=PASS')
+          PY
