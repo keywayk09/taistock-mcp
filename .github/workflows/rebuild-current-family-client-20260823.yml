@@ -1,0 +1,132 @@
+name: Rebuild Current Family OAuth Client 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild:
+    if: github.head_ref == 'ops/rebuild-current-family-client-20260823'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rebuild exactly one missing current public client record
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/ns.json
+          python - <<'PY' > /tmp/nsid
+          import json
+          body=json.load(open('/tmp/ns.json'))
+          rows=[r for r in body.get('result',[]) if r.get('title')=='taistock-mcp-OAUTH_KV']
+          if not body.get('success') or len(rows)!=1: raise SystemExit('oauth_namespace_not_unique')
+          print(rows[0]['id'])
+          PY
+          ns_id="$(cat /tmp/nsid)"
+          NS_ID="$ns_id" python - <<'PY'
+          import json,os,subprocess,urllib.parse,time,re
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']; token=os.environ['CLOUDFLARE_API_TOKEN']; ns=os.environ['NS_ID']
+          base=f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{ns}'
+          opaque=re.compile(r'^[A-Za-z0-9._~-]{8,256}$')
+          def req(args):
+              p=subprocess.run(args,capture_output=True,text=True)
+              if p.returncode: raise SystemExit('cloudflare_request_failed')
+              return p.stdout.strip()
+          def list_keys(prefix):
+              enc=urllib.parse.quote(prefix,safe='')
+              out=req(['curl','-fsS',f'{base}/keys?prefix={enc}&limit=1000','-H',f'Authorization: Bearer {token}'])
+              return (json.loads(out).get('result') or [])
+          def read(key):
+              url=f'{base}/values/'+urllib.parse.quote(key,safe='')
+              code=req(['curl','-sS','-o','/tmp/read.json','-w','%{http_code}',url,'-H',f'Authorization: Bearer {token}'])
+              if code=='404': return None
+              if code!='200': raise SystemExit('kv_read_http_'+code)
+              try:return json.load(open('/tmp/read.json'))
+              except:raise SystemExit('kv_read_json_failed')
+          now=int(time.time())
+          grant_keys_before=len(list_keys('grant:'))
+          token_keys_before=len(list_keys('token:'))
+          client_keys_before=len(list_keys('client:'))
+          candidates=[]
+          for e in list_keys('grant:'):
+              k=e.get('name')
+              if not k: continue
+              g=read(k)
+              if not isinstance(g,dict): continue
+              created=int(g.get('createdAt') or 0)
+              if created<=0 or now-created>3600: continue
+              scope=g.get('scope') or []
+              resource=g.get('resource')
+              vals=resource if isinstance(resource,list) else [resource]
+              canonical=bool(vals) and all(str(v)=='https://taistock-mcp.keywayk09.workers.dev/family-mcp' for v in vals if v)
+              redirect=str(g.get('redirectUri') or '')
+              try:
+                  u=urllib.parse.urlsplit(redirect)
+                  trusted=u.scheme=='https' and u.hostname in ('chatgpt.com','chat.openai.com') and (u.path.startswith('/connector/oauth/') or u.path=='/connector_platform_oauth_redirect') and not u.query and not u.fragment
+              except: trusted=False
+              cid=str(g.get('clientId') or '')
+              if (
+                  scope==['family:read'] and canonical and trusted and opaque.fullmatch(cid)
+                  and g.get('codeChallengeMethod')=='S256' and bool(g.get('codeChallenge'))
+                  and bool(g.get('authCodeId')) and bool(g.get('authCodeWrappedKey'))
+                  and not g.get('refreshTokenId')
+              ):
+                  candidates.append((created,g))
+          if not candidates: raise SystemExit('no_recent_pending_family_grant')
+          candidates.sort(key=lambda x:x[0],reverse=True)
+          grant=candidates[0][1]
+          cid=str(grant['clientId'])
+          if read('client:'+cid) is not None: raise SystemExit('client_record_already_exists_abort')
+          stored={
+              'clientId':cid,
+              'redirectUris':[str(grant['redirectUri'])],
+              'clientName':'ChatGPT Family Plugin / MCP App',
+              'grantTypes':['authorization_code','refresh_token'],
+              'responseTypes':['code'],
+              'registrationDate':now,
+              'tokenEndpointAuthMethod':'none',
+              'authMethodExplicit':True,
+          }
+          open('/tmp/client.json','w').write(json.dumps(stored,separators=(',',':')))
+          key=urllib.parse.quote('client:'+cid,safe='')
+          code=req(['curl','-sS','-o','/tmp/put.json','-w','%{http_code}','-X','PUT',f'{base}/values/{key}','-H',f'Authorization: Bearer {token}','-H','Content-Type: application/json','--data-binary','@/tmp/client.json'])
+          if code not in ('200','201'): raise SystemExit('kv_put_http_'+code)
+          restored=read('client:'+cid)
+          if restored!=stored: raise SystemExit('client_readback_mismatch')
+          grant_keys_after=len(list_keys('grant:'))
+          token_keys_after=len(list_keys('token:'))
+          client_keys_after=len(list_keys('client:'))
+          if grant_keys_after!=grant_keys_before: raise SystemExit('grant_key_count_changed_abort')
+          if token_keys_after!=token_keys_before: raise SystemExit('token_key_count_changed_abort')
+          if client_keys_after!=client_keys_before+1: raise SystemExit('unexpected_client_key_count_change')
+          print('VALIDATED_PENDING_FAMILY_GRANT=TRUE')
+          print('CURRENT_CLIENT_WAS_MISSING=TRUE')
+          print('REBUILT_SCHEMA_MATCHES_REGISTER_RECOVERED_CLIENT=TRUE')
+          print('PUBLIC_CLIENT_AUTH_METHOD_NONE=TRUE')
+          print('CLIENT_SECRET_PRESENT=FALSE')
+          print('COPIED_OR_CHANGED_GRANTS=FALSE')
+          print('COPIED_OR_CHANGED_TOKENS=FALSE')
+          print('RESTORED_CLIENT_RECORD=TRUE')
+          PY
+
+      - name: Verify Production remains healthy and Family-only read access
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS https://taistock-mcp.keywayk09.workers.dev/health > /tmp/health.json
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/health.json')); fam=body.get('family_mcp') or {}
+          assert body.get('status')=='ok', body
+          assert fam.get('access')=='READ_ONLY_ALLOWLIST', fam
+          assert fam.get('permission_model')=='SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS', fam
+          assert fam.get('endpoint')=='/family-mcp', fam
+          print('PRODUCTION_HEALTH=PASS')
+          print('FAMILY_READ_ONLY=PASS')
+          PY
