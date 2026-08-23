@@ -1,0 +1,132 @@
+name: Diagnose Family OAuth Live 20260823 1329
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.head_ref == 'ops/diag-family-oauth-live-20260823-1329'
+    runs-on: ubuntu-latest
+    env:
+      PROD_URL: https://taistock-mcp.keywayk09.workers.dev
+      MOM_CLIENT_ID: 41i_gRq63zL6r2tO
+      MOM_REDIRECT_URI: https://chatgpt.com/connector/oauth/gDokJPX2DaM_
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Resolve Production OAuth KV
+        id: oauth_kv
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/kv.json
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          body=json.load(open('/tmp/kv.json'))
+          rows=[x for x in body.get('result',[]) if x.get('title')=='taistock-mcp-OAUTH_KV']
+          if not body.get('success') or len(rows)!=1: raise SystemExit('oauth_kv_resolution_failed')
+          print('id='+rows[0]['id'])
+          PY
+
+      - name: Production health
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --max-time 30 -fsS "$PROD_URL/health" > /tmp/health.json
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/health.json'))
+          fam=x.get('family_mcp') or {}
+          print('HEALTH_OK='+str(x.get('status')=='ok').upper())
+          print('OAUTH_BOUND='+str(bool(fam.get('oauth_kv_bound'))).upper())
+          print('LOGIN_SECRET_CONFIGURED='+str(bool(fam.get('login_secret_configured'))).upper())
+          print('FAMILY_ACCESS='+str(fam.get('access')))
+          print('FAMILY_PERMISSION_MODEL='+str(fam.get('permission_model')))
+          PY
+
+      - name: Inspect Mom client and OAuth stage without secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${OAUTH_KV_ID}"
+          enc_client="$(python - <<'PY'
+          import os,urllib.parse
+          print(urllib.parse.quote('client:'+os.environ['MOM_CLIENT_ID'],safe=''))
+          PY
+          )"
+          status="$(curl -sS -o /tmp/client.json -w '%{http_code}' "$base/values/$enc_client" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+          echo "MOM_CLIENT_HTTP=${status}"
+          if [ "$status" = 200 ]; then
+            python - <<'PY'
+          import json,os
+          x=json.load(open('/tmp/client.json'))
+          print('CLIENT_PRESENT=TRUE')
+          print('CLIENT_ID_MATCH='+str(x.get('clientId')==os.environ['MOM_CLIENT_ID']).upper())
+          print('CLIENT_REDIRECT_MATCH='+str((x.get('redirectUris') or [])==[os.environ['MOM_REDIRECT_URI']]).upper())
+          print('CLIENT_AUTH_METHOD='+str(x.get('tokenEndpointAuthMethod')))
+          print('CLIENT_HAS_SECRET='+str(bool(x.get('clientSecret'))).upper())
+          print('CLIENT_RECOVERY_KIND='+str(x.get('recoveryKind')))
+          print('CLIENT_NAME='+str(x.get('clientName')))
+          PY
+          else
+            echo 'CLIENT_PRESENT=FALSE'
+          fi
+
+          for prefix in 'grant:' 'token:'; do
+            enc="$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "$prefix")"
+            curl -fsS "$base/keys?prefix=$enc&limit=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > "/tmp/${prefix%:}-keys.json"
+          done
+
+          python - <<'PY'
+          import json,os,subprocess,urllib.parse
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']; kv=os.environ['OAUTH_KV_ID']; token=os.environ['CLOUDFLARE_API_TOKEN']
+          cid=os.environ['MOM_CLIENT_ID']; redirect=os.environ['MOM_REDIRECT_URI']
+          base=f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{kv}'
+          def read_value(key):
+              url=base+'/values/'+urllib.parse.quote(key,safe='')
+              p=subprocess.run(['curl','-fsS',url,'-H',f'Authorization: Bearer {token}'],capture_output=True,text=True)
+              if p.returncode: return None
+              try: return json.loads(p.stdout)
+              except: return None
+          gkeys=[x.get('name') for x in (json.load(open('/tmp/grant-keys.json')).get('result') or []) if x.get('name')]
+          tkeys=[x.get('name') for x in (json.load(open('/tmp/token-keys.json')).get('result') or []) if x.get('name')]
+          grants=[]
+          for k in gkeys:
+              x=read_value(k)
+              if isinstance(x,dict) and x.get('clientId')==cid:
+                  grants.append(x)
+          print('ALL_GRANT_COUNT='+str(len(gkeys)))
+          print('MOM_GRANT_COUNT='+str(len(grants)))
+          for i,g in enumerate(grants,1):
+              scope=g.get('scope') or []
+              print(f'MOM_GRANT_{i}_SCOPE_EXACT='+str(scope==['family:read']).upper())
+              print(f'MOM_GRANT_{i}_USER_FAMILY='+str(g.get('userId')=='family').upper())
+              print(f'MOM_GRANT_{i}_REDIRECT_MATCH='+str(g.get('redirectUri')==redirect).upper())
+              print(f'MOM_GRANT_{i}_PKCE_S256='+str(g.get('codeChallengeMethod')=='S256' and bool(g.get('codeChallenge'))).upper())
+              print(f'MOM_GRANT_{i}_AUTH_CODE_PENDING='+str(bool(g.get('authCodeId')) and bool(g.get('authCodeWrappedKey'))).upper())
+              print(f'MOM_GRANT_{i}_HAS_REFRESH_TOKEN_ID='+str(bool(g.get('refreshTokenId'))).upper())
+          print('ALL_TOKEN_COUNT='+str(len(tkeys)))
+          # Do not print token keys/IDs or token values. Presence is enough for stage classification.
+          if not grants:
+              stage='NO_CURRENT_AUTHORIZATION_GRANT'
+          elif any(bool(g.get('refreshTokenId')) for g in grants) or len(tkeys)>0:
+              stage='TOKEN_ISSUED_OR_TOKEN_STATE_PRESENT'
+          elif any(bool(g.get('authCodeId')) and bool(g.get('authCodeWrappedKey')) for g in grants):
+              stage='AUTHORIZATION_COMPLETED_TOKEN_NOT_ISSUED'
+          else:
+              stage='GRANT_PRESENT_NO_PENDING_AUTH_CODE'
+          print('OAUTH_STAGE='+stage)
+          PY
