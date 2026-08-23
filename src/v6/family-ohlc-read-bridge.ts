@@ -326,7 +326,7 @@ export async function readFamilyMarketRegimeContext(
     ? governedContext(txfCall.data, "OHLC_MCP_TXF_READ")
     : governedContext(null, "OHLC_MCP_TXF_READ", txfCall.error);
 
-  const successful = futuresCalls
+  const successful: AnyRecord[] = futuresCalls
     .filter((item) => item.ok && verifiedGlobalFutureReady(item.data) && String(rec(item.data).trade_date ?? "") === String(item.trade_date ?? ""))
     .map((item) => ({ product: item.product, ...rec(item.data) }));
   const failures = futuresCalls
