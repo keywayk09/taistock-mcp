@@ -5,6 +5,7 @@
  * OHLC/K-line remains owned by OHLC MCP even though canonical files share one GitHub repository.
  * Durable Object lifecycle uses declarative exports; production deploys must use `wrangler deploy`.
  * Existing MyMCP/FamilyMCP namespaces are preserved as live exports; deletion tombstones are forbidden without explicit review.
+ * Family reaches OHLC only through the named read-only OhlcFamilyReadService RPC entrypoint; no public bypass route or writer binding exists.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
@@ -18,6 +19,13 @@
 		"GITHUB_DATA_REPO": "keywayk09/tv-papertrader",
 		"GITHUB_DATA_BRANCH": "main"
 	},
+	"services": [
+		{
+			"binding": "OHLC_READ_SERVICE",
+			"service": "tv-fugle-1d",
+			"entrypoint": "OhlcFamilyReadService"
+		}
+	],
 	"kv_namespaces": [
 		{
 			"binding": "OAUTH_KV"
