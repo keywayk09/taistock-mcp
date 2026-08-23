@@ -148,6 +148,16 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       ],
     };
 
+    // Shared OHLC/TXF/Global Futures reads are inserted into both the analysis plane
+    // and the intelligence plane so an older fallback field can never shadow a newer
+    // verified service-binding result through nullish-precedence in evidence builders.
+    const analysisWithSharedReads = {
+      ...analysis,
+      canonical_ohlc: canonicalOhlc,
+      txf_context: marketRegime.txf_context,
+      global_futures_context: marketRegime.global_futures_context,
+    };
+
     const enrichmentErrors = [
       ...globalErrors,
       holdingDistribution.error,
@@ -157,7 +167,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
     const elevenPointRaw = buildFamilyElevenPointAnalysis({
       symbol,
       as_of_date: asOf,
-      analysis,
+      analysis: analysisWithSharedReads,
       intelligence: familyIntelligence,
       holding_distribution_rows: holdingDistribution.data,
       foreign_shareholding_rows: foreignShareholding.data,
@@ -170,14 +180,14 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       symbol,
       as_of_date: asOf,
       request_intent: adaptivePlan.intent,
-      analysis,
+      analysis: analysisWithSharedReads,
       intelligence: familyIntelligence,
       holding_distribution_rows: holdingDistribution.data,
       foreign_shareholding_rows: foreignShareholding.data,
     });
 
     return {
-      ...analysis,
+      ...analysisWithSharedReads,
       family_intelligence: familyIntelligence,
       evidence_bundle: evidenceBundle,
       eleven_point_analysis: elevenPoint,
