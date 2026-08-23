@@ -1,0 +1,57 @@
+name: Read Family Token Diagnostic Production 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  read:
+    if: github.head_ref == 'ops/diag-family-oauth-live-20260823-1329'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve Production OAuth KV and read sanitized diagnostic
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/kv.json
+          kv_id="$(python - <<'PY'
+          import json
+          body=json.load(open('/tmp/kv.json'))
+          rows=[x for x in body.get('result',[]) if x.get('title')=='taistock-mcp-OAUTH_KV']
+          if not body.get('success') or len(rows)!=1: raise SystemExit('oauth_kv_resolution_failed')
+          print(rows[0]['id'])
+          PY
+          )"
+          key="$(python - <<'PY'
+          import urllib.parse
+          print(urllib.parse.quote('diag:family-token:last', safe=''))
+          PY
+          )"
+          base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kv_id}"
+          status="$(curl -sS -o /tmp/diag.json -w '%{http_code}' "$base/values/$key" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+          echo "DIAG_HTTP=${status}"
+          if [ "$status" != 200 ]; then
+            echo 'TOKEN_ENDPOINT_DIAGNOSTIC_PRESENT=FALSE'
+            exit 0
+          fi
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/diag.json'))
+          allowed={
+            'event','observed_at','form_encoded','grant_type_is_authorization_code','auth_method',
+            'has_body_client_id','has_body_client_secret','has_redirect_uri','has_scope','has_resource',
+            'has_code','has_code_verifier','response_status'
+          }
+          if set(x)-allowed:
+              raise SystemExit('unexpected_diagnostic_fields')
+          print('TOKEN_ENDPOINT_DIAGNOSTIC_PRESENT=TRUE')
+          for k in ['observed_at','form_encoded','grant_type_is_authorization_code','auth_method','has_body_client_id','has_body_client_secret','has_redirect_uri','has_scope','has_resource','has_code','has_code_verifier','response_status']:
+              print(f'{k.upper()}={x.get(k)}')
+          PY
