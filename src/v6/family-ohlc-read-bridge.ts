@@ -1,4 +1,4 @@
-export const FAMILY_OHLC_READ_BRIDGE_VERSION = "family-ohlc-read-bridge/v1.0.2";
+export const FAMILY_OHLC_READ_BRIDGE_VERSION = "family-ohlc-read-bridge/v1.0.3";
 
 type AnyRecord = Record<string, any>;
 
@@ -263,7 +263,9 @@ async function readGlobalFutureAsOf(
     }));
     if (!result.ok) return { product, trade_date: tradeDate, ...result };
     const value = rec(result.data);
-    if (verifiedGlobalFutureReady(value)) return { product, trade_date: tradeDate, ...result };
+    if (verifiedGlobalFutureReady(value) && String(value.trade_date ?? "") === tradeDate) {
+      return { product, trade_date: tradeDate, ...result };
+    }
     if (String(value.error ?? "") === "DATA_NOT_FOUND") continue;
     return {
       product,
@@ -325,10 +327,10 @@ export async function readFamilyMarketRegimeContext(
     : governedContext(null, "OHLC_MCP_TXF_READ", txfCall.error);
 
   const successful = futuresCalls
-    .filter((item) => item.ok && verifiedGlobalFutureReady(item.data))
+    .filter((item) => item.ok && verifiedGlobalFutureReady(item.data) && String(rec(item.data).trade_date ?? "") === String(item.trade_date ?? ""))
     .map((item) => ({ product: item.product, ...rec(item.data) }));
   const failures = futuresCalls
-    .filter((item) => !(item.ok && verifiedGlobalFutureReady(item.data)))
+    .filter((item) => !(item.ok && verifiedGlobalFutureReady(item.data) && String(rec(item.data).trade_date ?? "") === String(item.trade_date ?? "")))
     .map((item) => ({
       product: item.product,
       error: item.error ?? rec(item.data).error ?? "GLOBAL_FUTURES_NOT_VERIFIED_READY",
