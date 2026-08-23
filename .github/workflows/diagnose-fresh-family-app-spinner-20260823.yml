@@ -1,0 +1,208 @@
+name: Diagnose Fresh Family App Spinner 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.head_ref == 'ops/diag-fresh-family-app-spinner-20260823-1518'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query sanitized Production request telemetry
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' > /tmp/query.json
+          import json,datetime
+          def ms(s): return int(datetime.datetime.fromisoformat(s.replace('Z','+00:00')).timestamp()*1000)
+          print(json.dumps({
+            'queryId':'fresh-family-app-spinner-20260823-1518',
+            'timeframe':{'from':ms('2026-08-23T07:15:30Z'),'to':ms('2026-08-23T07:20:30Z')},
+            'view':'events',
+            'limit':500,
+            'parameters':{
+              'datasets':['cloudflare-workers'],
+              'filterCombination':'and',
+              'filters':[{'key':'$metadata.service','operation':'eq','type':'string','value':'taistock-mcp'}]
+            }
+          }))
+          PY
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query"
+          http="$(curl -sS -o /tmp/obs.json -w '%{http_code}' -X POST "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data-binary @/tmp/query.json)"
+          echo "OBS_HTTP=$http"
+          test "$http" = '200'
+          python - <<'PY'
+          import json,urllib.parse,collections
+          x=json.load(open('/tmp/obs.json'))
+          events=((((x.get('result') or {}).get('events') or {}).get('events')) or [])
+          watched={
+            '/.well-known/oauth-protected-resource',
+            '/.well-known/oauth-protected-resource/family-mcp',
+            '/.well-known/oauth-authorization-server',
+            '/.well-known/openid-configuration',
+            '/oauth/register','/register','/authorize','/oauth/token','/token','/family-mcp'
+          }
+          rows=[]
+          for ev in events:
+              if not isinstance(ev,dict): continue
+              workers=ev.get('$workers') if isinstance(ev.get('$workers'),dict) else {}
+              we=workers.get('event') if isinstance(workers.get('event'),dict) else {}
+              req=we.get('request') if isinstance(we.get('request'),dict) else {}
+              resp=we.get('response') if isinstance(we.get('response'),dict) else {}
+              try:u=urllib.parse.urlsplit(str(req.get('url') or ''))
+              except:continue
+              if u.hostname!='taistock-mcp.keywayk09.workers.dev' or u.path not in watched: continue
+              method=str(req.get('method') or '').upper()
+              try:status=int(resp.get('status'))
+              except:status=0
+              rows.append((method,u.path,status,u.query))
+          print('RELEVANT_EVENT_COUNT='+str(len(rows)))
+          counts=collections.Counter((m,p,s) for m,p,s,_ in rows)
+          for (m,p,s),n in sorted(counts.items()):
+              print(f'EVENT={m}|{p}|HTTP_{s}|COUNT_{n}')
+          auth_gets=[r for r in rows if r[0]=='GET' and r[1]=='/authorize']
+          print('AUTHORIZE_GET_COUNT='+str(len(auth_gets)))
+          for idx,(_,_,status,qraw) in enumerate(auth_gets,1):
+              q=urllib.parse.parse_qs(qraw,keep_blank_values=True)
+              scopes=' '.join(q.get('scope',[])).split()
+              safe=[s for s in scopes if len(s)<=128 and all(0x21<=ord(c)<=0x7e and c not in ('"','\\') for c in s)]
+              resource=(q.get('resource') or [''])[0]
+              try:
+                  ru=urllib.parse.urlsplit(resource)
+                  rc='family_mcp' if ru.hostname=='taistock-mcp.keywayk09.workers.dev' and ru.path=='/family-mcp' else ('worker_root' if ru.hostname=='taistock-mcp.keywayk09.workers.dev' and ru.path in ('','/') else ('none' if not resource else 'other'))
+              except: rc='invalid'
+              redirect=(q.get('redirect_uri') or [''])[0]
+              try:
+                  rd=urllib.parse.urlsplit(redirect)
+                  rdc='connector' if rd.hostname in ('chatgpt.com','chat.openai.com') and (rd.path.startswith('/connector/oauth/') or rd.path=='/connector_platform_oauth_redirect') else 'other'
+              except: rdc='invalid'
+              print(f'AUTH_{idx}_HTTP={status}')
+              print(f'AUTH_{idx}_SCOPES='+','.join(safe))
+              print(f'AUTH_{idx}_HAS_FAMILY_READ='+str('family:read' in safe).upper())
+              print(f'AUTH_{idx}_HAS_OFFLINE_ACCESS='+str('offline_access' in safe).upper())
+              print(f'AUTH_{idx}_RESOURCE={rc}')
+              print(f'AUTH_{idx}_REDIRECT={rdc}')
+              print(f'AUTH_{idx}_PKCE_METHOD='+str((q.get('code_challenge_method') or [''])[0]))
+              print(f'AUTH_{idx}_STATE_PRESENT='+str(bool((q.get('state') or [''])[0])).upper())
+          print('DCR_REQUEST_OBSERVED='+str(any(m=='POST' and p in ('/oauth/register','/register') for m,p,_,_ in rows)).upper())
+          print('TOKEN_REQUEST_OBSERVED='+str(any(m=='POST' and p in ('/oauth/token','/token') for m,p,_,_ in rows)).upper())
+          print('FAMILY_MCP_REQUEST_OBSERVED='+str(any(p=='/family-mcp' for _,p,_,_ in rows)).upper())
+          print('PATH_SPECIFIC_RESOURCE_METADATA_OBSERVED='+str(any(p=='/.well-known/oauth-protected-resource/family-mcp' for _,p,_,_ in rows)).upper())
+          PY
+
+      - name: Inspect sanitized recent OAuth registration state
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/ns.json
+          python - <<'PY' > /tmp/nsid
+          import json
+          body=json.load(open('/tmp/ns.json'))
+          rows=[r for r in body.get('result',[]) if r.get('title')=='taistock-mcp-OAUTH_KV']
+          if not body.get('success') or len(rows)!=1: raise SystemExit('oauth_namespace_not_unique')
+          print(rows[0]['id'])
+          PY
+          ns_id="$(cat /tmp/nsid)"
+          base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${ns_id}"
+          for prefix in 'client:' 'grant:' 'token:'; do
+            enc="$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "$prefix")"
+            curl -fsS "$base/keys?prefix=$enc&limit=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > "/tmp/${prefix%:}-keys.json"
+          done
+          NS_ID="$ns_id" python - <<'PY'
+          import json,os,subprocess,urllib.parse,datetime
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']; token=os.environ['CLOUDFLARE_API_TOKEN']; ns=os.environ['NS_ID']
+          base=f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{ns}'
+          start=int(datetime.datetime.fromisoformat('2026-08-23T07:15:30+00:00').timestamp())
+          end=int(datetime.datetime.fromisoformat('2026-08-23T07:20:30+00:00').timestamp())
+          def read(key):
+              p=subprocess.run(['curl','-fsS',base+'/values/'+urllib.parse.quote(key,safe=''),'-H',f'Authorization: Bearer {token}'],capture_output=True,text=True)
+              if p.returncode: return None
+              try:return json.loads(p.stdout)
+              except:return None
+          def redirect_class(v):
+              try:
+                  u=urllib.parse.urlsplit(str(v or ''))
+                  if u.hostname not in ('chatgpt.com','chat.openai.com'): return 'other'
+                  if u.path.startswith('/connector/oauth/'): return 'connector'
+                  if u.path=='/connector_platform_oauth_redirect': return 'legacy_connector'
+                  if u.path.startswith('/aip/') and u.path.endswith('/oauth/callback'): return 'gpt_action'
+                  return 'chatgpt_other'
+              except:return 'invalid'
+          def resource_class(v):
+              if not v:return 'none'
+              vals=v if isinstance(v,list) else [v]
+              out=[]
+              for raw in vals:
+                  try:
+                      u=urllib.parse.urlsplit(str(raw))
+                      if u.hostname!='taistock-mcp.keywayk09.workers.dev': out.append('other')
+                      elif u.path=='/family-mcp': out.append('family_mcp')
+                      elif u.path in ('','/'): out.append('worker_root')
+                      else: out.append('same_origin_other')
+                  except:out.append('invalid')
+              return ','.join(out)
+          recent_clients=[]
+          for e in json.load(open('/tmp/client-keys.json')).get('result') or []:
+              k=e.get('name'); x=read(k) if k else None
+              if not isinstance(x,dict): continue
+              ts=int(x.get('registrationDate') or 0)
+              if start<=ts<=end:
+                  recent_clients.append(x)
+          print('RECENT_CLIENT_REGISTRATIONS='+str(len(recent_clients)))
+          for i,x in enumerate(recent_clients,1):
+              redirects=x.get('redirectUris') if isinstance(x.get('redirectUris'),list) else []
+              print(f'CLIENT_{i}_AUTH_METHOD='+str(x.get('tokenEndpointAuthMethod') or 'missing'))
+              print(f'CLIENT_{i}_HAS_SECRET='+str(bool(x.get('clientSecret'))).upper())
+              print(f'CLIENT_{i}_REDIRECT_CLASS='+','.join(redirect_class(v) for v in redirects))
+              print(f'CLIENT_{i}_GRANT_TYPES='+','.join(str(v) for v in (x.get('grantTypes') or [])))
+          recent_grants=[]
+          grant_ids=set()
+          for e in json.load(open('/tmp/grant-keys.json')).get('result') or []:
+              k=e.get('name'); g=read(k) if k else None
+              if not isinstance(g,dict): continue
+              ts=int(g.get('createdAt') or 0)
+              if start<=ts<=end:
+                  recent_grants.append(g)
+                  if g.get('id'): grant_ids.add(str(g.get('id')))
+          print('RECENT_GRANTS='+str(len(recent_grants)))
+          for i,g in enumerate(recent_grants,1):
+              print(f'GRANT_{i}_SCOPE='+','.join(str(v) for v in (g.get('scope') or [])))
+              print(f'GRANT_{i}_RESOURCE='+resource_class(g.get('resource')))
+              print(f'GRANT_{i}_REDIRECT='+redirect_class(g.get('redirectUri')))
+              print(f'GRANT_{i}_PKCE_S256='+str(g.get('codeChallengeMethod')=='S256' and bool(g.get('codeChallenge'))).upper())
+              print(f'GRANT_{i}_PENDING_AUTH_CODE='+str(bool(g.get('authCodeId')) and bool(g.get('authCodeWrappedKey'))).upper())
+              print(f'GRANT_{i}_HAS_REFRESH_TOKEN='+str(bool(g.get('refreshTokenId')) and bool(g.get('refreshTokenWrappedKey'))).upper())
+          recent_tokens=[]
+          for e in json.load(open('/tmp/token-keys.json')).get('result') or []:
+              k=e.get('name'); x=read(k) if k else None
+              if not isinstance(x,dict): continue
+              emb=x.get('grant') or {}
+              if str(x.get('grantId') or '') in grant_ids or str(emb.get('id') or '') in grant_ids:
+                  recent_tokens.append(x)
+          print('RECENT_ACCESS_TOKEN_RECORDS='+str(len(recent_tokens)))
+          print('RECENT_ANY_REFRESH_TOKEN='+str(any(bool(g.get('refreshTokenId')) and bool(g.get('refreshTokenWrappedKey')) for g in recent_grants)).upper())
+          PY
+
+      - name: Verify Production safety boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS https://taistock-mcp.keywayk09.workers.dev/health > /tmp/health.json
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/health.json')); fam=body.get('family_mcp') or {}
+          print('PRODUCTION_HEALTH='+str(body.get('status')=='ok').upper())
+          print('FAMILY_READ_ONLY='+str(fam.get('access')=='READ_ONLY_ALLOWLIST').upper())
+          print('FAMILY_ENDPOINT='+str(fam.get('endpoint')=='/family-mcp').upper())
+          PY
