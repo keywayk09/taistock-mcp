@@ -1,0 +1,1 @@
+trigger current sanitized diagnostic workflows after the real reconnect attempt
