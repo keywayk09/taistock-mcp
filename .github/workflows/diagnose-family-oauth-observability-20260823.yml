@@ -12,23 +12,22 @@ jobs:
     if: github.head_ref == 'ops/diag-family-oauth-after-press-20260823-1445'
     runs-on: ubuntu-latest
     steps:
-      - name: Query recent Production request telemetry safely
+      - name: Query exact reconnect window safely
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN:-}"
-          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
           python - <<'PY' > /tmp/query.json
-          import json,time
-          now=int(time.time()*1000)
+          import json,datetime
+          # User reconnect created the new grant at about 06:45:17Z.
+          def ms(s): return int(datetime.datetime.fromisoformat(s.replace('Z','+00:00')).timestamp()*1000)
           print(json.dumps({
-            'queryId':'family-oauth-after-press',
-            'timeframe':{'from':now-15*60*1000,'to':now},
+            'queryId':'family-oauth-exact-reconnect',
+            'timeframe':{'from':ms('2026-08-23T06:44:30Z'),'to':ms('2026-08-23T06:46:10Z')},
             'view':'events',
-            'limit':500,
+            'limit':200,
             'parameters':{
               'datasets':['cloudflare-workers'],
               'filterCombination':'and',
@@ -39,32 +38,27 @@ jobs:
           endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/observability/telemetry/query"
           http="$(curl -sS -o /tmp/obs.json -w '%{http_code}' -X POST "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data-binary @/tmp/query.json)"
           echo "OBS_HTTP=$http"
-          if [ "$http" -lt 200 ] || [ "$http" -ge 300 ]; then
-            python - <<'PY'
-          import json
-          try: x=json.load(open('/tmp/obs.json'))
-          except: print('OBS_ERROR=NON_JSON'); raise SystemExit
-          errs=x.get('errors') or []
-          print('OBS_ERROR_COUNT='+str(len(errs)))
-          for e in errs[:3]: print('OBS_ERROR_TYPE='+str((e or {}).get('code') or (e or {}).get('message') or 'unknown')[:160])
-          PY
-            exit 0
-          fi
+          test "$http" = '200'
           python - <<'PY'
-          import json,urllib.parse,collections
+          import json,urllib.parse,datetime
           x=json.load(open('/tmp/obs.json'))
-          result=x.get('result') or {}
-          events=((result.get('events') or {}).get('events') or []) if isinstance(result,dict) else []
-          print('OBS_SUCCESS='+str(bool(x.get('success',True))).upper())
-          print('OBS_EVENT_COUNT='+str(len(events)))
-          paths=collections.Counter(); statuses=collections.Counter(); methods=collections.Counter(); trigger_paths=collections.Counter()
+          result=x.get('result') or {}; events=((result.get('events') or {}).get('events') or [])
+          interesting={'/authorize','/token','/oauth/token','/family-mcp'}
+          rows=[]
           def safe_path(raw):
               try:
                   u=urllib.parse.urlsplit(str(raw or ''))
                   if u.hostname and u.hostname!='taistock-mcp.keywayk09.workers.dev': return None
                   return u.path or '/'
               except: return None
-          interesting={'/authorize','/token','/oauth/token','/family-mcp','/.well-known/oauth-authorization-server','/.well-known/oauth-protected-resource','/.well-known/oauth-protected-resource/family-mcp','/health'}
+          def ts(md):
+              for k in ('timestamp','startTime','endTime'):
+                  v=md.get(k)
+                  if isinstance(v,(int,float)):
+                      try:return datetime.datetime.fromtimestamp(v/1000,datetime.timezone.utc).strftime('%H:%M:%S.%f')[:12]+'Z'
+                      except:pass
+                  if isinstance(v,str) and v: return v
+              return 'unknown'
           for ev in events:
               if not isinstance(ev,dict): continue
               md=ev.get('$metadata') if isinstance(ev.get('$metadata'),dict) else {}
@@ -73,18 +67,16 @@ jobs:
               req=we.get('request') if isinstance(we.get('request'),dict) else {}
               resp=we.get('response') if isinstance(we.get('response'),dict) else {}
               p=safe_path(req.get('url'))
-              if p in interesting: paths[p]+=1
-              m=str(req.get('method') or '').upper()
-              if m in ('GET','POST','PUT','DELETE','PATCH','OPTIONS','HEAD'): methods[m]+=1
-              try: statuses[str(int(resp.get('status')))]+=1
-              except: pass
-              trig=str(md.get('trigger') or '')
-              for q in interesting:
-                  if q in trig: trigger_paths[q]+=1
-          for p in ('/authorize','/token','/oauth/token','/family-mcp','/health'):
-              key=p.strip('/').replace('/','_').replace('-','_').upper() or 'ROOT'
-              print('OBS_PATH_'+key+'='+str(paths[p]))
-              print('OBS_TRIGGER_'+key+'='+str(trigger_paths[p]))
-          print('OBS_STATUS_COUNTS='+','.join(f'{k}:{v}' for k,v in statuses.most_common(12)))
-          print('OBS_METHOD_COUNTS='+','.join(f'{k}:{v}' for k,v in methods.most_common()))
+              if p not in interesting: continue
+              method=str(req.get('method') or 'UNKNOWN').upper()
+              try: status=str(int(resp.get('status')))
+              except: status='unknown'
+              rows.append((ts(md),method,p,status))
+          rows.sort()
+          print('EXACT_EVENT_COUNT='+str(len(rows)))
+          for t,m,p,s in rows:
+              print(f'EXACT_EVENT={t}|{m}|{p}|HTTP_{s}')
+          print('EXACT_AUTHORIZE_COUNT='+str(sum(1 for _,_,p,_ in rows if p=='/authorize')))
+          print('EXACT_LEGACY_TOKEN_COUNT='+str(sum(1 for _,_,p,_ in rows if p=='/token')))
+          print('EXACT_CANONICAL_TOKEN_COUNT='+str(sum(1 for _,_,p,_ in rows if p=='/oauth/token')))
           PY
