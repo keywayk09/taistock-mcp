@@ -30,6 +30,24 @@ function verifiedStock(symbol: string, timeframe: string) {
   };
 }
 
+function verifiedFuture(args: any) {
+  const tradeDate = String(args.trade_date ?? "2026-08-21");
+  return {
+    ok: true,
+    blocked: false,
+    status: "READY",
+    product: args.product,
+    timeframe: args.timeframe,
+    trade_date: tradeDate,
+    source: "OHLC_MCP_GLOBAL_FUTURES",
+    formal_research_eligible: true,
+    verification_level: "VERIFIED_RECEIPT_GZIP_LOGICAL_SHA256_BOUND",
+    dataset_version: `sha256:${"b".repeat(64)}`,
+    provenance: { canonical_path: `data/Futures/v2/${args.product}/1m/${tradeDate.replaceAll("-", "/")}/${args.product}.csv.gz` },
+    rows: [{ close: 1 }],
+  };
+}
+
 const calls: Array<{ method: string; args: any }> = [];
 const service = {
   async readOhlc(args: any) {
@@ -38,7 +56,7 @@ const service = {
   },
   async readTxfOhlc(args: any) {
     calls.push({ method: "readTxfOhlc", args });
-    return { ok: true, blocked: false, status: "READY", verification_level: "FUGLE_PROVIDER_CAPTURED", rows: [{ close: 23000 }] };
+    return { ok: true, blocked: false, data_status: "OK", verification_level: "FUGLE_PROVIDER_CAPTURED", rows: [{ close: 23000 }] };
   },
   async getTxfOhlcStatus(args: any) {
     calls.push({ method: "getTxfOhlcStatus", args });
@@ -50,20 +68,7 @@ const service = {
   },
   async readGlobalFuturesOhlc(args: any) {
     calls.push({ method: "readGlobalFuturesOhlc", args });
-    return {
-      ok: true,
-      blocked: false,
-      status: "READY",
-      product: args.product,
-      timeframe: args.timeframe,
-      trade_date: "2026-08-21",
-      source: "OHLC_MCP_GLOBAL_FUTURES",
-      formal_research_eligible: true,
-      verification_level: "VERIFIED_RECEIPT_GZIP_LOGICAL_SHA256_BOUND",
-      dataset_version: `sha256:${"b".repeat(64)}`,
-      provenance: { canonical_path: `data/Futures/v2/${args.product}/1m/2026/08/21/${args.product}.csv.gz` },
-      rows: [{ close: 1 }],
-    };
+    return verifiedFuture(args);
   },
   async getGlobalFuturesStatus(args: any) {
     calls.push({ method: "getGlobalFuturesStatus", args });
@@ -96,6 +101,42 @@ assert.equal(dailyCall?.args.mode, "research");
 assert.equal(dailyCall?.args.to, "2026-08-24");
 assert.equal(dailyCall?.args.limit, 420);
 
+const pendingDailyEnv = {
+  OHLC_READ_SERVICE: {
+    ...service,
+    async readOhlc(args: any) {
+      return { ...verifiedStock(args.symbol, args.timeframe), data_status: "PENDING" };
+    },
+  },
+} as any;
+const pendingDaily = await readFamilyCanonicalOhlc(pendingDailyEnv, {
+  symbol: "3105",
+  as_of_date: "2026-08-24",
+  question: "3105 技術位置",
+  intent: "QUICK_STOCK_QUESTION",
+});
+assert.equal(pendingDaily.status, "UNAVAILABLE");
+assert.equal(pendingDaily.formal_research_eligible, false);
+assert.equal(pendingDaily.error, "PENDING");
+
+const pendingIntradayEnv = {
+  OHLC_READ_SERVICE: {
+    ...service,
+    async readOhlc(args: any) {
+      const result = verifiedStock(args.symbol, args.timeframe);
+      return args.timeframe === "5m" ? { ...result, data_status: "PENDING" } : result;
+    },
+  },
+} as any;
+const pendingIntraday = await readFamilyCanonicalOhlc(pendingIntradayEnv, {
+  symbol: "3105",
+  as_of_date: "2026-08-24",
+  question: "3105 技術位置",
+  intent: "QUICK_STOCK_QUESTION",
+});
+assert.equal(pendingIntraday.status, "READY");
+assert.equal(pendingIntraday.intraday_5m, null);
+
 const unavailable = await readFamilyCanonicalOhlc({} as any, {
   symbol: "3105",
   as_of_date: "2026-08-24",
@@ -125,11 +166,48 @@ assert.equal(regime.txf_context.formal_research_eligible, false);
 assert.equal(regime.global_futures_context.status, "READY");
 assert.equal(regime.global_futures_context.formal_research_eligible, false);
 assert.equal(calls.filter((x) => x.method === "readTxfOhlc").length, 1);
-assert.deepEqual(
-  calls.filter((x) => x.method === "readGlobalFuturesOhlc").map((x) => x.args.product),
-  ["MNQ", "NIY", "MES", "GC"],
-);
+const txfCall = calls.find((x) => x.method === "readTxfOhlc");
+assert.equal(txfCall?.args.trade_date, "2026-08-24");
+const globalFutureCalls = calls.filter((x) => x.method === "readGlobalFuturesOhlc");
+assert.deepEqual(globalFutureCalls.map((x) => x.args.product), ["MNQ", "NIY", "MES", "GC"]);
+assert.equal(globalFutureCalls.every((x) => /^2026-08-\d{2}$/.test(x.args.trade_date) && x.args.trade_date <= "2026-08-24"), true);
+assert.equal(globalFutureCalls.every((x) => x.args.lookback_days === undefined), true);
 assert.equal(calls.some((x) => /sync|backfill|write/i.test(x.method)), false);
+
+const unverifiedFuturesEnv = {
+  OHLC_READ_SERVICE: {
+    ...service,
+    async readGlobalFuturesOhlc(args: any) {
+      return {
+        ...verifiedFuture(args),
+        status: "PENDING",
+        verification_level: null,
+      };
+    },
+  },
+} as any;
+const unverifiedRegime = await readFamilyMarketRegimeContext(unverifiedFuturesEnv, {
+  as_of_date: "2026-08-24",
+  question: "3105 完整分析，含市場風險",
+  intent: "FULL_STOCK_ANALYSIS",
+});
+assert.equal(unverifiedRegime.global_futures_context.status, "UNAVAILABLE");
+assert.equal(unverifiedRegime.global_futures_context.formal_research_eligible, false);
+
+const mismatchedFutureEnv = {
+  OHLC_READ_SERVICE: {
+    ...service,
+    async readGlobalFuturesOhlc(args: any) {
+      return { ...verifiedFuture(args), trade_date: "2026-08-25" };
+    },
+  },
+} as any;
+const mismatchedRegime = await readFamilyMarketRegimeContext(mismatchedFutureEnv, {
+  as_of_date: "2026-08-24",
+  question: "3105 完整分析，含市場風險",
+  intent: "FULL_STOCK_ANALYSIS",
+});
+assert.equal(mismatchedRegime.global_futures_context.status, "UNAVAILABLE");
 
 const quickPlan = planFamilyQuery("3105 技術位置與支撐", ["3105"]);
 assert.equal(quickPlan.preferred_reads.includes("txf_context"), true);
@@ -150,5 +228,6 @@ const bridgeSource = await readFile(new URL("../src/v6/family-ohlc-read-bridge.t
 assert.doesNotMatch(bridgeSource, /syncOhlc|backfillOhlc|writeOhlc|GITHUB_TOKEN|FUGLE_API_KEY|GLOBAL_FUTURES_ADMIN_KEY/);
 assert.match(bridgeSource, /OHLC_READ_SERVICE/);
 assert.match(bridgeSource, /formal_research_eligible/);
+assert.match(bridgeSource, /VERIFIED_RECEIPT_GZIP_LOGICAL_SHA256_BOUND/);
 
 console.log("family-ohlc-read-bridge: PASS");
