@@ -23,7 +23,8 @@ function authorizeUrl(resource?: string) {
 }
 
 // Generic protected-resource metadata must identify the actual isolated Family
-// MCP route, not the Worker root.
+// MCP route, not the Worker root. `offline_access` is deliberately not a
+// resource permission; the resource still exposes only family:read.
 {
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
     async fetch() {
@@ -36,6 +37,30 @@ function authorizeUrl(resource?: string) {
   assert.equal(body.resource, `${ORIGIN}/family-mcp`);
   assert.deepEqual(body.authorization_servers, [ORIGIN]);
   assert.deepEqual(body.scopes_supported, ["family:read"]);
+}
+
+// Authorization-server discovery must advertise offline_access for a freshly
+// recreated ChatGPT app so it can request refresh-token continuity. This is
+// discovery metadata only and does not widen the Family resource permission.
+{
+  const wrapper = createFamilyOAuthPublicClientCompatWrapper({
+    async fetch(request) {
+      assert.equal(new URL(request.url).pathname, "/.well-known/oauth-authorization-server");
+      return Response.json({
+        issuer: ORIGIN,
+        authorization_endpoint: `${ORIGIN}/authorize`,
+        token_endpoint: `${ORIGIN}/oauth/token`,
+        scopes_supported: ["family:read"],
+        grant_types_supported: ["authorization_code", "refresh_token"],
+      });
+    },
+  });
+  const response = await wrapper.fetch(new Request(`${ORIGIN}/.well-known/oauth-authorization-server`), env, ctx);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const body = await response.json() as Record<string, unknown>;
+  assert.deepEqual(body.scopes_supported, ["family:read", "offline_access"]);
+  assert.deepEqual(body.grant_types_supported, ["authorization_code", "refresh_token"]);
 }
 
 // Trusted ChatGPT connector authorization normalizes both a retained Worker-root
