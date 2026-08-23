@@ -15,7 +15,7 @@ jobs:
       MOM_CLIENT_ID: 41i_gRq63zL6r2tO
       MOM_REDIRECT_URI: https://chatgpt.com/connector/oauth/gDokJPX2DaM_
     steps:
-      - name: Scan Cloudflare KV namespaces for exact historical client key
+      - name: Scan Cloudflare KV namespaces for exact historical client key and grant state
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -35,13 +35,11 @@ jobs:
           for row in body.get('result') or []:
               title=str(row.get('title') or '')
               ident=str(row.get('id') or '')
-              # Search all namespaces because the historical successful client may
-              # predate the current naming convention. IDs never get printed.
               if len(ident)==32:
                   print(ident+'\t'+title.replace('\t',' '))
           PY
 
-          encoded="$(python - <<'PY'
+          encoded_client="$(python - <<'PY'
           import os,urllib.parse
           print(urllib.parse.quote('client:'+os.environ['MOM_CLIENT_ID'], safe=''))
           PY
@@ -51,7 +49,7 @@ jobs:
           while IFS=$'\t' read -r ns_id ns_title; do
             [ -n "$ns_id" ] || continue
             base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${ns_id}"
-            status="$(curl -sS -o /tmp/client.raw -w '%{http_code}' "$base/values/$encoded" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+            status="$(curl -sS -o /tmp/client.raw -w '%{http_code}' "$base/values/$encoded_client" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
             if [ "$status" != 200 ]; then
               continue
             fi
@@ -59,7 +57,6 @@ jobs:
             NS_TITLE="$ns_title" python - <<'PY'
           import json,os
           x=json.load(open('/tmp/client.raw'))
-          # SECURITY: print only categorical metadata; never clientSecret or raw record.
           print('FOUND_CLIENT_RECORD=TRUE')
           print('NAMESPACE_TITLE='+os.environ['NS_TITLE'])
           print('CLIENT_ID_MATCH='+str(x.get('clientId')==os.environ['MOM_CLIENT_ID']).upper())
@@ -70,11 +67,28 @@ jobs:
           print('HAS_CLIENT_SECRET='+str(bool(x.get('clientSecret'))).upper())
           print('GRANT_TYPES='+','.join(str(v) for v in (x.get('grantTypes') or [])))
           print('RESPONSE_TYPES='+','.join(str(v) for v in (x.get('responseTypes') or [])))
-          print('HAS_CLIENT_URI='+str(bool(x.get('clientUri'))).upper())
-          print('HAS_LOGO_URI='+str(bool(x.get('logoUri'))).upper())
-          print('HAS_JWKS_URI='+str(bool(x.get('jwksUri'))).upper())
-          print('HAS_CONTACTS='+str(bool(x.get('contacts'))).upper())
-          print('HAS_I18N='+str(bool(x.get('i18n'))).upper())
+          PY
+
+            enc_grant="$(python -c 'import urllib.parse; print(urllib.parse.quote("grant:",safe=""))')"
+            curl -fsS "$base/keys?prefix=$enc_grant&limit=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/grant-keys.json
+            NS_ID="$ns_id" NS_TITLE="$ns_title" python - <<'PY'
+          import json,os,subprocess,urllib.parse
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']; token=os.environ['CLOUDFLARE_API_TOKEN']; ns=os.environ['NS_ID']; cid=os.environ['MOM_CLIENT_ID']
+          base=f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{ns}'
+          keys=[x.get('name') for x in (json.load(open('/tmp/grant-keys.json')).get('result') or []) if x.get('name')]
+          matches=[]
+          for key in keys:
+              url=base+'/values/'+urllib.parse.quote(key,safe='')
+              p=subprocess.run(['curl','-fsS',url,'-H',f'Authorization: Bearer {token}'],capture_output=True,text=True)
+              if p.returncode: continue
+              try: x=json.loads(p.stdout)
+              except: continue
+              if isinstance(x,dict) and x.get('clientId')==cid:
+                  matches.append(x)
+          print('HISTORICAL_MATCHING_GRANTS='+str(len(matches)))
+          print('HISTORICAL_ANY_REFRESH_TOKEN='+str(any(bool(x.get('refreshTokenId')) for x in matches)).upper())
+          print('HISTORICAL_ANY_PENDING_AUTH_CODE='+str(any(bool(x.get('authCodeId')) and bool(x.get('authCodeWrappedKey')) for x in matches)).upper())
+          print('HISTORICAL_ALL_SCOPE_FAMILY_READ='+str(bool(matches) and all((x.get('scope') or [])==['family:read'] for x in matches)).upper())
           print('---')
           PY
           done < /tmp/candidates.tsv
