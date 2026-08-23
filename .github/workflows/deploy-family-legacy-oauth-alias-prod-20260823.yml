@@ -1,0 +1,160 @@
+name: Deploy Family Legacy OAuth Alias Production 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-and-smoke:
+    if: github.head_ref == 'ops/deploy-family-legacy-oauth-alias-20260823'
+    runs-on: ubuntu-latest
+    env:
+      PROD_URL: https://taistock-mcp.keywayk09.workers.dev
+      EXPECTED_MAIN_SHA: 68a53a8febd72c085993dfac49f1b4d54c065c75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Confirm exact merged main
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          echo "MAIN_SHA=${actual}"
+          test "$actual" = "$EXPECTED_MAIN_SHA"
+      - run: npm install
+      - run: npm run type-check
+      - run: npm run test:family-selection
+
+      - name: Resolve existing Production OAuth KV
+        id: oauth_kv
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/kv.json
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          body=json.load(open('/tmp/kv.json'))
+          rows=[x for x in body.get('result',[]) if x.get('title')=='taistock-mcp-OAUTH_KV']
+          if not body.get('success') or len(rows)!=1:
+              raise SystemExit('production_oauth_kv_resolution_failed')
+          kv_id=str(rows[0].get('id') or '')
+          if len(kv_id)!=32: raise SystemExit('invalid_oauth_kv_id')
+          print('id='+kv_id)
+          PY
+
+      - name: Build exact Production config
+        env:
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp wrangler.jsonc wrangler.family-legacy-alias-production.jsonc
+          python - <<'PY'
+          import os,re
+          from pathlib import Path
+          p=Path('wrangler.family-legacy-alias-production.jsonc')
+          s=p.read_text(); kv=os.environ['OAUTH_KV_ID']
+          pat=r'("binding"\s*:\s*"OAUTH_KV")(\s*)(\})'
+          out,n=re.subn(pat, lambda m: m.group(1)+',\n\t\t\t"id": "'+kv+'"'+m.group(2)+m.group(3), s, count=1)
+          if n!=1: raise SystemExit('oauth_kv_binding_injection_failed')
+          p.write_text(out)
+          PY
+
+      - name: Deploy exact merged main to Production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --config wrangler.family-legacy-alias-production.jsonc | tee /tmp/deploy.log
+          grep -E 'Uploaded|Deployed|Version ID|Current Version ID' /tmp/deploy.log || true
+
+      - name: Verify Production health and Family safety boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --retry 5 --retry-delay 2 --max-time 30 -fsS "$PROD_URL/health" > /tmp/health.json
+          python - <<'PY'
+          import json
+          body=json.load(open('/tmp/health.json'))
+          assert body.get('status')=='ok', body
+          fam=body.get('family_mcp') or {}
+          assert fam.get('permission_model')=='SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS', fam
+          assert fam.get('access')=='READ_ONLY_ALLOWLIST', fam
+          assert fam.get('oauth_required') is True, fam
+          print('PRODUCTION_HEALTH=PASS')
+          print('FAMILY_ACCESS=READ_ONLY_ALLOWLIST')
+          PY
+
+      - name: Smoke legacy token alias safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 30 -sS -o /tmp/legacy-token.json -w '%{http_code}' \
+            -X POST "$PROD_URL/token" \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data 'grant_type=definitely_unsupported')"
+          echo "LEGACY_TOKEN_HTTP=${code}"
+          test "$code" != '404'
+          test "$code" -ge 400
+          test "$code" -lt 500
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/legacy-token.json'))
+          assert isinstance(x,dict) and x.get('error'), x
+          print('LEGACY_TOKEN_ALIAS=PASS')
+          PY
+
+      - name: Smoke legacy registration alias safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --max-time 30 -sS -o /tmp/legacy-register.json -w '%{http_code}' \
+            -X POST "$PROD_URL/register" \
+            -H 'Content-Type: application/json' \
+            --data '{}')"
+          echo "LEGACY_REGISTER_HTTP=${code}"
+          test "$code" != '404'
+          test "$code" -ge 400
+          test "$code" -lt 500
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/legacy-register.json'))
+          assert isinstance(x,dict) and x.get('error'), x
+          print('LEGACY_REGISTER_ALIAS=PASS')
+          PY
+
+      - name: Verify five-minute Cron
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/taistock-mcp/schedules"
+          curl -fsS -X PUT "$endpoint" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data '[{"cron":"*/5 * * * *"}]' > /tmp/cron-put.json
+          curl -fsS "$endpoint" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/cron-get.json
+          python - <<'PY'
+          import json
+          put=json.load(open('/tmp/cron-put.json')); get=json.load(open('/tmp/cron-get.json'))
+          assert put.get('success'), put
+          schedules=((get.get('result') or {}).get('schedules') or [])
+          assert '*/5 * * * *' in [x.get('cron') for x in schedules if isinstance(x,dict)], schedules
+          print('PRODUCTION_CRON=PASS')
+          PY
