@@ -1,0 +1,1 @@
+Safe structural OAuth metadata/resource inspection only. No secrets/tokens/codes printed.
