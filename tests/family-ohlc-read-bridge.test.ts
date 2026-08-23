@@ -137,7 +137,8 @@ assert.equal(quickPlan.preferred_reads.includes("global_futures_context"), true)
 const revenuePlan = planFamilyQuery("3105 去年營收如何", ["3105"]);
 assert.equal(revenuePlan.preferred_reads.includes("txf_context"), false);
 
-const wrangler = JSON.parse(await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
+const wranglerText = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+const wrangler = JSON.parse(wranglerText.replace(/\/\*[\s\S]*?\*\//g, ""));
 const binding = wrangler.services?.find((item: any) => item.binding === "OHLC_READ_SERVICE");
 assert.deepEqual(binding, {
   binding: "OHLC_READ_SERVICE",
