@@ -21,10 +21,9 @@ jobs:
           set -euo pipefail
           python - <<'PY' > /tmp/query.json
           import json,datetime
-          # User reconnect created the new grant at about 06:45:17Z.
           def ms(s): return int(datetime.datetime.fromisoformat(s.replace('Z','+00:00')).timestamp()*1000)
           print(json.dumps({
-            'queryId':'family-oauth-exact-reconnect',
+            'queryId':'family-oauth-exact-reconnect-meta',
             'timeframe':{'from':ms('2026-08-23T06:44:30Z'),'to':ms('2026-08-23T06:46:10Z')},
             'view':'events',
             'limit':200,
@@ -40,43 +39,44 @@ jobs:
           echo "OBS_HTTP=$http"
           test "$http" = '200'
           python - <<'PY'
-          import json,urllib.parse,datetime
+          import json,urllib.parse
           x=json.load(open('/tmp/obs.json'))
-          result=x.get('result') or {}; events=((result.get('events') or {}).get('events') or [])
-          interesting={'/authorize','/token','/oauth/token','/family-mcp'}
-          rows=[]
-          def safe_path(raw):
-              try:
-                  u=urllib.parse.urlsplit(str(raw or ''))
-                  if u.hostname and u.hostname!='taistock-mcp.keywayk09.workers.dev': return None
-                  return u.path or '/'
-              except: return None
-          def ts(md):
-              for k in ('timestamp','startTime','endTime'):
-                  v=md.get(k)
-                  if isinstance(v,(int,float)):
-                      try:return datetime.datetime.fromtimestamp(v/1000,datetime.timezone.utc).strftime('%H:%M:%S.%f')[:12]+'Z'
-                      except:pass
-                  if isinstance(v,str) and v: return v
-              return 'unknown'
+          events=((((x.get('result') or {}).get('events') or {}).get('events')) or [])
+          exact=[]
           for ev in events:
               if not isinstance(ev,dict): continue
-              md=ev.get('$metadata') if isinstance(ev.get('$metadata'),dict) else {}
               workers=ev.get('$workers') if isinstance(ev.get('$workers'),dict) else {}
               we=workers.get('event') if isinstance(workers.get('event'),dict) else {}
               req=we.get('request') if isinstance(we.get('request'),dict) else {}
               resp=we.get('response') if isinstance(we.get('response'),dict) else {}
-              p=safe_path(req.get('url'))
-              if p not in interesting: continue
-              method=str(req.get('method') or 'UNKNOWN').upper()
-              try: status=str(int(resp.get('status')))
-              except: status='unknown'
-              rows.append((ts(md),method,p,status))
-          rows.sort()
-          print('EXACT_EVENT_COUNT='+str(len(rows)))
-          for t,m,p,s in rows:
-              print(f'EXACT_EVENT={t}|{m}|{p}|HTTP_{s}')
-          print('EXACT_AUTHORIZE_COUNT='+str(sum(1 for _,_,p,_ in rows if p=='/authorize')))
-          print('EXACT_LEGACY_TOKEN_COUNT='+str(sum(1 for _,_,p,_ in rows if p=='/token')))
-          print('EXACT_CANONICAL_TOKEN_COUNT='+str(sum(1 for _,_,p,_ in rows if p=='/oauth/token')))
+              try:u=urllib.parse.urlsplit(str(req.get('url') or ''))
+              except:continue
+              if u.hostname!='taistock-mcp.keywayk09.workers.dev' or u.path not in ('/authorize','/token','/oauth/token'): continue
+              method=str(req.get('method') or '').upper()
+              try:status=int(resp.get('status'))
+              except:status=0
+              exact.append((method,u,status))
+          print('EXACT_RELEVANT_EVENTS='+str(len(exact)))
+          for method,u,status in exact:
+              print('EVENT_SHAPE='+method+'|'+u.path+'|HTTP_'+str(status))
+              if method=='GET' and u.path=='/authorize':
+                  q=urllib.parse.parse_qs(u.query,keep_blank_values=True)
+                  scope=' '.join(q.get('scope',[]))
+                  safe_scope_tokens=[s for s in scope.split() if len(s)<=128 and all(0x21<=ord(c)<=0x7e and c not in ('"','\\') for c in s)]
+                  resource=(q.get('resource') or [''])[0]
+                  try: ru=urllib.parse.urlsplit(resource); resource_class='family_mcp' if ru.hostname=='taistock-mcp.keywayk09.workers.dev' and ru.path=='/family-mcp' else ('worker_root' if ru.hostname=='taistock-mcp.keywayk09.workers.dev' and ru.path in ('','/') else ('none' if not resource else 'other'))
+                  except: resource_class='invalid'
+                  redirect=(q.get('redirect_uri') or [''])[0]
+                  try:
+                      rd=urllib.parse.urlsplit(redirect)
+                      redirect_class='connector' if rd.hostname in ('chatgpt.com','chat.openai.com') and (rd.path.startswith('/connector/oauth/') or rd.path=='/connector_platform_oauth_redirect') else 'other'
+                  except:redirect_class='invalid'
+                  print('AUTHORIZE_RESPONSE_TYPE='+str((q.get('response_type') or [''])[0]))
+                  print('AUTHORIZE_SCOPE_TOKENS='+','.join(safe_scope_tokens))
+                  print('AUTHORIZE_HAS_OFFLINE_ACCESS='+str('offline_access' in safe_scope_tokens).upper())
+                  print('AUTHORIZE_RESOURCE_CLASS='+resource_class)
+                  print('AUTHORIZE_REDIRECT_CLASS='+redirect_class)
+                  print('AUTHORIZE_PKCE_METHOD='+str((q.get('code_challenge_method') or [''])[0]))
+                  print('AUTHORIZE_HAS_STATE='+str(bool((q.get('state') or [''])[0])).upper())
+          print('TOKEN_REQUEST_OBSERVED='+str(any(method=='POST' and u.path in ('/token','/oauth/token') for method,u,_ in exact)).upper())
           PY
