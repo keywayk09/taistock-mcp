@@ -3,6 +3,7 @@ import { MyMCP as BaseMCP } from "./index";
 import { registerDailyReportFormatTool } from "./v6/daily-report-format";
 import { handleFamilyActionCompat } from "./v6/family-action-compat";
 import { createFamilyOAuthProvider } from "./v6/family-oauth";
+import { createFamilyOAuthTokenDiagnosticWrapper } from "./v6/family-oauth-token-diagnostic";
 import { createFamilyOAuthTokenRecoveryWrapper } from "./v6/family-oauth-token-recovery";
 import { FAMILY_MCP_TOOL_NAMES } from "./v6/family-mcp";
 import { githubDataStoreHealth } from "./v6/github-data-store";
@@ -43,10 +44,6 @@ export class MyMCP extends BaseMCP {
     registerDailyReportFormatTool(this.server);
     registerResearchTools(this.server, this.env);
 
-    // IMPORTANT: Family V2 selector is intentionally loaded only when MyMCP is
-    // instantiated. Keeping the deep Family research graph out of Worker module
-    // evaluation prevents Cloudflare startup validation from executing unrelated
-    // MCP/Zod schema modules before a request actually needs them.
     const { registerFamilyStockSelectionToolsV2 } = await import("./v6/family-stock-selection-v2");
     registerFamilyStockSelectionToolsV2(this.server, this.env);
     registerTwMarketDataTools(this.server, this.env);
@@ -57,12 +54,8 @@ const appHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
 
-    // Legacy full MCP surface remains on /mcp for backward compatibility.
-    // The family Custom GPT should use the isolated OAuth-protected /family-mcp endpoint.
     if (url.pathname === "/mcp") return MyMCP.serve("/mcp").fetch(request, env, ctx);
 
-    // Family V3 smart REST is intentionally lazy-loaded only for Family routes.
-    // The route contract remains identical; only Worker startup evaluation changes.
     if (FAMILY_SMART_REST_PATHS.has(url.pathname)) {
       const { handleFamilySmartRest } = await import("./v6/family-smart-rest");
       const familySmart = await handleFamilySmartRest(request, env, url);
@@ -170,7 +163,9 @@ const appHandler = {
   },
 };
 
-const familyOAuthProvider = createFamilyOAuthTokenRecoveryWrapper(createFamilyOAuthProvider(appHandler));
+const familyOAuthProvider = createFamilyOAuthTokenDiagnosticWrapper(
+  createFamilyOAuthTokenRecoveryWrapper(createFamilyOAuthProvider(appHandler)),
+);
 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
