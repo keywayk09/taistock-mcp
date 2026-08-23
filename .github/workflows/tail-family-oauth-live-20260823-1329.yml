@@ -1,0 +1,66 @@
+name: Tail Family OAuth Live 20260823 1329
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tail:
+    if: github.head_ref == 'ops/diag-family-oauth-live-20260823-1329'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Capture sanitized live request paths only
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f /tmp/tail.jsonl /tmp/tail.err
+          set +e
+          timeout 25s npx wrangler tail taistock-mcp --format json > /tmp/tail.jsonl 2>/tmp/tail.err &
+          tail_pid=$!
+          set -e
+          sleep 5
+          curl -fsS https://taistock-mcp.keywayk09.workers.dev/health >/dev/null
+          wait "$tail_pid" || true
+          python - <<'PY'
+          import json
+          from urllib.parse import urlsplit
+          hits=[]
+          health_seen=False
+          for raw in open('/tmp/tail.jsonl',errors='replace'):
+              raw=raw.strip()
+              if not raw.startswith('{'): continue
+              try: x=json.loads(raw)
+              except: continue
+              event=x.get('event') or {}
+              req=event.get('request') or {}
+              url=str(req.get('url') or '')
+              try: path=urlsplit(url).path
+              except: path=''
+              if path=='/health': health_seen=True
+              if path not in {'/authorize','/oauth/token','/oauth/register'}: continue
+              resp=event.get('response') or {}
+              hits.append({
+                  'ts': x.get('eventTimestamp'),
+                  'method': req.get('method'),
+                  'path': path,
+                  'status': resp.get('status'),
+                  'outcome': x.get('outcome'),
+              })
+          print('TAIL_HEALTH_SEEN='+str(health_seen).upper())
+          print('OAUTH_EVENT_COUNT='+str(len(hits)))
+          for i,h in enumerate(hits,1):
+              print(f"OAUTH_EVENT_{i}=ts:{h['ts']} method:{h['method']} path:{h['path']} status:{h['status']} outcome:{h['outcome']}")
+          PY
