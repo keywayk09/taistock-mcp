@@ -7,6 +7,10 @@ import {
   summarizeFamilyAccounting,
   summarizeFamilyRevenue,
 } from "./family-fundamental-summary";
+import {
+  readFamilyCanonicalOhlc,
+  readFamilyMarketRegimeContext,
+} from "./family-ohlc-read-bridge";
 import { familyResearchDirective } from "./family-research-policy";
 import { buildFamilyUnifiedEvidence } from "./family-unified-evidence";
 
@@ -76,16 +80,21 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
   });
 
   const asOf = base.as_of_date;
-  const [allInfo, industryChain] = await Promise.all([
+  const [allInfo, industryChain, marketRegime] = await Promise.all([
     safeFinmind(env, "TaiwanStockInfo", {}),
     safeFinmind(env, "TaiwanStockIndustryChain", {}),
+    readFamilyMarketRegimeContext(env, {
+      as_of_date: asOf,
+      question: userQuestion,
+      intent: adaptivePlan.intent,
+    }),
   ]);
   const globalErrors = [allInfo.error, industryChain.error].filter((value): value is string => Boolean(value));
 
   const enriched = await Promise.all(base.stock_analyses.map(async (analysis: any) => {
     const symbol = String(analysis.symbol);
     const fundamentals = analysis?.fundamentals ?? {};
-    const [valuation, holdingDistribution, foreignShareholding] = await Promise.all([
+    const [valuation, holdingDistribution, foreignShareholding, canonicalOhlc] = await Promise.all([
       fetchFamilyOfficialValuation(symbol),
       safeFinmind(env, "TaiwanStockHoldingSharesPer", {
         data_id: symbol,
@@ -97,6 +106,12 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
         start_date: subtractDays(asOf, 180),
         end_date: asOf,
       }),
+      readFamilyCanonicalOhlc(env, {
+        symbol,
+        as_of_date: asOf,
+        question: userQuestion,
+        intent: adaptivePlan.intent,
+      }),
     ]);
     const monthlyRevenue = summarizeFamilyRevenue(Array.isArray(fundamentals.monthly_revenue) ? fundamentals.monthly_revenue : []);
     const accounting = summarizeFamilyAccounting(
@@ -107,6 +122,9 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
 
     const familyIntelligence = {
       contract: "SHARED_READ_ONLY_JUDGMENT_INPUTS",
+      canonical_ohlc: canonicalOhlc,
+      txf_context: marketRegime.txf_context,
+      global_futures_context: marketRegime.global_futures_context,
       monthly_revenue: monthlyRevenue,
       accounting,
       official_valuation: valuation,
@@ -120,7 +138,9 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       interpretation_guardrails: [
         "好公司不等於現在就是好買點；基本面與技術位置分開判斷。",
         "正式籌碼只採 Published generation；缺資料不可自行補值。",
-        "正式 OHLC/K線仍由 OHLC MCP 負責；Fugle/FinMind價格可作即時與研究輔助，但不得冒充正式技術價位。",
+        "正式 OHLC/K線只採 OHLC MCP verified dataset；Family 透過 Cloudflare named service binding 唯讀取用，不得直接寫入。",
+        "TXF 與 Global Futures 只作 Market Regime Context，不是個股 Buy/Sell Oracle，也不得覆寫台股正式資料身份。",
+        "Fugle/FinMind價格可作即時與研究輔助，但不得冒充正式技術價位。",
         "Web 是開放研究層，可自主延伸任何有價值的新線索，不限固定網站或關鍵字。",
         "Family 與 Owner 共用市場/研究讀取能力；差異只在 Family 永遠沒有寫入權限。",
         "估值缺值代表官方來源未提供可計算值，不得把 null 解讀為 0。",
@@ -167,6 +187,8 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
         realtime: evidenceBundle.evidence.realtime_market.status === "READY",
         technical_research_fallback: evidenceBundle.evidence.technical_research_fallback.status === "READY",
         formal_ohlc: evidenceBundle.evidence.canonical_ohlc.formal_research_eligible,
+        txf_context: ["READY", "DEGRADED"].includes(evidenceBundle.evidence.txf_context.status),
+        global_futures_context: ["READY", "DEGRADED"].includes(evidenceBundle.evidence.global_futures_context.status),
         published_chip: evidenceBundle.evidence.published_chip.formal_research_eligible,
         monthly_revenue: monthlyRevenue.status === "READY",
         accounting: accounting.status === "READY",
@@ -179,13 +201,18 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       enrichment_diagnostics: {
         errors: enrichmentErrors,
         fail_soft: true,
+        ohlc_read_bridge: {
+          formal_ohlc: canonicalOhlc.status,
+          txf_context: marketRegime.txf_context.status,
+          global_futures_context: marketRegime.global_futures_context.status,
+        },
       },
     };
   }));
 
   return {
     ...base,
-    version: "family-smart-analysis/v3.1.0",
+    version: "family-smart-analysis/v4.0.0",
     route: symbols.length > 1 ? "adaptive_stock_compare" : adaptivePlan.intent === "FULL_STOCK_ANALYSIS" ? "adaptive_full_stock_analysis" : "adaptive_stock_question",
     question: userQuestion || null,
     adaptive_plan: adaptivePlan,
@@ -196,6 +223,8 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       same_research_brain_as_owner: true,
       owner_market_research_reads_shared_by_default: true,
       owner_private_context_shared_by_default: false,
+      ohlc_read_transport: "CLOUDFLARE_NAMED_SERVICE_BINDING_ONLY",
+      ohlc_read_entrypoint: "OhlcFamilyReadService",
       production_writes: false,
       github_writes: false,
       strategy_changes: false,
@@ -203,6 +232,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       evidence_identity: "EVIDENCE_CLASS_CANNOT_BE_SELF_PROMOTED",
       formal_chip: "PUBLISHED_GENERATION_ONLY",
       formal_ohlc: "OHLC_MCP_ONLY",
+      txf_and_global_futures: "GOVERNED_MARKET_REGIME_CONTEXT_ONLY",
       realtime_display: "FUGLE_PRIMARY_WITH_RESEARCH_FALLBACKS",
       web_research: "OPEN_WORLD_AUTONOMOUS_ALLOWED",
     },
