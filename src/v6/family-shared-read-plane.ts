@@ -1,4 +1,4 @@
-export const FAMILY_SHARED_READ_PLANE_VERSION = "family-shared-read-plane/v1.1.0";
+export const FAMILY_SHARED_READ_PLANE_VERSION = "family-shared-read-plane/v1.2.0";
 
 export type FamilySharedReadCapability = {
   id: string;
@@ -23,11 +23,11 @@ export const FAMILY_SHARED_READ_CAPABILITIES = [
   {
     id: "canonical_ohlc",
     label: "正式 OHLC / 技術結構",
-    sources: ["OHLC_MCP"],
+    sources: ["OHLC_MCP", "OHLC_READ_SERVICE"],
     identity: "FORMAL_CANONICAL_OHLC",
     access: "READ_ONLY",
     family_share: "SHARED_BY_DEFAULT",
-    notes: "Family 只讀；不得把 Fugle、FinMind 或 Web 價格冒充正式 OHLC。",
+    notes: "Family 只透過 OhlcFamilyReadService 唯讀；不得把 Fugle、FinMind 或 Web 價格冒充正式 OHLC。",
   },
   {
     id: "published_chip",
@@ -66,13 +66,31 @@ export const FAMILY_SHARED_READ_CAPABILITIES = [
     notes: "市場/策略研究成果可共享讀取；任何 GitHub write、PR、branch 或策略修改都不共享。",
   },
   {
+    id: "txf_context",
+    label: "台指期 Market Regime Context",
+    sources: ["OHLC_MCP_TXF_READ", "OHLC_READ_SERVICE"],
+    identity: "GOVERNED_TXF_CONTEXT",
+    access: "READ_ONLY",
+    family_share: "SHARED_WHEN_AVAILABLE",
+    notes: "TXF 只作市場風險/結構背景，不是個股買賣神諭；Family 不得觸發 TXF 寫入。",
+  },
+  {
+    id: "global_futures_context",
+    label: "已驗證全球期貨 Market Regime Context",
+    sources: ["OHLC_MCP_GLOBAL_FUTURES_READ", "GLOBAL_FUTURES_VERIFIED_CANONICAL"],
+    identity: "VERIFIED_GLOBAL_FUTURES_CONTEXT",
+    access: "READ_ONLY",
+    family_share: "SHARED_WHEN_AVAILABLE",
+    notes: "只讀 global-futures-data 已驗證 canonical；5m/1D由1m推導，PENDING產品不得包裝成正式資料。",
+  },
+  {
     id: "global_market_context",
-    label: "全球市場與期貨研究背景",
-    sources: ["VERIFIED_GLOBAL_FUTURES_READ", "OPEN_WORLD_WEB"],
+    label: "全球市場研究背景",
+    sources: ["GLOBAL_OHLC_READ", "OPEN_WORLD_WEB"],
     identity: "VERIFIED_OR_RESEARCH_CONTEXT",
     access: "READ_ONLY",
     family_share: "SHARED_WHEN_AVAILABLE",
-    notes: "只讀已驗證資料；PENDING/未驗證產品不得包裝成正式資料。",
+    notes: "全球市場可作跨市場背景；不得覆寫台股正式資料身份。",
   },
   {
     id: "open_world_web",
@@ -108,6 +126,13 @@ export function familySharedReadManifest() {
     owner_to_family_policy: "OWNER_MARKET_RESEARCH_READ_CAPABILITIES_SHARED_BY_DEFAULT",
     evidence_contract: "family-evidence/v1",
     evidence_identity_policy: "EVIDENCE_CLASS_CANNOT_BE_SELF_PROMOTED",
+    read_transport: {
+      ohlc_worker: "CLOUDFLARE_NAMED_SERVICE_BINDING",
+      binding: "OHLC_READ_SERVICE",
+      entrypoint: "OhlcFamilyReadService",
+      public_bypass_route: false,
+      mutation_methods: false,
+    },
     evidence_hierarchy: {
       FORMAL_TRUTH: ["OHLC_MCP_VERIFIED_CANONICAL", "PUBLISHED_GENERATION"],
       GOVERNED_CONTEXT: ["STRUCTURED_FUNDAMENTALS", "HOLDER_STRUCTURE", "TXF_CONTEXT", "GLOBAL_MARKET_CONTEXT", "GLOBAL_FUTURES_CONTEXT"],
@@ -123,8 +148,9 @@ export function familySharedReadManifest() {
     capabilities: FAMILY_SHARED_READ_CAPABILITIES,
     hard_deny: FAMILY_HARD_DENY_CAPABILITIES,
     evidence_rules: [
-      "能力共享不代表資料身份可互換：正式 OHLC 仍只認 OHLC MCP。",
+      "能力共享不代表資料身份可互換：正式 OHLC 仍只認 OHLC MCP verified dataset。",
       "正式籌碼仍只認 Published generation。",
+      "TXF/Global Futures 是 governed market-regime context，不得直接升級為個股操作真相。",
       "GOVERNED_CONTEXT、DISPLAY_FALLBACK、WEB_EVIDENCE 不能自行升級成 FORMAL_TRUTH。",
       "Web/研究資料可補充與解釋，但不能覆寫 canonical/official 事實。",
       "資料不足必須維持 UNKNOWN/UNAVAILABLE，不得為湊結論補值。",
