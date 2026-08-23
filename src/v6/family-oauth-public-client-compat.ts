@@ -3,6 +3,7 @@ type ConcreteFetchHandler = {
 };
 
 const FAMILY_SCOPE = "family:read";
+const OFFLINE_ACCESS_SCOPE = "offline_access";
 const FAMILY_MCP_PATH = "/family-mcp";
 const CHATGPT_CONNECTOR_CALLBACK_PATH = /^\/connector\/oauth\/[A-Za-z0-9_-]{8,256}$/;
 const CHATGPT_LEGACY_CONNECTOR_CALLBACK_PATH = "/connector_platform_oauth_redirect";
@@ -210,14 +211,52 @@ function canonicalProtectedResourceMetadata(request: Request) {
   });
 }
 
+async function authorizationServerMetadataWithOfflineAccess(
+  request: Request,
+  provider: ConcreteFetchHandler,
+  env: Env,
+  ctx: ExecutionContext,
+) {
+  const response = await provider.fetch(request, env, ctx);
+  if (!response.ok) return response;
+
+  let body: Record<string, unknown>;
+  try {
+    body = await response.clone().json() as Record<string, unknown>;
+  } catch {
+    return response;
+  }
+
+  const scopes = Array.isArray(body.scopes_supported)
+    ? body.scopes_supported.filter((scope): scope is string => typeof scope === "string")
+    : [];
+  if (!scopes.includes(FAMILY_SCOPE)) scopes.push(FAMILY_SCOPE);
+  if (!scopes.includes(OFFLINE_ACCESS_SCOPE)) scopes.push(OFFLINE_ACCESS_SCOPE);
+  body.scopes_supported = scopes;
+
+  const headers = new Headers(response.headers);
+  headers.set("cache-control", "no-store");
+  headers.set("content-type", "application/json; charset=utf-8");
+  headers.delete("content-length");
+  return new Response(JSON.stringify(body), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 /**
- * Compatibility layer for retained ChatGPT public MCP registrations.
+ * Compatibility layer for retained and freshly recreated ChatGPT public MCP
+ * registrations.
  *
  * It does not issue tokens and it does not grant permissions. It only removes
- * two transport ambiguities before the existing strict Family OAuth gates:
+ * transport/discovery ambiguities before the existing strict Family OAuth gates:
  * 1) every Family protected-resource identifier is canonicalized to
  *    `<worker-origin>/family-mcp`;
- * 2) HTTP Basic `<client_id>:` is normalized to OAuth public-client `none`.
+ * 2) HTTP Basic `<client_id>:` is normalized to OAuth public-client `none`;
+ * 3) authorization-server discovery advertises `offline_access` so a newly
+ *    recreated ChatGPT app can request refresh-token continuity, while the
+ *    actual Family permission grant remains exactly `family:read`.
  *
  * The inner token-recovery wrapper still proves the exact authorization code,
  * trusted redirect and `family:read` grant, and the OAuth provider still proves
@@ -229,6 +268,9 @@ export function createFamilyOAuthPublicClientCompatWrapper(provider: ConcreteFet
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/.well-known/oauth-protected-resource") {
         return canonicalProtectedResourceMetadata(request);
+      }
+      if (request.method === "GET" && url.pathname === "/.well-known/oauth-authorization-server") {
+        return authorizationServerMetadataWithOfflineAccess(request, provider, env, ctx);
       }
 
       const authorizeNormalized = await normalizeAuthorizeRequest(request);
