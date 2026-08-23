@@ -1,4 +1,4 @@
-export const FAMILY_OHLC_READ_BRIDGE_VERSION = "family-ohlc-read-bridge/v1.0.0";
+export const FAMILY_OHLC_READ_BRIDGE_VERSION = "family-ohlc-read-bridge/v1.0.1";
 
 type AnyRecord = Record<string, any>;
 
@@ -33,6 +33,16 @@ function subtractDays(date: string, days: number) {
   const value = new Date(`${date}T00:00:00Z`);
   value.setUTCDate(value.getUTCDate() - days);
   return value.toISOString().slice(0, 10);
+}
+
+function weekdayCandidates(anchor: string, maxCalendarDays = 8) {
+  const out: string[] = [];
+  for (let offset = 0; offset <= maxCalendarDays; offset += 1) {
+    const date = subtractDays(anchor, offset);
+    const day = new Date(`${date}T00:00:00Z`).getUTCDay();
+    if (day !== 0 && day !== 6) out.push(date);
+  }
+  return out;
 }
 
 async function safeRpc<T>(label: string, call: () => Promise<T>) {
@@ -188,8 +198,9 @@ export async function readFamilyCanonicalOhlc(
 function governedContext(raw: unknown, source: string, error: string | null = null) {
   const value = rec(raw);
   const ready = value.ok === true && value.blocked !== true && (Array.isArray(value.rows) ? value.rows.length > 0 : true);
+  const rawStatus = String(value.status ?? "").toUpperCase();
   return {
-    status: ready ? "READY" : "UNAVAILABLE",
+    status: ready ? (rawStatus === "DEGRADED" ? "DEGRADED" : "READY") : "UNAVAILABLE",
     source,
     formal_research_eligible: false,
     verification_level: ready ? verificationLevel(value, "GOVERNED_READ_ONLY") : "NOT_ATTACHED_OR_UNAVAILABLE",
@@ -210,6 +221,34 @@ function globalFutureProducts(intent: FamilyReadIntent, question: string) {
   return ["MNQ", "NIY"];
 }
 
+async function readGlobalFutureAsOf(
+  rpc: FamilyOhlcReadService,
+  product: string,
+  asOf: string,
+) {
+  const candidates = weekdayCandidates(asOf, 8);
+  for (const tradeDate of candidates) {
+    const result = await safeRpc(`OHLC_MCP_GLOBAL_FUTURES_${product}_${tradeDate}`, () => rpc.readGlobalFuturesOhlc({
+      product,
+      timeframe: "5m",
+      trade_date: tradeDate,
+      limit: 120,
+    }));
+    if (!result.ok) return { product, trade_date: tradeDate, ...result };
+    const value = rec(result.data);
+    if (value.ok === true && value.blocked !== true) return { product, trade_date: tradeDate, ...result };
+    if (String(value.error ?? "") === "DATA_NOT_FOUND") continue;
+    return { product, trade_date: tradeDate, ...result };
+  }
+  return {
+    product,
+    trade_date: null,
+    ok: true as const,
+    data: { ok: false, blocked: true, status: "UNAVAILABLE", error: "DATA_NOT_FOUND" },
+    error: null,
+  };
+}
+
 export async function readFamilyMarketRegimeContext(
   env: Env,
   input: { as_of_date: string; question?: string; intent?: FamilyReadIntent },
@@ -224,6 +263,7 @@ export async function readFamilyMarketRegimeContext(
 
   const question = String(input.question ?? "");
   const intent = input.intent ?? "";
+  const asOf = String(input.as_of_date ?? "");
   if (!shouldUseFamilyRegimeContext(question, intent)) {
     return {
       txf_context: governedContext(null, "OHLC_MCP_TXF_READ", "NOT_REQUIRED_BY_ADAPTIVE_PLAN"),
@@ -233,19 +273,12 @@ export async function readFamilyMarketRegimeContext(
 
   const txfPromise = safeRpc("OHLC_MCP_TXF_READ", () => rpc.readTxfOhlc({
     timeframe: "5m",
+    trade_date: asOf,
     lookback_days: 7,
     limit: 180,
   }));
   const products = globalFutureProducts(intent, question);
-  const futuresPromise = Promise.all(products.map(async (product) => {
-    const result = await safeRpc(`OHLC_MCP_GLOBAL_FUTURES_${product}`, () => rpc.readGlobalFuturesOhlc({
-      product,
-      timeframe: "5m",
-      lookback_days: 14,
-      limit: 120,
-    }));
-    return { product, ...result };
-  }));
+  const futuresPromise = Promise.all(products.map((product) => readGlobalFutureAsOf(rpc, product, asOf)));
 
   const [txfCall, futuresCalls] = await Promise.all([txfPromise, futuresPromise]);
   const txfContext = txfCall.ok
@@ -258,6 +291,7 @@ export async function readFamilyMarketRegimeContext(
   const failures = futuresCalls
     .filter((item) => !(item.ok && rec(item.data).ok === true && rec(item.data).blocked !== true))
     .map((item) => ({ product: item.product, error: item.error ?? rec(item.data).error ?? "unavailable" }));
+  const resolvedDates = successful.map((item) => String(item.trade_date ?? "")).filter(Boolean).sort();
 
   const globalFuturesRaw = successful.length > 0 ? {
     ok: true,
@@ -266,17 +300,21 @@ export async function readFamilyMarketRegimeContext(
     source: "OHLC_MCP_GLOBAL_FUTURES_READ",
     verification_level: "VERIFIED_CANONICAL_CONTEXT_WHEN_AVAILABLE",
     formal_research_eligible: false,
+    trade_date: resolvedDates.at(-1) ?? null,
     products: successful,
     failures,
     requested_products: products,
+    requested_as_of_date: asOf,
   } : {
     ok: false,
     blocked: true,
     status: "UNAVAILABLE",
     source: "OHLC_MCP_GLOBAL_FUTURES_READ",
+    trade_date: null,
     products: [],
     failures,
     requested_products: products,
+    requested_as_of_date: asOf,
     error: failures.map((item) => `${item.product}:${item.error}`).join("; ") || "global_futures_unavailable",
   };
 
