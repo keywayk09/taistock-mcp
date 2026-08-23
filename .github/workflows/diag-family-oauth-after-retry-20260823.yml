@@ -1,0 +1,138 @@
+name: Diagnose Family OAuth After Retry 20260823
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.head_ref == 'ops/diag-family-oauth-after-retry-20260823-1420'
+    runs-on: ubuntu-latest
+    env:
+      MOM_CLIENT_ID: 41i_gRq63zL6r2tO
+      CURRENT_NAMESPACE_TITLE: taistock-mcp-OAUTH_KV
+      PROD_URL: https://taistock-mcp.keywayk09.workers.dev
+    steps:
+      - name: Verify production health and legacy routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "$PROD_URL/health" > /tmp/health.json
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/health.json'))
+          fam=x.get('family_mcp') or {}
+          print('HEALTH_STATUS='+str(x.get('status')))
+          print('FAMILY_ACCESS='+str(fam.get('access')))
+          print('FAMILY_PERMISSION_MODEL='+str(fam.get('permission_model')))
+          print('FAMILY_OAUTH_REQUIRED='+str(fam.get('oauth_required')).upper())
+          PY
+          for path in token oauth/token; do
+            code="$(curl -sS -o /tmp/probe.json -w '%{http_code}' -X POST "$PROD_URL/$path" -H 'Content-Type: application/x-www-form-urlencoded' --data 'grant_type=definitely_unsupported')"
+            echo "PROBE_${path//\//_}_HTTP=$code"
+          done
+
+      - name: Inspect sanitized current OAuth state for Mom client
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          ns_endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS "${ns_endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/ns.json
+          python - <<'PY' > /tmp/nsid
+          import json,os
+          x=json.load(open('/tmp/ns.json'))
+          rows=[r for r in x.get('result',[]) if r.get('title')==os.environ['CURRENT_NAMESPACE_TITLE']]
+          if len(rows)!=1: raise SystemExit('current_oauth_namespace_not_unique')
+          print(rows[0]['id'])
+          PY
+          ns_id="$(cat /tmp/nsid)"
+          base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${ns_id}"
+
+          encoded_client="$(python - <<'PY'
+          import os,urllib.parse
+          print(urllib.parse.quote('client:'+os.environ['MOM_CLIENT_ID'], safe=''))
+          PY
+          )"
+          client_http="$(curl -sS -o /tmp/client.raw -w '%{http_code}' "$base/values/$encoded_client" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}")"
+          echo "CLIENT_RECORD_HTTP=$client_http"
+          if [ "$client_http" = 200 ]; then
+            python - <<'PY'
+          import json,os
+          x=json.load(open('/tmp/client.raw'))
+          print('CLIENT_RECORD_PRESENT=TRUE')
+          print('CLIENT_ID_MATCH='+str(x.get('clientId')==os.environ['MOM_CLIENT_ID']).upper())
+          print('CLIENT_NAME='+str(x.get('clientName') or ''))
+          print('TOKEN_AUTH_METHOD='+str(x.get('tokenEndpointAuthMethod')))
+          print('AUTH_METHOD_EXPLICIT='+str(bool(x.get('authMethodExplicit'))).upper())
+          print('HAS_CLIENT_SECRET='+str(bool(x.get('clientSecret'))).upper())
+          print('REDIRECT_COUNT='+str(len(x.get('redirectUris') or [])))
+          PY
+          else
+            echo 'CLIENT_RECORD_PRESENT=FALSE'
+          fi
+
+          for prefix in 'grant:' 'token:'; do
+            enc="$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "$prefix")"
+            curl -fsS "$base/keys?prefix=$enc&limit=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > "/tmp/${prefix%:}-keys.json"
+          done
+
+          NS_ID="$ns_id" python - <<'PY'
+          import json,os,subprocess,urllib.parse,time,hashlib
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']; token=os.environ['CLOUDFLARE_API_TOKEN']; ns=os.environ['NS_ID']; cid=os.environ['MOM_CLIENT_ID']
+          base=f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{ns}'
+          now=int(time.time())
+          def read(key):
+              p=subprocess.run(['curl','-fsS',base+'/values/'+urllib.parse.quote(key,safe=''),'-H',f'Authorization: Bearer {token}'],capture_output=True,text=True)
+              if p.returncode: return None
+              try: return json.loads(p.stdout)
+              except: return None
+          gbody=json.load(open('/tmp/grant-keys.json'))
+          gentries=[x for x in (gbody.get('result') or []) if x.get('name')]
+          grants=[]
+          grant_ids=set()
+          for entry in gentries:
+              key=entry['name']; x=read(key)
+              if isinstance(x,dict) and x.get('clientId')==cid:
+                  grants.append((entry,x))
+                  if x.get('id'): grant_ids.add(str(x.get('id')))
+          print('MATCHING_GRANTS='+str(len(grants)))
+          print('ANY_PENDING_AUTH_CODE='+str(any(bool(g.get('authCodeId')) and bool(g.get('authCodeWrappedKey')) for _,g in grants)).upper())
+          print('ANY_REFRESH_TOKEN='+str(any(bool(g.get('refreshTokenId')) for _,g in grants)).upper())
+          print('ALL_SCOPE_FAMILY_READ='+str(bool(grants) and all((g.get('scope') or [])==['family:read'] for _,g in grants)).upper())
+          for i,(entry,g) in enumerate(grants,1):
+              exp=int(entry.get('expiration') or 0)
+              print(f'GRANT_{i}_EXPIRATION_PRESENT='+str(bool(exp)).upper())
+              if exp:
+                  print(f'GRANT_{i}_SECONDS_TO_EXPIRY={exp-now}')
+              print(f'GRANT_{i}_PENDING_AUTH_CODE='+str(bool(g.get('authCodeId')) and bool(g.get('authCodeWrappedKey'))).upper())
+              print(f'GRANT_{i}_HAS_REFRESH_TOKEN='+str(bool(g.get('refreshTokenId'))).upper())
+              print(f'GRANT_{i}_PKCE_S256='+str(g.get('codeChallengeMethod')=='S256' and bool(g.get('codeChallenge'))).upper())
+              print(f'GRANT_{i}_SCOPE_FAMILY_READ='+str((g.get('scope') or [])==['family:read']).upper())
+          tbody=json.load(open('/tmp/token-keys.json'))
+          tentries=[x for x in (tbody.get('result') or []) if x.get('name')]
+          tokens=[]
+          for entry in tentries:
+              x=read(entry['name'])
+              if not isinstance(x,dict): continue
+              embedded=x.get('grant') or {}
+              if embedded.get('clientId')==cid or str(x.get('grantId') or '') in grant_ids:
+                  tokens.append((entry,x))
+          print('MATCHING_ACCESS_TOKEN_RECORDS='+str(len(tokens)))
+          print('ANY_UNEXPIRED_ACCESS_TOKEN='+str(any(int((x or {}).get('expiresAt') or 0)>now for _,x in tokens)).upper())
+          if not grants and not tokens:
+              print('CLASSIFICATION=NO_CURRENT_AUTH_STATE')
+          elif grants and not tokens and any(bool(g.get('authCodeId')) and bool(g.get('authCodeWrappedKey')) for _,g in grants):
+              print('CLASSIFICATION=AUTHORIZATION_CODE_ISSUED_BUT_NO_TOKEN')
+          elif tokens:
+              print('CLASSIFICATION=TOKEN_STATE_EXISTS')
+          else:
+              print('CLASSIFICATION=GRANT_EXISTS_WITHOUT_PENDING_CODE_OR_TOKEN')
+          PY
