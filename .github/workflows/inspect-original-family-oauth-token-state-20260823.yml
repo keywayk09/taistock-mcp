@@ -13,9 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MOM_CLIENT_ID: 41i_gRq63zL6r2tO
+      MOM_REDIRECT_URI: https://chatgpt.com/connector/oauth/gDokJPX2DaM_
       OLD_NAMESPACE_TITLE: taistock-mcp-oauth
+      CURRENT_NAMESPACE_TITLE: taistock-mcp-OAUTH_KV
     steps:
-      - name: Inspect only sanitized original grant/token state
+      - name: Compare only sanitized successful/current OAuth structures
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -24,55 +26,84 @@ jobs:
           set -euo pipefail
           endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
           curl -fsS "${endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/ns.json
-          ns_id="$(python - <<'PY'
+          python - <<'PY' > /tmp/targets.tsv
           import json,os
           x=json.load(open('/tmp/ns.json'))
-          rows=[r for r in x.get('result',[]) if r.get('title')==os.environ['OLD_NAMESPACE_TITLE']]
-          if len(rows)!=1: raise SystemExit('old_namespace_not_unique')
-          print(rows[0]['id'])
+          for title in [os.environ['OLD_NAMESPACE_TITLE'],os.environ['CURRENT_NAMESPACE_TITLE']]:
+              rows=[r for r in x.get('result',[]) if r.get('title')==title]
+              if len(rows)!=1: raise SystemExit('namespace_not_unique:'+title)
+              print(rows[0]['id']+'\t'+title)
           PY
-          )"
-          base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${ns_id}"
-          for prefix in 'grant:' 'token:'; do
-            enc="$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "$prefix")"
-            curl -fsS "$base/keys?prefix=$enc&limit=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > "/tmp/${prefix%:}-keys.json"
-          done
-          NS_ID="$ns_id" python - <<'PY'
+
+          while IFS=$'\t' read -r ns_id ns_title; do
+            base="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${ns_id}"
+            for prefix in 'grant:' 'token:'; do
+              enc="$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "$prefix")"
+              curl -fsS "$base/keys?prefix=$enc&limit=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > "/tmp/${prefix%:}-keys.json"
+            done
+            NS_ID="$ns_id" NS_TITLE="$ns_title" python - <<'PY'
           import json,os,subprocess,urllib.parse,time
-          account=os.environ['CLOUDFLARE_ACCOUNT_ID']; token=os.environ['CLOUDFLARE_API_TOKEN']; ns=os.environ['NS_ID']; cid=os.environ['MOM_CLIENT_ID']
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']; token=os.environ['CLOUDFLARE_API_TOKEN']; ns=os.environ['NS_ID']; title=os.environ['NS_TITLE']; cid=os.environ['MOM_CLIENT_ID']; redirect=os.environ['MOM_REDIRECT_URI']
           base=f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{ns}'
           def read(key):
               p=subprocess.run(['curl','-fsS',base+'/values/'+urllib.parse.quote(key,safe=''),'-H',f'Authorization: Bearer {token}'],capture_output=True,text=True)
               if p.returncode: return None
               try: return json.loads(p.stdout)
               except: return None
+          def resource_class(raw):
+              if not raw: return 'none'
+              try:
+                  u=urllib.parse.urlsplit(str(raw))
+                  if u.hostname!='taistock-mcp.keywayk09.workers.dev': return 'other_origin'
+                  if u.path=='/family-mcp': return 'family_mcp'
+                  if u.path=='/mcp': return 'full_mcp'
+                  if u.path in ('','/'): return 'worker_root'
+                  return 'same_worker_other_path'
+              except: return 'invalid'
           gkeys=[x.get('name') for x in (json.load(open('/tmp/grant-keys.json')).get('result') or []) if x.get('name')]
-          grants=[]
-          grant_ids=set()
+          grants=[]; grant_ids=set()
           for key in gkeys:
               x=read(key)
               if isinstance(x,dict) and x.get('clientId')==cid:
                   grants.append(x)
                   if x.get('id'): grant_ids.add(str(x.get('id')))
-          print('OLD_MATCHING_GRANTS='+str(len(grants)))
+          print('NAMESPACE='+title)
+          print('MATCHING_GRANTS='+str(len(grants)))
           for i,g in enumerate(grants,1):
-              scope=g.get('scope') or []
-              scope_class='family_read' if scope==['family:read'] else ('legacy_taistock_read' if scope==['taistock.read'] else 'other')
-              print(f'OLD_GRANT_{i}_SCOPE_CLASS={scope_class}')
-              print(f'OLD_GRANT_{i}_HAS_REFRESH_TOKEN='+str(bool(g.get('refreshTokenId'))).upper())
-              print(f'OLD_GRANT_{i}_HAS_REFRESH_WRAPPED_KEY='+str(bool(g.get('refreshTokenWrappedKey'))).upper())
-              print(f'OLD_GRANT_{i}_HAS_RESOURCE='+str(bool(g.get('resource'))).upper())
-              print(f'OLD_GRANT_{i}_ROLE_FAMILY='+str((g.get('metadata') or {}).get('clientName') is not None or g.get('userId')=='family').upper())
+              scope=[str(v) for v in (g.get('scope') or [])]
+              known={'family:read','taistock.read','openid','profile','email','offline_access','mcp:tools','files:write'}
+              print(f'GRANT_{i}_SCOPE_COUNT={len(scope)}')
+              for name in sorted(known):
+                  label=name.upper().replace(':','_').replace('.','_')
+                  print(f'GRANT_{i}_SCOPE_HAS_{label}='+str(name in scope).upper())
+              print(f'GRANT_{i}_SCOPE_ALL_KNOWN='+str(all(v in known for v in scope)).upper())
+              print(f'GRANT_{i}_USER_IS_FAMILY='+str(g.get('userId')=='family').upper())
+              print(f'GRANT_{i}_USER_ID_PRESENT='+str(bool(g.get('userId'))).upper())
+              print(f'GRANT_{i}_REDIRECT_MATCH='+str(g.get('redirectUri')==redirect).upper())
+              print(f'GRANT_{i}_RESOURCE_CLASS='+resource_class(g.get('resource')))
+              print(f'GRANT_{i}_PKCE_S256='+str(g.get('codeChallengeMethod')=='S256' and bool(g.get('codeChallenge'))).upper())
+              print(f'GRANT_{i}_PENDING_AUTH_CODE='+str(bool(g.get('authCodeId')) and bool(g.get('authCodeWrappedKey'))).upper())
+              print(f'GRANT_{i}_HAS_REFRESH_TOKEN='+str(bool(g.get('refreshTokenId'))).upper())
+              print(f'GRANT_{i}_HAS_REFRESH_WRAPPED_KEY='+str(bool(g.get('refreshTokenWrappedKey'))).upper())
+              print(f'GRANT_{i}_HAS_ENCRYPTED_PROPS='+str(bool(g.get('encryptedProps'))).upper())
+              print(f'GRANT_{i}_HAS_METADATA='+str(bool(g.get('metadata'))).upper())
+              if isinstance(g.get('metadata'),dict):
+                  safe_keys=sorted(str(k) for k in g['metadata'].keys())
+                  print(f'GRANT_{i}_METADATA_KEYS='+','.join(safe_keys))
+              else:
+                  print(f'GRANT_{i}_METADATA_KEYS=')
+              structural=sorted(str(k) for k in g.keys() if k not in {'encryptedProps','authCodeId','authCodeWrappedKey','refreshTokenId','refreshTokenWrappedKey','codeChallenge'})
+              print(f'GRANT_{i}_SAFE_FIELD_NAMES='+','.join(structural))
           tkeys=[x.get('name') for x in (json.load(open('/tmp/token-keys.json')).get('result') or []) if x.get('name')]
-          matching=[]
-          now=int(time.time())
+          matching=[]; now=int(time.time())
           for key in tkeys:
               x=read(key)
               if not isinstance(x,dict): continue
               embedded=x.get('grant') or {}
               if embedded.get('clientId')==cid or str(x.get('grantId') or '') in grant_ids:
                   matching.append(x)
-          print('OLD_MATCHING_ACCESS_TOKEN_RECORDS='+str(len(matching)))
-          print('OLD_ANY_UNEXPIRED_ACCESS_TOKEN='+str(any(int(x.get('expiresAt') or 0)>now for x in matching)).upper())
-          print('OLD_ANY_TOKEN_AUDIENCE_PRESENT='+str(any(bool(x.get('audience')) for x in matching)).upper())
+          print('MATCHING_ACCESS_TOKEN_RECORDS='+str(len(matching)))
+          print('ANY_UNEXPIRED_ACCESS_TOKEN='+str(any(int(x.get('expiresAt') or 0)>now for x in matching)).upper())
+          print('---')
           PY
+          done < /tmp/targets.tsv
