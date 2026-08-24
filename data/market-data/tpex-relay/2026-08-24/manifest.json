@@ -1,9 +1,9 @@
 {
   "canonical_storage": "keywayk09/tv-papertrader main/data",
   "capture_errors": {
-    "margin": "HTTPError: HTTP Error 520: <none>",
-    "sbl_balance": "HTTPError: HTTP Error 520: <none>",
-    "sbl_volume": "HTTPError: HTTP Error 520: <none>"
+    "margin": "RuntimeError: TPEX_MARGIN_MODERN_exact_date_empty",
+    "sbl_balance": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty",
+    "sbl_volume": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty"
   },
   "captured_at_utc": "2026-08-24T10:04:58.201071Z",
   "datasets": {
