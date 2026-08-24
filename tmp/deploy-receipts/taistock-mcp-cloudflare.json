@@ -1,5 +1,5 @@
 {
-  "source_sha": "ba64ab9651214fca0fb6275f262768a9e84103e2",
+  "source_sha": "6146070dcb20672fd39dbe1ddadf967f1fa33307",
   "oauth_kv_outcome": "success",
   "oauth_kv_title": "taistock-mcp-OAUTH_KV",
   "oauth_kv_created": "false",
@@ -10,5 +10,5 @@
   "token_configured": true,
   "account_id_configured": true,
   "cron": "*/5 * * * *",
-  "recorded_at": "2026-08-23T20:33:45Z"
+  "recorded_at": "2026-08-24T01:44:49Z"
 }
