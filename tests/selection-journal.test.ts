@@ -13,6 +13,10 @@ function env() {
   return { __GITHUB_DATA_MEMORY: new Map() as MemoryGitHubDataStore } as Env & { __GITHUB_DATA_MEMORY: MemoryGitHubDataStore };
 }
 
+function isImmutableConflict(error: unknown) {
+  return Boolean(error && typeof error === "object" && (error as { code?: string }).code === "IMMUTABLE_CONFLICT");
+}
+
 async function evidence(e: Env) {
   return recordSelectionEvidence(e, {
     evidence_id: "evidence-20260824-full",
@@ -62,7 +66,7 @@ test("selection run cannot be overwritten with a changed prediction", async () =
   };
   const first = await recordSelectionRun(e, base);
   assert.equal(first.candidates[0].score, 80);
-  await assert.rejects(() => recordSelectionRun(e, { ...base, candidates: [{ ...base.candidates[0], score: 81 }] }), /IMMUTABLE_CONFLICT/);
+  await assert.rejects(() => recordSelectionRun(e, { ...base, candidates: [{ ...base.candidates[0], score: 81 }] }), isImmutableConflict);
   const stored = await getSelectionRun(e, { selection_type: "SWING", source_trade_date: "2026-08-24", target_session_date: "2026-08-25", selector_version: "selector/v1" });
   assert.equal(stored?.candidates[0].score, 80);
 });
@@ -129,5 +133,5 @@ test("live decisions are immutable events and do not rewrite nightly selections"
   const first = await recordLiveDecision(e, input);
   const stored = await getLiveDecision(e, input.decision_id, first.decision_version);
   assert.equal(stored?.state, "LONG_WATCH");
-  await assert.rejects(() => recordLiveDecision(e, { ...input, state: "SHORT_WATCH" as const }), /IMMUTABLE_CONFLICT/);
+  await assert.rejects(() => recordLiveDecision(e, { ...input, state: "SHORT_WATCH" as const }), isImmutableConflict);
 });
