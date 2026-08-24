@@ -1,11 +1,7 @@
 {
   "canonical_storage": "keywayk09/tv-papertrader main/data",
-  "capture_errors": {
-    "margin": "RuntimeError: TPEX_MARGIN_MODERN_exact_date_empty",
-    "sbl_balance": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty",
-    "sbl_volume": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty"
-  },
-  "captured_at_utc": "2026-08-24T10:04:58.201071Z",
+  "capture_errors": {},
+  "captured_at_utc": "2026-08-24T13:10:24.702019Z",
   "datasets": {
     "institutional": {
       "endpoint": "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date=115%2F08%2F24&id=&response=json",
@@ -13,16 +9,33 @@
       "row_count": 912,
       "sha256": "25cb00d852fb7ec187cd5c81312678cc9bf61e4135a19721fb8b916bb47504cc",
       "source_date": "2026-08-24"
+    },
+    "margin": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/margin/balance?date=115%2F08%2F24&id=&response=json",
+      "file": "margin.json",
+      "row_count": 918,
+      "sha256": "1b75af37ae4fa2336b18c4e13f6b73904225656896dd63438a924a3f1fe4195e",
+      "source_date": "2026-08-24"
+    },
+    "sbl_balance": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=2026%2F08%2F24&id=&response=json",
+      "file": "sbl_balance.json",
+      "row_count": 929,
+      "sha256": "ea0960da31c88a5532a718c75ca8abe1afca9af8eb4052934f5d4724d7ee138d",
+      "source_date": "2026-08-24"
+    },
+    "sbl_volume": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=2026%2F08%2F24&id=&response=json",
+      "file": "sbl_volume.json",
+      "row_count": 929,
+      "sha256": "69e66ee0ad70bd2a90190f4f582008eb7c229632ac920635f88177e64b4f6d8e",
+      "source_date": "2026-08-24"
     }
   },
-  "missing_datasets": [
-    "margin",
-    "sbl_balance",
-    "sbl_volume"
-  ],
+  "missing_datasets": [],
   "schema": "TPEX_OFFICIAL_RELAY_V2",
   "source_owner": "TPEx",
-  "status": "PARTIAL",
+  "status": "COMPLETE",
   "trade_date": "2026-08-24",
   "transport": "GitHub hosted runner exact-date modern official TPEx JSON API"
 }
