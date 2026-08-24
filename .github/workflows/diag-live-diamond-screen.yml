@@ -32,19 +32,21 @@ jobs:
           cat /tmp/init.body
           echo
 
-          extra=()
-          if [ -n "$session" ]; then extra=(-H "Mcp-Session-Id: $session"); fi
+          extra=(-H 'MCP-Protocol-Version: 2025-06-18')
+          if [ -n "$session" ]; then extra+=(-H "Mcp-Session-Id: $session"); fi
 
-          curl --fail --silent --show-error --max-time 20 \
+          curl --fail --silent --show-error --max-time 20 -D /tmp/initialized.headers -o /tmp/initialized.body \
             "${common[@]}" "${extra[@]}" \
             --data '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-            "$base" >/tmp/initialized.body || true
+            "$base" || true
 
-          curl --fail --silent --show-error --max-time 120 -o /tmp/call.body \
+          curl --fail --silent --show-error --max-time 120 -D /tmp/call.headers -o /tmp/call.body \
             "${common[@]}" "${extra[@]}" \
             --data '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"screen_family_swing_candidates","arguments":{"mode":"balanced","top_n":8}}}' \
             "$base"
 
+          echo '--- call headers ---'
+          cat /tmp/call.headers
           echo '--- live screen result ---'
           cat /tmp/call.body
           echo
