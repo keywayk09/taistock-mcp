@@ -4,6 +4,9 @@ export type MarketDataKind = "institutional" | "margin" | "securities_lending" |
 export type MarketSide = "listed" | "otc";
 export type MarketLayerStatus = "READY" | "PENDING" | "ERROR";
 
+export const MAX_AUTOMATIC_RETRY_ATTEMPTS = 6;
+export const MAX_AUTOMATIC_RETRY_MINUTES = 360;
+
 export type MarketLayerIdentity = { kind: MarketDataKind; market: MarketSide };
 export type MarketManifestLayer = MarketLayerIdentity & {
   status: MarketLayerStatus;
@@ -243,6 +246,16 @@ export function nextRetryAt(nowIso: string, minutes = 10) {
   return d.toISOString();
 }
 
+export function automaticRetryDelayMinutes(attempt: number, baseMinutes = 10) {
+  const safeAttempt = Math.max(1, Math.floor(Number(attempt) || 1));
+  const safeBase = Math.max(1, Math.floor(Number(baseMinutes) || 10));
+  return Math.min(MAX_AUTOMATIC_RETRY_MINUTES, safeBase * (2 ** Math.max(0, safeAttempt - 1)));
+}
+
+export function automaticRetryExhausted(layer: Pick<MarketManifestLayer, "status" | "attempts"> | null | undefined) {
+  return Boolean(layer && layer.status !== "READY" && Number(layer.attempts || 0) >= MAX_AUTOMATIC_RETRY_ATTEMPTS);
+}
+
 export function makePendingLayer(identity: MarketLayerIdentity, nowIso: string, input: {
   source?: string | null;
   error?: string | null;
@@ -251,6 +264,9 @@ export function makePendingLayer(identity: MarketLayerIdentity, nowIso: string, 
   retryMinutes?: number;
 } = {}): MarketManifestLayer {
   const previous = input.previous ?? null;
+  const attempts = Number(previous?.attempts || 0) + 1;
+  const retryMinutes = input.retryMinutes ?? automaticRetryDelayMinutes(attempts);
+  const exhausted = attempts >= MAX_AUTOMATIC_RETRY_ATTEMPTS;
   return {
     ...identity,
     status: input.status ?? "PENDING",
@@ -261,11 +277,13 @@ export function makePendingLayer(identity: MarketLayerIdentity, nowIso: string, 
     snapshot_path: null,
     raw_paths: [],
     captured_at: null,
-    error: input.error ?? null,
-    attempts: Number(previous?.attempts || 0) + 1,
+    error: exhausted
+      ? `automatic_retry_exhausted:${input.error ?? previous?.error ?? "unknown"}`
+      : input.error ?? null,
+    attempts,
     first_attempt_at: previous?.first_attempt_at || nowIso,
     last_attempt_at: nowIso,
-    next_retry_at: nextRetryAt(nowIso, input.retryMinutes ?? 10),
+    next_retry_at: exhausted ? null : nextRetryAt(nowIso, retryMinutes),
   };
 }
 
@@ -285,6 +303,7 @@ export function dueLayerKeys(existingLayers: MarketManifestLayer[] | undefined, 
     if (allowed && !allowed.has(identity.kind)) return false;
     const layer = existing.get(marketLayerKey(identity));
     if (layer?.status === "READY") return false;
+    if (automaticRetryExhausted(layer)) return false;
 
     // During a DAILY checkpoint window, a missing layer may be attempted at
     // most once in that checkpoint. Later 5-minute wakes only continue units
@@ -295,9 +314,9 @@ export function dueLayerKeys(existingLayers: MarketManifestLayer[] | undefined, 
     }
 
     if (!layer) return true;
-    if (!layer.next_retry_at) return true;
+    if (!layer.next_retry_at) return false;
     const next = new Date(layer.next_retry_at).getTime();
-    return !Number.isFinite(next) || next <= now;
+    return Number.isFinite(next) && next <= now;
   }).map(marketLayerKey);
 }
 

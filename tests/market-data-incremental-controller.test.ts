@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { setMarketDataCapturePolicy } from "../src/v6/market-data-capture-context.ts";
 import {
+  MAX_AUTOMATIC_RETRY_ATTEMPTS,
+  automaticRetryDelayMinutes,
+  automaticRetryExhausted,
   classifyTradingDay,
   dueLayerKeys,
   makePendingLayer,
@@ -50,6 +53,10 @@ assert.equal(pending.attempts, 1);
 assert.equal(pending.next_retry_at, "2026-08-20T10:25:00.000Z");
 assert.equal(dueLayerKeys([ready, pending], "2026-08-20T10:20:00Z").includes("margin-listed"), false);
 assert.equal(dueLayerKeys([ready, pending], "2026-08-20T10:25:00Z").includes("margin-listed"), true);
+assert.equal(automaticRetryDelayMinutes(1), 10);
+assert.equal(automaticRetryDelayMinutes(2), 20);
+assert.equal(automaticRetryDelayMinutes(6), 320);
+assert.equal(automaticRetryDelayMinutes(20), 360);
 
 // 18:00 institutional checkpoint must not expose margin/lending/SBL.
 setMarketDataCapturePolicy({ allowedKinds: ["institutional"], checkpointStartedAt: "2026-08-20T10:00:00Z" });
@@ -72,6 +79,22 @@ setMarketDataCapturePolicy({ allowedKinds: ["margin"], checkpointStartedAt: "202
 assert.equal(dueLayerKeys([attemptedThisCheckpoint], "2026-08-20T14:30:00Z").includes("margin-listed"), true);
 setMarketDataCapturePolicy(null);
 
+// Regression: an unavailable source can never create an unbounded retry storm.
+let exhausted: MarketManifestLayer | null = null;
+for (let attempt = 1; attempt <= MAX_AUTOMATIC_RETRY_ATTEMPTS; attempt++) {
+  exhausted = makePendingLayer(
+    { kind: "sbl_short_sale", market: "otc" },
+    `2026-08-20T${String(10 + attempt).padStart(2, "0")}:00:00Z`,
+    { previous: exhausted, error: "source_date_mismatch:null" },
+  );
+}
+assert.ok(exhausted);
+assert.equal(exhausted!.attempts, MAX_AUTOMATIC_RETRY_ATTEMPTS);
+assert.equal(exhausted!.next_retry_at, null);
+assert.equal(automaticRetryExhausted(exhausted), true);
+assert.match(exhausted!.error || "", /^automatic_retry_exhausted:/);
+assert.equal(dueLayerKeys([exhausted!], "2026-08-22T00:00:00Z").includes("sbl_short_sale-otc"), false);
+
 const identities = [
   ["institutional", "otc"], ["margin", "listed"], ["margin", "otc"],
   ["securities_lending", "listed"], ["securities_lending", "otc"],
@@ -80,4 +103,4 @@ const identities = [
 const layers = [ready, ...identities.map(([kind, market]) => makePendingLayer({ kind, market }, "2026-08-20T10:15:00Z"))];
 assert.equal(summarizeDay(layers).terminal, false);
 
-console.log("market-data incremental controller + official calendar fail-closed tests passed");
+console.log("market-data incremental controller + retry-storm guard tests passed");
