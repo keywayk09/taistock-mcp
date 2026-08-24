@@ -2,7 +2,7 @@
 	"name": "taistock-mcp",
 	"version": "0.0.0",
 	"private": true,
-	"deployTrigger": "restore-diamond-owner-20260824",
+	"deployTrigger": "full-market-stable-production-20260824-1043",
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
