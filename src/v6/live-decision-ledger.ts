@@ -66,7 +66,7 @@ export async function recordLiveDecision(env: Env, input: {
   if (input.knowledge_cutoff_ts_ms > input.observed_at_ms) throw new Error("live_decision_knowledge_after_observation");
   const recordedAt = new Date().toISOString();
   const base = {
-    schema_version: LIVE_DECISION_LEDGER_VERSION,
+    schema_version: LIVE_DECISION_LEDGER_VERSION as LiveDecisionRecord["schema_version"],
     decision_id: input.decision_id,
     decision_version: version,
     trade_date: input.trade_date,
