@@ -1,0 +1,32 @@
+name: Trigger Cloudflare deploy on merged PR
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: taistock-mcp-cloudflare-merge-trigger
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Dispatch canonical Production deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run deploy-cloudflare-production.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref main
