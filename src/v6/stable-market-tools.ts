@@ -466,7 +466,7 @@ function sectorAggregation(rows: StableSnapshotRow[], topN: number) {
       trade_value: weight,
       leaders: [...liquid].sort((a, b) => Number(b.change_percent ?? 0) - Number(a.change_percent ?? 0)).slice(0, 5),
     };
-  }).filter((row): row is NonNullable<typeof row> => Boolean(row) && row.stock_count >= 2);
+  }).filter((row): row is NonNullable<typeof row> => row !== null && row.stock_count >= 2);
   return {
     strongest: [...sectors].sort((a, b) => b.value_weighted_change_percent - a.value_weighted_change_percent).slice(0, topN),
     weakest: [...sectors].sort((a, b) => a.value_weighted_change_percent - b.value_weighted_change_percent).slice(0, topN),
