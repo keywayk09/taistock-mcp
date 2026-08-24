@@ -196,7 +196,7 @@ export async function recordSelectionEvidence(env: Env, input: Omit<SelectionEvi
   if (!Array.isArray(input.universe_features) || !input.universe_features.length) throw new Error("selection_evidence_universe_empty");
   const recordedAt = new Date().toISOString();
   const base = {
-    schema_version: SELECTION_EVIDENCE_VERSION,
+    schema_version: SELECTION_EVIDENCE_VERSION as SelectionEvidenceRecord["schema_version"],
     ...input,
     storage: "GITHUB_ONLY" as const,
     recorded_at: recordedAt,
@@ -244,7 +244,7 @@ export async function recordSelectionRun(env: Env, input: Omit<SelectionRunRecor
   }
   const recordedAt = new Date().toISOString();
   const base = {
-    schema_version: SELECTION_JOURNAL_VERSION,
+    schema_version: SELECTION_JOURNAL_VERSION as SelectionRunRecord["schema_version"],
     ...input,
     status: "FINAL" as const,
     policy: {
@@ -290,7 +290,7 @@ export async function recordSelectionOutcome(env: Env, input: Omit<SelectionOutc
   if (!input.selection_id || !/^[1-9]\d{3}$/.test(input.symbol) || !input.horizon) throw new Error("selection_outcome_identity_invalid");
   const recordedAt = new Date().toISOString();
   const base = {
-    schema_version: SELECTION_OUTCOME_VERSION,
+    schema_version: SELECTION_OUTCOME_VERSION as SelectionOutcomeRecord["schema_version"],
     ...input,
     storage: "GITHUB_ONLY" as const,
     recorded_at: recordedAt,
@@ -318,7 +318,7 @@ export async function recordSelectionAuditDelta(env: Env, input: Omit<SelectionA
   if (!input.audit_id) throw new Error("selection_audit_id_required");
   const recordedAt = new Date().toISOString();
   const base = {
-    schema_version: SELECTION_AUDIT_VERSION,
+    schema_version: SELECTION_AUDIT_VERSION as SelectionAuditDeltaRecord["schema_version"],
     ...input,
     policy: "AUDIT_ONLY_NEVER_REWRITE_SELECTION" as const,
     storage: "GITHUB_ONLY" as const,
