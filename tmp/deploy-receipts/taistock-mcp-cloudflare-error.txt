@@ -1,0 +1,5 @@
+SAFE_PRODUCTION_DEPLOY_DIAGNOSTIC_V2
+source_sha=ae6325ce2b4aabc091c1ef975028c3075fb8a09c
+reason=MISSING_CLOUDFLARE_API_TOKEN
+--- wrangler ---
+--- smoke ---
