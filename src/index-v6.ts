@@ -59,9 +59,11 @@ const appHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
 
-    // Legacy full MCP surface remains on /mcp for backward compatibility.
-    // The family Custom GPT should use the isolated OAuth-protected /family-mcp endpoint.
-    if (url.pathname === "/mcp") return MyMCP.serve("/mcp").fetch(request, env, ctx);
+    // Owner / Diamond full MCP is canonical on /my-mcp. Keep /mcp as a legacy alias.
+    // These routes must never be remapped to the Family OAuth-protected surface.
+    if (url.pathname === "/my-mcp" || url.pathname === "/mcp") {
+      return MyMCP.serve(url.pathname).fetch(request, env, ctx);
+    }
 
     // Family V3 smart REST is intentionally lazy-loaded only for Family routes.
     // The route contract remains identical; only Worker startup evaluation changes.
@@ -113,7 +115,8 @@ const appHandler = {
           trading_day_policy: "OFFICIAL_CALENDAR_PLUS_WEEKEND_GATE; NO_DATA_NEVER_IMPLIES_HOLIDAY",
           status_endpoint: "/market-data/status?trade_date=YYYY-MM-DD",
         },
-        mcp_endpoint: "/mcp",
+        mcp_endpoint: "/my-mcp",
+        legacy_mcp_endpoint: "/mcp",
         family_mcp: {
           endpoint: "/family-mcp",
           oauth_required: true,
