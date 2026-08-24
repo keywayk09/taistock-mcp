@@ -2,7 +2,7 @@
 	"name": "taistock-mcp",
 	"version": "0.0.0",
 	"private": true,
-	"deployTrigger": "family-oauth-recovery-20260823",
+	"deployTrigger": "restore-diamond-owner-20260824",
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
