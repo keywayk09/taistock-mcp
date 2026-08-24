@@ -14,6 +14,7 @@ import { getResearchStatus, isAuthorizedResearchRequest } from "./v6/research-pi
 import { registerResearchTools } from "./v6/research-tools";
 import { registerAdvancedTools } from "./v6/register";
 import { registerStableMarketTools } from "./v6/stable-market-tools";
+import { registerStableSwingScreenTool } from "./v6/stable-swing-screen";
 import { TW_MARKET_DATA_VERSION } from "./v6/tw-market-data-github";
 import { registerTwMarketDataTools } from "./v6/tw-market-data-tools";
 
@@ -33,6 +34,7 @@ const FROZEN_STABLE_MARKET_TOOL_NAMES = new Set([
   "get_market_regime",
   "get_macro_risk_dashboard",
   "get_data_health",
+  "screen_family_swing_candidates",
 ]);
 
 function taipeiDateFromMs(ms: number) {
@@ -48,12 +50,10 @@ export class MyMCP extends BaseMCP {
   server = new McpServer({ name: "Taiwan Stock AI", version: "6.18.0" });
 
   async init() {
-    // Base/advanced generations still contain legacy implementations of four
-    // market-wide tools. Suppress only those names during legacy registration,
-    // then register the frozen stable implementations exactly once below.
-    // This keeps every other Diamond tool unchanged while permanently removing
-    // Fugle market-ranking/full-snapshot, FinMind token, and direct TPEx quote
-    // endpoints from the required full-market path.
+    // Legacy generations still contain implementations that depend on provider
+    // routes already proven unreliable from Cloudflare egress. Suppress only the
+    // frozen names during legacy registration, then register their stable versions
+    // exactly once below. Every unrelated Diamond tool remains unchanged.
     const serverAny = this.server as any;
     const originalRegisterTool = serverAny.registerTool;
     serverAny.registerTool = function (name: string, ...args: any[]) {
@@ -67,10 +67,8 @@ export class MyMCP extends BaseMCP {
       registerDailyReportFormatTool(this.server);
       registerResearchTools(this.server, this.env);
 
-      // IMPORTANT: Family V2 selector is intentionally loaded only when MyMCP is
-      // instantiated. Keeping the deep Family research graph out of Worker module
-      // evaluation prevents Cloudflare startup validation from executing unrelated
-      // MCP/Zod schema modules before a request actually needs them.
+      // Keep the legacy module available for its non-frozen internals, but its
+      // screen_family_swing_candidates registration is suppressed above.
       const { registerFamilyStockSelectionToolsV2 } = await import("./v6/family-stock-selection-v2");
       registerFamilyStockSelectionToolsV2(this.server, this.env);
       registerTwMarketDataTools(this.server, this.env);
@@ -79,6 +77,7 @@ export class MyMCP extends BaseMCP {
     }
 
     registerStableMarketTools(this.server, this.env);
+    registerStableSwingScreenTool(this.server, this.env);
   }
 }
 
@@ -144,6 +143,7 @@ const appHandler = {
           full_market_status_endpoint: "/health/full-market",
           full_market_scan_contract: "tw-full-market-source-contract/v1.0.0",
           full_market_scan_policy: "FROZEN_TWSE_OPENAPI_PLUS_MOPSFIN_TWSE_MIS; NO_FUGLE_RANKING; NO_FINMIND_REQUIRED; NO_DIRECT_TPEX_QUOTES",
+          swing_screen_policy: "FROZEN_FULL_MARKET_PREFILTER_PLUS_FUGLE_PER_SYMBOL_HISTORY; NO_FINMIND_REQUIRED",
         },
         mcp_endpoint: "/my-mcp",
         legacy_mcp_endpoint: "/mcp",
@@ -160,7 +160,7 @@ const appHandler = {
           owner_private_context: "DENY_BY_DEFAULT_UNLESS_EXPLICITLY_SHARED",
           realtime: "FUGLE_PRIMARY_WHEN_AVAILABLE",
           web_research: "OPEN_WORLD_AUTONOMOUS_ALLOWED",
-          swing_screen: "V2_FULL_SNAPSHOT_PREFILTER_BOUNDED_DEEP_SCAN",
+          swing_screen: "STABLE_FULL_MARKET_CONTRACT_BOUNDED_FUGLE_HISTORY",
           startup_graph: "LAZY_DEEP_FAMILY_MODULES",
         },
         family_read_only_action: "/api/family/query",
