@@ -1,0 +1,93 @@
+name: Recover taistock-mcp Cloudflare deploy
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: taistock-mcp-cloudflare-watchdog
+  cancel-in-progress: true
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect stale or failed Production
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt='tmp/deploy-receipts/taistock-mcp-cloudflare.json'
+          dispatch=false
+          reason='up_to_date'
+
+          if [ ! -f "$receipt" ]; then
+            dispatch=true
+            reason='missing_receipt'
+          else
+            readarray -t meta < <(python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+          body=json.loads(Path('tmp/deploy-receipts/taistock-mcp-cloudflare.json').read_text())
+          sha=str(body.get('source_sha') or '')
+          reason=str(body.get('reason') or '')
+          recorded=str(body.get('recorded_at') or '')
+          age=10**9
+          if recorded:
+              try:
+                  dt=datetime.fromisoformat(recorded.replace('Z','+00:00'))
+                  age=max(0,int((datetime.now(timezone.utc)-dt).total_seconds()))
+              except Exception:
+                  pass
+          print(sha)
+          print(reason)
+          print(age)
+          PY
+            )
+            receipt_sha="${meta[0]:-}"
+            receipt_reason="${meta[1]:-}"
+            receipt_age="${meta[2]:-999999}"
+
+            if [ -z "$receipt_sha" ] || ! git cat-file -e "${receipt_sha}^{commit}" 2>/dev/null; then
+              dispatch=true
+              reason='invalid_receipt_sha'
+            elif ! git diff --quiet "$receipt_sha" HEAD -- \
+              src \
+              wrangler.jsonc \
+              package.json \
+              package-lock.json \
+              .github/workflows/deploy-cloudflare-production.yml; then
+              dispatch=true
+              reason='production_source_stale'
+            elif [ "$receipt_reason" != 'DEPLOYED_CRON_AND_FULL_MARKET_SMOKE_VERIFIED' ] \
+              && [ "$receipt_reason" != 'DEPLOYED_OAUTH_KV_AND_CRON_VERIFIED' ] \
+              && [ "$receipt_age" -ge 900 ]; then
+              dispatch=true
+              reason='failed_receipt_retry_due'
+            fi
+          fi
+
+          echo "dispatch=${dispatch}" >> "$GITHUB_OUTPUT"
+          echo "reason=${reason}" >> "$GITHUB_OUTPUT"
+          echo "watchdog decision: dispatch=${dispatch} reason=${reason}"
+
+      - name: Dispatch latest Production workflow
+        if: steps.detect.outputs.dispatch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run deploy-cloudflare-production.yml --ref main
+          echo "dispatched Production recovery: ${{ steps.detect.outputs.reason }}"
