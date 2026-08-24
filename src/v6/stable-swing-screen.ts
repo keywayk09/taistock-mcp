@@ -105,7 +105,7 @@ function diversify(rows: StableSnapshotRow[], mode: Mode) {
 
 async function dailyBars(env: Env, symbol: string) {
   const body = await fugle(env, `/historical/candles/${symbol}`, {
-    from: taipeiDate(380),
+    from: taipeiDate(350),
     to: taipeiDate(),
     timeframe: "D",
     adjusted: "false",
