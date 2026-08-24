@@ -1,0 +1,50 @@
+name: Diagnostic live Diamond screen
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/diag-live-diamond-screen.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call live Diamond MCP stable swing screen
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://taistock-mcp.keywayk09.workers.dev/my-mcp'
+          common=(-H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream')
+
+          curl --fail --silent --show-error --max-time 30 -D /tmp/init.headers -o /tmp/init.body \
+            "${common[@]}" \
+            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"github-live-diagnostic","version":"1.0.0"}}}' \
+            "$base"
+
+          session="$(awk 'BEGIN{IGNORECASE=1} /^mcp-session-id:/ {gsub("\\r",""); print $2}' /tmp/init.headers | tail -1)"
+          echo "session_present=$([ -n "$session" ] && echo true || echo false)"
+          echo '--- initialize ---'
+          cat /tmp/init.body
+          echo
+
+          extra=()
+          if [ -n "$session" ]; then extra=(-H "Mcp-Session-Id: $session"); fi
+
+          curl --fail --silent --show-error --max-time 20 \
+            "${common[@]}" "${extra[@]}" \
+            --data '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            "$base" >/tmp/initialized.body || true
+
+          curl --fail --silent --show-error --max-time 120 -o /tmp/call.body \
+            "${common[@]}" "${extra[@]}" \
+            --data '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"screen_family_swing_candidates","arguments":{"mode":"balanced","top_n":8}}}' \
+            "$base"
+
+          echo '--- live screen result ---'
+          cat /tmp/call.body
+          echo
