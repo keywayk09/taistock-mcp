@@ -13,6 +13,7 @@ import { getTwMarketDataDayStatus } from "./v6/market-data-day-status";
 import { getResearchStatus, isAuthorizedResearchRequest } from "./v6/research-pipeline";
 import { registerResearchTools } from "./v6/research-tools";
 import { registerAdvancedTools } from "./v6/register";
+import { registerStableMarketTools } from "./v6/stable-market-tools";
 import { TW_MARKET_DATA_VERSION } from "./v6/tw-market-data-github";
 import { registerTwMarketDataTools } from "./v6/tw-market-data-tools";
 
@@ -25,6 +26,13 @@ const FAMILY_SMART_REST_PATHS = new Set([
   "/api/family/compare",
   "/api/family/screen",
   "/api/family/status",
+]);
+
+const FROZEN_STABLE_MARKET_TOOL_NAMES = new Set([
+  "get_market_rankings",
+  "get_market_regime",
+  "get_macro_risk_dashboard",
+  "get_data_health",
 ]);
 
 function taipeiDateFromMs(ms: number) {
@@ -40,18 +48,37 @@ export class MyMCP extends BaseMCP {
   server = new McpServer({ name: "Taiwan Stock AI", version: "6.18.0" });
 
   async init() {
-    await super.init();
-    registerAdvancedTools(this.server, this.env);
-    registerDailyReportFormatTool(this.server);
-    registerResearchTools(this.server, this.env);
+    // Base/advanced generations still contain legacy implementations of four
+    // market-wide tools. Suppress only those names during legacy registration,
+    // then register the frozen stable implementations exactly once below.
+    // This keeps every other Diamond tool unchanged while permanently removing
+    // Fugle market-ranking/full-snapshot, FinMind token, and direct TPEx quote
+    // endpoints from the required full-market path.
+    const serverAny = this.server as any;
+    const originalRegisterTool = serverAny.registerTool;
+    serverAny.registerTool = function (name: string, ...args: any[]) {
+      if (FROZEN_STABLE_MARKET_TOOL_NAMES.has(name)) return undefined;
+      return originalRegisterTool.call(this, name, ...args);
+    };
 
-    // IMPORTANT: Family V2 selector is intentionally loaded only when MyMCP is
-    // instantiated. Keeping the deep Family research graph out of Worker module
-    // evaluation prevents Cloudflare startup validation from executing unrelated
-    // MCP/Zod schema modules before a request actually needs them.
-    const { registerFamilyStockSelectionToolsV2 } = await import("./v6/family-stock-selection-v2");
-    registerFamilyStockSelectionToolsV2(this.server, this.env);
-    registerTwMarketDataTools(this.server, this.env);
+    try {
+      await super.init();
+      registerAdvancedTools(this.server, this.env);
+      registerDailyReportFormatTool(this.server);
+      registerResearchTools(this.server, this.env);
+
+      // IMPORTANT: Family V2 selector is intentionally loaded only when MyMCP is
+      // instantiated. Keeping the deep Family research graph out of Worker module
+      // evaluation prevents Cloudflare startup validation from executing unrelated
+      // MCP/Zod schema modules before a request actually needs them.
+      const { registerFamilyStockSelectionToolsV2 } = await import("./v6/family-stock-selection-v2");
+      registerFamilyStockSelectionToolsV2(this.server, this.env);
+      registerTwMarketDataTools(this.server, this.env);
+    } finally {
+      serverAny.registerTool = originalRegisterTool;
+    }
+
+    registerStableMarketTools(this.server, this.env);
   }
 }
 
@@ -114,6 +141,8 @@ const appHandler = {
           retry_policy: "PENDING_OR_ERROR_ONLY; READY_NEVER_DOWNGRADES",
           trading_day_policy: "OFFICIAL_CALENDAR_PLUS_WEEKEND_GATE; NO_DATA_NEVER_IMPLIES_HOLIDAY",
           status_endpoint: "/market-data/status?trade_date=YYYY-MM-DD",
+          full_market_scan_contract: "tw-full-market-source-contract/v1.0.0",
+          full_market_scan_policy: "FROZEN_TWSE_OPENAPI_PLUS_MOPSFIN_TWSE_MIS; NO_FUGLE_RANKING; NO_FINMIND_REQUIRED; NO_DIRECT_TPEX_QUOTES",
         },
         mcp_endpoint: "/my-mcp",
         legacy_mcp_endpoint: "/mcp",
