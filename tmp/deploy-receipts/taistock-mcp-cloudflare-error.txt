@@ -1,5 +1,0 @@
-SAFE_PRODUCTION_DEPLOY_DIAGNOSTIC_V3
-source_sha=0c2b4fe94cd6147fefd97fba734c59509daab453
-reason=WRANGLER_DEPLOY_FAILED
---- wrangler ---
---- smoke ---
