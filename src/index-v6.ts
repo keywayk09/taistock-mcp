@@ -141,6 +141,7 @@ const appHandler = {
           retry_policy: "PENDING_OR_ERROR_ONLY; READY_NEVER_DOWNGRADES",
           trading_day_policy: "OFFICIAL_CALENDAR_PLUS_WEEKEND_GATE; NO_DATA_NEVER_IMPLIES_HOLIDAY",
           status_endpoint: "/market-data/status?trade_date=YYYY-MM-DD",
+          full_market_status_endpoint: "/health/full-market",
           full_market_scan_contract: "tw-full-market-source-contract/v1.0.0",
           full_market_scan_policy: "FROZEN_TWSE_OPENAPI_PLUS_MOPSFIN_TWSE_MIS; NO_FUGLE_RANKING; NO_FINMIND_REQUIRED; NO_DIRECT_TPEX_QUOTES",
         },
@@ -175,6 +176,29 @@ const appHandler = {
         research_status_endpoint: "/research/status",
         tools: 113,
       });
+    }
+
+    if (url.pathname === "/health/full-market" && request.method === "GET") {
+      const { loadStableMarketUniverse, STABLE_MARKET_SOURCE_CONTRACT, STABLE_MARKET_TOOLS_VERSION } = await import("./v6/stable-market-tools");
+      const result = await loadStableMarketUniverse(true);
+      return Response.json({
+        status: result.usable ? "ok" : "degraded",
+        usable: result.usable,
+        version: STABLE_MARKET_TOOLS_VERSION,
+        source_contract: STABLE_MARKET_SOURCE_CONTRACT,
+        retrieved_at: result.retrieved_at,
+        listed: {
+          provider: result.TWSE.provider,
+          rows: result.TWSE.normalized_count,
+          errors: result.TWSE.errors,
+        },
+        otc: {
+          provider: result.TPEx.provider,
+          rows: result.TPEx.normalized_count,
+          errors: result.TPEx.errors,
+        },
+        optional_metadata_errors: result.optional_metadata_errors,
+      }, { status: result.usable ? 200 : 503 });
     }
 
     if (url.pathname === "/market-data/status" && request.method === "GET") {
