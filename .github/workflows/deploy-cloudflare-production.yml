@@ -286,15 +286,30 @@ jobs:
           mkdir -p tmp/deploy-receipts
           diagnostic_path='tmp/deploy-receipts/taistock-mcp-cloudflare-error.txt'
 
-          if [ "${{ steps.auth.outputs.token_configured }}" != 'true' ]; then
+          token_configured='${{ steps.auth.outputs.token_configured }}'
+          account_id_configured='${{ steps.auth.outputs.account_id_configured }}'
+          if [ "$token_configured" != 'true' ]; then token_configured=false; fi
+          if [ "$account_id_configured" != 'true' ]; then account_id_configured=false; fi
+
+          auth_outcome='${{ steps.auth.outcome }}'
+          oauth_outcome='${{ steps.oauth_kv.outcome }}'
+          deploy_outcome='${{ steps.deploy.outcome }}'
+          cron_outcome='${{ steps.cron.outcome }}'
+          smoke_outcome='${{ steps.smoke.outcome }}'
+
+          if [ "$auth_outcome" != 'success' ]; then
+            reason='DEPLOY_RUN_INTERRUPTED_OR_AUTH_STEP_FAILED'
+          elif [ "$token_configured" = 'false' ]; then
             reason='MISSING_CLOUDFLARE_API_TOKEN'
-          elif [ "${{ steps.oauth_kv.outcome }}" != 'success' ]; then
+          elif [ "$oauth_outcome" = 'skipped' ] || [ "$deploy_outcome" = 'skipped' ]; then
+            reason='DEPLOY_RUN_INTERRUPTED_OR_SKIPPED'
+          elif [ "$oauth_outcome" != 'success' ]; then
             reason='OAUTH_KV_RESOLUTION_FAILED'
-          elif [ "${{ steps.deploy.outcome }}" != 'success' ]; then
+          elif [ "$deploy_outcome" != 'success' ]; then
             reason='WRANGLER_DEPLOY_FAILED'
-          elif [ "${{ steps.cron.outcome }}" != 'success' ]; then
+          elif [ "$cron_outcome" != 'success' ]; then
             reason='CRON_TRIGGER_INSTALL_FAILED'
-          elif [ "${{ steps.smoke.outcome }}" != 'success' ]; then
+          elif [ "$smoke_outcome" != 'success' ]; then
             reason='PRODUCTION_SMOKE_FAILED'
           else
             reason='DEPLOYED_CRON_AND_FULL_MARKET_SMOKE_VERIFIED'
@@ -302,7 +317,7 @@ jobs:
 
           if [ "$reason" != 'DEPLOYED_CRON_AND_FULL_MARKET_SMOKE_VERIFIED' ]; then
             {
-              echo 'SAFE_PRODUCTION_DEPLOY_DIAGNOSTIC_V2'
+              echo 'SAFE_PRODUCTION_DEPLOY_DIAGNOSTIC_V3'
               echo "source_sha=${GITHUB_SHA}"
               echo "reason=${reason}"
               echo '--- wrangler ---'
@@ -317,25 +332,26 @@ jobs:
           cat > tmp/deploy-receipts/taistock-mcp-cloudflare.json <<EOF
           {
             "source_sha": "${GITHUB_SHA}",
-            "oauth_kv_outcome": "${{ steps.oauth_kv.outcome }}",
+            "oauth_kv_outcome": "${oauth_outcome}",
             "oauth_kv_title": "${{ steps.oauth_kv.outputs.title }}",
             "oauth_kv_created": "${{ steps.oauth_kv.outputs.created }}",
-            "deploy_outcome": "${{ steps.deploy.outcome }}",
-            "cron_outcome": "${{ steps.cron.outcome }}",
-            "smoke_outcome": "${{ steps.smoke.outcome }}",
+            "deploy_outcome": "${deploy_outcome}",
+            "cron_outcome": "${cron_outcome}",
+            "smoke_outcome": "${smoke_outcome}",
             "reason": "${reason}",
             "diagnostic_path": "${diagnostic_path}",
-            "token_configured": ${{ steps.auth.outputs.token_configured }},
-            "account_id_configured": ${{ steps.auth.outputs.account_id_configured }},
+            "token_configured": ${token_configured},
+            "account_id_configured": ${account_id_configured},
             "cron": "*/5 * * * *",
             "recorded_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           EOF
 
+          # Stage the whole receipt directory. This safely captures both receipt
+          # updates and a diagnostic-file deletion without failing on a missing path.
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add tmp/deploy-receipts/taistock-mcp-cloudflare.json
-          git add -A "$diagnostic_path"
+          git add -A -- tmp/deploy-receipts
           git commit -m 'ops: record Cloudflare production deploy result' || exit 0
           for attempt in 1 2 3 4 5; do
             if git push origin HEAD:main; then
