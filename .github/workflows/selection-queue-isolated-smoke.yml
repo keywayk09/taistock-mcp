@@ -1,0 +1,233 @@
+name: Selection Queue Isolated Cloudflare Smoke
+
+on:
+  push:
+    branches:
+      - test/selection-scheduler-isolation-20260825
+    paths:
+      - 'tests/selection-queue-smoke-worker.js'
+      - '.github/workflows/selection-queue-isolated-smoke.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: selection-queue-isolated-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PROD_ORIGIN: https://taistock-mcp.keywayk09.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/selection-scheduler-isolation-20260825
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Isolated Queue smoke with guaranteed cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo 'Cloudflare credentials missing; refusing smoke.' >&2
+            exit 78
+          fi
+
+          suffix="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          worker_name="taistock-selection-smoke-${suffix}"
+          queue_name="taistock-selection-smoke-${suffix}"
+          kv_title="taistock-selection-smoke-${suffix}"
+          smoke_token="$(python - <<'PY'
+          import secrets
+          print(secrets.token_hex(32))
+          PY
+          )"
+          smoke_id="smoke_${suffix//-/_}"
+          queue_id=''
+          kv_id=''
+
+          auth=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')
+          api="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}"
+
+          cleanup() {
+            set +e
+            echo '[cleanup] removing temporary worker/queue/kv'
+            curl --silent --show-error --max-time 30 -X DELETE "${api}/workers/scripts/${worker_name}?force=true" "${auth[@]}" >/tmp/delete-worker.json 2>/dev/null || true
+            if [ -n "${queue_id}" ]; then
+              curl --silent --show-error --max-time 30 -X DELETE "${api}/queues/${queue_id}" "${auth[@]}" >/tmp/delete-queue.json 2>/dev/null || true
+            fi
+            if [ -n "${kv_id}" ]; then
+              curl --silent --show-error --max-time 30 -X DELETE "${api}/storage/kv/namespaces/${kv_id}" "${auth[@]}" >/tmp/delete-kv.json 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+
+          echo '[1/7] verify Production health before smoke'
+          curl --fail --silent --show-error --max-time 25 "${PROD_ORIGIN}/health" > /tmp/prod-health-before.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          h=json.loads(Path('/tmp/prod-health-before.json').read_text())
+          if h.get('status') != 'ok' or h.get('mcp_endpoint') != '/my-mcp':
+              raise SystemExit(f'production_health_before_failed:{h}')
+          print('production health before PASS')
+          PY
+
+          echo '[2/7] verify Production Cron is exactly the existing */5 trigger'
+          curl --fail --silent --show-error --max-time 30 "${api}/workers/scripts/taistock-mcp/schedules" "${auth[@]}" > /tmp/prod-cron-before.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/prod-cron-before.json').read_text())
+          result=body.get('result') or {}
+          rows=result.get('schedules') if isinstance(result,dict) else result
+          rows=rows or []
+          crons=[x.get('cron') for x in rows if isinstance(x,dict)]
+          if crons != ['*/5 * * * *']:
+              raise SystemExit(f'production_cron_before_unexpected:{crons}')
+          print('production cron before PASS', crons)
+          PY
+
+          echo '[3/7] create temporary Queue and KV only'
+          curl --fail --silent --show-error --max-time 30 -X POST "${api}/queues" "${auth[@]}" --data "{\"queue_name\":\"${queue_name}\"}" > /tmp/create-queue.json
+          queue_id="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          b=json.loads(Path('/tmp/create-queue.json').read_text())
+          if not b.get('success'): raise SystemExit(f'queue_create_failed:{b.get("errors")}')
+          print((b.get('result') or {}).get('queue_id') or (b.get('result') or {}).get('queue_id',''))
+          PY
+          )"
+          if [ -z "${queue_id}" ]; then
+            queue_id="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          b=json.loads(Path('/tmp/create-queue.json').read_text())
+          print((b.get('result') or {}).get('queue_id',''))
+          PY
+            )"
+          fi
+          if [ -z "${queue_id}" ]; then cat /tmp/create-queue.json; exit 1; fi
+
+          curl --fail --silent --show-error --max-time 30 -X POST "${api}/storage/kv/namespaces" "${auth[@]}" --data "{\"title\":\"${kv_title}\"}" > /tmp/create-kv.json
+          kv_id="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          b=json.loads(Path('/tmp/create-kv.json').read_text())
+          if not b.get('success'): raise SystemExit(f'kv_create_failed:{b.get("errors")}')
+          print((b.get('result') or {}).get('id',''))
+          PY
+          )"
+          test -n "${kv_id}"
+
+          echo '[4/7] deploy temporary Worker with NO Cron and isolated Queue consumer'
+          cat > /tmp/wrangler-selection-smoke.jsonc <<EOF
+          {
+            "name": "${worker_name}",
+            "main": "tests/selection-queue-smoke-worker.js",
+            "compatibility_date": "2026-08-25",
+            "workers_dev": true,
+            "preview_urls": false,
+            "kv_namespaces": [
+              { "binding": "SMOKE_KV", "id": "${kv_id}" }
+            ],
+            "queues": {
+              "producers": [
+                { "binding": "SELECTION_SMOKE_QUEUE", "queue": "${queue_name}" }
+              ],
+              "consumers": [
+                { "queue": "${queue_name}", "max_batch_size": 1, "max_batch_timeout": 1, "max_retries": 1, "max_concurrency": 1 }
+              ]
+            },
+            "vars": { "SMOKE_TOKEN": "${smoke_token}" },
+            "observability": { "enabled": true }
+          }
+          EOF
+          npx wrangler deploy --config /tmp/wrangler-selection-smoke.jsonc >/tmp/wrangler-smoke.log 2>&1 || { tail -100 /tmp/wrangler-smoke.log; exit 1; }
+
+          curl --fail --silent --show-error --max-time 30 "${api}/workers/subdomain" "${auth[@]}" > /tmp/account-subdomain.json
+          account_subdomain="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          b=json.loads(Path('/tmp/account-subdomain.json').read_text())
+          if not b.get('success'): raise SystemExit(f'subdomain_lookup_failed:{b.get("errors")}')
+          print((b.get('result') or {}).get('subdomain',''))
+          PY
+          )"
+          test -n "${account_subdomain}"
+          smoke_origin="https://${worker_name}.${account_subdomain}.workers.dev"
+
+          echo '[5/7] wait for temporary Worker, then enqueue exactly one smoke message'
+          ready=false
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --max-time 10 -H "Authorization: Bearer ${smoke_token}" "${smoke_origin}/health" >/tmp/smoke-health.json 2>/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "${ready}" != true ]; then echo 'temporary worker propagation timeout' >&2; exit 1; fi
+
+          curl --fail --silent --show-error --max-time 20 -X POST \
+            -H "Authorization: Bearer ${smoke_token}" -H 'Content-Type: application/json' \
+            --data "{\"id\":\"${smoke_id}\"}" "${smoke_origin}/enqueue" > /tmp/enqueue.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          b=json.loads(Path('/tmp/enqueue.json').read_text())
+          if b.get('status') != 'ENQUEUED': raise SystemExit(f'enqueue_failed:{b}')
+          print('enqueue PASS')
+          PY
+
+          echo '[6/7] wait for real Queue consumer ACK written through isolated KV'
+          passed=false
+          for attempt in $(seq 1 36); do
+            code="$(curl --silent --show-error --max-time 15 -o /tmp/queue-status.json -w '%{http_code}' -H "Authorization: Bearer ${smoke_token}" "${smoke_origin}/status?id=${smoke_id}" || true)"
+            if [ "${code}" = '200' ]; then
+              python - <<'PY'
+          import json
+          from pathlib import Path
+          b=json.loads(Path('/tmp/queue-status.json').read_text())
+          if b.get('status') != 'QUEUE_SMOKE_PASS' or b.get('queue_consumer_acked') is not True:
+              raise SystemExit(f'queue_ack_contract_failed:{b}')
+          print('QUEUE SMOKE PASS ack=true')
+          PY
+              passed=true
+              break
+            fi
+            if [ "${code}" != '202' ]; then cat /tmp/queue-status.json || true; echo "unexpected status=${code}" >&2; exit 1; fi
+            sleep 5
+          done
+          if [ "${passed}" != true ]; then echo 'queue consumer ACK timeout' >&2; exit 1; fi
+
+          echo '[7/7] cleanup temporary resources, then prove Production unchanged'
+          cleanup
+          trap - EXIT
+          sleep 2
+
+          curl --fail --silent --show-error --max-time 25 "${PROD_ORIGIN}/health" > /tmp/prod-health-after.json
+          curl --fail --silent --show-error --max-time 30 "${api}/workers/scripts/taistock-mcp/schedules" "${auth[@]}" > /tmp/prod-cron-after.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          h=json.loads(Path('/tmp/prod-health-after.json').read_text())
+          if h.get('status') != 'ok' or h.get('mcp_endpoint') != '/my-mcp':
+              raise SystemExit(f'production_health_after_failed:{h}')
+          body=json.loads(Path('/tmp/prod-cron-after.json').read_text())
+          result=body.get('result') or {}
+          rows=result.get('schedules') if isinstance(result,dict) else result
+          rows=rows or []
+          crons=[x.get('cron') for x in rows if isinstance(x,dict)]
+          if crons != ['*/5 * * * *']:
+              raise SystemExit(f'production_cron_after_unexpected:{crons}')
+          print('PRODUCTION UNCHANGED PASS health=ok cron=*/5')
+          PY
+
+          echo 'ISOLATED_SELECTION_QUEUE_SMOKE_PASS'
