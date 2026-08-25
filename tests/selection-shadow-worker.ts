@@ -113,7 +113,7 @@ export default {
       GITHUB_DATA_BRANCH: "main",
       GITHUB_DATA_TOKEN: undefined,
       GITHUB_TOKEN: undefined,
-      FUGLE_API_KEY: "",
+      FUGLE_API_KEY: env.FUGLE_API_KEY || "",
       FINMIND_TOKEN: "",
       __GITHUB_DATA_MEMORY: shadowMemory,
     } as ShadowEnv & { __GITHUB_DATA_MEMORY: MemoryGitHubDataStore };
@@ -147,6 +147,7 @@ export default {
       manifest_terminal: preload.manifest?.terminal ?? null,
       manifest_ready_layers: preload.manifest?.ready_layers ?? [],
       snapshots_loaded: preload.snapshots_loaded,
+      fugle_key_present: Boolean(env.FUGLE_API_KEY),
       intraday_review: compactResult(intradayReview),
       night: compactResult(night),
       shadow_selection_paths: shadowSelectionPaths,
