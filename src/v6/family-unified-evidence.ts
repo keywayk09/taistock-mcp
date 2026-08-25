@@ -3,7 +3,7 @@ import {
   summarizeFamilyHoldingDistribution,
 } from "./family-eleven-point.ts";
 
-export const FAMILY_UNIFIED_EVIDENCE_VERSION = "family-evidence/v1.0.0";
+export const FAMILY_UNIFIED_EVIDENCE_VERSION = "family-evidence/v1.1.0";
 
 export type FamilyEvidenceClass =
   | "FORMAL_TRUTH"
@@ -131,6 +131,7 @@ export function buildFamilyUnifiedEvidence(input: FamilyUnifiedEvidenceInput) {
   const analysis = rec(input.analysis);
   const intelligence = rec(input.intelligence);
   const market = rec(analysis.market_snapshot);
+  const stockLive = rec(analysis.stock_live_context ?? intelligence.stock_live_context);
   const technical = rec(analysis.technical);
   const chip = rec(analysis.chip);
   const monthlyRevenue = rec(intelligence.monthly_revenue);
@@ -139,7 +140,14 @@ export function buildFamilyUnifiedEvidence(input: FamilyUnifiedEvidenceInput) {
   const holding = summarizeFamilyHoldingDistribution(input.holding_distribution_rows ?? []);
   const foreign = summarizeFamilyForeignShareholding(input.foreign_shareholding_rows ?? []);
 
-  const realtimeReady = Boolean(rec(market.quote).close || rec(market.latest_daily_bar).close);
+  const stockLiveStatus = normalizeStatus(stockLive.status);
+  const stockLiveReady = ["READY", "DEGRADED"].includes(stockLiveStatus) && stockLive.display_ready === true;
+  const fallbackRealtimeReady = Boolean(rec(market.quote).close || rec(market.latest_daily_bar).close);
+  const realtimeStatus: FamilyEvidenceStatus = stockLiveReady
+    ? stockLiveStatus
+    : fallbackRealtimeReady
+      ? "READY"
+      : "UNAVAILABLE";
   const formalPublishedChip = Boolean(chip.ok) && rec(chip.data_quality).formal_published === true;
   const publishedChipStatus = formalPublishedChip ? normalizeStatus(chip.status) : "UNAVAILABLE";
 
@@ -170,18 +178,29 @@ export function buildFamilyUnifiedEvidence(input: FamilyUnifiedEvidenceInput) {
     realtime_market: evidenceNode({
       id: "realtime_market",
       evidence_class: "DISPLAY_FALLBACK",
-      status: realtimeReady ? "READY" : "UNAVAILABLE",
-      source: String(market.source ?? "UNAVAILABLE"),
+      status: realtimeStatus,
+      source: stockLiveReady ? String(stockLive.source ?? "OHLC_READ_SERVICE_STOCK_LIVE") : String(market.source ?? "UNAVAILABLE"),
       as_of: input.as_of_date,
-      verification_level: "DISPLAY_OR_REALTIME_CONTEXT",
+      verification_level: stockLiveReady ? "EPHEMERAL_READ_ONLY_LIVE_CONTEXT" : "DISPLAY_OR_REALTIME_CONTEXT",
       formal_research_eligible: false,
-      data: realtimeReady ? {
+      data: stockLiveReady ? {
+        stock_live: stockLive,
+        last_price: stockLive.last_price ?? null,
+        best_bid: stockLive.best_bid ?? null,
+        best_ask: stockLive.best_ask ?? null,
+        five_level_book: stockLive.book ?? null,
+        order_flow: stockLive.order_flow ?? null,
+        feed: stockLive.feed ?? null,
+        display_fallback_quote: market.quote ?? null,
+      } : fallbackRealtimeReady ? {
         quote: market.quote ?? null,
         latest_daily_bar_research_fallback: market.latest_daily_bar ?? null,
       } : null,
+      error: realtimeStatus === "UNAVAILABLE" ? String(stockLive.error ?? "realtime_unavailable") : null,
       notes: [
-        "Fugle/FinMind可作盤中顯示與研究輔助。",
-        "此層不得升級成正式OHLC。",
+        "StockLiveHub成交、買一到買五、賣一到賣五與Order Flow優先作盤中顯示/研究context。",
+        "Stock Live只在記憶體短暫存在，不寫GitHub/OHLC/KV/R2/D1，也不下單。",
+        "Fugle REST/FinMind只作顯示或研究fallback；此層永遠不得升級成正式OHLC。",
       ],
     }),
     canonical_ohlc: evidenceNode({
@@ -198,7 +217,7 @@ export function buildFamilyUnifiedEvidence(input: FamilyUnifiedEvidenceInput) {
       error: canonicalFormal ? canonicalCandidate.error ?? null : "OHLC_MCP_NOT_ATTACHED_TO_FAMILY_EVIDENCE_V1",
       notes: [
         "只有OHLC MCP已驗證資料可成為正式K線/技術價位。",
-        "缺正式OHLC時，不得用FinMind/Fugle/Web冒充支撐壓力或精確操作價位。",
+        "缺正式OHLC時，不得用Stock Live/FinMind/Fugle/Web冒充支撐壓力或精確操作價位。",
       ],
     }),
     technical_research_fallback: evidenceNode({
@@ -353,6 +372,7 @@ export function buildFamilyUnifiedEvidence(input: FamilyUnifiedEvidenceInput) {
       "FORMAL_TRUTH只接受已治理且符合身份契約的資料。",
       "GOVERNED_CONTEXT可支援判讀，但不能覆寫FORMAL_TRUTH。",
       "DISPLAY_FALLBACK只能作顯示/研究補充。",
+      "Stock Live五檔與Order Flow不得持久化或冒充正式OHLC。",
       "WEB_EVIDENCE必須保留來源與時間，不能自動升級。",
       "資料不足時回報UNKNOWN/UNAVAILABLE，不猜數字。",
     ],
