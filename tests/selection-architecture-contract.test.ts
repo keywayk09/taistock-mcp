@@ -6,6 +6,7 @@ const journal = readFileSync(new URL("../src/v6/selection-journal.ts", import.me
 const evidence = readFileSync(new URL("../src/v6/selection-evidence.ts", import.meta.url), "utf8");
 const engine = readFileSync(new URL("../src/v6/selection-engine.ts", import.meta.url), "utf8");
 const dispatcher = readFileSync(new URL("../src/v6/selection-scheduled-dispatch.ts", import.meta.url), "utf8");
+const delivery = readFileSync(new URL("../src/v6/selection-queue-delivery.ts", import.meta.url), "utf8");
 const entry = readFileSync(new URL("../src/index-v7.ts", import.meta.url), "utf8");
 const wrangler = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
 
@@ -37,7 +38,8 @@ test("intraday review and next-day intraday do not reuse swing scoring", () => {
 test("cron path preserves market-data first and sends selection through isolated queue", () => {
   assert.match(dispatcher, /await runExtendedScheduledMarketDataController/);
   assert.match(dispatcher, /await enqueueSelectionWake/);
-  assert.match(dispatcher, /SELECTION_QUEUE_NOT_BOUND/);
+  assert.match(delivery, /SELECTION_QUEUE_NOT_BOUND/);
+  assert.match(delivery, /Fail closed: missing queue delivery/);
   assert.match(dispatcher, /runSelectionQueueBatch/);
   assert.match(dispatcher, /PENDING is acknowledged intentionally/);
 });
