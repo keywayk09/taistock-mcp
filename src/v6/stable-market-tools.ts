@@ -1,415 +1,428 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { finmind } from "./common";
+import {
+  arr,
+  fetchJson,
+  fugle,
+  normalizeQuote,
+  rec,
+  round,
+  type Obj,
+} from "./common";
+import { probeGitHubDataRead } from "./github-user-data";
 
-export const STABLE_MARKET_TOOLS_VERSION = "stable-market-tools/v1.1.0";
+/**
+ * Frozen full-market source contract.
+ *
+ * Required market-wide path:
+ * - TWSE quotes: TWSE OpenAPI STOCK_DAY_ALL
+ * - TPEx universe: MOPSFIN t187ap03_O.csv
+ * - TPEx quotes: TWSE MIS otc_<symbol>.tw batches
+ *
+ * Fugle market snapshots/rankings and FinMind are intentionally NOT required
+ * for market-wide scanning. They previously failed from Cloudflare egress with
+ * 403 / invalid-token errors and must not be reintroduced into this required
+ * path without an explicit source-contract migration and regression test.
+ */
+export const STABLE_MARKET_TOOLS_VERSION = "stable-market-tools/v1.0.0";
 export const STABLE_MARKET_SOURCE_CONTRACT = "tw-full-market-source-contract/v1.0.0";
 
-const TWSE = "https://openapi.twse.com.tw/v1";
-const TWSE_MIS = "https://mis.twse.com.tw";
-const MOPSFIN = "https://mopsfin.twse.com.tw/opendata/t187ap03_L.csv";
-const TPEX_COMPANY = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O";
+const TWSE_QUOTES_URL = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL";
+const MOPSFIN_TWSE_COMPANIES_CSV = "https://mopsfin.twse.com.tw/opendata/t187ap03_L.csv";
+const MOPSFIN_TPEX_COMPANIES_CSV = "https://mopsfin.twse.com.tw/opendata/t187ap03_O.csv";
+const TWSE_MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp";
+const CBC_FX_DAILY = "https://cpx.cbc.gov.tw/api/OpenData/FTDOpenData_Day";
+const USER_AGENT = "taistock-mcp-stable-market/1.0 (+https://github.com/keywayk09/taistock-mcp)";
+const MIS_BATCH_SIZE = 100;
+const MIN_COVERAGE = { TWSE: 400, TPEx: 250 } as const;
+const CACHE_TTL_MS = 15_000;
 
-const STOCK_ID_RE = /^\d{4}$/;
-const SNAPSHOT_TIMEOUT_MS = 10_000;
-const METADATA_TIMEOUT_MS = 4_000;
+type StableMarket = "TWSE" | "TPEx";
+type LegacyMarket = "TSE" | "OTC";
 
-const symbolSchema = z.string().trim().regex(/^\d{4,6}$/);
-
-type Rec = Record<string, any>;
-type Market = "TSE" | "OTC";
-
-type NormalizedMarketRow = {
+export type StableSnapshotRow = {
+  market: StableMarket;
   symbol: string;
   name: string;
-  market: Market;
-  close: number | null;
-  change: number | null;
-  change_percent: number | null;
-  trade_volume: number;
-  trade_value: number;
+  sector: string;
   open: number | null;
   high: number | null;
   low: number | null;
-  reference_price: number | null;
-  date: string | null;
-  time: string | null;
-  industry_code: string | null;
-  sector: string | null;
+  close: number;
+  previous_close: number | null;
+  change: number | null;
+  change_percent: number | null;
+  trade_volume: number | null;
+  trade_value: number;
+  last_updated: string | null;
   source: string;
+  trade_value_basis: "official" | "last_x_volume_estimate";
 };
 
-type MarketSourceResult = {
-  market: Market;
+type MarketSnapshot = {
+  market: StableMarket;
   provider: string;
-  url: string;
+  rows: StableSnapshotRow[];
   raw_count: number;
   normalized_count: number;
-  rows: NormalizedMarketRow[];
   errors: string[];
 };
 
-type MarketUniverseResult = {
-  contract: typeof STABLE_MARKET_SOURCE_CONTRACT;
-  version: typeof STABLE_MARKET_TOOLS_VERSION;
+export type StableMarketUniverse = {
+  version: string;
+  source_contract: string;
   retrieved_at: string;
+  TWSE: MarketSnapshot;
+  TPEx: MarketSnapshot;
+  rows: StableSnapshotRow[];
   usable: boolean;
-  TWSE: MarketSourceResult;
-  TPEx: MarketSourceResult;
   optional_metadata_errors: string[];
 };
 
-function rec(value: unknown): Rec {
-  return value !== null && typeof value === "object" ? value as Rec : {};
+type CompanyMeta = { symbol: string; name: string; sector: string };
+
+let cachedUniverse: { at: number; value: StableMarketUniverse } | null = null;
+let inflightUniverse: Promise<StableMarketUniverse> | null = null;
+
+function errorText(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
-function arr(value: unknown): any[] {
-  return Array.isArray(value) ? value : [];
+function normalizedKey(value: string) {
+  return value.toLowerCase().replace(/[\s_()（）%％:：/\\.\-]/g, "");
 }
 
-function num(value: unknown): number | null {
-  if (value === null || value === undefined || value === "") return null;
-  const normalized = String(value).replace(/,/g, "").replace(/%/g, "").trim();
-  if (!normalized || normalized === "--" || normalized === "---") return null;
-  const parsed = Number(normalized);
+function numberValue(value: unknown): number | null {
+  const text = String(value ?? "").trim();
+  if (!text || text === "-" || text === "--" || text === "N/A") return null;
+  const parsed = Number(text.replace(/,/g, "").replace(/[+Xx]/g, "").replace(/%$/, ""));
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function round(value: number, digits = 4) {
-  const p = 10 ** digits;
-  return Math.round(value * p) / p;
+function isOrdinaryStock(symbol: string, name: string) {
+  if (!/^\d{4}$/.test(symbol.trim())) return false;
+  return !/(ETF|ETN|指數|債券|債|權證|正2|反1|槓桿|特別股)/i.test(name);
 }
 
-function pick(o: Rec, keys: string[]) {
-  for (const key of keys) {
-    const value = o[key];
+function rowsFromBody(body: unknown): Obj[] {
+  if (Array.isArray(body)) return body.map(rec);
+  const root = rec(body);
+  if (Array.isArray(root.data)) return root.data.map(rec);
+  const nested = rec(root.data);
+  if (Array.isArray(nested.data)) return nested.data.map(rec);
+  if (Array.isArray(nested.quotes)) return nested.quotes.map(rec);
+  if (Array.isArray(root.quotes)) return root.quotes.map(rec);
+  return [];
+}
+
+function objectPick(row: Obj, aliases: string[]) {
+  for (const alias of aliases) {
+    const value = row[alias];
     if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+  }
+  const keys = Object.keys(row);
+  for (const alias of aliases) {
+    const target = normalizedKey(alias);
+    const exact = keys.find((key) => normalizedKey(key) === target);
+    if (exact) return row[exact];
+  }
+  for (const alias of aliases) {
+    const target = normalizedKey(alias);
+    const fuzzy = keys.find((key) => normalizedKey(key).includes(target));
+    if (fuzzy) return row[fuzzy];
   }
   return null;
 }
 
-function firstPresent(o: Rec, keys: string[]) {
-  for (const key of keys) {
-    if (Object.prototype.hasOwnProperty.call(o, key)) return o[key];
-  }
-  return undefined;
-}
-
-function codeFrom(value: unknown) {
-  const match = String(value ?? "").trim().match(/\d{4,6}/);
-  return match ? match[0] : "";
-}
-
-function nameFrom(value: unknown) {
-  return String(value ?? "").trim().replace(/^\d{4,6}\s*/, "");
-}
-
-function withTimeout(ms: number) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
-  return { signal: controller.signal, done: () => clearTimeout(timer) };
-}
-
-async function fetchText(url: string, timeoutMs: number, label: string) {
-  const timer = withTimeout(timeoutMs);
-  try {
-    const response = await fetch(url, {
-      headers: {
-        Accept: "text/csv,text/plain,application/json;q=0.9,*/*;q=0.5",
-        "user-agent": "taistock-mcp/6 stable-market-source-contract",
-      },
-      signal: timer.signal,
-    });
-    const text = await response.text();
-    if (!response.ok) throw new Error(`${label}:HTTP_${response.status}:${text.slice(0, 160)}`);
-    return text;
-  } catch (error) {
-    throw new Error(`${label}:${error instanceof Error ? error.message : String(error)}`);
-  } finally {
-    timer.done();
-  }
-}
-
-async function fetchJson(url: string, timeoutMs: number, label: string) {
-  const text = await fetchText(url, timeoutMs, label);
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(`${label}:invalid_json`);
-  }
-}
-
-function parseCsvLine(line: string) {
-  const fields: string[] = [];
-  let current = "";
+function parseCsv(text: string) {
+  const input = text.replace(/^\uFEFF/, "");
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
   let quoted = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    if (char === '"') {
-      if (quoted && line[index + 1] === '"') {
-        current += '"';
-        index += 1;
+  for (let index = 0; index < input.length; index++) {
+    const ch = input[index];
+    if (quoted) {
+      if (ch === '"') {
+        if (input[index + 1] === '"') {
+          field += '"';
+          index++;
+        } else {
+          quoted = false;
+        }
       } else {
-        quoted = !quoted;
+        field += ch;
       }
       continue;
     }
-    if (char === "," && !quoted) {
-      fields.push(current.trim());
-      current = "";
-      continue;
-    }
-    current += char;
+    if (ch === '"') quoted = true;
+    else if (ch === ",") {
+      row.push(field.trim());
+      field = "";
+    } else if (ch === "\n") {
+      row.push(field.trim());
+      field = "";
+      if (row.some((value) => value.length > 0)) rows.push(row);
+      row = [];
+    } else if (ch !== "\r") field += ch;
   }
-  fields.push(current.trim());
-  return fields;
+  if (field.length || row.length) {
+    row.push(field.trim());
+    if (row.some((value) => value.length > 0)) rows.push(row);
+  }
+  return rows;
 }
 
-function parseCsvObjects(text: string) {
-  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
-  if (lines.length < 2) return [];
-  const headers = parseCsvLine(lines[0]);
-  return lines.slice(1).map((line) => {
-    const values = parseCsvLine(line);
-    return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]));
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 10_000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function loadCompanyMaster(url: string, market: StableMarket) {
+  const response = await fetchWithTimeout(url, {
+    redirect: "manual",
+    headers: {
+      Accept: "text/csv,text/plain,*/*",
+      "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+      "User-Agent": USER_AGENT,
+    },
   });
+  const location = response.headers.get("location");
+  const text = await response.text();
+  if (response.status >= 300 && response.status < 400) {
+    throw new Error(`MOPSFIN ${market} company CSV HTTP ${response.status} redirect blocked${location ? ` -> ${location}` : ""}`);
+  }
+  if (!response.ok) throw new Error(`MOPSFIN ${market} company CSV HTTP ${response.status}: ${text.slice(0, 180)}`);
+  const table = parseCsv(text);
+  if (table.length < 2) throw new Error(`MOPSFIN ${market} company CSV empty`);
+  const header = table[0].map((value) => value.trim());
+  const findIndex = (names: string[]) => header.findIndex((value) => names.some((name) => normalizedKey(value).includes(normalizedKey(name))));
+  const symbolIndex = findIndex(["公司代號", "證券代號"]);
+  const shortNameIndex = findIndex(["公司簡稱", "證券簡稱"]);
+  const fullNameIndex = findIndex(["公司名稱", "證券名稱"]);
+  const sectorIndex = findIndex(["產業別", "產業類別", "產業"]);
+  const universe = table.slice(1).flatMap((cells) => {
+    const symbol = String(cells[symbolIndex >= 0 ? symbolIndex : 1] ?? "").trim();
+    const name = String(cells[shortNameIndex >= 0 ? shortNameIndex : (fullNameIndex >= 0 ? fullNameIndex : 2)] ?? "").trim();
+    if (!isOrdinaryStock(symbol, name)) return [];
+    return [{ symbol, name, sector: sectorIndex >= 0 ? String(cells[sectorIndex] ?? "").trim() : "" } satisfies CompanyMeta];
+  });
+  const deduped = new Map(universe.map((item) => [item.symbol, item]));
+  return [...deduped.values()];
 }
 
-function normalizeTwse(row: unknown): NormalizedMarketRow | null {
-  const o = rec(row);
-  const symbol = codeFrom(pick(o, ["Code", "證券代號", "stock_id", "symbol"]));
-  if (!STOCK_ID_RE.test(symbol)) return null;
-  const name = String(pick(o, ["Name", "證券名稱", "name"]) ?? "").trim();
-  const close = num(pick(o, ["ClosingPrice", "收盤價", "close"]));
-  const change = num(pick(o, ["Change", "漲跌價差", "change"]));
-  const reference = close != null && change != null ? close - change : num(pick(o, ["ReferencePrice", "參考價", "referencePrice"]));
-  const changePercent = close != null && reference && reference !== 0
-    ? round((close - reference) / reference * 100, 4)
-    : null;
-  return {
-    symbol,
-    name,
-    market: "TSE",
-    close,
-    change,
-    change_percent: changePercent,
-    trade_volume: num(pick(o, ["TradeVolume", "成交股數", "tradeVolume"])) ?? 0,
-    trade_value: num(pick(o, ["TradeValue", "成交金額", "tradeValue"])) ?? 0,
-    open: num(pick(o, ["OpeningPrice", "開盤價", "open"])),
-    high: num(pick(o, ["HighestPrice", "最高價", "high"])),
-    low: num(pick(o, ["LowestPrice", "最低價", "low"])),
-    reference_price: reference,
-    date: String(pick(o, ["Date", "日期", "date"]) ?? "").trim() || null,
-    time: String(pick(o, ["Time", "時間", "time"]) ?? "").trim() || null,
-    industry_code: String(pick(o, ["industry_code", "產業別"]) ?? "").trim() || null,
-    sector: null,
-    source: "TWSE_OPENAPI_STOCK_DAY_ALL",
-  };
-}
-
-function normalizeTpex(row: unknown): NormalizedMarketRow | null {
-  const o = rec(row);
-  const symbol = codeFrom(firstPresent(o, ["SecuritiesCompanyCode", "Code", "股票代號", "證券代號", "stock_id", "symbol"]));
-  if (!STOCK_ID_RE.test(symbol)) return null;
-  const name = nameFrom(firstPresent(o, ["CompanyName", "SecuritiesCompanyName", "股票名稱", "證券名稱", "name"]));
-  const close = num(firstPresent(o, ["Close", "ClosingPrice", "收盤價", "close"]));
-  const change = num(firstPresent(o, ["Change", "漲跌價差", "change"]));
-  const reference = close != null && change != null ? close - change : num(firstPresent(o, ["ReferencePrice", "參考價", "referencePrice"]));
-  const explicitPercent = num(firstPresent(o, ["ChangePercent", "漲跌幅", "漲跌幅度", "change_percent"]));
-  const changePercent = explicitPercent != null
-    ? explicitPercent
-    : close != null && reference && reference !== 0
-      ? round((close - reference) / reference * 100, 4)
-      : null;
-  return {
-    symbol,
-    name,
-    market: "OTC",
-    close,
-    change,
-    change_percent: changePercent,
-    trade_volume: num(firstPresent(o, ["TradeVolume", "成交股數", "成交量", "tradeVolume"])) ?? 0,
-    trade_value: num(firstPresent(o, ["TradeValue", "成交金額", "tradeValue"])) ?? 0,
-    open: num(firstPresent(o, ["Open", "OpeningPrice", "開盤價", "open"])),
-    high: num(firstPresent(o, ["High", "HighestPrice", "最高價", "high"])),
-    low: num(firstPresent(o, ["Low", "LowestPrice", "最低價", "low"])),
-    reference_price: reference,
-    date: String(firstPresent(o, ["Date", "日期", "date"]) ?? "").trim() || null,
-    time: String(firstPresent(o, ["Time", "時間", "time"]) ?? "").trim() || null,
-    industry_code: String(firstPresent(o, ["IndustryCode", "產業別", "industry_code"]) ?? "").trim() || null,
-    sector: null,
-    source: "TPEX_MOPSFIN_COMPANY_PLUS_TWSE_MIS",
-  };
-}
-
-function parseTpexCompanyRows(raw: unknown) {
-  const body = rec(raw);
-  const rows = Array.isArray(raw) ? raw : arr(body.data ?? body.result);
-  return rows.map((row) => {
-    const o = rec(row);
-    const symbol = codeFrom(firstPresent(o, ["SecuritiesCompanyCode", "Code", "公司代號", "股票代號", "證券代號", "stock_id", "symbol"]));
-    if (!STOCK_ID_RE.test(symbol)) return null;
+async function loadTwseOfficial(meta: Map<string, CompanyMeta>): Promise<MarketSnapshot> {
+  try {
+    const response = await fetchWithTimeout(TWSE_QUOTES_URL, {
+      redirect: "manual",
+      headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+    });
+    const text = await response.text();
+    if (!response.ok) throw new Error(`TWSE OpenAPI HTTP ${response.status}: ${text.slice(0, 180)}`);
+    const raw = rowsFromBody(JSON.parse(text));
+    const rows = raw.flatMap((item) => {
+      const symbol = String(objectPick(item, ["Code", "證券代號", "股票代號", "代號"]) ?? "").trim();
+      const fallbackMeta = meta.get(symbol);
+      const name = String(objectPick(item, ["Name", "證券名稱", "股票名稱", "名稱"]) ?? fallbackMeta?.name ?? "").trim();
+      if (!isOrdinaryStock(symbol, name)) return [];
+      const close = numberValue(objectPick(item, ["ClosingPrice", "Close", "收盤價", "收盤"]));
+      if (close == null || close <= 0) return [];
+      const change = numberValue(objectPick(item, ["Change", "ChangeAmount", "漲跌價差", "漲跌"]));
+      const previous = change == null ? null : close - change;
+      const tradeValue = numberValue(objectPick(item, ["TradeValue", "TradingValue", "TradingAmount", "成交金額", "成交值"])) ?? 0;
+      return [{
+        market: "TWSE" as const,
+        symbol,
+        name,
+        sector: fallbackMeta?.sector ?? "",
+        open: numberValue(objectPick(item, ["OpeningPrice", "Open", "開盤價"])),
+        high: numberValue(objectPick(item, ["HighestPrice", "High", "最高價"])),
+        low: numberValue(objectPick(item, ["LowestPrice", "Low", "最低價"])),
+        close,
+        previous_close: previous,
+        change,
+        change_percent: previous != null && previous > 0 ? round((close / previous - 1) * 100, 2) : null,
+        trade_volume: numberValue(objectPick(item, ["TradeVolume", "TradingShares", "成交股數", "成交量"])),
+        trade_value: tradeValue,
+        last_updated: String(objectPick(item, ["Date", "TradeDate", "日期"]) ?? "").trim() || null,
+        source: "TWSE OpenAPI STOCK_DAY_ALL",
+        trade_value_basis: "official" as const,
+      } satisfies StableSnapshotRow];
+    });
     return {
-      symbol,
-      name: nameFrom(firstPresent(o, ["CompanyName", "SecuritiesCompanyName", "公司名稱", "股票名稱", "證券名稱", "name"])),
-      industry_code: String(firstPresent(o, ["IndustryCode", "產業別", "industry_code"]) ?? "").trim() || null,
+      market: "TWSE",
+      provider: "TWSE_OPENAPI_STOCK_DAY_ALL",
+      rows,
+      raw_count: raw.length,
+      normalized_count: rows.length,
+      errors: rows.length >= MIN_COVERAGE.TWSE ? [] : [`TWSE OpenAPI coverage only ${rows.length}`],
     };
-  }).filter((row): row is { symbol: string; name: string; industry_code: string | null } => Boolean(row));
-}
-
-function parseMisArray(raw: unknown) {
-  const body = rec(raw);
-  for (const value of [body.msgArray, body.data, body.result]) {
-    if (Array.isArray(value)) return value;
-  }
-  return Array.isArray(raw) ? raw : [];
-}
-
-function misRowsToMap(raw: unknown) {
-  const map = new Map<string, Rec>();
-  for (const item of parseMisArray(raw)) {
-    const o = rec(item);
-    const symbol = codeFrom(o.c ?? o.ch ?? o.ex_ch ?? o.symbol);
-    if (STOCK_ID_RE.test(symbol)) map.set(symbol, o);
-  }
-  return map;
-}
-
-function numberFromMis(o: Rec | undefined, keys: string[]) {
-  if (!o) return null;
-  return num(firstPresent(o, keys));
-}
-
-function normalizeTpexWithMis(company: { symbol: string; name: string; industry_code: string | null }, mis: Rec | undefined) {
-  const close = numberFromMis(mis, ["z", "pz", "price"]);
-  const reference = numberFromMis(mis, ["y", "referencePrice", "ref"]);
-  const change = close != null && reference != null ? close - reference : numberFromMis(mis, ["d", "change"]);
-  const explicitPercent = numberFromMis(mis, ["p", "change_percent"]);
-  const changePercent = explicitPercent != null
-    ? explicitPercent
-    : close != null && reference && reference !== 0
-      ? round((close - reference) / reference * 100, 4)
-      : null;
-  return {
-    symbol: company.symbol,
-    name: company.name,
-    market: "OTC" as const,
-    close,
-    change,
-    change_percent: changePercent,
-    trade_volume: numberFromMis(mis, ["v", "tv", "tradeVolume"]) ?? 0,
-    trade_value: numberFromMis(mis, ["a", "tradeValue"]) ?? 0,
-    open: numberFromMis(mis, ["o", "open"]),
-    high: numberFromMis(mis, ["h", "high"]),
-    low: numberFromMis(mis, ["l", "low"]),
-    reference_price: reference,
-    date: String(mis?.d ?? mis?.date ?? "").trim() || null,
-    time: String(mis?.tlong ?? mis?.t ?? mis?.time ?? "").trim() || null,
-    industry_code: company.industry_code,
-    sector: null,
-    source: "TPEX_MOPSFIN_COMPANY_PLUS_TWSE_MIS",
-  } satisfies NormalizedMarketRow;
-}
-
-async function fetchTwseMarket(): Promise<MarketSourceResult> {
-  const url = `${TWSE}/exchangeReport/STOCK_DAY_ALL`;
-  const errors: string[] = [];
-  try {
-    const raw = await fetchJson(url, SNAPSHOT_TIMEOUT_MS, "TWSE_STOCK_DAY_ALL");
-    const rawRows = arr(raw);
-    const rows = rawRows.map(normalizeTwse).filter((row): row is NormalizedMarketRow => Boolean(row));
-    return { market: "TSE", provider: "TWSE_OPENAPI", url, raw_count: rawRows.length, normalized_count: rows.length, rows, errors };
   } catch (error) {
-    errors.push(error instanceof Error ? error.message : String(error));
-    return { market: "TSE", provider: "TWSE_OPENAPI", url, raw_count: 0, normalized_count: 0, rows: [], errors };
+    return { market: "TWSE", provider: "UNAVAILABLE", rows: [], raw_count: 0, normalized_count: 0, errors: [errorText(error)] };
   }
 }
 
-async function fetchTpexMarket(): Promise<MarketSourceResult> {
-  const errors: string[] = [];
-  const rawUrl = TPEX_COMPANY;
-  let companies: Array<{ symbol: string; name: string; industry_code: string | null }> = [];
-  try {
-    companies = parseTpexCompanyRows(await fetchJson(rawUrl, SNAPSHOT_TIMEOUT_MS, "TPEX_COMPANY_MASTER"));
-  } catch (error) {
-    errors.push(error instanceof Error ? error.message : String(error));
-  }
-  if (!companies.length) {
-    return { market: "OTC", provider: "TPEX_MOPSFIN_PLUS_TWSE_MIS", url: rawUrl, raw_count: 0, normalized_count: 0, rows: [], errors };
-  }
+function chunked<T>(items: T[], size: number) {
+  const output: T[][] = [];
+  for (let index = 0; index < items.length; index += size) output.push(items.slice(index, index + size));
+  return output;
+}
 
-  const rows: NormalizedMarketRow[] = [];
-  const chunks: typeof companies[] = [];
-  for (let index = 0; index < companies.length; index += 80) chunks.push(companies.slice(index, index + 80));
-  for (const chunk of chunks) {
-    const exCh = chunk.map((row) => `otc_${row.symbol}.tw`).join("|");
-    const url = `${TWSE_MIS}/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&json=1&delay=0`;
-    try {
-      const mis = misRowsToMap(await fetchJson(url, SNAPSHOT_TIMEOUT_MS, "TWSE_MIS_OTC_BATCH"));
-      for (const company of chunk) rows.push(normalizeTpexWithMis(company, mis.get(company.symbol)));
-    } catch (error) {
-      errors.push(error instanceof Error ? error.message : String(error));
-      for (const company of chunk) rows.push(normalizeTpexWithMis(company, undefined));
-    }
+async function fetchMisOtcBatch(symbols: string[]) {
+  const url = new URL(TWSE_MIS_URL);
+  url.searchParams.set("ex_ch", symbols.map((symbol) => `otc_${symbol}.tw`).join("|"));
+  url.searchParams.set("json", "1");
+  url.searchParams.set("delay", "0");
+  url.searchParams.set("_", String(Date.now()));
+  const response = await fetchWithTimeout(url.toString(), {
+    headers: {
+      Accept: "application/json,text/plain,*/*",
+      "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+      Referer: "https://mis.twse.com.tw/stock/index.jsp",
+      "User-Agent": USER_AGENT,
+    },
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(`TWSE MIS OTC HTTP ${response.status}: ${text.slice(0, 180)}`);
+  let body: any;
+  try { body = JSON.parse(text); }
+  catch { throw new Error("TWSE MIS OTC returned invalid JSON"); }
+  if (String(body?.rtcode ?? "0000") !== "0000") {
+    throw new Error(`TWSE MIS OTC rtcode=${String(body?.rtcode)} ${String(body?.rtmessage ?? "")}`);
   }
+  return Array.isArray(body?.msgArray) ? body.msgArray.map(rec) : [];
+}
+
+function normalizeMisOtcRow(raw: Obj, fallback: CompanyMeta): StableSnapshotRow | null {
+  const symbol = String(raw.c ?? fallback.symbol ?? "").trim();
+  const name = String(raw.n ?? raw.nf ?? fallback.name ?? "").trim();
+  if (!isOrdinaryStock(symbol, name)) return null;
+  const last = numberValue(raw.z) ?? numberValue(raw.pz) ?? numberValue(raw.y);
+  const previous = numberValue(raw.y);
+  if (last == null || last <= 0) return null;
+  const volumeLots = numberValue(raw.v);
   return {
-    market: "OTC",
-    provider: "TPEX_MOPSFIN_PLUS_TWSE_MIS",
-    url: rawUrl,
-    raw_count: companies.length,
-    normalized_count: rows.length,
-    rows,
-    errors,
+    market: "TPEx",
+    symbol,
+    name,
+    sector: fallback.sector,
+    open: numberValue(raw.o),
+    high: numberValue(raw.h),
+    low: numberValue(raw.l),
+    close: last,
+    previous_close: previous,
+    change: previous != null ? last - previous : null,
+    change_percent: previous != null && previous > 0 ? round((last / previous - 1) * 100, 2) : null,
+    trade_volume: volumeLots != null ? volumeLots * 1000 : null,
+    trade_value: volumeLots != null && volumeLots > 0 ? last * volumeLots * 1000 : 0,
+    last_updated: [raw.d, raw.t].filter(Boolean).join(" ") || null,
+    source: "MOPSFIN TPEx company master + TWSE MIS OTC quotes",
+    trade_value_basis: "last_x_volume_estimate",
   };
 }
 
-async function optionalSectorMetadata() {
-  const result = new Map<string, string>();
-  const errors: string[] = [];
+async function loadTpexMopsMis(universe: CompanyMeta[]): Promise<MarketSnapshot> {
   try {
-    const text = await fetchText(MOPSFIN, METADATA_TIMEOUT_MS, "TWSE_MOPSFIN_SECTOR");
-    for (const row of parseCsvObjects(text)) {
-      const symbol = codeFrom(firstPresent(row, ["公司代號", "股票代號", "證券代號", "Code"]));
-      const sector = String(firstPresent(row, ["產業別", "產業類別", "Industry", "IndustryCode"]) ?? "").trim();
-      if (STOCK_ID_RE.test(symbol) && sector) result.set(symbol, sector);
+    if (universe.length < MIN_COVERAGE.TPEx) throw new Error(`MOPSFIN TPEx ordinary-stock universe only ${universe.length}`);
+    const meta = new Map(universe.map((item) => [item.symbol, item]));
+    const batches = chunked(universe.map((item) => item.symbol), MIS_BATCH_SIZE);
+    const results: PromiseSettledResult<Obj[]>[] = new Array(batches.length);
+    let cursor = 0;
+    const workers = Array.from({ length: Math.min(4, batches.length) }, async () => {
+      while (true) {
+        const index = cursor++;
+        if (index >= batches.length) return;
+        try { results[index] = { status: "fulfilled", value: await fetchMisOtcBatch(batches[index]) }; }
+        catch (reason) { results[index] = { status: "rejected", reason }; }
+      }
+    });
+    await Promise.all(workers);
+    const raw: Obj[] = [];
+    const errors: string[] = [];
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") raw.push(...result.value);
+      else errors.push(`MIS batch ${index + 1}/${batches.length}: ${errorText(result.reason)}`);
+    });
+    const deduped = new Map<string, StableSnapshotRow>();
+    for (const item of raw) {
+      const symbol = String(item.c ?? "").trim();
+      const fallback = meta.get(symbol);
+      if (!fallback) continue;
+      const row = normalizeMisOtcRow(item, fallback);
+      if (row) deduped.set(row.symbol, row);
     }
+    const rows = [...deduped.values()];
+    if (rows.length < MIN_COVERAGE.TPEx) errors.push(`MOPSFIN+MIS normalized TPEx coverage only ${rows.length}/${universe.length}`);
+    return {
+      market: "TPEx",
+      provider: rows.length ? "MOPSFIN_COMPANY_MASTER_MIS_OTC" : "UNAVAILABLE",
+      rows,
+      raw_count: raw.length,
+      normalized_count: rows.length,
+      errors,
+    };
   } catch (error) {
-    errors.push(error instanceof Error ? error.message : String(error));
+    return { market: "TPEx", provider: "UNAVAILABLE", rows: [], raw_count: 0, normalized_count: 0, errors: [errorText(error)] };
   }
-  return { map: result, errors };
 }
 
-function mergeSector(rows: NormalizedMarketRow[], sectorMap: Map<string, string>) {
-  return rows.map((row) => ({ ...row, sector: sectorMap.get(row.symbol) ?? row.sector ?? row.industry_code ?? null }));
-}
-
-export async function loadStableMarketUniverse(includeMetadata = true): Promise<MarketUniverseResult> {
-  const [twse, tpex, metadata] = await Promise.all([
-    fetchTwseMarket(),
-    fetchTpexMarket(),
-    includeMetadata ? optionalSectorMetadata() : Promise.resolve({ map: new Map<string, string>(), errors: [] as string[] }),
+async function buildStableMarketUniverse(): Promise<StableMarketUniverse> {
+  const optionalMetadataErrors: string[] = [];
+  const [listedMetaResult, otcMetaResult] = await Promise.allSettled([
+    loadCompanyMaster(MOPSFIN_TWSE_COMPANIES_CSV, "TWSE"),
+    loadCompanyMaster(MOPSFIN_TPEX_COMPANIES_CSV, "TPEx"),
   ]);
-  twse.rows = mergeSector(twse.rows, metadata.map);
-  tpex.rows = mergeSector(tpex.rows, metadata.map);
-  const usable = twse.rows.length > 0 || tpex.rows.length > 0;
+  const listedMeta = listedMetaResult.status === "fulfilled" ? listedMetaResult.value : [];
+  if (listedMetaResult.status === "rejected") optionalMetadataErrors.push(`TWSE company metadata:${errorText(listedMetaResult.reason)}`);
+  const otcMeta = otcMetaResult.status === "fulfilled" ? otcMetaResult.value : [];
+  if (otcMetaResult.status === "rejected") optionalMetadataErrors.push(`TPEx company universe:${errorText(otcMetaResult.reason)}`);
+
+  const [twse, tpex] = await Promise.all([
+    loadTwseOfficial(new Map(listedMeta.map((item) => [item.symbol, item]))),
+    loadTpexMopsMis(otcMeta),
+  ]);
   return {
-    contract: STABLE_MARKET_SOURCE_CONTRACT,
     version: STABLE_MARKET_TOOLS_VERSION,
+    source_contract: STABLE_MARKET_SOURCE_CONTRACT,
     retrieved_at: new Date().toISOString(),
-    usable,
     TWSE: twse,
     TPEx: tpex,
-    optional_metadata_errors: metadata.errors,
+    rows: [...twse.rows, ...tpex.rows],
+    usable: twse.normalized_count >= MIN_COVERAGE.TWSE && tpex.normalized_count >= MIN_COVERAGE.TPEx,
+    optional_metadata_errors: optionalMetadataErrors,
   };
 }
 
-function aggregateMarket(rows: NormalizedMarketRow[]) {
-  const tradable = rows.filter((row) => row.close != null && row.change_percent != null && row.trade_volume > 0);
-  const sorted = [...tradable].sort((a, b) => Number(a.change_percent ?? 0) - Number(b.change_percent ?? 0));
-  const advancers = tradable.filter((row) => Number(row.change_percent ?? 0) > 0).length;
-  const decliners = tradable.filter((row) => Number(row.change_percent ?? 0) < 0).length;
-  const unchanged = tradable.length - advancers - decliners;
+export async function loadStableMarketUniverse(force = false) {
+  const now = Date.now();
+  if (!force && cachedUniverse && now - cachedUniverse.at < CACHE_TTL_MS) return cachedUniverse.value;
+  if (!force && inflightUniverse) return inflightUniverse;
+  inflightUniverse = buildStableMarketUniverse();
+  try {
+    const value = await inflightUniverse;
+    if (value.usable) cachedUniverse = { at: Date.now(), value };
+    return value;
+  } finally {
+    inflightUniverse = null;
+  }
+}
+
+function marketRows(universe: StableMarketUniverse, legacyMarket: LegacyMarket) {
+  return legacyMarket === "TSE" ? universe.TWSE.rows : universe.TPEx.rows;
+}
+
+function aggregateMarket(rows: StableSnapshotRow[]) {
+  const tradable = rows.filter((row) => row.close > 0 && row.change_percent != null);
+  const sorted = [...tradable].sort((a, b) => (a.change_percent ?? 0) - (b.change_percent ?? 0));
   const median = sorted.length ? Number(sorted[Math.floor(sorted.length / 2)].change_percent ?? 0) : 0;
+  const advancers = tradable.filter((row) => (row.change_percent ?? 0) > 0).length;
+  const decliners = tradable.filter((row) => (row.change_percent ?? 0) < 0).length;
+  const unchanged = tradable.length - advancers - decliners;
   const totalTradeValue = tradable.reduce((sum, row) => sum + row.trade_value, 0);
   return {
     stocks: tradable.length,
@@ -417,22 +430,23 @@ function aggregateMarket(rows: NormalizedMarketRow[]) {
     decliners,
     unchanged,
     advance_decline_ratio: decliners ? round(advancers / decliners, 3) : null,
-    median_change_percent: round(median, 4),
+    median_change_percent: round(median, 2),
     total_trade_value: totalTradeValue,
-    top_gainers: [...tradable].sort((a, b) => Number(b.change_percent ?? 0) - Number(a.change_percent ?? 0)).slice(0, 10),
-    top_losers: [...tradable].sort((a, b) => Number(a.change_percent ?? 0) - Number(b.change_percent ?? 0)).slice(0, 10),
+    top_gainers: [...tradable].sort((a, b) => (b.change_percent ?? 0) - (a.change_percent ?? 0)).slice(0, 10),
+    top_losers: [...tradable].sort((a, b) => (a.change_percent ?? 0) - (b.change_percent ?? 0)).slice(0, 10),
+    top_volume: [...tradable].sort((a, b) => (b.trade_volume ?? 0) - (a.trade_volume ?? 0)).slice(0, 10),
     top_value: [...tradable].sort((a, b) => b.trade_value - a.trade_value).slice(0, 10),
   };
 }
 
-function sectorAggregation(rows: NormalizedMarketRow[], topN: number) {
-  const groups = new Map<string, NormalizedMarketRow[]>();
+function sectorAggregation(rows: StableSnapshotRow[], topN: number) {
+  const groups = new Map<string, StableSnapshotRow[]>();
   for (const row of rows) {
-    const sector = String(row.sector ?? "").trim();
+    const sector = row.sector.trim();
     if (!sector) continue;
-    const values = groups.get(sector) ?? [];
-    values.push(row);
-    groups.set(sector, values);
+    const list = groups.get(sector) ?? [];
+    list.push(row);
+    groups.set(sector, list);
   }
   const sectors = [...groups.entries()].map(([sector, stocks]) => {
     const liquid = stocks.filter((row) => row.change_percent != null && (row.trade_volume ?? 0) > 0);
@@ -452,7 +466,7 @@ function sectorAggregation(rows: NormalizedMarketRow[], topN: number) {
       trade_value: weight,
       leaders: [...liquid].sort((a, b) => Number(b.change_percent ?? 0) - Number(a.change_percent ?? 0)).slice(0, 5),
     };
-  }).filter((row): row is NonNullable<typeof row> => row !== null && row.stock_count >= 2);
+  }).filter((row): row is NonNullable<typeof row> => Boolean(row) && row.stock_count >= 2);
   return {
     strongest: [...sectors].sort((a, b) => b.value_weighted_change_percent - a.value_weighted_change_percent).slice(0, topN),
     weakest: [...sectors].sort((a, b) => a.value_weighted_change_percent - b.value_weighted_change_percent).slice(0, topN),
@@ -466,177 +480,222 @@ function regimeFromAggregate(total: ReturnType<typeof aggregateMarket>) {
   return "mixed" as const;
 }
 
-function ok(value: unknown) {
-  return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }] };
-}
-
-function fail(error: unknown) {
-  return ok({ ok: false, error: error instanceof Error ? error.message : String(error) });
-}
-
-export async function loadStableFullMarketResearchView(includeSectors = true, topSectors = 10) {
-  const universe = await loadStableMarketUniverse(includeSectors);
-  const listed = aggregateMarket(universe.TWSE.rows);
-  const otc = aggregateMarket(universe.TPEx.rows);
-  const combinedRows = [...universe.TWSE.rows, ...universe.TPEx.rows];
-  const combined = aggregateMarket(combinedRows);
-  const regime = regimeFromAggregate(combined);
+function toLegacyRow(row: StableSnapshotRow) {
   return {
-    ok: universe.usable,
-    contract: universe.contract,
-    version: universe.version,
-    source_policy: {
-      listed: universe.TWSE.provider,
-      otc: universe.TPEx.provider,
-      no_fugle_full_market_ranking: true,
-      no_finmind_required_for_full_market_scan: true,
-      no_direct_tpex_quotes_dependency: true,
-      optional_sector_metadata_fail_soft: true,
-    },
-    retrieved_at: universe.retrieved_at,
-    regime,
-    interpretation: regime === "risk_on"
-      ? "市場廣度偏多；個股仍需結合正式OHLC與風險控管。"
-      : regime === "risk_off"
-        ? "市場廣度偏空；降低多單曝險並提高停損紀律。"
-        : "市場多空分歧；優先看個股與族群相對強弱。",
-    listed,
-    otc,
-    combined,
-    sectors: includeSectors ? sectorAggregation(combinedRows, topSectors) : null,
-    source_errors: {
-      listed: universe.TWSE.errors,
-      otc: universe.TPEx.errors,
-      optional_metadata: universe.optional_metadata_errors,
-    },
-    rows: combinedRows,
+    symbol: row.symbol,
+    name: row.name,
+    type: "COMMONSTOCK",
+    open: row.open ?? 0,
+    high: row.high ?? 0,
+    low: row.low ?? 0,
+    close: row.close,
+    change: row.change ?? 0,
+    change_percent: row.change_percent ?? 0,
+    trade_volume: row.trade_volume ?? 0,
+    trade_value: row.trade_value,
+    last_updated: row.last_updated,
+    market: row.market,
+    sector: row.sector,
+    provider: row.source,
+    trade_value_basis: row.trade_value_basis,
   };
 }
 
-export async function loadStableQuote(symbol: string) {
-  const universe = await loadStableMarketUniverse(false);
-  const row = [...universe.TWSE.rows, ...universe.TPEx.rows].find((item) => item.symbol === symbol) ?? null;
-  return {
-    ok: Boolean(row),
-    contract: universe.contract,
-    version: universe.version,
-    retrieved_at: universe.retrieved_at,
-    symbol,
-    data: row,
-    source_errors: {
-      listed: universe.TWSE.errors,
-      otc: universe.TPEx.errors,
-    },
-  };
+function rankingRows(rows: StableSnapshotRow[], ranking: "gainers" | "losers" | "volume" | "value", topN: number) {
+  const copy = rows.filter((row) => row.close > 0);
+  if (ranking === "gainers") copy.sort((a, b) => Number(b.change_percent ?? -Infinity) - Number(a.change_percent ?? -Infinity));
+  else if (ranking === "losers") copy.sort((a, b) => Number(a.change_percent ?? Infinity) - Number(b.change_percent ?? Infinity));
+  else if (ranking === "volume") copy.sort((a, b) => Number(b.trade_volume ?? 0) - Number(a.trade_volume ?? 0));
+  else copy.sort((a, b) => b.trade_value - a.trade_value);
+  return copy.slice(0, topN).map(toLegacyRow);
 }
 
-async function optionalFinmindDaily(env: Env, symbol: string, days: number) {
+async function healthData(env: Env, testSymbol: string) {
+  const stablePromise = loadStableMarketUniverse(true);
+  const requiredChecks = [
+    { source: "GitHub", run: async () => probeGitHubDataRead(env) },
+    { source: "Fugle", run: async () => {
+      const started = Date.now();
+      const quote = normalizeQuote(await fugle(env, `/intraday/quote/${testSymbol}`), testSymbol);
+      return { latency_ms: Date.now() - started, latest: quote.last_updated, symbol: quote.symbol, role: "single_stock_realtime" };
+    } },
+    { source: "CBC", run: async () => {
+      const response = await fetchJson(CBC_FX_DAILY, { headers: { Accept: "application/json" } }, "CBC");
+      return { latency_ms: response.latency_ms, rows: arr(response.body).length, role: "macro_optional_to_stock_scan" };
+    } },
+  ];
+  const settled = await Promise.allSettled(requiredChecks.map((check) => check.run()));
+  const data: any[] = settled.map((result, index) => result.status === "fulfilled"
+    ? { source: requiredChecks[index].source, required: true, status: "ok", ...result.value }
+    : { source: requiredChecks[index].source, required: true, status: "error", error: errorText(result.reason) });
+
+  let stable: StableMarketUniverse;
   try {
-    const end = new Date();
-    const start = new Date(end.getTime() - Math.max(days, 120) * 86_400_000);
-    const date = (value: Date) => value.toISOString().slice(0, 10);
-    const result = await finmind(env, "TaiwanStockPrice", { data_id: symbol, start_date: date(start), end_date: date(end) });
-    return { ok: true, source: "FINMIND_RESEARCH_FALLBACK", data: result.data.slice(-days) };
+    stable = await stablePromise;
+    data.push({
+      source: "TWSE",
+      required: true,
+      status: stable.TWSE.normalized_count >= MIN_COVERAGE.TWSE ? "ok" : "error",
+      provider: stable.TWSE.provider,
+      rows: stable.TWSE.normalized_count,
+      errors: stable.TWSE.errors,
+      role: "full_market_listed",
+    });
+    data.push({
+      source: "TPEx",
+      required: true,
+      status: stable.TPEx.normalized_count >= MIN_COVERAGE.TPEx ? "ok" : "error",
+      provider: stable.TPEx.provider,
+      rows: stable.TPEx.normalized_count,
+      errors: stable.TPEx.errors,
+      role: "full_market_otc",
+    });
   } catch (error) {
-    return { ok: false, source: "FINMIND_RESEARCH_FALLBACK", data: [] as any[], error: error instanceof Error ? error.message : String(error) };
+    const message = errorText(error);
+    data.push({ source: "TWSE", required: true, status: "error", error: message, role: "full_market_listed" });
+    data.push({ source: "TPEx", required: true, status: "error", error: message, role: "full_market_otc" });
+    stable = {
+      version: STABLE_MARKET_TOOLS_VERSION,
+      source_contract: STABLE_MARKET_SOURCE_CONTRACT,
+      retrieved_at: new Date().toISOString(),
+      TWSE: { market: "TWSE", provider: "UNAVAILABLE", rows: [], raw_count: 0, normalized_count: 0, errors: [message] },
+      TPEx: { market: "TPEx", provider: "UNAVAILABLE", rows: [], raw_count: 0, normalized_count: 0, errors: [message] },
+      rows: [], usable: false, optional_metadata_errors: [],
+    };
   }
+
+  data.push({
+    source: "FinMind",
+    required: false,
+    status: "not_required",
+    role: "optional_legacy_enrichment",
+    note: "FinMind token is intentionally outside the frozen full-market scan contract; an invalid token cannot degrade market-wide scanning.",
+  });
+  const core = data.filter((row) => row.required === true);
+  const overall = core.every((row) => row.status === "ok") ? "healthy" : core.some((row) => row.status === "ok") ? "degraded" : "down";
+  return {
+    checked_at: new Date().toISOString(),
+    overall,
+    version: STABLE_MARKET_TOOLS_VERSION,
+    source_contract: STABLE_MARKET_SOURCE_CONTRACT,
+    full_market_usable: stable.usable,
+    data,
+    retired_required_dependencies: {
+      fugle_market_rankings: "RETIRED_FROM_REQUIRED_PATH",
+      fugle_full_market_snapshot: "RETIRED_FROM_REQUIRED_PATH",
+      finmind_market_scan: "RETIRED_FROM_REQUIRED_PATH",
+      direct_tpex_openapi_quotes: "RETIRED_FROM_REQUIRED_PATH",
+    },
+  };
 }
 
 export function registerStableMarketTools(server: McpServer, env: Env) {
   server.registerTool("get_market_rankings", {
-    description: "全市場正式快照排行。上市固定走TWSE OpenAPI；上櫃固定走TPEx公司名單 + TWSE MIS otc批次。此工具不依賴Fugle全市場排行、不要求FinMind。",
+    description: "穩定版全市場排行：上市走 TWSE 官方，櫃買走 MOPSFIN 公司母表 + TWSE MIS；不依賴 Fugle 排行權限或 FinMind token。",
     inputSchema: {
       markets: z.array(z.enum(["TSE", "OTC"])).min(1).max(2).optional().default(["TSE", "OTC"]),
       ranking: z.enum(["gainers", "losers", "volume", "value"]).optional().default("gainers"),
       top_n: z.number().int().min(1).max(100).optional().default(20),
     },
   }, async ({ markets, ranking, top_n }) => {
-    try {
-      const universe = await loadStableMarketUniverse(false);
-      const selected = markets.flatMap((market) => market === "TSE" ? universe.TWSE.rows : universe.TPEx.rows);
-      const tradable = selected.filter((row) => row.close != null && row.trade_volume > 0);
-      const sorted = [...tradable].sort((a, b) => {
-        if (ranking === "gainers") return Number(b.change_percent ?? -999) - Number(a.change_percent ?? -999);
-        if (ranking === "losers") return Number(a.change_percent ?? 999) - Number(b.change_percent ?? 999);
-        if (ranking === "volume") return b.trade_volume - a.trade_volume;
-        return b.trade_value - a.trade_value;
-      });
-      return ok({
-        ok: universe.usable,
-        contract: universe.contract,
-        version: universe.version,
-        source_policy: {
-          TSE: universe.TWSE.provider,
-          OTC: universe.TPEx.provider,
-          fugle_full_market_ranking: false,
-          finmind_required: false,
-        },
-        retrieved_at: universe.retrieved_at,
+    const universe = await loadStableMarketUniverse();
+    if (!universe.usable) throw new Error(`全市場資料未達完整門檻：TWSE=${universe.TWSE.normalized_count}, TPEx=${universe.TPEx.normalized_count}; ${[...universe.TWSE.errors, ...universe.TPEx.errors].join("; ")}`);
+    return {
+      content: [{ type: "text" as const, text: JSON.stringify({
+        source: "TWSE official + MOPSFIN/TWSE MIS",
+        version: STABLE_MARKET_TOOLS_VERSION,
+        source_contract: STABLE_MARKET_SOURCE_CONTRACT,
         ranking,
-        data: sorted.slice(0, top_n),
-        source_errors: { TSE: universe.TWSE.errors, OTC: universe.TPEx.errors },
-      });
-    } catch (error) {
-      return fail(error);
-    }
+        retrieved_at: universe.retrieved_at,
+        results: markets.map((market) => ({
+          market,
+          provider: market === "TSE" ? universe.TWSE.provider : universe.TPEx.provider,
+          count: marketRows(universe, market).length,
+          data: rankingRows(marketRows(universe, market), ranking, top_n),
+        })),
+        partial_errors: [...universe.TWSE.errors, ...universe.TPEx.errors, ...universe.optional_metadata_errors],
+      }, null, 2) }],
+    };
   });
 
   server.registerTool("get_market_regime", {
-    description: "固定來源的上市櫃市場廣度、成交值、強弱股與族群環境。TWSE + TPEx正式來源為主；產業metadata失敗不阻斷主市場快照。",
+    description: "穩定版上市櫃全市場廣度、成交值、強弱股與產業強弱；核心路徑不使用 Fugle 全市場快照/排行，也不依賴 FinMind。",
     inputSchema: {
       include_sectors: z.boolean().optional().default(true),
       top_sectors: z.number().int().min(3).max(20).optional().default(10),
     },
   }, async ({ include_sectors, top_sectors }) => {
-    try {
-      const view = await loadStableFullMarketResearchView(include_sectors, top_sectors);
-      const { rows: _rows, ...compact } = view;
-      return ok(compact);
-    } catch (error) {
-      return fail(error);
-    }
+    const universe = await loadStableMarketUniverse();
+    if (!universe.usable) throw new Error(`全市場資料未達完整門檻：TWSE=${universe.TWSE.normalized_count}, TPEx=${universe.TPEx.normalized_count}; ${[...universe.TWSE.errors, ...universe.TPEx.errors].join("; ")}`);
+    const listed = aggregateMarket(universe.TWSE.rows);
+    const otc = aggregateMarket(universe.TPEx.rows);
+    const combined = aggregateMarket(universe.rows);
+    const regime = regimeFromAggregate(combined);
+    const payload = {
+      source: "TWSE official + MOPSFIN/TWSE MIS",
+      version: STABLE_MARKET_TOOLS_VERSION,
+      source_contract: STABLE_MARKET_SOURCE_CONTRACT,
+      retrieved_at: universe.retrieved_at,
+      regime,
+      interpretation: regime === "risk_on"
+        ? "市場廣度偏多，做多環境較有利，但仍須避免追高。"
+        : regime === "risk_off"
+          ? "市場廣度偏空，應降低多單曝險並提高停損紀律。"
+          : "多空分歧，宜重視個股與族群選擇。",
+      coverage: {
+        usable: universe.usable,
+        listed: { provider: universe.TWSE.provider, rows: universe.TWSE.normalized_count },
+        otc: { provider: universe.TPEx.provider, rows: universe.TPEx.normalized_count },
+      },
+      listed,
+      otc,
+      combined,
+      sectors: include_sectors ? sectorAggregation(universe.rows, top_sectors) : null,
+      required_dependency_policy: {
+        fugle_market_rankings: false,
+        fugle_full_market_snapshot: false,
+        finmind: false,
+        direct_tpex_openapi_quotes: false,
+      },
+      partial_errors: [...universe.TWSE.errors, ...universe.TPEx.errors, ...universe.optional_metadata_errors],
+    };
+    return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] };
   });
 
   server.registerTool("get_macro_risk_dashboard", {
-    description: "大盤風險摘要。固定使用與全市場排行相同的TWSE/TPEx contract；不再依賴Fugle snapshot排行。",
+    description: "央行美元兌台幣 + 穩定版上市櫃全市場廣度；市場廣度不依賴 Fugle 排行/快照或 FinMind。",
     inputSchema: {},
   }, async () => {
-    try {
-      const view = await loadStableFullMarketResearchView(false, 10);
-      return ok({
-        ok: view.ok,
-        contract: view.contract,
-        version: view.version,
-        retrieved_at: view.retrieved_at,
-        regime: view.regime,
-        interpretation: view.interpretation,
-        combined: view.combined,
-        source_policy: view.source_policy,
-        source_errors: view.source_errors,
-      });
-    } catch (error) {
-      return fail(error);
-    }
+    const [fxResult, universeResult] = await Promise.allSettled([
+      fetchJson(CBC_FX_DAILY, { headers: { Accept: "application/json" } }, "CBC"),
+      loadStableMarketUniverse(),
+    ]);
+    const errors: string[] = [];
+    if (fxResult.status === "rejected") errors.push(errorText(fxResult.reason));
+    if (universeResult.status === "rejected") errors.push(errorText(universeResult.reason));
+    const universe = universeResult.status === "fulfilled" ? universeResult.value : null;
+    if (universe && !universe.usable) errors.push(...universe.TWSE.errors, ...universe.TPEx.errors);
+    const breadth = universe ? aggregateMarket(universe.rows) : null;
+    const fxRows = fxResult.status === "fulfilled" ? arr(fxResult.value.body) : [];
+    const payload = {
+      source: "CBC + TWSE official + MOPSFIN/TWSE MIS",
+      version: STABLE_MARKET_TOOLS_VERSION,
+      source_contract: STABLE_MARKET_SOURCE_CONTRACT,
+      retrieved_at: new Date().toISOString(),
+      usd_twd_latest: fxRows.at(-1) ?? null,
+      market: breadth,
+      market_regime: breadth ? regimeFromAggregate(breadth) : "unavailable",
+      full_market_usable: universe?.usable === true,
+      partial_errors: errors,
+    };
+    return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] };
   });
 
   server.registerTool("get_data_health", {
-    description: "檢查全市場資料來源可用性；回報TWSE/TPEx行數、provider與optional metadata錯誤。",
-    inputSchema: {},
-  }, async () => {
-    try {
-      const universe = await loadStableMarketUniverse(false);
-      return ok({
-        ok: universe.usable,
-        contract: universe.contract,
-        version: universe.version,
-        retrieved_at: universe.retrieved_at,
-        sources: {
-          TSE: { provider: universe.TWSE.provider, rows: universe.TWSE.normalized_count, errors: universe.TWSE.errors },
-          OTC: { provider: universe.TPEx.provider, rows: universe.TPEx.normalized_count, errors: universe.TPEx.errors },
-        },
-      });
-    } catch (error) {
-      return fail(error);
-    }
+    description: "檢查凍結後的核心資料路徑：GitHub、Fugle單股、TWSE全市場、TPEx MOPSFIN+MIS、央行；FinMind為非必要舊補充，不再拖累全市場健康狀態。",
+    inputSchema: { test_symbol: z.string().trim().min(1).max(20).regex(/^[0-9A-Za-z._-]+$/).optional().default("2330") },
+  }, async ({ test_symbol }) => {
+    const payload = await healthData(env, test_symbol);
+    return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] };
   });
 }
