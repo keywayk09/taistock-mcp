@@ -1,57 +1,76 @@
 import { runExtendedScheduledMarketDataController } from "./market-data-scheduled-dispatch.ts";
-import { runSelectionAuditDelta } from "./selection-audit.ts";
 import { runIntradayReviewSelection, runNightSelections } from "./selection-engine.ts";
-import { decideSelectionSchedule } from "./selection-schedule.ts";
+import {
+  enqueueSelectionWake,
+  SELECTION_QUEUE_BINDING,
+  type SelectionQueueJob,
+} from "./selection-queue-delivery.ts";
 
-export const SELECTION_SCHEDULED_DISPATCH_VERSION = "diamond-selection-scheduled-dispatch/v1.0.0";
+export { SELECTION_QUEUE_BINDING } from "./selection-queue-delivery.ts";
+export type { SelectionQueueJob } from "./selection-queue-delivery.ts";
+
+export const SELECTION_SCHEDULED_DISPATCH_VERSION = "diamond-selection-scheduled-dispatch/v1.1.1-queue-isolated";
 
 function isPending(value: any) {
   return value?.status === "PENDING";
 }
 
 export async function runSelectionAwareScheduledController(env: Env, scheduledTime: number) {
-  const now = new Date(scheduledTime);
-  const decision = decideSelectionSchedule(now);
-
-  if (decision.action === "INTRADAY_REVIEW") {
-    const selection = await runIntradayReviewSelection(env, {
-      source_trade_date: decision.source_trade_date,
-      now,
-    });
-    console.log("selection-intraday-review", { decision, selection });
-    return { version: SELECTION_SCHEDULED_DISPATCH_VERSION, lane: "SELECTION", decision, selection };
-  }
-
-  if (decision.action === "NIGHT_SELECTION") {
-    // Selection probes readiness first. If the canonical late-data layers are
-    // not complete, this wake is handed back to the market-data recovery lane.
-    // The next five-minute wake retries selection. This prevents heavy swing
-    // enrichment and recovery writes from competing in the same invocation.
-    const selection = await runNightSelections(env, {
-      source_trade_date: decision.source_trade_date,
-      target_session_date: decision.target_session_date,
-      now,
-    });
-    if (isPending(selection)) {
-      const marketData = await runExtendedScheduledMarketDataController(env, scheduledTime);
-      console.log("selection-night-pending-market-recovery", { decision, selection, marketData });
-      return { version: SELECTION_SCHEDULED_DISPATCH_VERSION, lane: "MARKET_RECOVERY", decision, selection, marketData };
-    }
-    console.log("selection-night", { decision, selection });
-    return { version: SELECTION_SCHEDULED_DISPATCH_VERSION, lane: "SELECTION", decision, selection };
-  }
-
-  if (decision.action === "AUDIT_DELTA") {
-    const audit = await runSelectionAuditDelta(env, { source_trade_date: decision.source_trade_date, now });
-    if (isPending(audit)) {
-      const marketData = await runExtendedScheduledMarketDataController(env, scheduledTime);
-      console.log("selection-audit-pending-market-audit", { decision, audit, marketData });
-      return { version: SELECTION_SCHEDULED_DISPATCH_VERSION, lane: "MARKET_AUDIT", decision, audit, marketData };
-    }
-    console.log("selection-audit-delta", { decision, audit });
-    return { version: SELECTION_SCHEDULED_DISPATCH_VERSION, lane: "SELECTION_AUDIT", decision, audit };
-  }
-
+  // Safety invariant: the verified V6 market-data controller always runs first
+  // and is awaited exactly as before. Selection delivery is only a lightweight
+  // follow-up enqueue. If market-data throws, the error propagates and no
+  // selection work is started in this invocation.
   const marketData = await runExtendedScheduledMarketDataController(env, scheduledTime);
-  return { version: SELECTION_SCHEDULED_DISPATCH_VERSION, lane: "MARKET_DATA", decision, marketData };
+  const selectionDelivery = await enqueueSelectionWake(env, scheduledTime);
+  return {
+    version: SELECTION_SCHEDULED_DISPATCH_VERSION,
+    lane: "MARKET_DATA_THEN_SELECTION_QUEUE",
+    marketData,
+    selectionDelivery,
+  };
+}
+
+export async function runSelectionQueueJob(env: Env, job: SelectionQueueJob) {
+  if (!job || job.schema !== "diamond-selection-queue-job/v1") {
+    throw new Error("INVALID_SELECTION_QUEUE_JOB");
+  }
+
+  const now = new Date(job.scheduled_time_ms);
+  if (job.action === "INTRADAY_REVIEW") {
+    const selection = await runIntradayReviewSelection(env, {
+      source_trade_date: job.source_trade_date,
+      now,
+    });
+    return { status: isPending(selection) ? "PENDING" : "DONE", action: job.action, selection };
+  }
+
+  if (job.action === "NIGHT_SELECTION") {
+    const selection = await runNightSelections(env, {
+      source_trade_date: job.source_trade_date,
+      target_session_date: job.target_session_date,
+      now,
+    });
+    return { status: isPending(selection) ? "PENDING" : "DONE", action: job.action, selection };
+  }
+
+  throw new Error(`UNSUPPORTED_SELECTION_QUEUE_ACTION:${String((job as any).action ?? "")}`);
+}
+
+export async function runSelectionQueueBatch(env: Env, batch: any) {
+  const results: any[] = [];
+  for (const message of Array.isArray(batch?.messages) ? batch.messages : []) {
+    try {
+      const result = await runSelectionQueueJob(env, message.body as SelectionQueueJob);
+      // PENDING is acknowledged intentionally. The existing */5 Cron will send
+      // a fresh point-in-time retry on the next wake; Queue retry storms are not
+      // used as a readiness poller.
+      message.ack?.();
+      results.push(result);
+    } catch (error) {
+      message.retry?.();
+      console.error("selection-queue-job-failed", { error: String(error), binding: SELECTION_QUEUE_BINDING });
+      results.push({ status: "ERROR_RETRY", error: String(error) });
+    }
+  }
+  return { version: SELECTION_SCHEDULED_DISPATCH_VERSION, results };
 }

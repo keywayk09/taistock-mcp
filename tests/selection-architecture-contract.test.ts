@@ -6,6 +6,7 @@ const journal = readFileSync(new URL("../src/v6/selection-journal.ts", import.me
 const evidence = readFileSync(new URL("../src/v6/selection-evidence.ts", import.meta.url), "utf8");
 const engine = readFileSync(new URL("../src/v6/selection-engine.ts", import.meta.url), "utf8");
 const dispatcher = readFileSync(new URL("../src/v6/selection-scheduled-dispatch.ts", import.meta.url), "utf8");
+const delivery = readFileSync(new URL("../src/v6/selection-queue-delivery.ts", import.meta.url), "utf8");
 const entry = readFileSync(new URL("../src/index-v7.ts", import.meta.url), "utf8");
 const wrangler = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
 
@@ -34,17 +35,22 @@ test("intraday review and next-day intraday do not reuse swing scoring", () => {
   assert.match(engine, /MULTI_DAY_SWING_RESEARCH_SELECTION/);
 });
 
-test("selection dispatcher yields to market recovery when 22:30 data is pending", () => {
-  assert.match(dispatcher, /selection-night-pending-market-recovery/);
-  assert.match(dispatcher, /runExtendedScheduledMarketDataController/);
-  assert.match(dispatcher, /runNightSelections/);
+test("cron path preserves market-data first and sends selection through isolated queue", () => {
+  assert.match(dispatcher, /await runExtendedScheduledMarketDataController/);
+  assert.match(dispatcher, /await enqueueSelectionWake/);
+  assert.match(delivery, /SELECTION_QUEUE_NOT_BOUND/);
+  assert.match(delivery, /Fail closed: missing queue delivery/);
+  assert.match(dispatcher, /runSelectionQueueBatch/);
+  assert.match(dispatcher, /PENDING is acknowledged intentionally/);
 });
 
-test("v7 wrapper changes only owner MCP and scheduler while delegating verified v6 HTTP surfaces", () => {
+test("v7 wrapper delegates verified v6 HTTP surfaces and exposes queue consumer", () => {
   assert.match(entry, /extends BaseMyMCP/);
   assert.match(entry, /registerSelectionTools/);
   assert.match(entry, /return baseWorker\.fetch/);
   assert.match(entry, /runSelectionAwareScheduledController/);
+  assert.match(entry, /async queue\(/);
+  assert.match(entry, /runSelectionQueueBatch/);
   assert.match(wrangler, /"main": "src\/index-v7\.ts"/);
 });
 

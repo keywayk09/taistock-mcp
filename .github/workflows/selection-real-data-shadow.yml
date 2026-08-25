@@ -1,0 +1,217 @@
+name: Selection Real Data Shadow
+
+on:
+  push:
+    branches:
+      - test/selection-scheduler-isolation-20260825
+    paths:
+      - 'tests/selection-shadow-worker.ts'
+      - '.github/workflows/selection-real-data-shadow.yml'
+      - 'src/v6/selection-engine.ts'
+      - 'src/v6/selection-evidence.ts'
+      - 'src/v6/selection-journal.ts'
+      - 'src/v6/stable-market-tools.ts'
+      - 'src/v6/stable-swing-screen.ts'
+      - 'src/v6/github-data-store.ts'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: selection-real-data-shadow
+  cancel-in-progress: true
+
+jobs:
+  shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      FUGLE_API_KEY: ${{ secrets.FUGLE_API_KEY }}
+      PROD_ORIGIN: https://taistock-mcp.keywayk09.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/selection-scheduler-isolation-20260825
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Type check
+        run: npm run type-check
+      - name: Run exact selectors in temporary Worker with memory-only shadow storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo 'Cloudflare credentials missing; refusing shadow.' >&2
+            exit 78
+          fi
+
+          suffix="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          worker_name="taistock-selection-shadow-${suffix}"
+          runtime_config='wrangler-selection-shadow.runtime.jsonc'
+          shadow_token="$(python - <<'PY'
+          import secrets
+          print(secrets.token_hex(32))
+          PY
+          )"
+          echo "::add-mask::${shadow_token}"
+          auth=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')
+          api="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}"
+
+          cleanup() {
+            set +e
+            echo '[cleanup] removing temporary selector-shadow worker'
+            curl --silent --show-error --max-time 30 -X DELETE "${api}/workers/scripts/${worker_name}?force=true" "${auth[@]}" >/tmp/delete-selection-shadow-worker.json 2>/dev/null || true
+            rm -f "${runtime_config}"
+          }
+          trap cleanup EXIT
+
+          echo '[1/6] verify Production health and existing Cron before shadow'
+          curl --fail --silent --show-error --max-time 25 "${PROD_ORIGIN}/health" > /tmp/prod-health-before-shadow.json
+          curl --fail --silent --show-error --max-time 30 "${api}/workers/scripts/taistock-mcp/schedules" "${auth[@]}" > /tmp/prod-cron-before-shadow.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          h=json.loads(Path('/tmp/prod-health-before-shadow.json').read_text())
+          if h.get('status') != 'ok' or h.get('mcp_endpoint') != '/my-mcp':
+              raise SystemExit(f'production_health_before_shadow_failed:{h}')
+          b=json.loads(Path('/tmp/prod-cron-before-shadow.json').read_text())
+          result=b.get('result') or {}
+          rows=result.get('schedules') if isinstance(result,dict) else result
+          crons=[x.get('cron') for x in (rows or []) if isinstance(x,dict)]
+          if crons != ['*/5 * * * *']:
+              raise SystemExit(f'production_cron_before_shadow_unexpected:{crons}')
+          print('production pre-shadow PASS health=ok cron=*/5')
+          PY
+
+          echo '[2/6] deploy temporary Worker; no Cron, no KV, no Queue, no GitHub write token'
+          cat > "${runtime_config}" <<EOF
+          {
+            "name": "${worker_name}",
+            "main": "tests/selection-shadow-worker.ts",
+            "compatibility_date": "2026-08-25",
+            "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+            "workers_dev": true,
+            "preview_urls": false,
+            "vars": { "SHADOW_TOKEN": "${shadow_token}" },
+            "observability": { "enabled": true }
+          }
+          EOF
+          npx wrangler deploy --config "${runtime_config}" >/tmp/wrangler-selection-shadow.log 2>&1 || { tail -120 /tmp/wrangler-selection-shadow.log; exit 1; }
+
+          if [ -n "${FUGLE_API_KEY:-}" ]; then
+            printf '%s' "${FUGLE_API_KEY}" | npx wrangler secret put FUGLE_API_KEY --name "${worker_name}" >/tmp/wrangler-selection-shadow-secret.log 2>&1 || { tail -80 /tmp/wrangler-selection-shadow-secret.log; exit 1; }
+          fi
+
+          curl --fail --silent --show-error --max-time 30 "${api}/workers/subdomain" "${auth[@]}" > /tmp/account-subdomain-shadow.json
+          account_subdomain="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          b=json.loads(Path('/tmp/account-subdomain-shadow.json').read_text())
+          if not b.get('success'): raise SystemExit(f'subdomain_lookup_failed:{b.get("errors")}')
+          print((b.get('result') or {}).get('subdomain',''))
+          PY
+          )"
+          test -n "${account_subdomain}"
+          shadow_origin="https://${worker_name}.${account_subdomain}.workers.dev"
+
+          echo '[3/6] wait for temporary Worker propagation'
+          ready=false
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent --show-error --max-time 10 -H "Authorization: Bearer ${shadow_token}" "${shadow_origin}/health" >/tmp/selection-shadow-health.json 2>/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "${ready}" != true ]; then echo 'selection shadow worker propagation timeout' >&2; exit 1; fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          h=json.loads(Path('/tmp/selection-shadow-health.json').read_text())
+          if h != {'ok': True, 'service': 'selection-real-data-shadow', 'cron': False, 'persistence': 'MEMORY_ONLY'}:
+              raise SystemExit(f'shadow_health_contract_failed:{h}')
+          print('temporary shadow worker PASS cron=false persistence=MEMORY_ONLY')
+          PY
+
+          echo '[4/6] invoke exact Production selectors against real current-session inputs'
+          curl --fail --silent --show-error --max-time 240 -X POST \
+            -H "Authorization: Bearer ${shadow_token}" \
+            "${shadow_origin}/shadow" > /tmp/selection-shadow-result.json
+          cat /tmp/selection-shadow-result.json
+          python - <<'PY'
+          import json,re
+          from pathlib import Path
+          r=json.loads(Path('/tmp/selection-shadow-result.json').read_text())
+          if r.get('ok') is not True or r.get('mode') != 'EXACT_SELECTOR_REAL_DATA_MEMORY_ONLY':
+              raise SystemExit(f'shadow_mode_failed:{r}')
+          g=r.get('guarantees') or {}
+          if g.get('github_write_token_present') is not False or g.get('formal_journal_write_possible') is not False or g.get('stale_prior_day_substitution_allowed') is not False:
+              raise SystemExit(f'shadow_guarantee_failed:{g}')
+          review=r.get('intraday_review') or {}
+          night=r.get('night') or {}
+          if review.get('status') not in ('FINAL','PENDING'):
+              raise SystemExit(f'intraday_shadow_status_unexpected:{review}')
+          if night.get('status') not in ('FINAL','PARTIAL','PENDING'):
+              raise SystemExit(f'night_shadow_status_unexpected:{night}')
+          if review.get('status') == 'PENDING' and not review.get('code'):
+              raise SystemExit(f'intraday_pending_without_code:{review}')
+          if night.get('status') == 'PENDING' and not night.get('code'):
+              raise SystemExit(f'night_pending_without_code:{night}')
+
+          symbols=[]
+          for obj in (review,night):
+              for key in ('intraday_symbols','next_day_symbols','swing_symbols'):
+                  symbols.extend(obj.get(key) or [])
+          for symbol in symbols:
+              if not re.fullmatch(r'[1-9]\d{3}', str(symbol)):
+                  raise SystemExit(f'invalid_shadow_symbol:{symbol}')
+              if str(symbol) == '0050':
+                  raise SystemExit('etf_leak_0050')
+
+          source_date=r.get('source_trade_date')
+          quote_dates=set(r.get('market_quote_dates') or [])
+          any_final=review.get('status') == 'FINAL' or night.get('status') in ('FINAL','PARTIAL')
+          if any_final and source_date not in quote_dates:
+              raise SystemExit(f'final_with_stale_quotes:source={source_date}:quotes={sorted(quote_dates)}')
+
+          print('EXACT SELECTOR SHADOW PASS', json.dumps({
+              'source_trade_date': source_date,
+              'quote_dates': sorted(quote_dates),
+              'manifest_present': r.get('manifest_present'),
+              'manifest_day_status': r.get('manifest_day_status'),
+              'manifest_terminal': r.get('manifest_terminal'),
+              'ready_layers': r.get('manifest_ready_layers'),
+              'intraday_review': review,
+              'night': night,
+              'shadow_selection_paths': r.get('shadow_selection_paths'),
+              'fugle_key_present': r.get('fugle_key_present'),
+          }, ensure_ascii=False))
+          PY
+
+          echo '[5/6] cleanup temporary worker'
+          cleanup
+          trap - EXIT
+          sleep 2
+
+          echo '[6/6] prove Production remained unchanged'
+          curl --fail --silent --show-error --max-time 25 "${PROD_ORIGIN}/health" > /tmp/prod-health-after-shadow.json
+          curl --fail --silent --show-error --max-time 30 "${api}/workers/scripts/taistock-mcp/schedules" "${auth[@]}" > /tmp/prod-cron-after-shadow.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          h=json.loads(Path('/tmp/prod-health-after-shadow.json').read_text())
+          if h.get('status') != 'ok' or h.get('mcp_endpoint') != '/my-mcp':
+              raise SystemExit(f'production_health_after_shadow_failed:{h}')
+          b=json.loads(Path('/tmp/prod-cron-after-shadow.json').read_text())
+          result=b.get('result') or {}
+          rows=result.get('schedules') if isinstance(result,dict) else result
+          crons=[x.get('cron') for x in (rows or []) if isinstance(x,dict)]
+          if crons != ['*/5 * * * *']:
+              raise SystemExit(f'production_cron_after_shadow_unexpected:{crons}')
+          print('PRODUCTION UNCHANGED PASS health=ok cron=*/5')
+          PY
+          echo 'SELECTION_REAL_DATA_SHADOW_PASS'

@@ -1,13 +1,13 @@
-export const SELECTION_SCHEDULE_VERSION = "diamond-selection-schedule/v1.0.0";
+export const SELECTION_SCHEDULE_VERSION = "diamond-selection-schedule/v1.1.0";
 
-export type SelectionScheduleAction = "INTRADAY_REVIEW" | "NIGHT_SELECTION" | "AUDIT_DELTA" | "NONE";
+export type SelectionScheduleAction = "INTRADAY_REVIEW" | "NIGHT_SELECTION" | "NONE";
 
 export type SelectionScheduleDecision = {
   version: typeof SELECTION_SCHEDULE_VERSION;
   action: SelectionScheduleAction;
   source_trade_date: string;
   target_session_date: string;
-  slot: "EOD_1830" | "FULL_2230" | null;
+  slot: "EOD_1800" | "FULL_2230" | null;
   reason: string;
 };
 
@@ -59,17 +59,24 @@ export function decideSelectionSchedule(now = new Date()): SelectionScheduleDeci
   const dow = dateParts(date).dow;
   const weekday = dow >= 1 && dow <= 5;
 
-  if (weekday && inWindow(hour, minute, 18, 30, 55)) {
+  // Intraday review becomes eligible at 18:00. The 18:00-18:25 market-data
+  // institutional checkpoint remains authoritative; 18:30-18:55 are catch-up
+  // wakes only. The immutable journal makes repeated wakes idempotent.
+  if (weekday && inWindow(hour, minute, 18, 0, 55)) {
     return {
       version: SELECTION_SCHEDULE_VERSION,
       action: "INTRADAY_REVIEW",
       source_trade_date: date,
       target_session_date: date,
-      slot: "EOD_1830",
-      reason: "18:30_INTRADAY_REVIEW_AFTER_INSTITUTIONAL_CHECKPOINT",
+      slot: "EOD_1800",
+      reason: "18:00_INTRADAY_REVIEW_ELIGIBLE_AFTER_CLOSE_WITH_INSTITUTIONAL_READINESS_GATE",
     };
   }
 
+  // 22:30 is the earliest eligible time for swing and next-day intraday
+  // selection. Canonical market-data recovery continues through 22:55; the
+  // selector itself must remain PENDING until all required same-date layers are
+  // READY. No prior-day substitution is allowed.
   if (weekday && inWindow(hour, minute, 22, 30, 55)) {
     return {
       version: SELECTION_SCHEDULE_VERSION,
@@ -81,21 +88,9 @@ export function decideSelectionSchedule(now = new Date()): SelectionScheduleDeci
     };
   }
 
-  // The underlying market-data final audit starts at 08:30. Selection audit
-  // is deliberately written only at the end of that window so late official
-  // corrections cannot rewrite the previous evening's immutable prediction.
-  if (dow !== 0 && inWindow(hour, minute, 8, 55, 59)) {
-    const prior = previousWeekday(date);
-    return {
-      version: SELECTION_SCHEDULE_VERSION,
-      action: "AUDIT_DELTA",
-      source_trade_date: prior,
-      target_session_date: date,
-      slot: null,
-      reason: "08:55_POST_FINAL_AUDIT_DELTA_ONLY",
-    };
-  }
-
+  // Selection has no next-morning rewrite/audit lane. The canonical market-data
+  // controller keeps its own 08:30-08:55 final audit, but point-in-time
+  // selections remain immutable for honest backtests.
   return {
     version: SELECTION_SCHEDULE_VERSION,
     action: "NONE",
