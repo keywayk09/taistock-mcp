@@ -45,11 +45,13 @@ assert.match(index, /V3_ADAPTIVE_SHARED_READ_OPEN_WORLD/);
 assert.match(index, /SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS/);
 assert.match(index, /owner_market_research_reads: "SHARED_BY_DEFAULT_WHEN_AVAILABLE"/);
 assert.match(index, /owner_private_context: "DENY_BY_DEFAULT_UNLESS_EXPLICITLY_SHARED"/);
-assert.match(index, /FUGLE_PRIMARY_WHEN_AVAILABLE/);
-assert.match(index, /tools: 113/);
+assert.match(index, /OHLC_READ_SERVICE_STOCK_LIVE_PRIMARY_WITH_FIVE_LEVEL_BOOK/);
+assert.match(index, /shared_read_service: "tv-fugle-1d\/OhlcFamilyReadService"/);
+assert.match(index, /tools: 114/);
 
 const familyMcp = read("src/v6/family-mcp.ts");
 assert.match(familyMcp, /registerFamilyStockSelectionToolsV2/);
+assert.match(familyMcp, /get_family_stock_market_context/);
 assert.match(familyMcp, /OPEN_WORLD_AUTONOMOUS_NO_FIXED_SITE_OR_KEYWORD_LIMIT/);
 assert.match(familyMcp, /READ_ONLY_FAMILY_SURFACE/);
 assert.match(familyMcp, /github_writes: false/);
