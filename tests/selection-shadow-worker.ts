@@ -1,4 +1,4 @@
-import { readGitHubJson, stableJson, type MemoryGitHubDataStore } from "../src/v6/github-data-store.ts";
+import { sha256Hex, type MemoryGitHubDataStore } from "../src/v6/github-data-store.ts";
 import { runIntradayReviewSelection, runNightSelections } from "../src/v6/selection-engine.ts";
 import { loadStableMarketUniverse } from "../src/v6/stable-market-tools.ts";
 
@@ -38,28 +38,37 @@ function manifestPath(date: string) {
   return `data/market-data/daily/${year}/${month}/${day}/manifest.json`;
 }
 
-async function preloadCanonicalMarketData(sourceEnv: Env, shadowMemory: MemoryGitHubDataStore, date: string) {
-  const path = manifestPath(date);
-  const manifestRead = await readGitHubJson<any>(sourceEnv, path);
-  if (!manifestRead.value) return { manifest: null, path, snapshots_loaded: 0 };
-  shadowMemory.set(path, {
-    sha: manifestRead.sha ?? `shadow-manifest-${date}`,
-    text: stableJson(manifestRead.value),
+async function rawGitHubFile(path: string) {
+  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+  const response = await fetch(`https://raw.githubusercontent.com/keywayk09/tv-papertrader/main/${encodedPath}`, {
+    headers: { Accept: "application/json,text/plain,*/*", "User-Agent": "taistock-selection-shadow/1.0" },
+    cache: "no-store",
   });
+  if (response.status === 404) return null;
+  const text = await response.text();
+  if (!response.ok) throw new Error(`raw_github_http:${response.status}:${path}:${text.slice(0, 200)}`);
+  return { text, sha: await sha256Hex(text) };
+}
+
+async function preloadCanonicalMarketData(shadowMemory: MemoryGitHubDataStore, date: string) {
+  const path = manifestPath(date);
+  const manifestRaw = await rawGitHubFile(path);
+  if (!manifestRaw) return { manifest: null, path, snapshots_loaded: 0 };
+  let manifest: any;
+  try { manifest = JSON.parse(manifestRaw.text); }
+  catch { throw new Error(`manifest_json_invalid:${path}`); }
+  shadowMemory.set(path, { sha: manifestRaw.sha, text: manifestRaw.text });
 
   let snapshotsLoaded = 0;
-  for (const layer of Array.isArray(manifestRead.value.layers) ? manifestRead.value.layers : []) {
+  for (const layer of Array.isArray(manifest.layers) ? manifest.layers : []) {
     const snapshotPath = String(layer?.snapshot_path ?? "").trim();
     if (!snapshotPath || shadowMemory.has(snapshotPath)) continue;
-    const snapshotRead = await readGitHubJson<any>(sourceEnv, snapshotPath);
-    if (!snapshotRead.value) continue;
-    shadowMemory.set(snapshotPath, {
-      sha: snapshotRead.sha ?? `shadow-snapshot-${snapshotsLoaded + 1}`,
-      text: stableJson(snapshotRead.value),
-    });
+    const snapshotRaw = await rawGitHubFile(snapshotPath);
+    if (!snapshotRaw) continue;
+    shadowMemory.set(snapshotPath, { sha: snapshotRaw.sha, text: snapshotRaw.text });
     snapshotsLoaded += 1;
   }
-  return { manifest: manifestRead.value, path, snapshots_loaded: snapshotsLoaded };
+  return { manifest, path, snapshots_loaded: snapshotsLoaded };
 }
 
 function compactResult(value: any) {
@@ -99,65 +108,68 @@ export default {
     }
     if (url.pathname !== "/shadow" || request.method !== "POST") return Response.json({ error: "not_found" }, { status: 404 });
 
-    const now = new Date();
-    const sourceTradeDate = taipeiDate(now);
-    const targetSessionDate = nextWeekday(sourceTradeDate);
-    const sourceEnv = {
-      GITHUB_DATA_REPO: "keywayk09/tv-papertrader",
-      GITHUB_DATA_BRANCH: "main",
-    } as Env;
-    const shadowMemory: MemoryGitHubDataStore = new Map();
-    const shadowEnv = {
-      ...env,
-      GITHUB_DATA_REPO: "keywayk09/tv-papertrader",
-      GITHUB_DATA_BRANCH: "main",
-      GITHUB_DATA_TOKEN: undefined,
-      GITHUB_TOKEN: undefined,
-      FUGLE_API_KEY: env.FUGLE_API_KEY || "",
-      FINMIND_TOKEN: "",
-      __GITHUB_DATA_MEMORY: shadowMemory,
-    } as ShadowEnv & { __GITHUB_DATA_MEMORY: MemoryGitHubDataStore };
+    try {
+      const now = new Date();
+      const sourceTradeDate = taipeiDate(now);
+      const targetSessionDate = nextWeekday(sourceTradeDate);
+      const shadowMemory: MemoryGitHubDataStore = new Map();
+      const shadowEnv = {
+        ...env,
+        GITHUB_DATA_REPO: "keywayk09/tv-papertrader",
+        GITHUB_DATA_BRANCH: "main",
+        GITHUB_DATA_TOKEN: undefined,
+        GITHUB_TOKEN: undefined,
+        FUGLE_API_KEY: env.FUGLE_API_KEY || "",
+        FINMIND_TOKEN: "",
+        __GITHUB_DATA_MEMORY: shadowMemory,
+      } as ShadowEnv & { __GITHUB_DATA_MEMORY: MemoryGitHubDataStore };
 
-    const preload = await preloadCanonicalMarketData(sourceEnv, shadowMemory, sourceTradeDate);
-    const universe = await loadStableMarketUniverse(true);
-    const quoteDates = [...new Set(
-      universe.rows.map((row) => normalizeDate(row.last_updated)).filter((date): date is string => Boolean(date)),
-    )].sort();
+      const preload = await preloadCanonicalMarketData(shadowMemory, sourceTradeDate);
+      const universe = await loadStableMarketUniverse(true);
+      const quoteDates = [...new Set(
+        universe.rows.map((row) => normalizeDate(row.last_updated)).filter((date): date is string => Boolean(date)),
+      )].sort();
 
-    const intradayReview = await runIntradayReviewSelection(shadowEnv, {
-      source_trade_date: sourceTradeDate,
-      now,
-    });
-    const night = await runNightSelections(shadowEnv, {
-      source_trade_date: sourceTradeDate,
-      target_session_date: targetSessionDate,
-      now,
-    });
+      const intradayReview = await runIntradayReviewSelection(shadowEnv, {
+        source_trade_date: sourceTradeDate,
+        now,
+      });
+      const night = await runNightSelections(shadowEnv, {
+        source_trade_date: sourceTradeDate,
+        target_session_date: targetSessionDate,
+        now,
+      });
 
-    const shadowSelectionPaths = [...shadowMemory.keys()].filter((path) => path.startsWith("research/selection/")).sort();
-    const result = {
-      ok: true,
-      mode: "EXACT_SELECTOR_REAL_DATA_MEMORY_ONLY",
-      source_trade_date: sourceTradeDate,
-      target_session_date: targetSessionDate,
-      market_usable: universe.usable,
-      market_quote_dates: quoteDates,
-      manifest_present: Boolean(preload.manifest),
-      manifest_day_status: preload.manifest?.day_status ?? null,
-      manifest_terminal: preload.manifest?.terminal ?? null,
-      manifest_ready_layers: preload.manifest?.ready_layers ?? [],
-      snapshots_loaded: preload.snapshots_loaded,
-      fugle_key_present: Boolean(env.FUGLE_API_KEY),
-      intraday_review: compactResult(intradayReview),
-      night: compactResult(night),
-      shadow_selection_paths: shadowSelectionPaths,
-      guarantees: {
-        github_write_token_present: false,
-        formal_journal_write_possible: false,
-        stale_prior_day_substitution_allowed: false,
-      },
-    };
-
-    return Response.json(result);
+      const shadowSelectionPaths = [...shadowMemory.keys()].filter((path) => path.startsWith("research/selection/")).sort();
+      return Response.json({
+        ok: true,
+        mode: "EXACT_SELECTOR_REAL_DATA_MEMORY_ONLY",
+        source_trade_date: sourceTradeDate,
+        target_session_date: targetSessionDate,
+        market_usable: universe.usable,
+        market_quote_dates: quoteDates,
+        manifest_present: Boolean(preload.manifest),
+        manifest_day_status: preload.manifest?.day_status ?? null,
+        manifest_terminal: preload.manifest?.terminal ?? null,
+        manifest_ready_layers: preload.manifest?.ready_layers ?? [],
+        snapshots_loaded: preload.snapshots_loaded,
+        fugle_key_present: Boolean(env.FUGLE_API_KEY),
+        intraday_review: compactResult(intradayReview),
+        night: compactResult(night),
+        shadow_selection_paths: shadowSelectionPaths,
+        guarantees: {
+          github_write_token_present: false,
+          formal_journal_write_possible: false,
+          stale_prior_day_substitution_allowed: false,
+        },
+      });
+    } catch (error) {
+      return Response.json({
+        ok: false,
+        mode: "EXACT_SELECTOR_REAL_DATA_MEMORY_ONLY",
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? String(error.stack ?? "").split("\n").slice(0, 8) : [],
+      }, { status: 500 });
+    }
   },
 };
