@@ -1,0 +1,42 @@
+name: Selection Real Data Shadow
+
+on:
+  push:
+    branches:
+      - test/selection-scheduler-isolation-20260825
+    paths:
+      - 'tests/selection-shadow-real-data.test.ts'
+      - '.github/workflows/selection-real-data-shadow.yml'
+      - 'src/v6/selection-engine.ts'
+      - 'src/v6/selection-evidence.ts'
+      - 'src/v6/selection-journal.ts'
+      - 'src/v6/stable-market-tools.ts'
+      - 'src/v6/stable-swing-screen.ts'
+      - 'src/v6/github-data-store.ts'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: selection-real-data-shadow
+  cancel-in-progress: true
+
+jobs:
+  shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      FUGLE_API_KEY: ${{ secrets.FUGLE_API_KEY }}
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: test/selection-scheduler-isolation-20260825
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Type check
+        run: npm run type-check
+      - name: Run exact selectors against real public current-session data in memory-only shadow storage
+        run: node --experimental-strip-types tests/selection-shadow-real-data.test.ts
