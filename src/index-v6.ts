@@ -13,6 +13,7 @@ import { getTwMarketDataDayStatus } from "./v6/market-data-day-status";
 import { getResearchStatus, isAuthorizedResearchRequest } from "./v6/research-pipeline";
 import { registerResearchTools } from "./v6/research-tools";
 import { registerAdvancedTools } from "./v6/register";
+import { registerSharedStockMarketContextTools } from "./v6/shared-stock-market-context-tools";
 import { registerStableMarketTools } from "./v6/stable-market-tools";
 import { registerStableSwingScreenTool } from "./v6/stable-swing-screen";
 import { TW_MARKET_DATA_VERSION } from "./v6/tw-market-data-github";
@@ -30,6 +31,8 @@ const FAMILY_SMART_REST_PATHS = new Set([
 ]);
 
 const FROZEN_STABLE_MARKET_TOOL_NAMES = new Set([
+  "get_quote",
+  "get_daily_price",
   "get_market_rankings",
   "get_market_regime",
   "get_macro_risk_dashboard",
@@ -47,13 +50,14 @@ function taipeiDateFromMs(ms: number) {
 }
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "6.18.0" });
+  server = new McpServer({ name: "Taiwan Stock AI", version: "6.18.1" });
 
   async init() {
     // Legacy generations still contain implementations that depend on provider
-    // routes already proven unreliable from Cloudflare egress. Suppress only the
-    // frozen names during legacy registration, then register their stable versions
-    // exactly once below. Every unrelated Diamond tool remains unchanged.
+    // routes already proven unreliable from Cloudflare egress, or old price
+    // identities that are no longer canonical. Suppress only the frozen names
+    // during legacy registration, then register their stable versions exactly once
+    // below. Every unrelated Diamond tool remains unchanged.
     const serverAny = this.server as any;
     const originalRegisterTool = serverAny.registerTool;
     serverAny.registerTool = function (name: string, ...args: any[]) {
@@ -78,6 +82,7 @@ export class MyMCP extends BaseMCP {
 
     registerStableMarketTools(this.server, this.env);
     registerStableSwingScreenTool(this.server, this.env);
+    registerSharedStockMarketContextTools(this.server, this.env);
   }
 }
 
@@ -107,7 +112,7 @@ const appHandler = {
       return Response.json({
         service: "Taiwan Stock AI MCP",
         status: "ok",
-        version: "6.18.0",
+        version: "6.18.1",
         storage: {
           policy: "GITHUB_ONLY_NO_D1_NO_R2",
           github: githubDataStoreHealth(env),
@@ -129,6 +134,9 @@ const appHandler = {
           calendar_root: "data/market-calendar/",
           policy: "incremental_ready_monotonic_missing_only_retry",
           ohlc_gateway: "OHLC_MCP_ONLY",
+          shared_read_service: "tv-fugle-1d/OhlcFamilyReadService",
+          stock_live_context: "EPHEMERAL_FUGLE_WEBSOCKET_TRADES_FIVE_LEVEL_BOOK_ORDER_FLOW",
+          stock_live_persistence: "NONE",
           capture_owner: "CLOUDFLARE_CRON_CANONICAL_WRITER",
           execution_policy: "FIVE_MINUTE_WAKE; DUE_LAYER_ONLY; NO_PRIVATE_GITHUB_ACTIONS_DEPENDENCY; NO_2230_HARD_STOP",
           expected_layers: 8,
@@ -158,7 +166,7 @@ const appHandler = {
           permission_model: "SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS",
           owner_market_research_reads: "SHARED_BY_DEFAULT_WHEN_AVAILABLE",
           owner_private_context: "DENY_BY_DEFAULT_UNLESS_EXPLICITLY_SHARED",
-          realtime: "FUGLE_PRIMARY_WHEN_AVAILABLE",
+          realtime: "OHLC_READ_SERVICE_STOCK_LIVE_PRIMARY_WITH_FIVE_LEVEL_BOOK",
           web_research: "OPEN_WORLD_AUTONOMOUS_ALLOWED",
           swing_screen: "STABLE_FULL_MARKET_CONTRACT_BOUNDED_FUGLE_HISTORY",
           startup_graph: "LAZY_DEEP_FAMILY_MODULES",
@@ -174,7 +182,7 @@ const appHandler = {
         family_openapi: "/family-openapi.json",
         privacy_policy: "/privacy",
         research_status_endpoint: "/research/status",
-        tools: 113,
+        tools: 114,
       });
     }
 
