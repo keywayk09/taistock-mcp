@@ -52,6 +52,7 @@ jobs:
           smoke_id="smoke_${suffix//-/_}"
           queue_id=''
           kv_id=''
+          runtime_config='wrangler-selection-smoke.runtime.jsonc'
 
           auth=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')
           api="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}"
@@ -66,6 +67,7 @@ jobs:
             if [ -n "${kv_id}" ]; then
               curl --silent --show-error --max-time 30 -X DELETE "${api}/storage/kv/namespaces/${kv_id}" "${auth[@]}" >/tmp/delete-kv.json 2>/dev/null || true
             fi
+            rm -f "${runtime_config}"
           }
           trap cleanup EXIT
 
@@ -102,18 +104,9 @@ jobs:
           from pathlib import Path
           b=json.loads(Path('/tmp/create-queue.json').read_text())
           if not b.get('success'): raise SystemExit(f'queue_create_failed:{b.get("errors")}')
-          print((b.get('result') or {}).get('queue_id') or (b.get('result') or {}).get('queue_id',''))
-          PY
-          )"
-          if [ -z "${queue_id}" ]; then
-            queue_id="$(python - <<'PY'
-          import json
-          from pathlib import Path
-          b=json.loads(Path('/tmp/create-queue.json').read_text())
           print((b.get('result') or {}).get('queue_id',''))
           PY
-            )"
-          fi
+          )"
           if [ -z "${queue_id}" ]; then cat /tmp/create-queue.json; exit 1; fi
 
           curl --fail --silent --show-error --max-time 30 -X POST "${api}/storage/kv/namespaces" "${auth[@]}" --data "{\"title\":\"${kv_title}\"}" > /tmp/create-kv.json
@@ -128,7 +121,7 @@ jobs:
           test -n "${kv_id}"
 
           echo '[4/7] deploy temporary Worker with NO Cron and isolated Queue consumer'
-          cat > /tmp/wrangler-selection-smoke.jsonc <<EOF
+          cat > "${runtime_config}" <<EOF
           {
             "name": "${worker_name}",
             "main": "tests/selection-queue-smoke-worker.js",
@@ -150,7 +143,7 @@ jobs:
             "observability": { "enabled": true }
           }
           EOF
-          npx wrangler deploy --config /tmp/wrangler-selection-smoke.jsonc >/tmp/wrangler-smoke.log 2>&1 || { tail -100 /tmp/wrangler-smoke.log; exit 1; }
+          npx wrangler deploy --config "${runtime_config}" >/tmp/wrangler-smoke.log 2>&1 || { tail -100 /tmp/wrangler-smoke.log; exit 1; }
 
           curl --fail --silent --show-error --max-time 30 "${api}/workers/subdomain" "${auth[@]}" > /tmp/account-subdomain.json
           account_subdomain="$(python - <<'PY'
