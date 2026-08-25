@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
-import { enqueueSelectionWake, SELECTION_QUEUE_BINDING } from "../src/v6/selection-scheduled-dispatch.ts";
+import { enqueueSelectionWake, SELECTION_QUEUE_BINDING } from "../src/v6/selection-queue-delivery.ts";
 
 const dispatcherSource = readFileSync(new URL("../src/v6/selection-scheduled-dispatch.ts", import.meta.url), "utf8");
 const entrySource = readFileSync(new URL("../src/index-v7.ts", import.meta.url), "utf8");
