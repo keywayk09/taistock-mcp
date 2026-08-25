@@ -53,7 +53,10 @@ assert.doesNotMatch(oauth, /new Proxy\(/);
 assert.doesNotMatch(oauth, /if \(property === "MCP_OBJECT"\)/);
 assert.doesNotMatch(oauth, /binding: "MCP_OBJECT"/);
 
-assert.match(index, /if \(url\.pathname === "\/mcp"\) return MyMCP\.serve/);
+// /my-mcp is canonical Owner/Diamond MCP; /mcp remains a legacy alias. Both
+// must stay on MyMCP and never be remapped to Family OAuth.
+assert.match(index, /url\.pathname === "\/my-mcp" \|\| url\.pathname === "\/mcp"/);
+assert.match(index, /return MyMCP\.serve\(url\.pathname\)\.fetch/);
 assert.match(index, /createFamilyOAuthProvider\(appHandler\)/);
 assert.match(index, /family: "FamilyMCP_READ_ONLY_ISOLATED"/);
 

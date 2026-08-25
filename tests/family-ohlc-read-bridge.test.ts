@@ -218,15 +218,16 @@ assert.equal(revenuePlan.preferred_reads.includes("txf_context"), false);
 const wranglerText = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
 const wrangler = JSON.parse(wranglerText.replace(/\/\*[\s\S]*?\*\//g, ""));
 const binding = wrangler.services?.find((item: any) => item.binding === "OHLC_READ_SERVICE");
-assert.deepEqual(binding, {
-  binding: "OHLC_READ_SERVICE",
-  service: "tv-fugle-1d",
-  entrypoint: "OhlcFamilyReadService",
-});
+// Production intentionally has no cross-account OHLC service binding. The
+// bridge remains capability-compatible when a same-account binding exists,
+// but absence must fail closed instead of blocking deployment or falling back.
+assert.equal(binding, undefined);
+assert.equal(Array.isArray(wrangler.services) ? wrangler.services.length : 0, 0);
 
 const bridgeSource = await readFile(new URL("../src/v6/family-ohlc-read-bridge.ts", import.meta.url), "utf8");
 assert.doesNotMatch(bridgeSource, /syncOhlc|backfillOhlc|writeOhlc|GITHUB_TOKEN|FUGLE_API_KEY|GLOBAL_FUTURES_ADMIN_KEY/);
 assert.match(bridgeSource, /OHLC_READ_SERVICE/);
+assert.match(bridgeSource, /OHLC_READ_SERVICE_NOT_BOUND/);
 assert.match(bridgeSource, /formal_research_eligible/);
 assert.match(bridgeSource, /VERIFIED_RECEIPT_GZIP_LOGICAL_SHA256_BOUND/);
 
