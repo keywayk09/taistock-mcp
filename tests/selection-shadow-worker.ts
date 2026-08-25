@@ -104,13 +104,7 @@ export default {
     const url = new URL(request.url);
     if (!authorized(request, env)) return Response.json({ error: "unauthorized" }, { status: 401 });
     if (url.pathname === "/health") {
-      return Response.json({
-        ok: true,
-        service: "selection-real-data-shadow",
-        cron: false,
-        persistence: "MEMORY_ONLY",
-        fugle_key_present: Boolean(env.FUGLE_API_KEY),
-      });
+      return Response.json({ ok: true, service: "selection-real-data-shadow", cron: false, persistence: "MEMORY_ONLY" });
     }
     if (url.pathname !== "/shadow" || request.method !== "POST") return Response.json({ error: "not_found" }, { status: 404 });
 
