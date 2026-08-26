@@ -1,20 +1,8 @@
-export const FAMILY_OHLC_READ_BRIDGE_VERSION = "family-ohlc-read-bridge/v1.1.0";
+import { createCrossAccountReadService } from "./cross-account-read-service.ts";
+
+export const FAMILY_OHLC_READ_BRIDGE_VERSION = "family-ohlc-read-bridge/v1.2.1";
 
 type AnyRecord = Record<string, any>;
-
-type FamilyOhlcReadService = {
-  readOhlc(args?: AnyRecord): Promise<any>;
-  readTxfOhlc(args?: AnyRecord): Promise<any>;
-  getTxfOhlcStatus(args?: AnyRecord): Promise<any>;
-  readGlobalOhlc(args?: AnyRecord): Promise<any>;
-  readGlobalFuturesOhlc(args?: AnyRecord): Promise<any>;
-  getGlobalFuturesStatus(args?: AnyRecord): Promise<any>;
-  readStockLive(args?: AnyRecord): Promise<any>;
-  readStockMarketContext(args?: AnyRecord): Promise<any>;
-  readTxfLive(args?: AnyRecord): Promise<any>;
-  readTxfMarketContext(args?: AnyRecord): Promise<any>;
-};
-
 type FamilyReadIntent =
   | "QUICK_STOCK_QUESTION"
   | "FULL_STOCK_ANALYSIS"
@@ -24,13 +12,25 @@ type FamilyReadIntent =
   | "OPEN_RESEARCH"
   | string;
 
+type FamilyOhlcReadService = ReturnType<typeof createCrossAccountReadService> & Record<string, any>;
+
 function rec(value: unknown): AnyRecord {
   return value !== null && typeof value === "object" ? value as AnyRecord : {};
 }
 
+/**
+ * Prefer an injected same-account service in tests/compatible deployments.
+ * Production taistock-mcp and tv-fugle-1d are in different Cloudflare accounts,
+ * therefore production falls back to the read-only cross-account adapter.
+ */
 function service(env: Env): FamilyOhlcReadService | null {
   const candidate = (env as any)?.OHLC_READ_SERVICE;
-  return candidate && typeof candidate.readOhlc === "function" ? candidate as FamilyOhlcReadService : null;
+  if (candidate && typeof candidate.readOhlc === "function") return candidate as FamilyOhlcReadService;
+  const hasDirectReadConfig = Boolean(
+    String((env as any)?.GITHUB_DATA_REPO ?? "").trim()
+    || String((env as any)?.FUGLE_API_KEY ?? "").trim(),
+  );
+  return hasDirectReadConfig ? createCrossAccountReadService(env) as FamilyOhlcReadService : null;
 }
 
 function subtractDays(date: string, days: number) {
@@ -64,15 +64,7 @@ async function safeRpc<T>(label: string, call: () => Promise<T>) {
 function verificationLevel(raw: unknown, fallback: string) {
   const value = rec(raw);
   const provenance = rec(value.provenance);
-  const dataset = rec(value.dataset);
-  const datasetProvenance = rec(dataset.provenance);
-  return String(
-    value.verification_level
-      ?? provenance.verification_level
-      ?? datasetProvenance.verification_level
-      ?? rec(value.quality).verification_level
-      ?? fallback,
-  );
+  return String(value.verification_level ?? provenance.verification_level ?? fallback);
 }
 
 function statusToken(raw: unknown) {
@@ -113,7 +105,6 @@ function compactOhlcResult(raw: unknown) {
 function formalStockOhlcReady(raw: unknown) {
   const value = rec(raw);
   const rows = Array.isArray(value.rows) ? value.rows : Array.isArray(value.bars) ? value.bars : [];
-  const quality = rec(value.quality);
   return value.ok === true
     && value.blocked !== true
     && statusIsReady(value)
@@ -121,20 +112,19 @@ function formalStockOhlcReady(raw: unknown) {
     && value.dataset_complete_view === true
     && Boolean(String(value.dataset_version ?? "").trim())
     && rows.length > 0
-    && String(quality.gate ?? "").toUpperCase() === "PASS";
+    && String(rec(value.quality).gate ?? "").toUpperCase() === "PASS";
 }
 
 function verifiedGlobalFutureReady(raw: unknown) {
   const value = rec(raw);
   const rows = Array.isArray(value.rows) ? value.rows : [];
-  const provenance = rec(value.provenance);
   return value.ok === true
     && value.blocked !== true
     && String(value.status ?? "").toUpperCase() === "READY"
     && value.formal_research_eligible === true
     && String(value.verification_level ?? "") === "VERIFIED_RECEIPT_GZIP_LOGICAL_SHA256_BOUND"
     && Boolean(String(value.dataset_version ?? "").trim())
-    && Boolean(String(provenance.canonical_path ?? "").trim())
+    && Boolean(String(rec(value.provenance).canonical_path ?? "").trim())
     && rows.length > 0;
 }
 
@@ -157,7 +147,7 @@ function canonicalUnavailable(error: string) {
 function stockLiveUnavailable(symbol: string, error: string) {
   return {
     status: "UNAVAILABLE",
-    source: "OHLC_READ_SERVICE_STOCK_LIVE",
+    source: "FUGLE_REST_READ_ONLY",
     symbol,
     live_status: "LIVE_UNAVAILABLE",
     formal_research_eligible: false,
@@ -168,6 +158,8 @@ function stockLiveUnavailable(symbol: string, error: string) {
     best_bid: null,
     best_ask: null,
     book: { bids: [], asks: [], bid_depth: 0, ask_depth: 0, imbalance: 0 },
+    recent_trades: [],
+    trade_tape: null,
     order_flow: null,
     feed: null,
     stream: null,
@@ -187,6 +179,7 @@ function compactStockMarketContext(raw: unknown, symbol: string) {
   const book = rec(snapshot.book);
   const bids = Array.isArray(book.bids) ? book.bids.slice(0, 5) : [];
   const asks = Array.isArray(book.asks) ? book.asks.slice(0, 5) : [];
+  const recentTrades = Array.isArray(snapshot.recent_trades) ? snapshot.recent_trades.slice(0, 300) : [];
   const hasPrice = snapshot.last_price !== null
     && snapshot.last_price !== undefined
     && Number.isFinite(Number(snapshot.last_price));
@@ -194,11 +187,10 @@ function compactStockMarketContext(raw: unknown, symbol: string) {
   const liveStatus = String(live.live_status ?? "LIVE_UNAVAILABLE").toUpperCase();
   const degraded = displayReady || ["WARMING_UP", "DEGRADED"].includes(liveStatus);
   const status = liveStatus === "READY" && displayReady ? "READY" : degraded ? "DEGRADED" : "UNAVAILABLE";
-  const historical = rec(value.historical);
 
   return {
     status,
-    source: "OHLC_READ_SERVICE_STOCK_LIVE",
+    source: String(rec(value.contract).source ?? "FUGLE_REST_READ_ONLY"),
     symbol: String(value.symbol ?? live.symbol ?? symbol),
     live_status: liveStatus,
     formal_research_eligible: false,
@@ -215,10 +207,13 @@ function compactStockMarketContext(raw: unknown, symbol: string) {
       ask_depth: Number(book.ask_depth ?? 0),
       imbalance: Number(book.imbalance ?? 0),
     },
+    recent_trades: recentTrades,
+    trade_tape: snapshot.trade_tape ?? null,
     order_flow: snapshot ? {
       state: snapshot.state ?? null,
       windows: snapshot.windows ?? null,
       context_30m: snapshot.context_30m ?? null,
+      cumulative: snapshot.cumulative ?? null,
     } : null,
     feed: snapshot.feed ?? null,
     stream: live.stream ?? null,
@@ -226,10 +221,8 @@ function compactStockMarketContext(raw: unknown, symbol: string) {
     rpc_wait_ms: Number(live.rpc_wait_ms ?? 0),
     persistence: String(live.persistence ?? "none"),
     contract: value.contract ?? null,
-    historical_daily: historical.daily ?? null,
-    error: status === "UNAVAILABLE"
-      ? String(live.error ?? rec(live.connection).last_error ?? "stock_live_unavailable")
-      : null,
+    historical_daily: rec(value.historical).daily ?? null,
+    error: status === "UNAVAILABLE" ? String(live.error ?? rec(live.connection).last_error ?? "stock_live_unavailable") : null,
     bridge_version: FAMILY_OHLC_READ_BRIDGE_VERSION,
   };
 }
@@ -250,48 +243,31 @@ export async function readFamilyCanonicalOhlc(
 ) {
   const rpc = service(env);
   if (!rpc) return canonicalUnavailable("OHLC_READ_SERVICE_NOT_BOUND");
-
   const symbol = String(input.symbol ?? "").trim();
   const asOf = String(input.as_of_date ?? "").trim();
-  if (!/^\d{4,6}$/.test(symbol) || !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
-    return canonicalUnavailable("INVALID_FAMILY_OHLC_REQUEST");
-  }
+  if (!/^\d{4,6}$/.test(symbol) || !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) return canonicalUnavailable("INVALID_FAMILY_OHLC_REQUEST");
 
   const dailyCall = await safeRpc("OHLC_MCP_READ_1D", () => rpc.readOhlc({
-    symbol,
-    timeframe: "1d",
-    mode: "research",
-    from: subtractDays(asOf, 280),
-    to: asOf,
-    limit: 420,
+    symbol, timeframe: "1d", mode: "research", from: subtractDays(asOf, 280), to: asOf, limit: 420,
   }));
   if (!dailyCall.ok) return canonicalUnavailable(dailyCall.error);
-
   const daily = compactOhlcResult(dailyCall.data);
   if (!formalStockOhlcReady(dailyCall.data)) {
-    return canonicalUnavailable(
-      String(rec(dailyCall.data).error ?? rec(dailyCall.data).data_status ?? rec(dailyCall.data).status ?? "OHLC_MCP_FORMAL_GATE_NOT_READY"),
-    );
+    return canonicalUnavailable(String(rec(dailyCall.data).error ?? rec(dailyCall.data).data_status ?? rec(dailyCall.data).status ?? "OHLC_MCP_FORMAL_GATE_NOT_READY"));
   }
 
   let intraday5m: ReturnType<typeof compactOhlcResult> | null = null;
   if (shouldUseFamilyIntradayContext(input.question ?? "", input.intent ?? "")) {
     const intradayCall = await safeRpc("OHLC_MCP_READ_5M", () => rpc.readOhlc({
-      symbol,
-      timeframe: "5m",
-      mode: "research",
-      from: subtractDays(asOf, 10),
-      to: asOf,
-      limit: 2000,
+      symbol, timeframe: "5m", mode: "research", from: subtractDays(asOf, 10), to: asOf, limit: 2000,
     }));
-    if (intradayCall.ok && formalStockOhlcReady(intradayCall.data)) {
-      intraday5m = compactOhlcResult(intradayCall.data);
-    }
+    if (intradayCall.ok && formalStockOhlcReady(intradayCall.data)) intraday5m = compactOhlcResult(intradayCall.data);
   }
 
+  const rawSource = String(daily.source ?? "");
   return {
     status: "READY",
-    source: "OHLC_MCP",
+    source: /OHLC_MCP/i.test(rawSource) ? rawSource : "OHLC_MCP",
     formal_research_eligible: true,
     verification_level: verificationLevel(dailyCall.data, "OHLC_MCP_VERIFIED"),
     dataset_version: daily.dataset_version,
@@ -310,19 +286,11 @@ export async function readFamilyStockMarketContext(
 ) {
   const symbol = String(input.symbol ?? "").trim();
   if (!/^\d{4,6}$/.test(symbol)) return stockLiveUnavailable(symbol, "INVALID_STOCK_LIVE_REQUEST");
-
   const rpc = service(env);
-  if (!rpc || typeof rpc.readStockMarketContext !== "function") {
-    return stockLiveUnavailable(symbol, "OHLC_READ_SERVICE_STOCK_LIVE_NOT_BOUND");
-  }
-
+  if (!rpc || typeof rpc.readStockMarketContext !== "function") return stockLiveUnavailable(symbol, "OHLC_READ_SERVICE_STOCK_LIVE_NOT_BOUND");
   const waitMs = Math.max(0, Math.min(2_500, Math.trunc(Number(input.wait_ms ?? 1_800) || 0)));
-  const result = await safeRpc("OHLC_MCP_STOCK_MARKET_CONTEXT", () => rpc.readStockMarketContext({
-    symbol,
-    books: input.books !== false,
-    wait_ms: waitMs,
-    history_days: 120,
-    history_limit: 160,
+  const result = await safeRpc("STOCK_MARKET_CONTEXT", () => rpc.readStockMarketContext({
+    symbol, books: input.books !== false, wait_ms: waitMs, history_days: 120, history_limit: 160,
   }));
   if (!result.ok) return stockLiveUnavailable(symbol, result.error);
   return compactStockMarketContext(result.data, symbol);
@@ -356,40 +324,18 @@ function globalFutureProducts(intent: FamilyReadIntent, question: string) {
   return ["MNQ", "NIY"];
 }
 
-async function readGlobalFutureAsOf(
-  rpc: FamilyOhlcReadService,
-  product: string,
-  asOf: string,
-) {
-  const candidates = weekdayCandidates(asOf, 8);
-  for (const tradeDate of candidates) {
-    const result = await safeRpc(`OHLC_MCP_GLOBAL_FUTURES_${product}_${tradeDate}`, () => rpc.readGlobalFuturesOhlc({
-      product,
-      timeframe: "5m",
-      trade_date: tradeDate,
-      limit: 120,
+async function readGlobalFutureAsOf(rpc: FamilyOhlcReadService, product: string, asOf: string) {
+  for (const tradeDate of weekdayCandidates(asOf, 8)) {
+    const result = await safeRpc(`GLOBAL_FUTURES_${product}_${tradeDate}`, () => rpc.readGlobalFuturesOhlc({
+      product, timeframe: "5m", trade_date: tradeDate, limit: 120,
     }));
     if (!result.ok) return { product, trade_date: tradeDate, ...result };
     const value = rec(result.data);
-    if (verifiedGlobalFutureReady(value) && String(value.trade_date ?? "") === tradeDate) {
-      return { product, trade_date: tradeDate, ...result };
-    }
+    if (verifiedGlobalFutureReady(value) && String(value.trade_date ?? "") === tradeDate) return { product, trade_date: tradeDate, ...result };
     if (String(value.error ?? "") === "DATA_NOT_FOUND") continue;
-    return {
-      product,
-      trade_date: tradeDate,
-      ok: true as const,
-      data: value,
-      error: value.error ? String(value.error) : "GLOBAL_FUTURES_NOT_VERIFIED_READY",
-    };
+    return { product, trade_date: tradeDate, ok: true as const, data: value, error: value.error ? String(value.error) : "GLOBAL_FUTURES_NOT_VERIFIED_READY" };
   }
-  return {
-    product,
-    trade_date: null,
-    ok: true as const,
-    data: { ok: false, blocked: true, status: "UNAVAILABLE", error: "DATA_NOT_FOUND" },
-    error: null,
-  };
+  return { product, trade_date: null, ok: true as const, data: { ok: false, blocked: true, status: "UNAVAILABLE", error: "DATA_NOT_FOUND" }, error: null };
 }
 
 export async function readFamilyMarketRegimeContext(
@@ -403,7 +349,6 @@ export async function readFamilyMarketRegimeContext(
       global_futures_context: governedContext(null, "OHLC_MCP_GLOBAL_FUTURES_READ", "OHLC_READ_SERVICE_NOT_BOUND"),
     };
   }
-
   const question = String(input.question ?? "");
   const intent = input.intent ?? "";
   const asOf = String(input.as_of_date ?? "");
@@ -420,59 +365,30 @@ export async function readFamilyMarketRegimeContext(
     };
   }
 
-  const txfPromise = safeRpc("OHLC_MCP_TXF_READ", () => rpc.readTxfOhlc({
-    timeframe: "5m",
-    trade_date: asOf,
-    lookback_days: 7,
-    limit: 180,
-  }));
   const products = globalFutureProducts(intent, question);
-  const futuresPromise = Promise.all(products.map((product) => readGlobalFutureAsOf(rpc, product, asOf)));
-
-  const [txfCall, futuresCalls] = await Promise.all([txfPromise, futuresPromise]);
-  const txfContext = txfCall.ok
-    ? governedContext(txfCall.data, "OHLC_MCP_TXF_READ")
-    : governedContext(null, "OHLC_MCP_TXF_READ", txfCall.error);
-
+  const [txfCall, futuresCalls] = await Promise.all([
+    safeRpc("OHLC_MCP_TXF_READ", () => rpc.readTxfOhlc({ timeframe: "5m", trade_date: asOf, lookback_days: 7, limit: 180 })),
+    Promise.all(products.map((product) => readGlobalFutureAsOf(rpc, product, asOf))),
+  ]);
+  const txfContext = txfCall.ok ? governedContext(txfCall.data, "OHLC_MCP_TXF_READ") : governedContext(null, "OHLC_MCP_TXF_READ", txfCall.error);
   const successful: AnyRecord[] = futuresCalls
     .filter((item) => item.ok && verifiedGlobalFutureReady(item.data) && String(rec(item.data).trade_date ?? "") === String(item.trade_date ?? ""))
     .map((item) => ({ product: item.product, ...rec(item.data) }));
   const failures = futuresCalls
     .filter((item) => !(item.ok && verifiedGlobalFutureReady(item.data) && String(rec(item.data).trade_date ?? "") === String(item.trade_date ?? "")))
-    .map((item) => ({
-      product: item.product,
-      error: item.error ?? rec(item.data).error ?? "GLOBAL_FUTURES_NOT_VERIFIED_READY",
-    }));
-  const resolvedDates = successful.map((item) => String(item.trade_date ?? "")).filter(Boolean).sort();
-
-  const globalFuturesRaw = successful.length > 0 ? {
-    ok: true,
-    blocked: false,
-    status: failures.length ? "DEGRADED" : "READY",
-    source: "OHLC_MCP_GLOBAL_FUTURES_READ",
-    verification_level: "VERIFIED_CANONICAL_CONTEXT",
-    formal_research_eligible: false,
-    trade_date: resolvedDates.at(-1) ?? null,
-    products: successful,
-    failures,
-    requested_products: products,
-    requested_as_of_date: asOf,
+    .map((item) => ({ product: item.product, error: item.error ?? rec(item.data).error ?? "GLOBAL_FUTURES_NOT_VERIFIED_READY" }));
+  const globalRaw = successful.length ? {
+    ok: true, blocked: false, status: failures.length ? "DEGRADED" : "READY", source: "OHLC_MCP_GLOBAL_FUTURES_READ",
+    verification_level: "VERIFIED_CANONICAL_CONTEXT", formal_research_eligible: false,
+    trade_date: successful.map((item) => String(rec(item).trade_date ?? "")).filter(Boolean).sort().at(-1) ?? null,
+    products: successful, failures, requested_products: products, requested_as_of_date: asOf,
   } : {
-    ok: false,
-    blocked: true,
-    status: "UNAVAILABLE",
-    source: "OHLC_MCP_GLOBAL_FUTURES_READ",
-    verification_level: "NOT_VERIFIED",
-    trade_date: null,
-    products: [],
-    failures,
-    requested_products: products,
-    requested_as_of_date: asOf,
+    ok: false, blocked: true, status: "UNAVAILABLE", source: "OHLC_MCP_GLOBAL_FUTURES_READ", verification_level: "NOT_VERIFIED",
+    trade_date: null, products: [], failures, requested_products: products, requested_as_of_date: asOf,
     error: failures.map((item) => `${item.product}:${item.error}`).join("; ") || "global_futures_unavailable",
   };
-
   return {
     txf_context: txfContext,
-    global_futures_context: governedContext(globalFuturesRaw, "OHLC_MCP_GLOBAL_FUTURES_READ"),
+    global_futures_context: governedContext(globalRaw, "OHLC_MCP_GLOBAL_FUTURES_READ"),
   };
 }

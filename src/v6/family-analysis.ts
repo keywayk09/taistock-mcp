@@ -116,7 +116,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       readFamilyStockMarketContext(env, {
         symbol,
         books: true,
-        wait_ms: 1_800,
+        wait_ms: 0,
       }),
     ]);
     const monthlyRevenue = summarizeFamilyRevenue(Array.isArray(fundamentals.monthly_revenue) ? fundamentals.monthly_revenue : []);
@@ -142,16 +142,17 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
         stock_live: stockLiveContext,
         quote: analysis?.market_snapshot?.quote ?? null,
         latest_daily_bar_research_fallback: analysis?.market_snapshot?.latest_daily_bar ?? null,
-        intraday_policy: "OHLC_READ_SERVICE_STOCK_LIVE_PRIMARY_WITH_FUGLE_REST_DISPLAY_FALLBACK",
-        five_level_book_policy: "STOCK_LIVE_HUB_READ_ONLY_EPHEMERAL",
-        formal_structure_policy: "OHLC_MCP_ONLY",
+        intraday_policy: "FUGLE_REST_QUOTE_TRADES_READ_ONLY_PRIMARY",
+        five_level_book_policy: "FUGLE_REST_FIVE_LEVEL_READ_ONLY_EPHEMERAL",
+        trade_tape_policy: "FUGLE_REST_RECENT_3M_MAX_300_NOT_PERSISTED",
+        formal_structure_policy: "TV_PAPERTRADER_GITHUB_CANONICAL_ONLY",
       },
       interpretation_guardrails: [
         "好公司不等於現在就是好買點；基本面與技術位置分開判斷。",
         "正式籌碼只採 Published generation；缺資料不可自行補值。",
-        "正式 OHLC/K線只採 OHLC MCP verified dataset；Family 透過 Cloudflare named service binding 唯讀取用，不得直接寫入。",
-        "股票盤中成交、五檔與 Order Flow 只作 ephemeral read-only context；不得寫入 canonical，也不得把即時快照冒充正式 OHLC。",
-        "TXF 與 Global Futures 只作 Market Regime Context，不是個股 Buy/Sell Oracle，也不得覆寫台股正式資料身份。",
+        "正式 OHLC/K線只讀 tv-fugle-1d 已寫入 tv-papertrader 的既有 GitHub canonical；Family 只有讀取權限，不得寫入。",
+        "股票盤中成交、五檔、逐筆與短窗主動買賣只作 ephemeral read-only context；不得寫入 canonical，也不得把即時快照冒充正式 OHLC。",
+        "TXF 與 Global Futures context 若跨帳號讀取不可用就保持 UNAVAILABLE；不得自行補值。",
         "Fugle/FinMind價格可作即時與研究輔助，但不得冒充正式技術價位。",
         "Web 是開放研究層，可自主延伸任何有價值的新線索，不限固定網站或關鍵字。",
         "Family 與 Owner 共用市場/研究讀取能力；差異只在 Family 永遠沒有寫入權限。",
@@ -160,9 +161,8 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       ],
     };
 
-    // Shared OHLC/TXF/Global Futures/Stock Live reads are inserted into both the
-    // analysis plane and intelligence plane so older fallback fields cannot shadow
-    // newer verified/read-only service-binding results through nullish precedence.
+    // Shared read-only evidence is inserted into both planes so older display
+    // fallback fields cannot shadow newer canonical/realtime results.
     const analysisWithSharedReads = {
       ...analysis,
       canonical_ohlc: canonicalOhlc,
@@ -239,7 +239,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
 
   return {
     ...base,
-    version: "family-smart-analysis/v4.1.0",
+    version: "family-smart-analysis/v4.2.0",
     route: symbols.length > 1 ? "adaptive_stock_compare" : adaptivePlan.intent === "FULL_STOCK_ANALYSIS" ? "adaptive_full_stock_analysis" : "adaptive_stock_question",
     question: userQuestion || null,
     adaptive_plan: adaptivePlan,
@@ -250,19 +250,20 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       same_research_brain_as_owner: true,
       owner_market_research_reads_shared_by_default: true,
       owner_private_context_shared_by_default: false,
-      ohlc_read_transport: "CLOUDFLARE_NAMED_SERVICE_BINDING_ONLY",
-      ohlc_read_entrypoint: "OhlcFamilyReadService",
-      stock_live_read_transport: "SAME_OHLC_READ_SERVICE_NAMED_ENTRYPOINT",
+      ohlc_read_transport: "GITHUB_CANONICAL_READ_ONLY",
+      ohlc_read_source: "TV_PAPERTRADER_DATA_OHLC_CANONICAL",
+      stock_live_read_transport: "FUGLE_REST_QUOTE_TRADES_READ_ONLY",
       stock_live_persistence: "NONE",
+      cloudflare_cross_account_service_binding: false,
       production_writes: false,
       github_writes: false,
       strategy_changes: false,
       evidence_contract: "family-evidence/v1",
       evidence_identity: "EVIDENCE_CLASS_CANNOT_BE_SELF_PROMOTED",
       formal_chip: "PUBLISHED_GENERATION_ONLY",
-      formal_ohlc: "OHLC_MCP_ONLY",
-      txf_and_global_futures: "GOVERNED_MARKET_REGIME_CONTEXT_ONLY",
-      realtime_display: "OHLC_READ_SERVICE_STOCK_LIVE_PRIMARY_WITH_FUGLE_REST_FALLBACK",
+      formal_ohlc: "EXISTING_GITHUB_CANONICAL_ONLY",
+      txf_and_global_futures: "FAIL_CLOSED_WHEN_CROSS_ACCOUNT_READ_UNAVAILABLE",
+      realtime_display: "FUGLE_REST_QUOTE_TRADES_FIVE_LEVEL_AND_RECENT_TAPE",
       web_research: "OPEN_WORLD_AUTONOMOUS_ALLOWED",
     },
     response_contract: {
@@ -272,7 +273,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       missing_data: "EXPLICIT_NULL_OR_UNKNOWN_NEVER_GUESS",
       evidence: "FORMAL_TRUTH_GOVERNED_CONTEXT_DISPLAY_FALLBACK_WEB_EVIDENCE_MUST_REMAIN_DISTINCT",
       web: "OPEN_WORLD_AUTONOMOUS_RESEARCH_NOT_FIXED_KEYWORDS_OR_SITES",
-      realtime: "STOCK_LIVE_HUB_TRADES_FIVE_LEVEL_BOOK_AND_ORDER_FLOW_ALLOWED_BUT_NOT_FORMAL_OHLC",
+      realtime: "FUGLE_REST_TRADES_FIVE_LEVEL_BOOK_AND_SHORT_WINDOW_ORDER_FLOW_ALLOWED_BUT_NOT_FORMAL_OHLC",
       evidence_labels: ["FACT", "INFERENCE", "JUDGMENT", "CONFLICT", "UNKNOWN"],
     },
   };

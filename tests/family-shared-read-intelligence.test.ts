@@ -11,11 +11,15 @@ assert.equal(manifest.permission_model.owner_private_context, "DENY_BY_DEFAULT_U
 assert.equal(manifest.evidence_contract, "family-evidence/v1");
 assert.equal(manifest.evidence_identity_policy, "EVIDENCE_CLASS_CANNOT_BE_SELF_PROMOTED");
 assert.ok(manifest.evidence_hierarchy.FORMAL_TRUTH.includes("PUBLISHED_GENERATION"));
-assert.ok(manifest.evidence_hierarchy.FORMAL_TRUTH.includes("OHLC_MCP_VERIFIED_CANONICAL"));
-assert.ok(manifest.evidence_hierarchy.DISPLAY_FALLBACK.includes("FUGLE_DISPLAY"));
-assert.ok(manifest.capabilities.some((item) => item.id === "canonical_ohlc" && item.sources.includes("OHLC_MCP")));
+assert.ok(manifest.evidence_hierarchy.FORMAL_TRUTH.includes("OHLC_MCP_GITHUB_CANONICAL_READ"));
+assert.ok(manifest.evidence_hierarchy.DISPLAY_FALLBACK.includes("FUGLE_REST_QUOTE_TRADES"));
+assert.ok(manifest.capabilities.some((item) => item.id === "canonical_ohlc" && item.sources.includes("OHLC_MCP_GITHUB_CANONICAL_READ")));
+assert.ok(manifest.capabilities.some((item) => item.id === "realtime_market" && item.sources.includes("FUGLE_REST_TRADES")));
 assert.ok(manifest.capabilities.some((item) => item.id === "published_chip" && item.sources.includes("PUBLISHED_GENERATION")));
 assert.ok(manifest.capabilities.some((item) => item.id === "open_world_web"));
+assert.equal(manifest.read_transport.mode, "CROSS_ACCOUNT_SAFE_DIRECT_READ");
+assert.equal(manifest.read_transport.cloudflare_service_binding, false);
+assert.equal(manifest.read_transport.stock_live_persistence, "NONE");
 assert.ok(FAMILY_HARD_DENY_CAPABILITIES.includes("GITHUB_WRITE"));
 assert.ok(FAMILY_HARD_DENY_CAPABILITIES.includes("PRODUCTION_WRITE"));
 assert.ok(FAMILY_HARD_DENY_CAPABILITIES.includes("OWNER_PRIVATE_EMAIL"));
@@ -50,6 +54,8 @@ assert.match(analysisSource, /ADAPTIVE_TO_USER_INTENT/);
 assert.match(analysisSource, /FULL_ANALYSIS_USES_FIXED_1_TO_11_COMPLETENESS_CONTRACT/);
 assert.match(analysisSource, /buildFamilyUnifiedEvidence/);
 assert.match(analysisSource, /evidence_bundle/);
+assert.match(analysisSource, /GITHUB_CANONICAL_READ_ONLY/);
+assert.match(analysisSource, /FUGLE_REST_QUOTE_TRADES_READ_ONLY/);
 assert.doesNotMatch(analysisSource, /ALWAYS_RENDER_FIXED_1_TO_11_TEMPLATE/);
 
 const mcpSource = fs.readFileSync(new URL("../src/v6/family-mcp.ts", import.meta.url), "utf8");
@@ -57,5 +63,6 @@ assert.match(mcpSource, /familySharedReadManifest/);
 assert.match(mcpSource, /FAMILY_EVIDENCE_V1_READY/);
 assert.match(mcpSource, /owner_private_context_shared_by_default: false/);
 assert.match(mcpSource, /github_writes: false/);
+assert.match(mcpSource, /LOCAL_FUGLE_REST_QUOTE_TRADES/);
 
 console.log("family-shared-read-intelligence.test.ts: PASS");
