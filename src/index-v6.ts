@@ -135,7 +135,8 @@ const appHandler = {
           policy: "incremental_ready_monotonic_missing_only_retry",
           ohlc_gateway: "OHLC_MCP_ONLY",
           shared_read_service: "tv-fugle-1d/OhlcFamilyReadService",
-          stock_live_context: "EPHEMERAL_FUGLE_WEBSOCKET_TRADES_FIVE_LEVEL_BOOK_ORDER_FLOW",
+          stock_live_context: "EPHEMERAL_FUGLE_WEBSOCKET_TRADES_FIVE_LEVEL_BOOK_ORDER_FLOW_RECENT_TAPE",
+          stock_trade_tape: "RECENT_3_MINUTES_MAX_300_NORMALIZED_PRINTS_NOT_PERSISTED",
           stock_live_persistence: "NONE",
           capture_owner: "CLOUDFLARE_CRON_CANONICAL_WRITER",
           execution_policy: "FIVE_MINUTE_WAKE; DUE_LAYER_ONLY; NO_PRIVATE_GITHUB_ACTIONS_DEPENDENCY; NO_2230_HARD_STOP",
@@ -182,7 +183,7 @@ const appHandler = {
         family_openapi: "/family-openapi.json",
         privacy_policy: "/privacy",
         research_status_endpoint: "/research/status",
-        tools: 114,
+        tools: 115,
       });
     }
 
