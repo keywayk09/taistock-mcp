@@ -3,40 +3,30 @@ import { readGitHubText } from "./github-data-store.ts";
 /**
  * Cross-account-safe read adapter.
  *
- * Cloudflare Service Bindings can only target Workers in the same Cloudflare
- * account. taistock-mcp and tv-fugle-1d are intentionally kept in separate
- * accounts, so this adapter reads the same sources without adding a public
- * mutation route or moving either Worker:
+ * Cloudflare Service Bindings only target Workers in the same account. These
+ * two production Workers intentionally live in different accounts, therefore
+ * taistock-mcp reads the already-existing sources directly and read-only:
+ * - formal stock OHLC: tv-papertrader GitHub canonical CSV
+ * - stock realtime: Fugle REST quote + trades
  *
- * - formal stock OHLC: existing GitHub canonical CSV written by tv-fugle-1d
- * - stock realtime: Fugle REST quote + trades using taistock-mcp's existing key
- *
- * This module is read-only. It never writes GitHub/KV/R2/D1/OHLC and never
- * places or cancels orders.
+ * No GitHub/KV/R2/D1/OHLC writes and no order actions exist in this module.
  */
-export const CROSS_ACCOUNT_READ_SERVICE_VERSION = "cross-account-read-service/v1.0.0";
+export const CROSS_ACCOUNT_READ_SERVICE_VERSION = "cross-account-read-service/v1.0.1";
 
 const FUGLE_STOCK = "https://api.fugle.tw/marketdata/v1.0/stock";
 const TRADE_TAPE_WINDOW_MS = 180_000;
 const TRADE_TAPE_LIMIT = 300;
 
 type AnyRecord = Record<string, any>;
-
-type ReadOhlcArgs = {
-  symbol?: string;
-  timeframe?: string;
-  from?: string;
-  to?: string;
-  limit?: number;
-};
+type ReadOhlcArgs = { symbol?: string; timeframe?: string; from?: string; to?: string; limit?: number };
 
 function rec(value: unknown): AnyRecord {
   return value !== null && typeof value === "object" ? value as AnyRecord : {};
 }
 
 function finite(value: unknown): number | null {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function subtractDays(date: string, days: number) {
@@ -72,18 +62,12 @@ function csvLine(line: string) {
   for (let index = 0; index < line.length; index += 1) {
     const char = line[index];
     if (char === '"') {
-      if (quoted && line[index + 1] === '"') {
-        current += '"';
-        index += 1;
-      } else {
-        quoted = !quoted;
-      }
+      if (quoted && line[index + 1] === '"') { current += '"'; index += 1; }
+      else quoted = !quoted;
     } else if (char === "," && !quoted) {
       fields.push(current);
       current = "";
-    } else {
-      current += char;
-    }
+    } else current += char;
   }
   fields.push(current);
   return fields;
@@ -91,7 +75,7 @@ function csvLine(line: string) {
 
 function scalar(value: string) {
   const text = value.trim();
-  if (text === "") return null;
+  if (!text) return null;
   if (/^-?(?:\d+\.?\d*|\.\d+)$/.test(text)) {
     const n = Number(text);
     if (Number.isFinite(n)) return n;
@@ -114,13 +98,13 @@ function rowDate(row: AnyRecord) {
 }
 
 async function readCanonicalPaths(env: Env, paths: string[]) {
-  const reads = await Promise.all(paths.map(async (path) => {
+  return await Promise.all(paths.map(async (requestedPath) => {
     try {
-      const value = await readGitHubText(env, path);
-      return { path, ...value, error: null as string | null };
+      const value = await readGitHubText(env, requestedPath);
+      return { ...value, path: requestedPath, error: null as string | null };
     } catch (error) {
       return {
-        path,
+        path: requestedPath,
         exists: false,
         sha: null,
         value: null,
@@ -128,7 +112,6 @@ async function readCanonicalPaths(env: Env, paths: string[]) {
       };
     }
   }));
-  return reads;
 }
 
 async function readStockCanonicalOhlc(env: Env, args: ReadOhlcArgs) {
@@ -141,11 +124,11 @@ async function readStockCanonicalOhlc(env: Env, args: ReadOhlcArgs) {
     return { ok: false, blocked: true, status: "UNAVAILABLE", data_status: "UNAVAILABLE", error: "INVALID_OHLC_REQUEST" };
   }
 
-  let paths: string[] = [];
+  let paths: string[];
   if (timeframe === "1d") {
     paths = yearsBetween(from, to).map((year) => `data/OHLC/tw/1d/${year}/${symbol}.csv`);
   } else if (timeframe === "5m") {
-    paths = datesBetween(from, to, 14).map((date) => {
+    paths = datesBetween(from, to).map((date) => {
       const [year, month, day] = date.split("-");
       return `data/OHLC/tw/5m/${year}/${month}/${day}/${symbol}.csv`;
     });
@@ -183,7 +166,6 @@ async function readStockCanonicalOhlc(env: Env, args: ReadOhlcArgs) {
   }
 
   const shas = good.map((item) => String(item.sha));
-  const resolvedDate = rowDate(rows.at(-1) ?? {});
   return {
     ok: true,
     blocked: false,
@@ -194,18 +176,14 @@ async function readStockCanonicalOhlc(env: Env, args: ReadOhlcArgs) {
     timeframe,
     mode: "research",
     source: "OHLC_MCP_GITHUB_CANONICAL_READ",
-    resolved_date: resolvedDate || to,
+    resolved_date: rowDate(rows.at(-1) ?? {}) || to,
     dataset_id: `OHLC_MCP_GITHUB_CANONICAL:${symbol}:${timeframe}`,
     dataset_version: `github-canonical:${shas.join(":")}`,
     dataset_hash: shas.join(":"),
     dataset_complete_view: true,
     formal_research_eligible: true,
     verification_level: "GITHUB_CANONICAL_PATH_SHA_BOUND",
-    quality: {
-      gate: "PASS",
-      identity: "EXISTING_TV_FUGLE_1D_CANONICAL_ONLY",
-      read_only: true,
-    },
+    quality: { gate: "PASS", identity: "EXISTING_TV_FUGLE_1D_CANONICAL_ONLY", read_only: true },
     provenance: {
       source: "OHLC_MCP_GITHUB_CANONICAL_READ",
       repository: String((env as any)?.GITHUB_DATA_REPO ?? "keywayk09/tv-papertrader"),
@@ -244,7 +222,8 @@ async function fugleJson(env: Env, path: string) {
 
 function normalizeBook(rows: unknown) {
   return Array.isArray(rows)
-    ? rows.slice(0, 5).map((row) => ({ price: finite(rec(row).price), size: finite(rec(row).size) }))
+    ? rows.slice(0, 5)
+      .map((row) => ({ price: finite(rec(row).price), size: finite(rec(row).size) }))
       .filter((row) => row.price !== null && row.size !== null)
     : [];
 }
@@ -256,8 +235,7 @@ function percentile90(values: number[]) {
 }
 
 function normalizedTrades(raw: unknown) {
-  const source = Array.isArray(raw) ? raw : [];
-  const ascending = source.map((item) => {
+  const ascending = (Array.isArray(raw) ? raw : []).map((item) => {
     const row = rec(item);
     return {
       time: microToMs(row.time),
@@ -275,23 +253,12 @@ function normalizedTrades(raw: unknown) {
   let previousAggressor = "UNKNOWN";
   const classified = ascending.map((row) => {
     let aggressor = "UNKNOWN";
-    let method = "unknown";
-    if (row.ask !== null && Number(row.price) >= row.ask) {
-      aggressor = "BUY";
-      method = "quote";
-    } else if (row.bid !== null && Number(row.price) <= row.bid) {
-      aggressor = "SELL";
-      method = "quote";
-    } else if (previousPrice !== null && Number(row.price) > previousPrice) {
-      aggressor = "BUY";
-      method = "tick";
-    } else if (previousPrice !== null && Number(row.price) < previousPrice) {
-      aggressor = "SELL";
-      method = "tick";
-    } else if (previousAggressor !== "UNKNOWN") {
-      aggressor = previousAggressor;
-      method = "continuity";
-    }
+    let classificationMethod = "unknown";
+    if (row.ask !== null && Number(row.price) >= row.ask) { aggressor = "BUY"; classificationMethod = "quote"; }
+    else if (row.bid !== null && Number(row.price) <= row.bid) { aggressor = "SELL"; classificationMethod = "quote"; }
+    else if (previousPrice !== null && Number(row.price) > previousPrice) { aggressor = "BUY"; classificationMethod = "tick"; }
+    else if (previousPrice !== null && Number(row.price) < previousPrice) { aggressor = "SELL"; classificationMethod = "tick"; }
+    else if (previousAggressor !== "UNKNOWN") { aggressor = previousAggressor; classificationMethod = "continuity"; }
     previousPrice = Number(row.price);
     if (aggressor !== "UNKNOWN") previousAggressor = aggressor;
     return {
@@ -299,7 +266,7 @@ function normalizedTrades(raw: unknown) {
       side: aggressor === "BUY" ? "buy" : aggressor === "SELL" ? "sell" : "unknown",
       aggressor,
       taiwan_side: aggressor === "BUY" ? "OUTSIDE" : aggressor === "SELL" ? "INSIDE" : "UNKNOWN",
-      classification_method: method,
+      classification_method: classificationMethod,
     };
   });
 
@@ -310,7 +277,6 @@ function normalizedTrades(raw: unknown) {
     ...row,
     is_large: largeThreshold !== null && Number(row.size) >= largeThreshold,
   })).reverse();
-
   return {
     rows: recent,
     latest_time: latestTime || null,
@@ -333,13 +299,7 @@ function flowWindow(rows: AnyRecord[], latestTime: number | null, windowMs: numb
     else unknown += size;
   }
   const known = buy + sell;
-  return {
-    buy,
-    sell,
-    unknown,
-    delta: buy - sell,
-    buy_ratio: known > 0 ? buy / known : null,
-  };
+  return { buy, sell, unknown, delta: buy - sell, buy_ratio: known > 0 ? buy / known : null };
 }
 
 async function readStockMarketContextDirect(env: Env, args: AnyRecord) {
@@ -363,15 +323,9 @@ async function readStockMarketContextDirect(env: Env, args: AnyRecord) {
   const window60 = flowWindow(tape.rows, tape.latest_time, 60_000);
   const window180 = flowWindow(tape.rows, tape.latest_time, TRADE_TAPE_WINDOW_MS);
   const buyRatio = window60.buy_ratio;
-  const state = buyRatio !== null && buyRatio >= 0.58
-    ? "BUY_CONTROL"
-    : buyRatio !== null && buyRatio <= 0.42
-      ? "SELL_CONTROL"
-      : "MIXED";
+  const state = buyRatio !== null && buyRatio >= 0.58 ? "BUY_CONTROL" : buyRatio !== null && buyRatio <= 0.42 ? "SELL_CONTROL" : "MIXED";
   const displayReady = lastPrice !== null && bids.length > 0 && asks.length > 0;
   const liveStatus = displayReady && tape.rows.length > 0 ? "READY" : displayReady ? "DEGRADED" : "LIVE_UNAVAILABLE";
-  const quoteTime = microToMs(quote.lastUpdated ?? quote.closeTime ?? rec(quote.total).time);
-  const tradeTime = tape.latest_time;
 
   return {
     ok: displayReady,
@@ -385,18 +339,8 @@ async function readStockMarketContextDirect(env: Env, args: AnyRecord) {
       decision_eligible: displayReady && tape.rows.length > 0,
       rpc_display_ready: displayReady,
       rpc_wait_ms: 0,
-      connection: {
-        alive: true,
-        authenticated: true,
-        transport: "FUGLE_REST_READ_ONLY",
-        last_error: "",
-      },
-      stream: {
-        trade_fresh: tape.rows.length > 0,
-        book_fresh: bids.length > 0 && asks.length > 0,
-        market_quiet: tape.rows.length === 0,
-        profile: "REST_QUOTE_PLUS_TRADES",
-      },
+      connection: { alive: true, authenticated: true, transport: "FUGLE_REST_READ_ONLY", last_error: "" },
+      stream: { trade_fresh: tape.rows.length > 0, book_fresh: bids.length > 0 && asks.length > 0, market_quiet: tape.rows.length === 0, profile: "REST_QUOTE_PLUS_TRADES" },
       snapshot: {
         symbol,
         last_price: lastPrice,
@@ -406,8 +350,8 @@ async function readStockMarketContextDirect(env: Env, args: AnyRecord) {
         feed: {
           quality: tape.rows.length > 0 ? "FULL_REST" : "QUOTE_ONLY",
           transport: "FUGLE_REST_READ_ONLY",
-          quote_time_ms: quoteTime,
-          trade_time_ms: tradeTime,
+          quote_time_ms: microToMs(quote.lastUpdated ?? quote.closeTime ?? rec(quote.total).time),
+          trade_time_ms: tape.latest_time,
         },
         book: { bids, asks, bid_depth: bidDepth, ask_depth: askDepth, imbalance },
         recent_trades: tape.rows,
@@ -449,12 +393,12 @@ export function createCrossAccountReadService(env: Env) {
     readOhlc: (args?: AnyRecord) => readStockCanonicalOhlc(env, args ?? {}),
     readStockMarketContext: (args?: AnyRecord) => readStockMarketContextDirect(env, args ?? {}),
     readStockLive: (args?: AnyRecord) => readStockMarketContextDirect(env, args ?? {}),
-    readTxfOhlc: () => unavailable("TXF_OHLC"),
-    getTxfOhlcStatus: () => unavailable("TXF_STATUS"),
-    readGlobalOhlc: () => unavailable("GLOBAL_OHLC"),
-    readGlobalFuturesOhlc: () => unavailable("GLOBAL_FUTURES_OHLC"),
-    getGlobalFuturesStatus: () => unavailable("GLOBAL_FUTURES_STATUS"),
-    readTxfLive: () => unavailable("TXF_LIVE"),
-    readTxfMarketContext: () => unavailable("TXF_CONTEXT"),
+    readTxfOhlc: (_args?: AnyRecord) => unavailable("TXF_OHLC"),
+    getTxfOhlcStatus: (_args?: AnyRecord) => unavailable("TXF_STATUS"),
+    readGlobalOhlc: (_args?: AnyRecord) => unavailable("GLOBAL_OHLC"),
+    readGlobalFuturesOhlc: (_args?: AnyRecord) => unavailable("GLOBAL_FUTURES_OHLC"),
+    getGlobalFuturesStatus: (_args?: AnyRecord) => unavailable("GLOBAL_FUTURES_STATUS"),
+    readTxfLive: (_args?: AnyRecord) => unavailable("TXF_LIVE"),
+    readTxfMarketContext: (_args?: AnyRecord) => unavailable("TXF_CONTEXT"),
   };
 }
