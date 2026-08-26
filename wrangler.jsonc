@@ -6,6 +6,7 @@
  * Durable Object lifecycle uses declarative exports; production deploys must use `wrangler deploy`.
  * Existing MyMCP/FamilyMCP namespaces are preserved as live exports; deletion tombstones are forbidden without explicit review.
  * Cloudflare Service Bindings are same-account only. taistock-mcp therefore uses read-only Fugle REST for stock realtime and GitHub canonical reads for formal OHLC; no cross-account Worker binding is configured.
+ * Crypto is read from the separate central tv-crypto-engine over its public read-only HTTPS surface; no duplicate crypto engine is deployed here.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
@@ -17,7 +18,8 @@
 		"RESEARCH_MAX_SYMBOLS": "40",
 		"RESEARCH_MAX_ONE_MINUTE": "8",
 		"GITHUB_DATA_REPO": "keywayk09/tv-papertrader",
-		"GITHUB_DATA_BRANCH": "main"
+		"GITHUB_DATA_BRANCH": "main",
+		"CRYPTO_ENGINE_BASE_URL": "https://tv-crypto-engine.keikei99887.workers.dev"
 	},
 	"kv_namespaces": [
 		{
