@@ -90,11 +90,12 @@ const baseInput = {
 };
 
 const withoutOhlc = buildFamilyUnifiedEvidence(baseInput);
-assert.equal(withoutOhlc.version, "family-evidence/v1.0.0");
+assert.equal(withoutOhlc.version, "family-evidence/v1.1.0");
 assert.equal(withoutOhlc.access, "READ_ONLY");
 assert.equal(withoutOhlc.identity_policy, "EVIDENCE_CLASS_CANNOT_BE_SELF_PROMOTED");
 assert.equal(withoutOhlc.evidence.realtime_market.evidence_class, "DISPLAY_FALLBACK");
 assert.equal(withoutOhlc.evidence.realtime_market.formal_research_eligible, false);
+assert.equal(withoutOhlc.evidence.realtime_market.source, "FUGLE_DISPLAY_QUOTE");
 assert.equal(withoutOhlc.evidence.technical_research_fallback.evidence_class, "DISPLAY_FALLBACK");
 assert.equal(withoutOhlc.evidence.canonical_ohlc.evidence_class, "FORMAL_TRUTH");
 assert.equal(withoutOhlc.evidence.canonical_ohlc.status, "UNAVAILABLE");
@@ -112,6 +113,50 @@ assert.ok(withoutOhlc.decision_readiness.formal_truth_missing.includes("canonica
 assert.equal(withoutOhlc.permission_guardrails.github_writes, false);
 assert.equal(withoutOhlc.permission_guardrails.production_writes, false);
 assert.equal(withoutOhlc.permission_guardrails.order_placement, false);
+
+const withStockLive = buildFamilyUnifiedEvidence({
+  ...baseInput,
+  analysis: {
+    ...baseInput.analysis,
+    stock_live_context: {
+      status: "READY",
+      source: "OHLC_READ_SERVICE_STOCK_LIVE",
+      display_ready: true,
+      formal_research_eligible: false,
+      last_price: 1001,
+      best_bid: 1000,
+      best_ask: 1001,
+      book: {
+        bids: [
+          { price: 1000, size: 50 },
+          { price: 999, size: 40 },
+          { price: 998, size: 30 },
+          { price: 997, size: 20 },
+          { price: 996, size: 10 },
+        ],
+        asks: [
+          { price: 1001, size: 45 },
+          { price: 1002, size: 35 },
+          { price: 1003, size: 25 },
+          { price: 1004, size: 15 },
+          { price: 1005, size: 5 },
+        ],
+        imbalance: 0.0909,
+      },
+      order_flow: { state: "BUY_CONTROL", windows: { "30s": { delta: 100 } } },
+      feed: { quality: "FULL" },
+      persistence: "none",
+    },
+  },
+});
+assert.equal(withStockLive.evidence.realtime_market.status, "READY");
+assert.equal(withStockLive.evidence.realtime_market.source, "OHLC_READ_SERVICE_STOCK_LIVE");
+assert.equal(withStockLive.evidence.realtime_market.verification_level, "EPHEMERAL_READ_ONLY_LIVE_CONTEXT");
+assert.equal((withStockLive.evidence.realtime_market.data as any).last_price, 1001);
+assert.equal((withStockLive.evidence.realtime_market.data as any).five_level_book.bids.length, 5);
+assert.equal((withStockLive.evidence.realtime_market.data as any).five_level_book.asks.length, 5);
+assert.equal((withStockLive.evidence.realtime_market.data as any).order_flow.state, "BUY_CONTROL");
+assert.equal(withStockLive.evidence.realtime_market.formal_research_eligible, false);
 
 const withOhlc = buildFamilyUnifiedEvidence({
   ...baseInput,

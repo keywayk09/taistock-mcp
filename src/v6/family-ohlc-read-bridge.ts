@@ -1,4 +1,4 @@
-export const FAMILY_OHLC_READ_BRIDGE_VERSION = "family-ohlc-read-bridge/v1.0.3";
+export const FAMILY_OHLC_READ_BRIDGE_VERSION = "family-ohlc-read-bridge/v1.1.0";
 
 type AnyRecord = Record<string, any>;
 
@@ -9,6 +9,10 @@ type FamilyOhlcReadService = {
   readGlobalOhlc(args?: AnyRecord): Promise<any>;
   readGlobalFuturesOhlc(args?: AnyRecord): Promise<any>;
   getGlobalFuturesStatus(args?: AnyRecord): Promise<any>;
+  readStockLive(args?: AnyRecord): Promise<any>;
+  readStockMarketContext(args?: AnyRecord): Promise<any>;
+  readTxfLive(args?: AnyRecord): Promise<any>;
+  readTxfMarketContext(args?: AnyRecord): Promise<any>;
 };
 
 type FamilyReadIntent =
@@ -150,6 +154,86 @@ function canonicalUnavailable(error: string) {
   };
 }
 
+function stockLiveUnavailable(symbol: string, error: string) {
+  return {
+    status: "UNAVAILABLE",
+    source: "OHLC_READ_SERVICE_STOCK_LIVE",
+    symbol,
+    live_status: "LIVE_UNAVAILABLE",
+    formal_research_eligible: false,
+    verification_level: "NOT_ATTACHED_OR_UNAVAILABLE",
+    decision_eligible: false,
+    display_ready: false,
+    last_price: null,
+    best_bid: null,
+    best_ask: null,
+    book: { bids: [], asks: [], bid_depth: 0, ask_depth: 0, imbalance: 0 },
+    order_flow: null,
+    feed: null,
+    stream: null,
+    connection: null,
+    persistence: "none",
+    contract: null,
+    historical_daily: null,
+    error,
+    bridge_version: FAMILY_OHLC_READ_BRIDGE_VERSION,
+  };
+}
+
+function compactStockMarketContext(raw: unknown, symbol: string) {
+  const value = rec(raw);
+  const live = rec(value.live);
+  const snapshot = rec(live.snapshot);
+  const book = rec(snapshot.book);
+  const bids = Array.isArray(book.bids) ? book.bids.slice(0, 5) : [];
+  const asks = Array.isArray(book.asks) ? book.asks.slice(0, 5) : [];
+  const hasPrice = snapshot.last_price !== null
+    && snapshot.last_price !== undefined
+    && Number.isFinite(Number(snapshot.last_price));
+  const displayReady = live.rpc_display_ready === true || (hasPrice && bids.length > 0 && asks.length > 0);
+  const liveStatus = String(live.live_status ?? "LIVE_UNAVAILABLE").toUpperCase();
+  const degraded = displayReady || ["WARMING_UP", "DEGRADED"].includes(liveStatus);
+  const status = liveStatus === "READY" && displayReady ? "READY" : degraded ? "DEGRADED" : "UNAVAILABLE";
+  const historical = rec(value.historical);
+
+  return {
+    status,
+    source: "OHLC_READ_SERVICE_STOCK_LIVE",
+    symbol: String(value.symbol ?? live.symbol ?? symbol),
+    live_status: liveStatus,
+    formal_research_eligible: false,
+    verification_level: status === "UNAVAILABLE" ? "NOT_ATTACHED_OR_UNAVAILABLE" : "EPHEMERAL_READ_ONLY_LIVE_CONTEXT",
+    decision_eligible: live.decision_eligible === true,
+    display_ready: displayReady,
+    last_price: hasPrice ? Number(snapshot.last_price) : null,
+    best_bid: Number.isFinite(Number(snapshot.best_bid)) ? Number(snapshot.best_bid) : null,
+    best_ask: Number.isFinite(Number(snapshot.best_ask)) ? Number(snapshot.best_ask) : null,
+    book: {
+      bids,
+      asks,
+      bid_depth: Number(book.bid_depth ?? 0),
+      ask_depth: Number(book.ask_depth ?? 0),
+      imbalance: Number(book.imbalance ?? 0),
+    },
+    order_flow: snapshot ? {
+      state: snapshot.state ?? null,
+      windows: snapshot.windows ?? null,
+      context_30m: snapshot.context_30m ?? null,
+    } : null,
+    feed: snapshot.feed ?? null,
+    stream: live.stream ?? null,
+    connection: live.connection ?? null,
+    rpc_wait_ms: Number(live.rpc_wait_ms ?? 0),
+    persistence: String(live.persistence ?? "none"),
+    contract: value.contract ?? null,
+    historical_daily: historical.daily ?? null,
+    error: status === "UNAVAILABLE"
+      ? String(live.error ?? rec(live.connection).last_error ?? "stock_live_unavailable")
+      : null,
+    bridge_version: FAMILY_OHLC_READ_BRIDGE_VERSION,
+  };
+}
+
 export function shouldUseFamilyIntradayContext(question: string, intent: FamilyReadIntent) {
   if (intent === "FULL_STOCK_ANALYSIS" || intent === "STOCK_COMPARE" || intent === "SWING_DISCOVERY") return true;
   return /短線|當沖|盤中|技術|支撐|壓力|進場|位置|突破|回檔|趨勢|均線|量價|現在能不能|今天/i.test(String(question ?? ""));
@@ -218,6 +302,30 @@ export async function readFamilyCanonicalOhlc(
     error: null,
     bridge_version: FAMILY_OHLC_READ_BRIDGE_VERSION,
   };
+}
+
+export async function readFamilyStockMarketContext(
+  env: Env,
+  input: { symbol: string; books?: boolean; wait_ms?: number },
+) {
+  const symbol = String(input.symbol ?? "").trim();
+  if (!/^\d{4,6}$/.test(symbol)) return stockLiveUnavailable(symbol, "INVALID_STOCK_LIVE_REQUEST");
+
+  const rpc = service(env);
+  if (!rpc || typeof rpc.readStockMarketContext !== "function") {
+    return stockLiveUnavailable(symbol, "OHLC_READ_SERVICE_STOCK_LIVE_NOT_BOUND");
+  }
+
+  const waitMs = Math.max(0, Math.min(2_500, Math.trunc(Number(input.wait_ms ?? 1_800) || 0)));
+  const result = await safeRpc("OHLC_MCP_STOCK_MARKET_CONTEXT", () => rpc.readStockMarketContext({
+    symbol,
+    books: input.books !== false,
+    wait_ms: waitMs,
+    history_days: 120,
+    history_limit: 160,
+  }));
+  if (!result.ok) return stockLiveUnavailable(symbol, result.error);
+  return compactStockMarketContext(result.data, symbol);
 }
 
 function governedContext(raw: unknown, source: string, error: string | null = null) {
