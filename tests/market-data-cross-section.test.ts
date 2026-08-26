@@ -34,6 +34,7 @@ const readyShard = {
         { trade_date:"2026-08-25", symbol:"2330", name:"台積電", market:"listed", foreign_net_shares:20, trust_net_shares:3, dealer_net_shares:2, total_net_shares:25, source:"TWSE_T86", source_priority:"OFFICIAL" },
         { trade_date:"2026-08-26", symbol:"2330", name:"台積電", market:"listed", foreign_net_shares:30, trust_net_shares:4, dealer_net_shares:3, total_net_shares:37, source:"TWSE_T86", source_priority:"OFFICIAL" },
       ],
+      // Deliberately sparse one-row layers prove 3d/5d metrics fail closed.
       margin: [
         { trade_date:"2026-08-26", symbol:"2330", name:"台積電", market:"listed", margin_previous_balance_lots:100, margin_balance_lots:90, margin_balance_change_lots:-10, short_previous_balance_lots:4, short_balance_lots:5, short_balance_change_lots:1, source:"TWSE_MI_MARGN", source_priority:"OFFICIAL" },
       ],
@@ -59,11 +60,30 @@ assert.equal(ready.data_gate.requested_prefixes_complete, true);
 assert.equal(ready.scan.symbols_returned, 1);
 assert.equal(ready.symbols[0].symbol, "2330");
 assert.equal(ready.symbols[0].coverage.ready_layers, 4);
+
+// Institutional has exactly three samples: 1d/3d are usable, 5d is not.
 assert.equal(ready.symbols[0].institutional.net_1d, 37);
 assert.equal(ready.symbols[0].institutional.net_3d, 75);
+assert.equal(ready.symbols[0].institutional.net_5d, null);
+assert.deepEqual(ready.symbols[0].institutional.window_days, { "1d":1, "3d":3, "5d":3 });
+
+// Sparse one-row layers must never masquerade as complete 3d/5d signals.
 assert.equal(ready.symbols[0].margin.margin_change_1d, -10);
+assert.equal(ready.symbols[0].margin.margin_change_3d, null);
+assert.equal(ready.symbols[0].margin.margin_change_5d, null);
+assert.equal(ready.symbols[0].margin.short_change_1d, 1);
+assert.equal(ready.symbols[0].margin.short_change_3d, null);
+assert.deepEqual(ready.symbols[0].margin.window_days, { "1d":1, "3d":1, "5d":1 });
+
 assert.equal(ready.symbols[0].securities_lending.net_borrowed_1d, 150);
+assert.equal(ready.symbols[0].securities_lending.net_borrowed_3d, null);
+assert.equal(ready.symbols[0].securities_lending.net_borrowed_5d, null);
+assert.deepEqual(ready.symbols[0].securities_lending.window_days, { "1d":1, "3d":1, "5d":1 });
+
 assert.equal(ready.symbols[0].sbl_short_sale.sold_1d, 25);
+assert.equal(ready.symbols[0].sbl_short_sale.sold_3d, null);
+assert.equal(ready.symbols[0].sbl_short_sale.sold_5d, null);
+assert.deepEqual(ready.symbols[0].sbl_short_sale.window_days, { "1d":1, "3d":1, "5d":1 });
 
 // Formal research must fail closed when the daily index has not completed.
 put("data/market-data/daily/2026/08/26/manifest.json", {
@@ -79,8 +99,7 @@ const partial = await getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:
 assert.equal(partial.status, "DEGRADED");
 assert.equal(partial.formal_research_eligible, false);
 
-// Even a nominal READY manifest cannot authorize a prefix the manifest did not
-// complete. This protects partial index generations from being used formally.
+// A READY manifest cannot authorize a prefix the generation did not complete.
 put("data/market-data/daily/2026/08/26/manifest.json", {
   ...readyManifest,
   index_state: { ...readyManifest.index_state, completed_prefixes: ["0","1"] },
@@ -92,10 +111,15 @@ assert.equal(missingPrefixReceipt.data_gate.requested_prefixes_complete, false);
 
 await assert.rejects(() => getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"20" }), /invalid prefix/);
 
-// Production-path regression: resolve the moving branch once, then prove every
-// canonical contents request is pinned to that exact immutable commit SHA.
+// Production-path regression:
+// 1) resolve the moving branch once;
+// 2) pin every Contents lookup to that commit;
+// 3) simulate a >1 MB shard where Contents returns no inline base64;
+// 4) prove the reader follows the immutable blob SHA and still returns READY.
 const originalFetch = globalThis.fetch;
 const revision = "a".repeat(40);
+const manifestBlob = "b".repeat(40);
+const shardBlob = "c".repeat(40);
 const seen: string[] = [];
 const jsonContent = (value: unknown) => Buffer.from(JSON.stringify(value, null, 2) + "\n", "utf8").toString("base64");
 try {
@@ -106,10 +130,13 @@ try {
       return new Response(JSON.stringify({ sha: revision }), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (url.includes("/contents/data/market-data/daily/2026/08/26/manifest.json")) {
-      return new Response(JSON.stringify({ sha:"manifest-blob", content:jsonContent(readyManifest) }), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ sha:manifestBlob, encoding:"base64", content:jsonContent(readyManifest) }), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (url.includes("/contents/data/market-data/index/2026/08/2.json")) {
-      return new Response(JSON.stringify({ sha:"shard-blob", content:jsonContent(readyShard) }), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ sha:shardBlob, size:2_847_044, encoding:"none", content:"" }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes(`/git/blobs/${shardBlob}`)) {
+      return new Response(JSON.stringify({ sha:shardBlob, encoding:"base64", content:jsonContent(readyShard) }), { status: 200, headers: { "content-type": "application/json" } });
     }
     return new Response(JSON.stringify({ message:"not found" }), { status: 404, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
@@ -123,10 +150,15 @@ try {
   assert.equal(pinned.status, "READY");
   assert.equal(pinned.formal_research_eligible, true);
   assert.equal(pinned.source_revision, revision);
+  assert.equal(pinned.symbols[0].margin.margin_change_3d, null);
+
   const contentReads = seen.filter((url) => url.includes("/contents/"));
   assert.equal(contentReads.length, 2);
   assert.equal(contentReads.every((url) => url.includes(`ref=${revision}`)), true);
   assert.equal(contentReads.some((url) => url.includes("ref=main")), false);
+
+  const blobReads = seen.filter((url) => url.includes("/git/blobs/"));
+  assert.deepEqual(blobReads, [`https://api.github.com/repos/keywayk09/tv-papertrader/git/blobs/${shardBlob}`]);
 } finally {
   globalThis.fetch = originalFetch;
 }
