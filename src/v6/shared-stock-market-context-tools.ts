@@ -5,7 +5,7 @@ import {
   readFamilyStockMarketContext,
 } from "./family-ohlc-read-bridge";
 
-export const SHARED_STOCK_MARKET_CONTEXT_TOOLS_VERSION = "shared-stock-market-context-tools/v1.2.0";
+export const SHARED_STOCK_MARKET_CONTEXT_TOOLS_VERSION = "shared-stock-market-context-tools/v1.2.1";
 
 const symbolSchema = z.string().trim().regex(/^\d{4,6}$/);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -62,11 +62,13 @@ function normalizeTapeRow(row: unknown) {
   };
 }
 
+type TapeRow = ReturnType<typeof normalizeTapeRow>;
+
 function projectTradeTape(live: any, symbol: string) {
-  const rows = (Array.isArray(live?.recent_trades) ? live.recent_trades : [])
-    .slice(0, 300)
+  const rawRows: unknown[] = Array.isArray(live?.recent_trades) ? live.recent_trades.slice(0, 300) : [];
+  const rows: TapeRow[] = rawRows
     .map(normalizeTapeRow)
-    .filter((row) => row.time !== null && row.price !== null && row.size !== null);
+    .filter((row: TapeRow) => row.time !== null && row.price !== null && row.size !== null);
   const metadata = rec(live?.trade_tape);
   const status = rows.length > 0 ? "READY" : live?.status === "DEGRADED" ? "DEGRADED" : "UNAVAILABLE";
   return {
