@@ -264,9 +264,10 @@ export async function readFamilyCanonicalOhlc(
     if (intradayCall.ok && formalStockOhlcReady(intradayCall.data)) intraday5m = compactOhlcResult(intradayCall.data);
   }
 
+  const rawSource = String(daily.source ?? "");
   return {
     status: "READY",
-    source: String(daily.source ?? "OHLC_MCP"),
+    source: /OHLC_MCP/i.test(rawSource) ? rawSource : "OHLC_MCP",
     formal_research_eligible: true,
     verification_level: verificationLevel(dailyCall.data, "OHLC_MCP_VERIFIED"),
     dataset_version: daily.dataset_version,
@@ -364,9 +365,10 @@ export async function readFamilyMarketRegimeContext(
     };
   }
 
+  const products = globalFutureProducts(intent, question);
   const [txfCall, futuresCalls] = await Promise.all([
     safeRpc("OHLC_MCP_TXF_READ", () => rpc.readTxfOhlc({ timeframe: "5m", trade_date: asOf, lookback_days: 7, limit: 180 })),
-    Promise.all(globalFutureProducts(intent, question).map((product) => readGlobalFutureAsOf(rpc, product, asOf))),
+    Promise.all(products.map((product) => readGlobalFutureAsOf(rpc, product, asOf))),
   ]);
   const txfContext = txfCall.ok ? governedContext(txfCall.data, "OHLC_MCP_TXF_READ") : governedContext(null, "OHLC_MCP_TXF_READ", txfCall.error);
   const successful = futuresCalls
@@ -375,7 +377,6 @@ export async function readFamilyMarketRegimeContext(
   const failures = futuresCalls
     .filter((item) => !(item.ok && verifiedGlobalFutureReady(item.data) && String(rec(item.data).trade_date ?? "") === String(item.trade_date ?? "")))
     .map((item) => ({ product: item.product, error: item.error ?? rec(item.data).error ?? "GLOBAL_FUTURES_NOT_VERIFIED_READY" }));
-  const products = globalFutureProducts(intent, question);
   const globalRaw = successful.length ? {
     ok: true, blocked: false, status: failures.length ? "DEGRADED" : "READY", source: "OHLC_MCP_GLOBAL_FUTURES_READ",
     verification_level: "VERIFIED_CANONICAL_CONTEXT", formal_research_eligible: false,
