@@ -411,7 +411,7 @@ export async function getTwMarketCrossSection(env: Env, input: MarketCrossSectio
         read_error: error instanceof Error ? error.message : String(error),
       };
     }
-  }))));
+  })));
 
   const missingShards = reads.filter((item) => !item.read.value && !item.read_error).map((item) => item.read.path);
   const invalidShards = reads.flatMap((item) => {
