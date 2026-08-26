@@ -9,13 +9,26 @@ function put(path: string, value: unknown) {
   memory.set(path, { sha: `sha-${path}`, text: JSON.stringify(value, null, 2) + "\n" });
 }
 
+const readyLayers = [
+  { kind:"institutional", market:"listed", status:"READY", snapshot_path:"data/market-data/daily/2026/08/26/institutional-listed.json" },
+  { kind:"institutional", market:"otc", status:"READY", snapshot_path:"data/market-data/daily/2026/08/26/institutional-otc.json" },
+  { kind:"margin", market:"listed", status:"READY", snapshot_path:"data/market-data/daily/2026/08/26/margin-listed.json" },
+  { kind:"margin", market:"otc", status:"READY", snapshot_path:"data/market-data/daily/2026/08/26/margin-otc.json" },
+  { kind:"securities_lending", market:"listed", status:"READY", snapshot_path:"data/market-data/daily/2026/08/26/securities-lending-listed.json" },
+  { kind:"securities_lending", market:"otc", status:"READY", snapshot_path:"data/market-data/daily/2026/08/26/securities-lending-otc.json" },
+  { kind:"sbl_short_sale", market:"listed", status:"READY", snapshot_path:"data/market-data/daily/2026/08/26/sbl-listed.json" },
+  { kind:"sbl_short_sale", market:"otc", status:"READY", snapshot_path:"data/market-data/daily/2026/08/26/sbl-otc.json" },
+];
+
 const readyManifest = {
+  schema_version: "diamond-market-data-manifest/v2",
   trade_date: "2026-08-26",
   day_status: "COMPLETE",
   terminal: true,
   ready_layers: 8,
   expected_layers: 8,
   missing_layers: [],
+  layers: readyLayers,
   index_state: {
     status: "READY",
     completed_prefixes: ["0","1","2","3","4","5","6","7","8","9"],
@@ -56,7 +69,9 @@ const ready = await getTwMarketCrossSection(env, { as_of:"2026-08-26", calendar_
 assert.equal(ready.status, "READY");
 assert.equal(ready.formal_research_eligible, true);
 assert.equal(ready.source_revision, "memory:main");
+assert.equal(ready.data_gate.manifest_valid, true);
 assert.equal(ready.data_gate.requested_prefixes_complete, true);
+assert.deepEqual(ready.scan.invalid_shards, []);
 assert.equal(ready.scan.symbols_returned, 1);
 assert.equal(ready.symbols[0].symbol, "2330");
 assert.equal(ready.symbols[0].coverage.ready_layers, 4);
@@ -122,32 +137,94 @@ assert.equal(nullObserved.symbols[0].securities_lending.net_borrowed_3d, null);
 assert.deepEqual(nullObserved.symbols[0].sbl_short_sale.window_observations, { "1d":1, "3d":2, "5d":2 });
 assert.equal(nullObserved.symbols[0].sbl_short_sale.sold_3d, null);
 
-// Restore the sparse fixture for the remaining fail-closed and production-path checks.
+// Restore canonical READY fixtures for fail-closed gate tests.
 put("data/market-data/index/2026/08/2.json", readyShard);
+put("data/market-data/daily/2026/08/26/manifest.json", readyManifest);
 
 // Formal research must fail closed when the daily index has not completed.
 put("data/market-data/daily/2026/08/26/manifest.json", {
-  trade_date: "2026-08-26",
+  ...readyManifest,
   day_status: "PARTIAL",
   terminal: false,
   ready_layers: 7,
-  expected_layers: 8,
   missing_layers: ["institutional-otc"],
   index_state: { status: "PENDING", completed_prefixes: ["2"], total_prefixes: 10 },
 });
 const partial = await getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"2" });
 assert.equal(partial.status, "DEGRADED");
 assert.equal(partial.formal_research_eligible, false);
+assert.equal(partial.data_gate.manifest_valid, false);
 
-// A READY manifest cannot authorize a prefix the generation did not complete.
+// A READY-looking manifest must still fail if its trade_date is not the requested as_of.
 put("data/market-data/daily/2026/08/26/manifest.json", {
   ...readyManifest,
-  index_state: { ...readyManifest.index_state, completed_prefixes: ["0","1"] },
+  trade_date: "2026-08-25",
+});
+const wrongDateManifest = await getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"2" });
+assert.equal(wrongDateManifest.status, "DEGRADED");
+assert.equal(wrongDateManifest.formal_research_eligible, false);
+assert.equal(wrongDateManifest.data_gate.manifest_valid, false);
+assert.equal(wrongDateManifest.data_gate.manifest_error, "manifest_trade_date_mismatch");
+
+// COMPLETE/READY labels cannot override missing layers or a short ready-layer count.
+put("data/market-data/daily/2026/08/26/manifest.json", {
+  ...readyManifest,
+  ready_layers: 7,
+  missing_layers: ["institutional-otc"],
+});
+const inconsistentManifest = await getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"2" });
+assert.equal(inconsistentManifest.status, "DEGRADED");
+assert.equal(inconsistentManifest.formal_research_eligible, false);
+assert.equal(inconsistentManifest.data_gate.manifest_valid, false);
+
+// A READY manifest cannot authorize a prefix the canonical generation did not complete.
+put("data/market-data/daily/2026/08/26/manifest.json", {
+  ...readyManifest,
+  index_state: { ...readyManifest.index_state, completed_prefixes: ["0","1"], total_prefixes: 2 },
 });
 const missingPrefixReceipt = await getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"2" });
 assert.equal(missingPrefixReceipt.status, "DEGRADED");
 assert.equal(missingPrefixReceipt.formal_research_eligible, false);
 assert.equal(missingPrefixReceipt.data_gate.requested_prefixes_complete, false);
+
+// Restore the complete manifest before shard-structure regressions.
+put("data/market-data/daily/2026/08/26/manifest.json", readyManifest);
+
+// A truthy shard with a mismatched month is excluded and cannot grant READY.
+const wrongMonthShard = structuredClone(readyShard) as any;
+wrongMonthShard.month = "2026-07";
+put("data/market-data/index/2026/08/2.json", wrongMonthShard);
+const wrongMonth = await getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"2" });
+assert.equal(wrongMonth.status, "DEGRADED");
+assert.equal(wrongMonth.formal_research_eligible, false);
+assert.equal(wrongMonth.scan.invalid_shards.length, 1);
+assert.equal(wrongMonth.scan.invalid_shards[0].reason, "shard_month_mismatch");
+assert.equal(wrongMonth.scan.symbols_returned, 0);
+
+// A shard cannot smuggle a symbol from a different prefix into the requested bucket.
+const wrongSymbolPrefixShard = structuredClone(readyShard) as any;
+wrongSymbolPrefixShard.symbols["1330"] = wrongSymbolPrefixShard.symbols["2330"];
+delete wrongSymbolPrefixShard.symbols["2330"];
+put("data/market-data/index/2026/08/2.json", wrongSymbolPrefixShard);
+const wrongSymbolPrefix = await getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"2" });
+assert.equal(wrongSymbolPrefix.status, "DEGRADED");
+assert.equal(wrongSymbolPrefix.formal_research_eligible, false);
+assert.equal(wrongSymbolPrefix.scan.invalid_shards.length, 1);
+assert.match(wrongSymbolPrefix.scan.invalid_shards[0].reason, /^shard_symbol_prefix:/);
+assert.equal(wrongSymbolPrefix.scan.symbols_returned, 0);
+
+// Wrong schema is structural corruption, not a missing shard and never formal READY.
+const wrongSchemaShard = structuredClone(readyShard) as any;
+wrongSchemaShard.schema_version = "diamond-market-data-symbol-shard/v1";
+put("data/market-data/index/2026/08/2.json", wrongSchemaShard);
+const wrongSchema = await getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"2" });
+assert.equal(wrongSchema.status, "DEGRADED");
+assert.equal(wrongSchema.formal_research_eligible, false);
+assert.equal(wrongSchema.scan.invalid_shards[0].reason, "shard_schema_invalid");
+
+// Restore canonical fixtures for argument and production-path tests.
+put("data/market-data/index/2026/08/2.json", readyShard);
+put("data/market-data/daily/2026/08/26/manifest.json", readyManifest);
 
 await assert.rejects(() => getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"20" }), /invalid prefix/);
 
@@ -190,6 +267,8 @@ try {
   assert.equal(pinned.status, "READY");
   assert.equal(pinned.formal_research_eligible, true);
   assert.equal(pinned.source_revision, revision);
+  assert.equal(pinned.data_gate.manifest_valid, true);
+  assert.deepEqual(pinned.scan.invalid_shards, []);
   assert.equal(pinned.symbols[0].margin.margin_change_3d, null);
 
   const contentReads = seen.filter((url) => url.includes("/contents/"));
