@@ -48,18 +48,31 @@ assert.match(index, /owner_private_context: "DENY_BY_DEFAULT_UNLESS_EXPLICITLY_S
 assert.match(index, /FUGLE_REST_READ_ONLY_WITH_FIVE_LEVEL_BOOK_AND_RECENT_TRADES/);
 assert.match(index, /cross_account_read: "FUGLE_REST_PLUS_GITHUB_CANONICAL_NO_SERVICE_BINDING"/);
 assert.match(index, /stock_trade_tape: "RECENT_3_MINUTES_MAX_300_NORMALIZED_PRINTS_NOT_PERSISTED"/);
-assert.match(index, /tools: 115/);
+assert.match(index, /registerSharedCryptoMarketTools\(this\.server, this\.env\)/);
+assert.match(index, /crypto_policy: "CENTRAL_TV_CRYPTO_ENGINE_READ_ONLY_NO_DUPLICATE_FAMILY_ENGINE"/);
+assert.match(index, /tools: 118/);
 
 const familyMcp = read("src/v6/family-mcp.ts");
+assert.match(familyMcp, /FAMILY_MCP_VERSION = "family-mcp\/v3\.4\.0"/);
 assert.match(familyMcp, /registerFamilyStockSelectionToolsV2/);
 assert.match(familyMcp, /get_family_stock_market_context/);
+assert.match(familyMcp, /registerSharedCryptoMarketTools\(this\.server, this\.env\)/);
+assert.match(familyMcp, /SHARED_CRYPTO_TOOL_NAMES/);
+assert.match(familyMcp, /crypto_orders: false/);
 assert.match(familyMcp, /OPEN_WORLD_AUTONOMOUS_NO_FIXED_SITE_OR_KEYWORD_LIMIT/);
 assert.match(familyMcp, /READ_ONLY_FAMILY_SURFACE/);
 assert.match(familyMcp, /github_writes: false/);
+
+const cryptoTools = read("src/v6/shared-crypto-market-tools.ts");
+assert.match(cryptoTools, /get_crypto_engine_status/);
+assert.match(cryptoTools, /get_crypto_candidates/);
+assert.match(cryptoTools, /get_crypto_deep_probe/);
+assert.match(cryptoTools, /tv-crypto-engine\.keikei99887\.workers\.dev/);
+assert.match(cryptoTools, /read_only: true/);
 
 const instructions = read("docs/family-custom-gpt-instructions.md");
 assert.match(instructions, /必須優先呼叫 MCP 工具 `screen_family_swing_candidates`/);
 assert.match(instructions, /好公司不等於現在就是好買點/);
 assert.match(instructions, /目前沒有需要追的股票/);
 
-console.log("Family V3 shared-read stock selection and routing contract tests passed");
+console.log("Family V3 shared-read stock + crypto selection and routing contract tests passed");
