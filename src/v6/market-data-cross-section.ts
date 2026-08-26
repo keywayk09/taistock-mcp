@@ -1,10 +1,6 @@
 import { DEFAULT_GITHUB_DATA_BRANCH, DEFAULT_GITHUB_DATA_REPO, readGitHubJson } from "./github-data-store.ts";
 import { decodeGitHubCompressedJsonText, isGitHubCompressedJsonEnvelope } from "./github-compressed-json.ts";
 import {
-  institutionalWindows,
-  marginWindows,
-  securitiesLendingWindows,
-  sblShortSaleWindows,
   type InstitutionalRow,
   type MarginRow,
   type SecuritiesLendingRow,
@@ -19,7 +15,8 @@ import {
  * - manifest and every shard are pinned to one immutable Git commit;
  * - large GitHub Contents objects fall back to their immutable Git Blob SHA;
  * - compressed canonical envelopes are decoded inside the reader;
- * - incomplete 3d/5d histories are never mislabeled as complete horizons;
+ * - incomplete or null-contaminated 1d/3d/5d histories are never mislabeled
+ *   as complete horizons;
  * - formal eligibility stays fail-closed unless the day and requested prefixes
  *   are complete and every requested shard is present.
  */
@@ -64,7 +61,11 @@ type CanonicalRead<T> = {
 
 type MemoryEnv = Env & { __GITHUB_DATA_MEMORY?: Map<string, unknown> };
 
-type WindowValue = { days: number; value: number | null };
+type WindowValue = {
+  days: number;
+  observations: number;
+  value: number | null;
+};
 
 function taipeiDate(ms = Date.now()) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -227,33 +228,54 @@ function rowsInRange<T extends { trade_date: string }>(rows: T[] | undefined, st
   return (rows ?? []).filter((row) => row.trade_date >= start && row.trade_date <= end);
 }
 
-/** Return a metric only when the requested horizon has the full sample count. */
-function completeWindow(window: any, horizon: number, field: string): WindowValue {
-  const days = Number(window?.days ?? 0);
-  const raw = window?.[field];
+function finiteMetric(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Build one horizon from the actual rows, not from helper aggregates that may
+ * coalesce nullable observations to zero. A horizon is publishable only when
+ * both the row count and the usable observation count equal the horizon.
+ */
+function metricWindow<T>(rows: T[], horizon: number, valueOf: (row: T) => number | null): WindowValue {
+  const slice = rows.slice(-horizon);
+  let observations = 0;
+  let sum = 0;
+  for (const row of slice) {
+    const value = valueOf(row);
+    if (value === null || !Number.isFinite(value)) continue;
+    observations += 1;
+    sum += value;
+  }
   return {
-    days,
-    value: days === horizon && raw !== undefined && raw !== null && Number.isFinite(Number(raw)) ? Number(raw) : null,
+    days: slice.length,
+    observations,
+    value: slice.length === horizon && observations === horizon ? sum : null,
   };
 }
 
-function windowDayReceipt(d1: WindowValue, d3: WindowValue, d5: WindowValue) {
+function dayReceipt(d1: WindowValue, d3: WindowValue, d5: WindowValue) {
   return { "1d": d1.days, "3d": d3.days, "5d": d5.days };
+}
+
+function observationReceipt(d1: WindowValue, d3: WindowValue, d5: WindowValue) {
+  return { "1d": d1.observations, "3d": d3.observations, "5d": d5.observations };
 }
 
 function compactInstitutional(rows: InstitutionalRow[]) {
   const latest = rows.at(-1) ?? null;
-  const windows = institutionalWindows(rows) as Record<string, any>;
-  const d1 = completeWindow(windows["1d"], 1, "total_net_shares");
-  const d3 = completeWindow(windows["3d"], 3, "total_net_shares");
-  const d5 = completeWindow(windows["5d"], 5, "total_net_shares");
+  const valueOf = (row: InstitutionalRow) => finiteMetric(row.total_net_shares);
+  const d1 = metricWindow(rows, 1, valueOf);
+  const d3 = metricWindow(rows, 3, valueOf);
+  const d5 = metricWindow(rows, 5, valueOf);
   return {
     latest_trade_date: latest?.trade_date ?? null,
     latest_total_net_shares: latest?.total_net_shares ?? null,
     latest_foreign_net_shares: latest?.foreign_net_shares ?? null,
     latest_trust_net_shares: latest?.trust_net_shares ?? null,
     latest_dealer_net_shares: latest?.dealer_net_shares ?? null,
-    window_days: windowDayReceipt(d1, d3, d5),
+    window_days: dayReceipt(d1, d3, d5),
+    window_observations: observationReceipt(d1, d3, d5),
     net_1d: d1.value,
     net_3d: d3.value,
     net_5d: d5.value,
@@ -261,22 +283,22 @@ function compactInstitutional(rows: InstitutionalRow[]) {
 }
 
 function compactMargin(rows: MarginRow[]) {
-  const view = marginWindows(rows) as any;
-  const latest = view.latest as MarginRow | null;
-  const w1 = view.windows?.["1d"];
-  const w3 = view.windows?.["3d"];
-  const w5 = view.windows?.["5d"];
-  const margin1 = completeWindow(w1, 1, "margin_balance_change_lots");
-  const margin3 = completeWindow(w3, 3, "margin_balance_change_lots");
-  const margin5 = completeWindow(w5, 5, "margin_balance_change_lots");
-  const short1 = completeWindow(w1, 1, "short_balance_change_lots");
-  const short3 = completeWindow(w3, 3, "short_balance_change_lots");
-  const short5 = completeWindow(w5, 5, "short_balance_change_lots");
+  const latest = rows.at(-1) ?? null;
+  const marginValue = (row: MarginRow) => finiteMetric(row.margin_balance_change_lots);
+  const shortValue = (row: MarginRow) => finiteMetric(row.short_balance_change_lots);
+  const margin1 = metricWindow(rows, 1, marginValue);
+  const margin3 = metricWindow(rows, 3, marginValue);
+  const margin5 = metricWindow(rows, 5, marginValue);
+  const short1 = metricWindow(rows, 1, shortValue);
+  const short3 = metricWindow(rows, 3, shortValue);
+  const short5 = metricWindow(rows, 5, shortValue);
   return {
     latest_trade_date: latest?.trade_date ?? null,
     margin_balance_lots: latest?.margin_balance_lots ?? null,
     short_balance_lots: latest?.short_balance_lots ?? null,
-    window_days: windowDayReceipt(margin1, margin3, margin5),
+    window_days: dayReceipt(margin1, margin3, margin5),
+    margin_change_observations: observationReceipt(margin1, margin3, margin5),
+    short_change_observations: observationReceipt(short1, short3, short5),
     margin_change_1d: margin1.value,
     margin_change_3d: margin3.value,
     margin_change_5d: margin5.value,
@@ -287,15 +309,20 @@ function compactMargin(rows: MarginRow[]) {
 }
 
 function compactLending(rows: SecuritiesLendingRow[]) {
-  const view = securitiesLendingWindows(rows) as any;
-  const latest = view.latest as SecuritiesLendingRow | null;
-  const d1 = completeWindow(view.windows?.["1d"], 1, "net_borrowed_shares");
-  const d3 = completeWindow(view.windows?.["3d"], 3, "net_borrowed_shares");
-  const d5 = completeWindow(view.windows?.["5d"], 5, "net_borrowed_shares");
+  const latest = rows.at(-1) ?? null;
+  const netBorrowed = (row: SecuritiesLendingRow) => {
+    const borrowed = finiteMetric(row.borrowed_shares);
+    const returned = finiteMetric(row.returned_shares);
+    return borrowed === null || returned === null ? null : borrowed - returned;
+  };
+  const d1 = metricWindow(rows, 1, netBorrowed);
+  const d3 = metricWindow(rows, 3, netBorrowed);
+  const d5 = metricWindow(rows, 5, netBorrowed);
   return {
     latest_trade_date: latest?.trade_date ?? null,
     balance_shares: latest?.balance_shares ?? null,
-    window_days: windowDayReceipt(d1, d3, d5),
+    window_days: dayReceipt(d1, d3, d5),
+    window_observations: observationReceipt(d1, d3, d5),
     net_borrowed_1d: d1.value,
     net_borrowed_3d: d3.value,
     net_borrowed_5d: d5.value,
@@ -303,16 +330,17 @@ function compactLending(rows: SecuritiesLendingRow[]) {
 }
 
 function compactSbl(rows: SblShortSaleRow[]) {
-  const view = sblShortSaleWindows(rows) as any;
-  const latest = view.latest as SblShortSaleRow | null;
-  const d1 = completeWindow(view.windows?.["1d"], 1, "sold_shares");
-  const d3 = completeWindow(view.windows?.["3d"], 3, "sold_shares");
-  const d5 = completeWindow(view.windows?.["5d"], 5, "sold_shares");
+  const latest = rows.at(-1) ?? null;
+  const sold = (row: SblShortSaleRow) => finiteMetric(row.sold_shares);
+  const d1 = metricWindow(rows, 1, sold);
+  const d3 = metricWindow(rows, 3, sold);
+  const d5 = metricWindow(rows, 5, sold);
   return {
     latest_trade_date: latest?.trade_date ?? null,
     balance_shares: latest?.balance_shares ?? null,
     available_shares: latest?.available_shares ?? null,
-    window_days: windowDayReceipt(d1, d3, d5),
+    window_days: dayReceipt(d1, d3, d5),
+    window_observations: observationReceipt(d1, d3, d5),
     sold_1d: d1.value,
     sold_3d: d3.value,
     sold_5d: d5.value,
@@ -431,6 +459,6 @@ export async function getTwMarketCrossSection(env: Env, input: MarketCrossSectio
     },
     datasets,
     symbols,
-    note: "Compact canonical market-data feature vectors only. Manifest and shards are pinned to source_revision; large shards are read by immutable blob SHA. Incomplete horizons return null with window_days coverage. Price/volume remains an OHLC MCP join; sector metadata is a separate research metadata join.",
+    note: "Compact canonical market-data feature vectors only. Manifest and shards are pinned to source_revision; large shards are read by immutable blob SHA. Incomplete or null-contaminated horizons return null with row-day and usable-observation receipts. Price/volume remains an OHLC MCP join; sector metadata is a separate research metadata join.",
   };
 }
