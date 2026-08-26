@@ -61,11 +61,12 @@ assert.equal(ready.scan.symbols_returned, 1);
 assert.equal(ready.symbols[0].symbol, "2330");
 assert.equal(ready.symbols[0].coverage.ready_layers, 4);
 
-// Institutional has exactly three samples: 1d/3d are usable, 5d is not.
+// Institutional has exactly three usable samples: 1d/3d are usable, 5d is not.
 assert.equal(ready.symbols[0].institutional.net_1d, 37);
 assert.equal(ready.symbols[0].institutional.net_3d, 75);
 assert.equal(ready.symbols[0].institutional.net_5d, null);
 assert.deepEqual(ready.symbols[0].institutional.window_days, { "1d":1, "3d":3, "5d":3 });
+assert.deepEqual(ready.symbols[0].institutional.window_observations, { "1d":1, "3d":3, "5d":3 });
 
 // Sparse one-row layers must never masquerade as complete 3d/5d signals.
 assert.equal(ready.symbols[0].margin.margin_change_1d, -10);
@@ -74,16 +75,55 @@ assert.equal(ready.symbols[0].margin.margin_change_5d, null);
 assert.equal(ready.symbols[0].margin.short_change_1d, 1);
 assert.equal(ready.symbols[0].margin.short_change_3d, null);
 assert.deepEqual(ready.symbols[0].margin.window_days, { "1d":1, "3d":1, "5d":1 });
+assert.deepEqual(ready.symbols[0].margin.margin_change_observations, { "1d":1, "3d":1, "5d":1 });
+assert.deepEqual(ready.symbols[0].margin.short_change_observations, { "1d":1, "3d":1, "5d":1 });
 
 assert.equal(ready.symbols[0].securities_lending.net_borrowed_1d, 150);
 assert.equal(ready.symbols[0].securities_lending.net_borrowed_3d, null);
 assert.equal(ready.symbols[0].securities_lending.net_borrowed_5d, null);
 assert.deepEqual(ready.symbols[0].securities_lending.window_days, { "1d":1, "3d":1, "5d":1 });
+assert.deepEqual(ready.symbols[0].securities_lending.window_observations, { "1d":1, "3d":1, "5d":1 });
 
 assert.equal(ready.symbols[0].sbl_short_sale.sold_1d, 25);
 assert.equal(ready.symbols[0].sbl_short_sale.sold_3d, null);
 assert.equal(ready.symbols[0].sbl_short_sale.sold_5d, null);
 assert.deepEqual(ready.symbols[0].sbl_short_sale.window_days, { "1d":1, "3d":1, "5d":1 });
+assert.deepEqual(ready.symbols[0].sbl_short_sale.window_observations, { "1d":1, "3d":1, "5d":1 });
+
+// Three rows are not a complete 3d metric when one required observation is null.
+// The short-side metric remains independently usable because all three short values exist.
+const nullObservedShard = structuredClone(readyShard) as any;
+nullObservedShard.symbols["2330"].margin = [
+  { trade_date:"2026-08-24", symbol:"2330", name:"台積電", market:"listed", margin_previous_balance_lots:120, margin_balance_lots:110, margin_balance_change_lots:-10, short_previous_balance_lots:1, short_balance_lots:2, short_balance_change_lots:1, source:"TWSE_MI_MARGN", source_priority:"OFFICIAL" },
+  { trade_date:"2026-08-25", symbol:"2330", name:"台積電", market:"listed", margin_previous_balance_lots:110, margin_balance_lots:null, margin_balance_change_lots:null, short_previous_balance_lots:2, short_balance_lots:4, short_balance_change_lots:2, source:"TWSE_MI_MARGN", source_priority:"OFFICIAL" },
+  { trade_date:"2026-08-26", symbol:"2330", name:"台積電", market:"listed", margin_previous_balance_lots:100, margin_balance_lots:90, margin_balance_change_lots:-10, short_previous_balance_lots:4, short_balance_lots:5, short_balance_change_lots:1, source:"TWSE_MI_MARGN", source_priority:"OFFICIAL" },
+];
+nullObservedShard.symbols["2330"].securities_lending = [
+  { trade_date:"2026-08-24", symbol:"2330", name:"台積電", market:"listed", previous_balance_shares:900, borrowed_shares:200, returned_shares:50, balance_shares:1050, close_price:1000, balance_value:1050000, source:"TWSE_TWT72U", source_priority:"OFFICIAL" },
+  { trade_date:"2026-08-25", symbol:"2330", name:"台積電", market:"listed", previous_balance_shares:1050, borrowed_shares:100, returned_shares:null, balance_shares:null, close_price:1000, balance_value:null, source:"TWSE_TWT72U", source_priority:"OFFICIAL" },
+  { trade_date:"2026-08-26", symbol:"2330", name:"台積電", market:"listed", previous_balance_shares:1000, borrowed_shares:200, returned_shares:50, balance_shares:1150, close_price:1000, balance_value:1150000, source:"TWSE_TWT72U", source_priority:"OFFICIAL" },
+];
+nullObservedShard.symbols["2330"].sbl_short_sale = [
+  { trade_date:"2026-08-24", symbol:"2330", name:"台積電", market:"listed", previous_balance_shares:90, sold_shares:10, returned_shares:0, adjustment_shares:0, balance_shares:100, available_shares:999, sold_volume_shares:10, sold_amount:null, source:"TWSE_TWT93U", source_priority:"OFFICIAL" },
+  { trade_date:"2026-08-25", symbol:"2330", name:"台積電", market:"listed", previous_balance_shares:100, sold_shares:null, returned_shares:5, adjustment_shares:0, balance_shares:null, available_shares:999, sold_volume_shares:null, sold_amount:null, source:"TWSE_TWT93U", source_priority:"OFFICIAL" },
+  { trade_date:"2026-08-26", symbol:"2330", name:"台積電", market:"listed", previous_balance_shares:100, sold_shares:25, returned_shares:5, adjustment_shares:0, balance_shares:120, available_shares:999, sold_volume_shares:25, sold_amount:null, source:"TWSE_TWT93U", source_priority:"OFFICIAL" },
+];
+put("data/market-data/index/2026/08/2.json", nullObservedShard);
+const nullObserved = await getTwMarketCrossSection(env, { as_of:"2026-08-26", calendar_days:20, prefix:"2", limit:50 });
+assert.equal(nullObserved.status, "READY");
+assert.equal(nullObserved.formal_research_eligible, true);
+assert.deepEqual(nullObserved.symbols[0].margin.window_days, { "1d":1, "3d":3, "5d":3 });
+assert.deepEqual(nullObserved.symbols[0].margin.margin_change_observations, { "1d":1, "3d":2, "5d":2 });
+assert.deepEqual(nullObserved.symbols[0].margin.short_change_observations, { "1d":1, "3d":3, "5d":3 });
+assert.equal(nullObserved.symbols[0].margin.margin_change_3d, null);
+assert.equal(nullObserved.symbols[0].margin.short_change_3d, 4);
+assert.deepEqual(nullObserved.symbols[0].securities_lending.window_observations, { "1d":1, "3d":2, "5d":2 });
+assert.equal(nullObserved.symbols[0].securities_lending.net_borrowed_3d, null);
+assert.deepEqual(nullObserved.symbols[0].sbl_short_sale.window_observations, { "1d":1, "3d":2, "5d":2 });
+assert.equal(nullObserved.symbols[0].sbl_short_sale.sold_3d, null);
+
+// Restore the sparse fixture for the remaining fail-closed and production-path checks.
+put("data/market-data/index/2026/08/2.json", readyShard);
 
 // Formal research must fail closed when the daily index has not completed.
 put("data/market-data/daily/2026/08/26/manifest.json", {
@@ -130,15 +170,15 @@ try {
       return new Response(JSON.stringify({ sha: revision }), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (url.includes("/contents/data/market-data/daily/2026/08/26/manifest.json")) {
-      return new Response(JSON.stringify({ sha:manifestBlob, encoding:"base64", content:jsonContent(readyManifest) }), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ sha:manifestBlob, encoding:"base64", content:jsonContent(readyManifest) }), { status: 200, headers: { "content-type":"application/json" } });
     }
     if (url.includes("/contents/data/market-data/index/2026/08/2.json")) {
-      return new Response(JSON.stringify({ sha:shardBlob, size:2_847_044, encoding:"none", content:"" }), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ sha:shardBlob, size:2_847_044, encoding:"none", content:"" }), { status: 200, headers: { "content-type":"application/json" } });
     }
     if (url.includes(`/git/blobs/${shardBlob}`)) {
-      return new Response(JSON.stringify({ sha:shardBlob, encoding:"base64", content:jsonContent(readyShard) }), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ sha:shardBlob, encoding:"base64", content:jsonContent(readyShard) }), { status: 200, headers: { "content-type":"application/json" } });
     }
-    return new Response(JSON.stringify({ message:"not found" }), { status: 404, headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify({ message:"not found" }), { status:404, headers:{ "content-type":"application/json" } });
   }) as typeof fetch;
 
   const pinned = await getTwMarketCrossSection({ GITHUB_DATA_REPO:"keywayk09/tv-papertrader", GITHUB_DATA_BRANCH:"main" } as any, {
