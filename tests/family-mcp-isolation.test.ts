@@ -13,6 +13,7 @@ const index = read("src/index-v6.ts");
 
 for (const tool of [
   "family_engine_status",
+  "get_family_stock_market_context",
   "screen_family_swing_candidates",
   "get_family_market_chip_summary",
   "analyze_family_stock",
@@ -53,7 +54,8 @@ assert.doesNotMatch(oauth, /new Proxy\(/);
 assert.doesNotMatch(oauth, /if \(property === "MCP_OBJECT"\)/);
 assert.doesNotMatch(oauth, /binding: "MCP_OBJECT"/);
 
-assert.match(index, /if \(url\.pathname === "\/mcp"\) return MyMCP\.serve/);
+assert.match(index, /url\.pathname === "\/my-mcp" \|\| url\.pathname === "\/mcp"/);
+assert.match(index, /return MyMCP\.serve\(url\.pathname\)\.fetch/);
 assert.match(index, /createFamilyOAuthProvider\(appHandler\)/);
 assert.match(index, /family: "FamilyMCP_READ_ONLY_ISOLATED"/);
 
