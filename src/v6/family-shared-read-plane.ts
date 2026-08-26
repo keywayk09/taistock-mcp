@@ -1,4 +1,4 @@
-export const FAMILY_SHARED_READ_PLANE_VERSION = "family-shared-read-plane/v1.3.0";
+export const FAMILY_SHARED_READ_PLANE_VERSION = "family-shared-read-plane/v1.4.0";
 
 export type FamilySharedReadCapability = {
   id: string;
@@ -14,20 +14,20 @@ export const FAMILY_SHARED_READ_CAPABILITIES = [
   {
     id: "realtime_market",
     label: "即時市場、五檔與盤中狀態",
-    sources: ["OHLC_READ_SERVICE_STOCK_LIVE", "STOCK_LIVE_HUB", "FUGLE_QUOTE_DISPLAY_FALLBACK", "TWSE", "TPEX"],
+    sources: ["FUGLE_REST_QUOTE", "FUGLE_REST_TRADES", "TWSE", "TPEX"],
     identity: "EPHEMERAL_REALTIME_OR_OFFICIAL_CONTEXT",
     access: "READ_ONLY",
     family_share: "SHARED_BY_DEFAULT",
-    notes: "StockLiveHub透過OhlcFamilyReadService提供最新成交、五檔與Order Flow，只在記憶體短暫存在；正式OHLC身份仍只由OHLC MCP決定。",
+    notes: "taistock-mcp直接唯讀Fugle quote+trades取得最新成交、五檔、最近逐筆與短窗主動買賣；不持久化，正式OHLC身份仍只由既有canonical決定。",
   },
   {
     id: "canonical_ohlc",
     label: "正式 OHLC / 技術結構",
-    sources: ["OHLC_MCP", "OHLC_READ_SERVICE"],
+    sources: ["OHLC_MCP_GITHUB_CANONICAL_READ", "TV_PAPERTRADER_CANONICAL"],
     identity: "FORMAL_CANONICAL_OHLC",
     access: "READ_ONLY",
     family_share: "SHARED_BY_DEFAULT",
-    notes: "Family 只透過 OhlcFamilyReadService 唯讀；不得把 Stock Live、Fugle REST、FinMind 或 Web 價格冒充正式 OHLC。",
+    notes: "Family直接唯讀tv-papertrader既有OHLC canonical CSV並綁定GitHub path/SHA；不得把Fugle即時、FinMind或Web價格冒充正式OHLC。",
   },
   {
     id: "published_chip",
@@ -68,11 +68,11 @@ export const FAMILY_SHARED_READ_CAPABILITIES = [
   {
     id: "txf_context",
     label: "台指期 Market Regime Context",
-    sources: ["OHLC_MCP_TXF_READ", "OHLC_READ_SERVICE"],
+    sources: ["OHLC_MCP_TXF_READ"],
     identity: "GOVERNED_TXF_CONTEXT",
     access: "READ_ONLY",
     family_share: "SHARED_WHEN_AVAILABLE",
-    notes: "TXF 只作市場風險/結構背景，不是個股買賣神諭；Family 不得觸發 TXF 寫入。",
+    notes: "跨Cloudflare帳號RPC不可用時維持UNAVAILABLE/fail-closed；TXF只作市場背景，不得猜值或用股票即時來源替代。",
   },
   {
     id: "global_futures_context",
@@ -81,7 +81,7 @@ export const FAMILY_SHARED_READ_CAPABILITIES = [
     identity: "VERIFIED_GLOBAL_FUTURES_CONTEXT",
     access: "READ_ONLY",
     family_share: "SHARED_WHEN_AVAILABLE",
-    notes: "只讀 global-futures-data 已驗證 canonical；5m/1D由1m推導，PENDING產品不得包裝成正式資料。",
+    notes: "跨帳號read adapter未提供時維持UNAVAILABLE；不得把PENDING或其他來源包裝成正式Global Futures資料。",
   },
   {
     id: "global_market_context",
@@ -127,18 +127,19 @@ export function familySharedReadManifest() {
     evidence_contract: "family-evidence/v1",
     evidence_identity_policy: "EVIDENCE_CLASS_CANNOT_BE_SELF_PROMOTED",
     read_transport: {
-      worker: "tv-fugle-1d",
-      binding: "OHLC_READ_SERVICE",
-      entrypoint: "OhlcFamilyReadService",
-      capabilities: ["CANONICAL_OHLC_READ", "STOCK_LIVE_READ", "STOCK_FIVE_LEVEL_BOOK", "STOCK_ORDER_FLOW", "TXF_READ", "GLOBAL_FUTURES_READ"],
+      mode: "CROSS_ACCOUNT_SAFE_DIRECT_READ",
+      cloudflare_service_binding: false,
+      stock_realtime: "FUGLE_REST_QUOTE_TRADES",
+      stock_formal_ohlc: "TV_PAPERTRADER_GITHUB_CANONICAL_READ_ONLY",
+      capabilities: ["CANONICAL_OHLC_READ", "STOCK_REALTIME_READ", "STOCK_FIVE_LEVEL_BOOK", "STOCK_RECENT_TRADES", "STOCK_SHORT_WINDOW_ORDER_FLOW"],
       stock_live_persistence: "NONE",
       public_bypass_route: false,
       mutation_methods: false,
     },
     evidence_hierarchy: {
-      FORMAL_TRUTH: ["OHLC_MCP_VERIFIED_CANONICAL", "PUBLISHED_GENERATION"],
+      FORMAL_TRUTH: ["OHLC_MCP_GITHUB_CANONICAL_READ", "PUBLISHED_GENERATION"],
       GOVERNED_CONTEXT: ["STRUCTURED_FUNDAMENTALS", "HOLDER_STRUCTURE", "TXF_CONTEXT", "GLOBAL_MARKET_CONTEXT", "GLOBAL_FUTURES_CONTEXT"],
-      DISPLAY_FALLBACK: ["STOCK_LIVE_HUB", "FUGLE_DISPLAY", "FINMIND_PRICE_FALLBACK"],
+      DISPLAY_FALLBACK: ["FUGLE_REST_QUOTE_TRADES", "FINMIND_PRICE_FALLBACK"],
       WEB_EVIDENCE: ["OPEN_WORLD_WEB_WITH_SOURCE_AND_TIME"],
     },
     permission_model: {
@@ -150,10 +151,10 @@ export function familySharedReadManifest() {
     capabilities: FAMILY_SHARED_READ_CAPABILITIES,
     hard_deny: FAMILY_HARD_DENY_CAPABILITIES,
     evidence_rules: [
-      "能力共享不代表資料身份可互換：正式 OHLC 仍只認 OHLC MCP verified dataset。",
-      "Stock Live成交、五檔與Order Flow只屬即時context，不持久化、不得升級成正式OHLC。",
+      "能力共享不代表資料身份可互換：正式OHLC只認既有tv-fugle-1d canonical的GitHub唯讀資料。",
+      "Fugle REST成交、五檔、逐筆與短窗主動買賣只屬即時context，不持久化、不得升級成正式OHLC。",
       "正式籌碼仍只認 Published generation。",
-      "TXF/Global Futures 是 governed market-regime context，不得直接升級為個股操作真相。",
+      "TXF/Global Futures不可用時必須fail-closed，不得用股票資料或Web價格補成正式context。",
       "GOVERNED_CONTEXT、DISPLAY_FALLBACK、WEB_EVIDENCE 不能自行升級成 FORMAL_TRUTH。",
       "Web/研究資料可補充與解釋，但不能覆寫 canonical/official 事實。",
       "資料不足必須維持 UNKNOWN/UNAVAILABLE，不得為湊結論補值。",
