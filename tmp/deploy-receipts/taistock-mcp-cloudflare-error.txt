@@ -1,37 +1,5 @@
 SAFE_PRODUCTION_DEPLOY_DIAGNOSTIC_V3
-source_sha=4c9c26564a93425bed49dad3378f6a23bede89bf
-reason=WRANGLER_DEPLOY_FAILED
+source_sha=f700bdee93f37b8573db160dd698b15c2d6becbe
+reason=DEPLOY_RUN_INTERRUPTED_OR_AUTH_STEP_FAILED
 --- wrangler ---
-SAFE_WRANGLER_DEPLOY_DIAGNOSTIC_V2
-source_sha=4c9c26564a93425bed49dad3378f6a23bede89bf
-exit_code=1
----
-
- ⛅️ wrangler 4.126.0
-────────────────────
-Total Upload: 3349.40 KiB / gzip: 641.21 KiB
-Your Worker has access to the following bindings:
-Binding                                                              Resource
-env.MCP_OBJECT (MyMCP)                                               Durable Object
-env.FAMILY_MCP_OBJECT (FamilyMCP)                                    Durable Object
-env.OAUTH_KV (696e3654d2fa4c3bb1a868e5095b5660)                      KV Namespace
-env.OHLC_READ_SERVICE (tv-fugle-1d#OhlcFamilyReadService)            Worker
-env.RESEARCH_MAX_SYMBOLS ("40")                                      Environment Variable
-env.RESEARCH_MAX_ONE_MINUTE ("8")                                    Environment Variable
-env.GITHUB_DATA_REPO ("keywayk09/tv-papertrader")                    Environment Variable
-env.GITHUB_DATA_BRANCH ("main")                                      Environment Variable
-
-
-Cloudflare collects anonymous telemetry about your usage of Wrangler. Learn more at https://github.com/cloudflare/workers-sdk/tree/main/packages/wrangler/telemetry.md
-
-[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mA request to the Cloudflare API (/accounts/c85184bbe9a461eca60e02066a28fb2d/workers/scripts/taistock-mcp) failed.[0m
-
-  Service binding 'OHLC_READ_SERVICE' references Worker 'tv-fugle-1d' which was not found. Verify the Worker exists in your account and that the service name in your configuration is correct. [code: 10143]
-  To learn more about this error, visit: [4mhttps://developers.cloudflare.com/workers/configuration/bindings/about-service-bindings/[0m
-
-
-  If you think this is a bug, please open an issue at: [4mhttps://github.com/cloudflare/workers-sdk/issues/new/choose[0m
-
-
-🪵  Logs were written to "/home/runner/.config/.wrangler/logs/wrangler-2026-08-26_09-00-43_789.log"
 --- smoke ---
