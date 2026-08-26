@@ -47,7 +47,8 @@ assert.match(index, /owner_market_research_reads: "SHARED_BY_DEFAULT_WHEN_AVAILA
 assert.match(index, /owner_private_context: "DENY_BY_DEFAULT_UNLESS_EXPLICITLY_SHARED"/);
 assert.match(index, /OHLC_READ_SERVICE_STOCK_LIVE_PRIMARY_WITH_FIVE_LEVEL_BOOK/);
 assert.match(index, /shared_read_service: "tv-fugle-1d\/OhlcFamilyReadService"/);
-assert.match(index, /tools: 114/);
+assert.match(index, /stock_trade_tape: "RECENT_3_MINUTES_MAX_300_NORMALIZED_PRINTS_NOT_PERSISTED"/);
+assert.match(index, /tools: 115/);
 
 const familyMcp = read("src/v6/family-mcp.ts");
 assert.match(familyMcp, /registerFamilyStockSelectionToolsV2/);
