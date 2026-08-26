@@ -2,7 +2,7 @@
 	"name": "taistock-mcp",
 	"version": "0.0.0",
 	"private": true,
-	"deployTrigger": "full-market-stable-production-final-smoke-20260824",
+	"deployTrigger": "market-data-placeholder-continuation-production-20260826",
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
