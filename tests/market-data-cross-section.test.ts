@@ -47,7 +47,6 @@ const readyShard = {
         { trade_date:"2026-08-25", symbol:"2330", name:"台積電", market:"listed", foreign_net_shares:20, trust_net_shares:3, dealer_net_shares:2, total_net_shares:25, source:"TWSE_T86", source_priority:"OFFICIAL" },
         { trade_date:"2026-08-26", symbol:"2330", name:"台積電", market:"listed", foreign_net_shares:30, trust_net_shares:4, dealer_net_shares:3, total_net_shares:37, source:"TWSE_T86", source_priority:"OFFICIAL" },
       ],
-      // Deliberately sparse one-row layers prove 3d/5d metrics fail closed.
       margin: [
         { trade_date:"2026-08-26", symbol:"2330", name:"台積電", market:"listed", margin_previous_balance_lots:100, margin_balance_lots:90, margin_balance_change_lots:-10, short_previous_balance_lots:4, short_balance_lots:5, short_balance_change_lots:1, source:"TWSE_MI_MARGN", source_priority:"OFFICIAL" },
       ],
@@ -76,14 +75,12 @@ assert.equal(ready.scan.symbols_returned, 1);
 assert.equal(ready.symbols[0].symbol, "2330");
 assert.equal(ready.symbols[0].coverage.ready_layers, 4);
 
-// Institutional has exactly three usable samples: 1d/3d are usable, 5d is not.
 assert.equal(ready.symbols[0].institutional.net_1d, 37);
 assert.equal(ready.symbols[0].institutional.net_3d, 75);
 assert.equal(ready.symbols[0].institutional.net_5d, null);
 assert.deepEqual(ready.symbols[0].institutional.window_days, { "1d":1, "3d":3, "5d":3 });
 assert.deepEqual(ready.symbols[0].institutional.window_observations, { "1d":1, "3d":3, "5d":3 });
 
-// Sparse one-row layers must never masquerade as complete 3d/5d signals.
 assert.equal(ready.symbols[0].margin.margin_change_1d, -10);
 assert.equal(ready.symbols[0].margin.margin_change_3d, null);
 assert.equal(ready.symbols[0].margin.margin_change_5d, null);
@@ -105,8 +102,7 @@ assert.equal(ready.symbols[0].sbl_short_sale.sold_5d, null);
 assert.deepEqual(ready.symbols[0].sbl_short_sale.window_days, { "1d":1, "3d":1, "5d":1 });
 assert.deepEqual(ready.symbols[0].sbl_short_sale.window_observations, { "1d":1, "3d":1, "5d":1 });
 
-// Three rows are not a complete 3d metric when one required observation is null.
-// The short-side metric remains independently usable because all three short values exist.
+// Null observations do not count toward completed horizons.
 const nullObservedShard = structuredClone(readyShard) as any;
 nullObservedShard.symbols["2330"].margin = [
   { trade_date:"2026-08-24", symbol:"2330", name:"台積電", market:"listed", margin_previous_balance_lots:120, margin_balance_lots:110, margin_balance_change_lots:-10, short_previous_balance_lots:1, short_balance_lots:2, short_balance_change_lots:1, source:"TWSE_MI_MARGN", source_priority:"OFFICIAL" },
@@ -137,11 +133,9 @@ assert.equal(nullObserved.symbols[0].securities_lending.net_borrowed_3d, null);
 assert.deepEqual(nullObserved.symbols[0].sbl_short_sale.window_observations, { "1d":1, "3d":2, "5d":2 });
 assert.equal(nullObserved.symbols[0].sbl_short_sale.sold_3d, null);
 
-// Restore canonical READY fixtures for fail-closed gate tests.
 put("data/market-data/index/2026/08/2.json", readyShard);
 put("data/market-data/daily/2026/08/26/manifest.json", readyManifest);
 
-// Formal research must fail closed when the daily index has not completed.
 put("data/market-data/daily/2026/08/26/manifest.json", {
   ...readyManifest,
   day_status: "PARTIAL",
@@ -155,18 +149,13 @@ assert.equal(partial.status, "DEGRADED");
 assert.equal(partial.formal_research_eligible, false);
 assert.equal(partial.data_gate.manifest_valid, false);
 
-// A READY-looking manifest must still fail if its trade_date is not the requested as_of.
-put("data/market-data/daily/2026/08/26/manifest.json", {
-  ...readyManifest,
-  trade_date: "2026-08-25",
-});
+put("data/market-data/daily/2026/08/26/manifest.json", { ...readyManifest, trade_date: "2026-08-25" });
 const wrongDateManifest = await getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"2" });
 assert.equal(wrongDateManifest.status, "DEGRADED");
 assert.equal(wrongDateManifest.formal_research_eligible, false);
 assert.equal(wrongDateManifest.data_gate.manifest_valid, false);
 assert.equal(wrongDateManifest.data_gate.manifest_error, "manifest_trade_date_mismatch");
 
-// COMPLETE/READY labels cannot override missing layers or a short ready-layer count.
 put("data/market-data/daily/2026/08/26/manifest.json", {
   ...readyManifest,
   ready_layers: 7,
@@ -177,7 +166,6 @@ assert.equal(inconsistentManifest.status, "DEGRADED");
 assert.equal(inconsistentManifest.formal_research_eligible, false);
 assert.equal(inconsistentManifest.data_gate.manifest_valid, false);
 
-// A READY manifest cannot authorize a prefix the canonical generation did not complete.
 put("data/market-data/daily/2026/08/26/manifest.json", {
   ...readyManifest,
   index_state: { ...readyManifest.index_state, completed_prefixes: ["0","1"], total_prefixes: 2 },
@@ -187,10 +175,8 @@ assert.equal(missingPrefixReceipt.status, "DEGRADED");
 assert.equal(missingPrefixReceipt.formal_research_eligible, false);
 assert.equal(missingPrefixReceipt.data_gate.requested_prefixes_complete, false);
 
-// Restore the complete manifest before shard-structure regressions.
 put("data/market-data/daily/2026/08/26/manifest.json", readyManifest);
 
-// A truthy shard with a mismatched month is excluded and cannot grant READY.
 const wrongMonthShard = structuredClone(readyShard) as any;
 wrongMonthShard.month = "2026-07";
 put("data/market-data/index/2026/08/2.json", wrongMonthShard);
@@ -201,7 +187,6 @@ assert.equal(wrongMonth.scan.invalid_shards.length, 1);
 assert.equal(wrongMonth.scan.invalid_shards[0].reason, "shard_month_mismatch");
 assert.equal(wrongMonth.scan.symbols_returned, 0);
 
-// A shard cannot smuggle a symbol from a different prefix into the requested bucket.
 const wrongSymbolPrefixShard = structuredClone(readyShard) as any;
 wrongSymbolPrefixShard.symbols["1330"] = wrongSymbolPrefixShard.symbols["2330"];
 delete wrongSymbolPrefixShard.symbols["2330"];
@@ -213,7 +198,6 @@ assert.equal(wrongSymbolPrefix.scan.invalid_shards.length, 1);
 assert.match(wrongSymbolPrefix.scan.invalid_shards[0].reason, /^shard_symbol_prefix:/);
 assert.equal(wrongSymbolPrefix.scan.symbols_returned, 0);
 
-// Wrong schema is structural corruption, not a missing shard and never formal READY.
 const wrongSchemaShard = structuredClone(readyShard) as any;
 wrongSchemaShard.schema_version = "diamond-market-data-symbol-shard/v1";
 put("data/market-data/index/2026/08/2.json", wrongSchemaShard);
@@ -222,17 +206,45 @@ assert.equal(wrongSchema.status, "DEGRADED");
 assert.equal(wrongSchema.formal_research_eligible, false);
 assert.equal(wrongSchema.scan.invalid_shards[0].reason, "shard_schema_invalid");
 
-// Restore canonical fixtures for argument and production-path tests.
+// Same symbol/kind/day is a duplicate even when market labels differ.
+const duplicateDateShard = structuredClone(readyShard) as any;
+duplicateDateShard.symbols["2330"].institutional.push({
+  ...duplicateDateShard.symbols["2330"].institutional.at(-1),
+  market: "otc",
+});
+put("data/market-data/index/2026/08/2.json", duplicateDateShard);
+const duplicateDate = await getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"2" });
+assert.equal(duplicateDate.status, "DEGRADED");
+assert.equal(duplicateDate.formal_research_eligible, false);
+assert.match(duplicateDate.scan.invalid_shards[0].reason, /^shard_duplicate_trade_date:2330:institutional:2026-08-26$/);
+assert.equal(duplicateDate.scan.symbols_returned, 0);
+
+// Canonical rows must carry their own symbol identity; absence is invalid.
+const missingRowSymbolShard = structuredClone(readyShard) as any;
+delete missingRowSymbolShard.symbols["2330"].margin[0].symbol;
+put("data/market-data/index/2026/08/2.json", missingRowSymbolShard);
+const missingRowSymbol = await getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"2" });
+assert.equal(missingRowSymbol.status, "DEGRADED");
+assert.equal(missingRowSymbol.formal_research_eligible, false);
+assert.equal(missingRowSymbol.scan.invalid_shards[0].reason, "shard_row_symbol:2330:margin");
+assert.equal(missingRowSymbol.scan.symbols_returned, 0);
+
+// Malformed shard payloads are fail-closed DEGRADED receipts, not thrown MCP failures.
+memory.set("data/market-data/index/2026/08/2.json", { sha:"sha-malformed", text:"{" });
+const malformedShard = await getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"2" });
+assert.equal(malformedShard.status, "DEGRADED");
+assert.equal(malformedShard.formal_research_eligible, false);
+assert.equal(malformedShard.scan.missing_shards.length, 0);
+assert.equal(malformedShard.scan.invalid_shards.length, 1);
+assert.match(malformedShard.scan.invalid_shards[0].reason, /^shard_read_error:/);
+assert.equal(malformedShard.scan.symbols_returned, 0);
+
 put("data/market-data/index/2026/08/2.json", readyShard);
 put("data/market-data/daily/2026/08/26/manifest.json", readyManifest);
 
 await assert.rejects(() => getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"20" }), /invalid prefix/);
 
-// Production-path regression:
-// 1) resolve the moving branch once;
-// 2) pin every Contents lookup to that commit;
-// 3) simulate a >1 MB shard where Contents returns no inline base64;
-// 4) prove the reader follows the immutable blob SHA and still returns READY.
+// Production-path regression: one immutable revision + large Contents fallback.
 const originalFetch = globalThis.fetch;
 const revision = "a".repeat(40);
 const manifestBlob = "b".repeat(40);
