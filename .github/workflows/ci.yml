@@ -19,23 +19,7 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      - name: Type check with diagnostic receipt
-        id: typecheck
-        shell: bash
-        run: |
-          set +e
-          npm run type-check 2>&1 | tee /tmp/typecheck.log
-          status=${PIPESTATUS[0]}
-          set -e
-          exit "$status"
-      - name: Upload type-check failure receipt
-        if: failure() && steps.typecheck.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: typecheck-error
-          path: /tmp/typecheck.log
-          if-no-files-found: error
-          retention-days: 1
+      - run: npm run type-check
       - run: npm run test:research
       - run: npx wrangler deploy --dry-run --outdir dist
 
