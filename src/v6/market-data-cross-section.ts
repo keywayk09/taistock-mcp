@@ -15,16 +15,13 @@ import {
 /**
  * Whole-market, read-only research view over the canonical prefix/month index.
  *
- * Design goals:
- * - never require a research client to decode gzip+base64 snapshots itself;
- * - keep GitHub as the only persistent source of truth;
- * - expose compact, rank-ready per-symbol features instead of raw full snapshots;
- * - fail closed for formal research unless the requested day is COMPLETE and the
- *   cross-sectional index is READY;
- * - pin manifest + every shard to one immutable GitHub commit so a formal scan
- *   can never mix two canonical generations while the branch advances;
- * - support prefix paging (0-9) so callers can scan the whole market without one
- *   oversized MCP response.
+ * Formal-research invariants:
+ * - manifest and every shard are pinned to one immutable Git commit;
+ * - large GitHub Contents objects fall back to their immutable Git Blob SHA;
+ * - compressed canonical envelopes are decoded inside the reader;
+ * - incomplete 3d/5d histories are never mislabeled as complete horizons;
+ * - formal eligibility stays fail-closed unless the day and requested prefixes
+ *   are complete and every requested shard is present.
  */
 export const MARKET_DATA_CROSS_SECTION_VERSION = "diamond-market-data-cross-section/v1";
 
@@ -66,6 +63,8 @@ type CanonicalRead<T> = {
 };
 
 type MemoryEnv = Env & { __GITHUB_DATA_MEMORY?: Map<string, unknown> };
+
+type WindowValue = { days: number; value: number | null };
 
 function taipeiDate(ms = Date.now()) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -144,13 +143,10 @@ async function decodeCanonicalJson<T>(text: string): Promise<T> {
   return JSON.parse(await decodeGitHubCompressedJsonText(parsed)) as T;
 }
 
-/** Resolve the moving canonical branch once, before any formal cross-section read. */
+/** Resolve the moving canonical branch once before any formal cross-section read. */
 async function resolveCanonicalRevision(env: Env) {
   const memory = (env as MemoryEnv).__GITHUB_DATA_MEMORY;
   const { repo, branch } = canonicalConfig(env);
-  // The in-memory test store is already one synchronous snapshot and has no real
-  // Git commit. Keep an explicit synthetic revision so tests exercise the same
-  // formal-research contract without making network calls.
   if (memory) return `memory:${branch}`;
 
   const response = await fetch(`https://api.github.com/repos/${repo}/commits/${encodeURIComponent(branch)}`, {
@@ -165,12 +161,31 @@ async function resolveCanonicalRevision(env: Env) {
   return sha;
 }
 
+/**
+ * Read the complete immutable blob. GitHub Contents responses stop embedding
+ * base64 content once a file grows beyond the inline threshold, so large month
+ * shards must fall back to the Git Blob endpoint keyed by the Contents blob SHA.
+ */
+async function readBlobBase64(env: Env, repo: string, blobSha: string) {
+  if (!/^[0-9a-f]{40}$/i.test(blobSha)) throw new Error("canonical_blob_invalid_sha");
+  const response = await fetch(`https://api.github.com/repos/${repo}/git/blobs/${encodeURIComponent(blobSha)}`, {
+    method: "GET",
+    headers: canonicalHeaders(env),
+    cache: "no-store",
+  });
+  const body = await response.json<any>().catch(() => null);
+  if (!response.ok) throw new Error(`canonical_blob_read_failed:${response.status}:${blobSha}`);
+  if (body?.sha && String(body.sha) !== blobSha) throw new Error(`canonical_blob_sha_mismatch:${blobSha}`);
+  if (String(body?.encoding ?? "").toLowerCase() !== "base64" || typeof body?.content !== "string" || !body.content.trim()) {
+    throw new Error(`canonical_blob_invalid_content:${blobSha}`);
+  }
+  return body.content as string;
+}
+
 /** Read one canonical JSON file at the immutable revision selected above. */
 async function readCanonicalJsonAtRevision<T>(env: Env, path: string, revision: string): Promise<CanonicalRead<T>> {
   const normalized = normalizeCanonicalPath(path);
-  if ((env as MemoryEnv).__GITHUB_DATA_MEMORY) {
-    return await readGitHubJson<T>(env, normalized);
-  }
+  if ((env as MemoryEnv).__GITHUB_DATA_MEMORY) return await readGitHubJson<T>(env, normalized);
 
   if (!/^[0-9a-f]{40}$/i.test(revision)) throw new Error("canonical_revision_required");
   const { repo } = canonicalConfig(env);
@@ -183,14 +198,22 @@ async function readCanonicalJsonAtRevision<T>(env: Env, path: string, revision: 
   if (response.status === 404) return { exists: false, path: normalized, sha: null, value: null };
   const body = await response.json<any>().catch(() => null);
   if (!response.ok) throw new Error(`canonical_read_failed:${response.status}:${normalized}`);
-  if (!body || Array.isArray(body) || typeof body.content !== "string" || typeof body.sha !== "string") {
-    throw new Error(`canonical_read_invalid_content:${normalized}`);
+  if (!body || Array.isArray(body) || typeof body.sha !== "string" || !/^[0-9a-f]{40}$/i.test(body.sha)) {
+    throw new Error(`canonical_read_invalid_metadata:${normalized}`);
   }
+
+  const inlineBase64 = String(body.encoding ?? "base64").toLowerCase() === "base64"
+    && typeof body.content === "string"
+    && body.content.trim()
+    ? body.content
+    : null;
+  const encoded = inlineBase64 ?? await readBlobBase64(env, repo, body.sha);
+
   return {
     exists: true,
     path: normalized,
     sha: body.sha,
-    value: await decodeCanonicalJson<T>(base64ToUtf8(body.content)),
+    value: await decodeCanonicalJson<T>(base64ToUtf8(encoded)),
   };
 }
 
@@ -204,59 +227,95 @@ function rowsInRange<T extends { trade_date: string }>(rows: T[] | undefined, st
   return (rows ?? []).filter((row) => row.trade_date >= start && row.trade_date <= end);
 }
 
+/** Return a metric only when the requested horizon has the full sample count. */
+function completeWindow(window: any, horizon: number, field: string): WindowValue {
+  const days = Number(window?.days ?? 0);
+  const raw = window?.[field];
+  return {
+    days,
+    value: days === horizon && raw !== undefined && raw !== null && Number.isFinite(Number(raw)) ? Number(raw) : null,
+  };
+}
+
+function windowDayReceipt(d1: WindowValue, d3: WindowValue, d5: WindowValue) {
+  return { "1d": d1.days, "3d": d3.days, "5d": d5.days };
+}
+
 function compactInstitutional(rows: InstitutionalRow[]) {
   const latest = rows.at(-1) ?? null;
   const windows = institutionalWindows(rows) as Record<string, any>;
+  const d1 = completeWindow(windows["1d"], 1, "total_net_shares");
+  const d3 = completeWindow(windows["3d"], 3, "total_net_shares");
+  const d5 = completeWindow(windows["5d"], 5, "total_net_shares");
   return {
     latest_trade_date: latest?.trade_date ?? null,
     latest_total_net_shares: latest?.total_net_shares ?? null,
     latest_foreign_net_shares: latest?.foreign_net_shares ?? null,
     latest_trust_net_shares: latest?.trust_net_shares ?? null,
     latest_dealer_net_shares: latest?.dealer_net_shares ?? null,
-    net_1d: windows["1d"]?.total_net_shares ?? null,
-    net_3d: windows["3d"]?.total_net_shares ?? null,
-    net_5d: windows["5d"]?.total_net_shares ?? null,
+    window_days: windowDayReceipt(d1, d3, d5),
+    net_1d: d1.value,
+    net_3d: d3.value,
+    net_5d: d5.value,
   };
 }
 
 function compactMargin(rows: MarginRow[]) {
   const view = marginWindows(rows) as any;
   const latest = view.latest as MarginRow | null;
+  const w1 = view.windows?.["1d"];
+  const w3 = view.windows?.["3d"];
+  const w5 = view.windows?.["5d"];
+  const margin1 = completeWindow(w1, 1, "margin_balance_change_lots");
+  const margin3 = completeWindow(w3, 3, "margin_balance_change_lots");
+  const margin5 = completeWindow(w5, 5, "margin_balance_change_lots");
+  const short1 = completeWindow(w1, 1, "short_balance_change_lots");
+  const short3 = completeWindow(w3, 3, "short_balance_change_lots");
+  const short5 = completeWindow(w5, 5, "short_balance_change_lots");
   return {
     latest_trade_date: latest?.trade_date ?? null,
     margin_balance_lots: latest?.margin_balance_lots ?? null,
     short_balance_lots: latest?.short_balance_lots ?? null,
-    margin_change_1d: view.windows?.["1d"]?.margin_balance_change_lots ?? null,
-    margin_change_3d: view.windows?.["3d"]?.margin_balance_change_lots ?? null,
-    margin_change_5d: view.windows?.["5d"]?.margin_balance_change_lots ?? null,
-    short_change_1d: view.windows?.["1d"]?.short_balance_change_lots ?? null,
-    short_change_3d: view.windows?.["3d"]?.short_balance_change_lots ?? null,
-    short_change_5d: view.windows?.["5d"]?.short_balance_change_lots ?? null,
+    window_days: windowDayReceipt(margin1, margin3, margin5),
+    margin_change_1d: margin1.value,
+    margin_change_3d: margin3.value,
+    margin_change_5d: margin5.value,
+    short_change_1d: short1.value,
+    short_change_3d: short3.value,
+    short_change_5d: short5.value,
   };
 }
 
 function compactLending(rows: SecuritiesLendingRow[]) {
   const view = securitiesLendingWindows(rows) as any;
   const latest = view.latest as SecuritiesLendingRow | null;
+  const d1 = completeWindow(view.windows?.["1d"], 1, "net_borrowed_shares");
+  const d3 = completeWindow(view.windows?.["3d"], 3, "net_borrowed_shares");
+  const d5 = completeWindow(view.windows?.["5d"], 5, "net_borrowed_shares");
   return {
     latest_trade_date: latest?.trade_date ?? null,
     balance_shares: latest?.balance_shares ?? null,
-    net_borrowed_1d: view.windows?.["1d"]?.net_borrowed_shares ?? null,
-    net_borrowed_3d: view.windows?.["3d"]?.net_borrowed_shares ?? null,
-    net_borrowed_5d: view.windows?.["5d"]?.net_borrowed_shares ?? null,
+    window_days: windowDayReceipt(d1, d3, d5),
+    net_borrowed_1d: d1.value,
+    net_borrowed_3d: d3.value,
+    net_borrowed_5d: d5.value,
   };
 }
 
 function compactSbl(rows: SblShortSaleRow[]) {
   const view = sblShortSaleWindows(rows) as any;
   const latest = view.latest as SblShortSaleRow | null;
+  const d1 = completeWindow(view.windows?.["1d"], 1, "sold_shares");
+  const d3 = completeWindow(view.windows?.["3d"], 3, "sold_shares");
+  const d5 = completeWindow(view.windows?.["5d"], 5, "sold_shares");
   return {
     latest_trade_date: latest?.trade_date ?? null,
     balance_shares: latest?.balance_shares ?? null,
     available_shares: latest?.available_shares ?? null,
-    sold_1d: view.windows?.["1d"]?.sold_shares ?? null,
-    sold_3d: view.windows?.["3d"]?.sold_shares ?? null,
-    sold_5d: view.windows?.["5d"]?.sold_shares ?? null,
+    window_days: windowDayReceipt(d1, d3, d5),
+    sold_1d: d1.value,
+    sold_3d: d3.value,
+    sold_5d: d5.value,
   };
 }
 
@@ -265,8 +324,7 @@ export async function getTwMarketCrossSection(env: Env, input: MarketCrossSectio
   if (!validDate(asOf)) throw new Error(`invalid as_of: ${asOf}`);
 
   // Twenty calendar days comfortably covers 1/3/5 trading-day windows while
-  // avoiding an unnecessary previous-month shard dependency for late-month runs.
-  // Callers can explicitly request up to 62 days when longer history is available.
+  // avoiding unnecessary historical shards for the normal research path.
   const calendarDays = Math.max(20, Math.min(62, Math.floor(Number(input.calendar_days ?? 20))));
   const start = subtractDays(asOf, calendarDays);
   const requestedPrefix = input.prefix == null ? null : String(input.prefix).trim();
@@ -274,8 +332,6 @@ export async function getTwMarketCrossSection(env: Env, input: MarketCrossSectio
   const prefixes = requestedPrefix === null ? ["0","1","2","3","4","5","6","7","8","9"] : [requestedPrefix];
   const limit = Math.max(1, Math.min(2500, Math.floor(Number(input.limit ?? (requestedPrefix === null ? 2500 : 500)))));
 
-  // P0/P1 formal-read fence: resolve main once and read the manifest + every
-  // month/prefix shard at exactly that immutable commit. No moving-branch mixture.
   const sourceRevision = await resolveCanonicalRevision(env);
   const manifest = await readCanonicalJsonAtRevision<DailyManifest>(env, manifestPath(asOf), sourceRevision);
   const dayComplete = manifest.value?.day_status === "COMPLETE" && manifest.value?.terminal === true;
@@ -309,32 +365,35 @@ export async function getTwMarketCrossSection(env: Env, input: MarketCrossSectio
     }
   }
 
-  const symbols = [...bySymbol.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(0, limit).map(([symbol, state]) => {
-    const institutional = dedupeRows(rowsInRange(state.institutional as InstitutionalRow[] | undefined, start, asOf));
-    const margin = dedupeRows(rowsInRange(state.margin as MarginRow[] | undefined, start, asOf));
-    const lending = dedupeRows(rowsInRange(state.securities_lending as SecuritiesLendingRow[] | undefined, start, asOf));
-    const sbl = dedupeRows(rowsInRange(state.sbl_short_sale as SblShortSaleRow[] | undefined, start, asOf));
-    const latest = institutional.at(-1) ?? margin.at(-1) ?? lending.at(-1) ?? sbl.at(-1) ?? null;
-    const coverage = {
-      institutional: institutional.length > 0,
-      margin: margin.length > 0,
-      securities_lending: lending.length > 0,
-      sbl_short_sale: sbl.length > 0,
-    };
-    const readyLayers = Object.values(coverage).filter(Boolean).length;
-    return {
-      symbol,
-      name: latest?.name ?? "",
-      market: latest?.market ?? null,
-      data_as_of: [institutional.at(-1)?.trade_date, margin.at(-1)?.trade_date, lending.at(-1)?.trade_date, sbl.at(-1)?.trade_date]
-        .filter(Boolean).sort().at(-1) ?? null,
-      coverage: { ...coverage, ready_layers: readyLayers, expected_layers: 4 },
-      institutional: compactInstitutional(institutional),
-      margin: compactMargin(margin),
-      securities_lending: compactLending(lending),
-      sbl_short_sale: compactSbl(sbl),
-    };
-  });
+  const symbols = [...bySymbol.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(0, limit)
+    .map(([symbol, state]) => {
+      const institutional = dedupeRows(rowsInRange(state.institutional as InstitutionalRow[] | undefined, start, asOf));
+      const margin = dedupeRows(rowsInRange(state.margin as MarginRow[] | undefined, start, asOf));
+      const lending = dedupeRows(rowsInRange(state.securities_lending as SecuritiesLendingRow[] | undefined, start, asOf));
+      const sbl = dedupeRows(rowsInRange(state.sbl_short_sale as SblShortSaleRow[] | undefined, start, asOf));
+      const latest = institutional.at(-1) ?? margin.at(-1) ?? lending.at(-1) ?? sbl.at(-1) ?? null;
+      const coverage = {
+        institutional: institutional.length > 0,
+        margin: margin.length > 0,
+        securities_lending: lending.length > 0,
+        sbl_short_sale: sbl.length > 0,
+      };
+      const readyLayers = Object.values(coverage).filter(Boolean).length;
+      return {
+        symbol,
+        name: latest?.name ?? "",
+        market: latest?.market ?? null,
+        data_as_of: [institutional.at(-1)?.trade_date, margin.at(-1)?.trade_date, lending.at(-1)?.trade_date, sbl.at(-1)?.trade_date]
+          .filter(Boolean).sort().at(-1) ?? null,
+        coverage: { ...coverage, ready_layers: readyLayers, expected_layers: 4 },
+        institutional: compactInstitutional(institutional),
+        margin: compactMargin(margin),
+        securities_lending: compactLending(lending),
+        sbl_short_sale: compactSbl(sbl),
+      };
+    });
 
   const formalResearchEligible = dayComplete && indexReady && requestedPrefixesComplete && missingShards.length === 0;
   return {
@@ -372,6 +431,6 @@ export async function getTwMarketCrossSection(env: Env, input: MarketCrossSectio
     },
     datasets,
     symbols,
-    note: "Compact canonical market-data feature vectors only. Manifest and shards are pinned to source_revision. Price/volume remains an OHLC MCP join; sector metadata is a separate research metadata join.",
+    note: "Compact canonical market-data feature vectors only. Manifest and shards are pinned to source_revision; large shards are read by immutable blob SHA. Incomplete horizons return null with window_days coverage. Price/volume remains an OHLC MCP join; sector metadata is a separate research metadata join.",
   };
 }
