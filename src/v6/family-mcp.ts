@@ -5,8 +5,9 @@ import { readFamilyStockMarketContext } from "./family-ohlc-read-bridge";
 import { familyResearchDirective } from "./family-research-policy";
 import { familySharedReadManifest } from "./family-shared-read-plane";
 import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
+import { registerSharedCryptoMarketTools, SHARED_CRYPTO_TOOL_NAMES } from "./shared-crypto-market-tools";
 
-export const FAMILY_MCP_VERSION = "family-mcp/v3.3.0";
+export const FAMILY_MCP_VERSION = "family-mcp/v3.4.0";
 export const FAMILY_MCP_TOOL_NAMES = [
   "family_engine_status",
   "get_family_stock_market_context",
@@ -14,6 +15,7 @@ export const FAMILY_MCP_TOOL_NAMES = [
   "get_family_market_chip_summary",
   "analyze_family_stock",
   "compare_family_stocks",
+  ...SHARED_CRYPTO_TOOL_NAMES,
 ] as const;
 
 const out = (value: unknown) => ({
@@ -25,18 +27,18 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 export class FamilyMCP extends McpAgent<Env> {
   server = new McpServer({
-    name: "Taiwan Stock AI Family",
-    version: "3.3.0",
+    name: "Taiwan Stock + Crypto AI Family",
+    version: "3.4.0",
   });
 
   async init() {
     this.server.registerTool("family_engine_status", {
-      description: "確認Family Shared Read Plane、安全邊界、Evidence身份、即時來源、Open Web研究政策與可用能力。家人與Owner共用市場/研究讀取能力，但Family永遠唯讀。",
+      description: "確認Family Shared Read Plane、安全邊界、台股與幣圈共用讀取能力。家人與Owner共用市場/研究讀取能力，但Family永遠唯讀。",
       inputSchema: {},
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     }, async () => out({
       ok: true,
-      service: "Taiwan Stock AI Family MCP",
+      service: "Taiwan Stock + Crypto AI Family MCP",
       version: FAMILY_MCP_VERSION,
       intelligence_model: "SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS",
       access: "READ_ONLY_FAMILY_SURFACE",
@@ -48,12 +50,15 @@ export class FamilyMCP extends McpAgent<Env> {
         diamond_judgment_writes: false,
         strategy_changes: false,
         github_writes: false,
+        crypto_orders: false,
+        crypto_strategy_changes: false,
         owner_private_context_shared_by_default: false,
         evidence_contract: "family-evidence/v1",
         evidence_identity: "EVIDENCE_CLASS_CANNOT_BE_SELF_PROMOTED",
         formal_market_chip: "PUBLISHED_GENERATION_ONLY",
         formal_ohlc: "EXISTING_TV_FUGLE_1D_GITHUB_CANONICAL_ONLY",
         stock_live: "EPHEMERAL_READ_ONLY_NO_CANONICAL_WRITE",
+        crypto_live: "TV_CRYPTO_ENGINE_PUBLIC_READ_ONLY_NO_ORDER_PATH",
         finmind_price_is_formal_ohlc: false,
       },
       capability_notes: {
@@ -71,6 +76,8 @@ export class FamilyMCP extends McpAgent<Env> {
         official_valuation: "TWSE_TPEX_OPENAPI_FAIL_SOFT",
         canonical_ohlc_bridge: "GITHUB_CANONICAL_READ_ONLY",
         stock_live_context_bridge: "LOCAL_FUGLE_REST_QUOTE_TRADES",
+        crypto_candidate_bridge: "TV_CRYPTO_ENGINE_LIGHT_DEEP_OI_MARKET_CONTEXT_READ_ONLY",
+        crypto_deep_probe_bridge: "TV_CRYPTO_ENGINE_BYBIT_GATE_5M_LOCAL15M_OI_READ_ONLY",
         txf_context_bridge: "FAIL_CLOSED_WHEN_CROSS_ACCOUNT_RPC_UNAVAILABLE",
         global_context_bridge: "FAIL_CLOSED_WHEN_CROSS_ACCOUNT_RPC_UNAVAILABLE",
         web_research: "OPEN_WORLD_AUTONOMOUS_NO_FIXED_SITE_OR_KEYWORD_LIMIT",
@@ -136,5 +143,10 @@ export class FamilyMCP extends McpAgent<Env> {
       const result = await runSmartFamilyAnalysis(this.env, { symbols: [...new Set(symbols)], as_of_date });
       return out({ ...result, requested_tool: "compare_family_stocks" });
     });
+
+    // The same Family MCP connection now exposes crypto read tools as well as
+    // Taiwan-stock tools. This is intentionally a read-only bridge to the central
+    // tv-crypto-engine; no separate family crypto MCP or duplicate engine exists.
+    registerSharedCryptoMarketTools(this.server, this.env);
   }
 }
