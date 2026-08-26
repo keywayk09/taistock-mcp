@@ -236,20 +236,18 @@ function shardValidationError(shard: SymbolMonthShard | null, expectedMonth: str
         if (!row || typeof row !== "object" || Array.isArray(row)) return `shard_row_invalid:${symbol}:${kind}`;
         const tradeDate = String((row as any).trade_date ?? "");
         if (!validDate(tradeDate) || tradeDate.slice(0, 7) !== expectedMonth) return `shard_row_date:${symbol}:${kind}`;
-        if ((row as any).symbol != null && String((row as any).symbol) !== symbol) return `shard_row_symbol:${symbol}:${kind}`;
-        const market = String((row as any).market ?? "");
-        const key = `${tradeDate}:${market}`;
-        if (seen.has(key)) return `shard_duplicate_trade_date:${symbol}:${kind}:${key}`;
-        seen.add(key);
+        if (String((row as any).symbol ?? "") !== symbol) return `shard_row_symbol:${symbol}:${kind}`;
+        if (seen.has(tradeDate)) return `shard_duplicate_trade_date:${symbol}:${kind}:${tradeDate}`;
+        seen.add(tradeDate);
       }
     }
   }
   return null;
 }
 
-function dedupeRows<T extends { trade_date: string; market?: string }>(rows: T[]) {
+function dedupeRows<T extends { trade_date: string }>(rows: T[]) {
   const map = new Map<string, T>();
-  for (const row of rows) map.set(`${row.trade_date}:${row.market ?? ""}`, row);
+  for (const row of rows) map.set(row.trade_date, row);
   return [...map.values()].sort((a, b) => a.trade_date.localeCompare(b.trade_date));
 }
 
@@ -396,17 +394,32 @@ export async function getTwMarketCrossSection(env: Env, input: MarketCrossSectio
   const requestedPrefixesComplete = prefixes.every((prefix) => completedPrefixSet.has(prefix));
 
   const months = monthRange(start, asOf);
-  const reads = await Promise.all(months.flatMap((month) => prefixes.map(async (prefix) => ({
-    month,
-    prefix,
-    read: await readCanonicalJsonAtRevision<SymbolMonthShard>(env, shardPath(month, prefix), sourceRevision),
+  const reads = await Promise.all(months.flatMap((month) => prefixes.map(async (prefix) => {
+    const path = shardPath(month, prefix);
+    try {
+      return {
+        month,
+        prefix,
+        read: await readCanonicalJsonAtRevision<SymbolMonthShard>(env, path, sourceRevision),
+        read_error: null as string | null,
+      };
+    } catch (error) {
+      return {
+        month,
+        prefix,
+        read: { exists: false, path, sha: null, value: null } as CanonicalRead<SymbolMonthShard>,
+        read_error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }))));
 
-  const missingShards = reads.filter((item) => !item.read.value).map((item) => item.read.path);
-  const invalidShards = reads
-    .filter((item) => item.read.value)
-    .map((item) => ({ path: item.read.path, reason: shardValidationError(item.read.value, item.month, item.prefix) }))
-    .filter((item): item is { path: string; reason: string } => Boolean(item.reason));
+  const missingShards = reads.filter((item) => !item.read.value && !item.read_error).map((item) => item.read.path);
+  const invalidShards = reads.flatMap((item) => {
+    if (item.read_error) return [{ path: item.read.path, reason: `shard_read_error:${item.read_error}` }];
+    if (!item.read.value) return [];
+    const reason = shardValidationError(item.read.value, item.month, item.prefix);
+    return reason ? [{ path: item.read.path, reason }] : [];
+  });
   const invalidShardPaths = new Set(invalidShards.map((item) => item.path));
   const bySymbol = new Map<string, Partial<Record<TwMarketDataKind, any[]>>>();
   const datasets: Array<{ path: string; sha: string | null; month: string; prefix: string }> = [];
