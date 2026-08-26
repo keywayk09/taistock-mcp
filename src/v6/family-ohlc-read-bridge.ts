@@ -1,6 +1,6 @@
 import { createCrossAccountReadService } from "./cross-account-read-service.ts";
 
-export const FAMILY_OHLC_READ_BRIDGE_VERSION = "family-ohlc-read-bridge/v1.2.0";
+export const FAMILY_OHLC_READ_BRIDGE_VERSION = "family-ohlc-read-bridge/v1.2.1";
 
 type AnyRecord = Record<string, any>;
 type FamilyReadIntent =
@@ -371,7 +371,7 @@ export async function readFamilyMarketRegimeContext(
     Promise.all(products.map((product) => readGlobalFutureAsOf(rpc, product, asOf))),
   ]);
   const txfContext = txfCall.ok ? governedContext(txfCall.data, "OHLC_MCP_TXF_READ") : governedContext(null, "OHLC_MCP_TXF_READ", txfCall.error);
-  const successful = futuresCalls
+  const successful: AnyRecord[] = futuresCalls
     .filter((item) => item.ok && verifiedGlobalFutureReady(item.data) && String(rec(item.data).trade_date ?? "") === String(item.trade_date ?? ""))
     .map((item) => ({ product: item.product, ...rec(item.data) }));
   const failures = futuresCalls
@@ -380,7 +380,7 @@ export async function readFamilyMarketRegimeContext(
   const globalRaw = successful.length ? {
     ok: true, blocked: false, status: failures.length ? "DEGRADED" : "READY", source: "OHLC_MCP_GLOBAL_FUTURES_READ",
     verification_level: "VERIFIED_CANONICAL_CONTEXT", formal_research_eligible: false,
-    trade_date: successful.map((item) => String(item.trade_date ?? "")).filter(Boolean).sort().at(-1) ?? null,
+    trade_date: successful.map((item) => String(rec(item).trade_date ?? "")).filter(Boolean).sort().at(-1) ?? null,
     products: successful, failures, requested_products: products, requested_as_of_date: asOf,
   } : {
     ok: false, blocked: true, status: "UNAVAILABLE", source: "OHLC_MCP_GLOBAL_FUTURES_READ", verification_level: "NOT_VERIFIED",
