@@ -133,9 +133,9 @@ const appHandler = {
           canonical_root: "data/market-data/",
           calendar_root: "data/market-calendar/",
           policy: "incremental_ready_monotonic_missing_only_retry",
-          ohlc_gateway: "OHLC_MCP_ONLY",
-          shared_read_service: "tv-fugle-1d/OhlcFamilyReadService",
-          stock_live_context: "EPHEMERAL_FUGLE_WEBSOCKET_TRADES_FIVE_LEVEL_BOOK_ORDER_FLOW_RECENT_TAPE",
+          ohlc_gateway: "OHLC_MCP_CANONICAL_GITHUB_READ_ONLY",
+          cross_account_read: "FUGLE_REST_PLUS_GITHUB_CANONICAL_NO_SERVICE_BINDING",
+          stock_live_context: "EPHEMERAL_FUGLE_REST_QUOTE_TRADES_FIVE_LEVEL_BOOK_RECENT_TAPE",
           stock_trade_tape: "RECENT_3_MINUTES_MAX_300_NORMALIZED_PRINTS_NOT_PERSISTED",
           stock_live_persistence: "NONE",
           capture_owner: "CLOUDFLARE_CRON_CANONICAL_WRITER",
@@ -167,7 +167,7 @@ const appHandler = {
           permission_model: "SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS",
           owner_market_research_reads: "SHARED_BY_DEFAULT_WHEN_AVAILABLE",
           owner_private_context: "DENY_BY_DEFAULT_UNLESS_EXPLICITLY_SHARED",
-          realtime: "OHLC_READ_SERVICE_STOCK_LIVE_PRIMARY_WITH_FIVE_LEVEL_BOOK",
+          realtime: "FUGLE_REST_READ_ONLY_WITH_FIVE_LEVEL_BOOK_AND_RECENT_TRADES",
           web_research: "OPEN_WORLD_AUTONOMOUS_ALLOWED",
           swing_screen: "STABLE_FULL_MARKET_CONTRACT_BOUNDED_FUGLE_HISTORY",
           startup_graph: "LAZY_DEEP_FAMILY_MODULES",
@@ -227,7 +227,7 @@ const appHandler = {
           error: "legacy_research_ohlc_path_disabled",
           policy: "OHLC_MCP_ONLY",
           storage_policy: "GITHUB_ONLY_NO_D1_NO_R2",
-          message: "舊 research candle path 已退休；正式 OHLC 請走 OHLC MCP。",
+          message: "舊 research candle path 已退休；正式 OHLC 請走 OHLC canonical GitHub read。",
         }, { status: 410 });
       }
       return Response.json({ error: "not found" }, { status: 404 });
