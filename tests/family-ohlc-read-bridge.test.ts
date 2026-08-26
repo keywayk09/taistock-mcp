@@ -217,8 +217,11 @@ assert.equal(Array.isArray(wrangler.services) ? wrangler.services.length : 0, 0)
 
 const bridgeSource = await readFile(new URL("../src/v6/family-ohlc-read-bridge.ts", import.meta.url), "utf8");
 const adapterSource = await readFile(new URL("../src/v6/cross-account-read-service.ts", import.meta.url), "utf8");
-assert.doesNotMatch(bridgeSource, /syncOhlc|backfillOhlc|writeOhlc|GITHUB_TOKEN|FUGLE_API_KEY|GLOBAL_FUTURES_ADMIN_KEY/);
+// The bridge may reference FUGLE_API_KEY only to detect that the read-only direct
+// adapter can be constructed. Mutation methods and privileged admin secrets remain forbidden.
+assert.doesNotMatch(bridgeSource, /syncOhlc|backfillOhlc|writeOhlc|GITHUB_TOKEN|GLOBAL_FUTURES_ADMIN_KEY/);
 assert.match(bridgeSource, /createCrossAccountReadService/);
+assert.match(bridgeSource, /FUGLE_API_KEY/);
 assert.match(bridgeSource, /formal_research_eligible/);
 assert.match(bridgeSource, /VERIFIED_RECEIPT_GZIP_LOGICAL_SHA256_BOUND/);
 assert.match(adapterSource, /FUGLE_REST_READ_ONLY/);
