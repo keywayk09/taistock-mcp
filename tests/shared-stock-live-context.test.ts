@@ -62,6 +62,32 @@ function liveContext(symbol = "2317") {
           ask_depth: 370,
           imbalance: -0.0137,
         },
+        recent_trades: [
+          {
+            time: 1_777_000_000_000,
+            serial: 1,
+            price: 243,
+            size: 120,
+            bid: 242.5,
+            ask: 243,
+            side: "buy",
+            aggressor: "BUY",
+            taiwan_side: "OUTSIDE",
+            classification_method: "quote",
+            cumulative_volume: 35_312,
+            is_large: true,
+          },
+        ],
+        trade_tape: {
+          window_ms: 180_000,
+          returned: 1,
+          available_in_window: 1,
+          limit: 300,
+          truncated: false,
+          large_trade_threshold: 100,
+          classification: "quote_then_tick_rule",
+          persisted: false,
+        },
         windows: {
           "30s": { delta: 120, buy_ratio: 0.63 },
           "60s": { delta: 180, buy_ratio: 0.61 },
@@ -171,13 +197,20 @@ assert.doesNotMatch(index, /\/api\/live-market-context/);
 
 const ownerTools = await readFile(new URL("../src/v6/shared-stock-market-context-tools.ts", import.meta.url), "utf8");
 assert.match(ownerTools, /registerTool\("get_stock_market_context"/);
+assert.match(ownerTools, /registerTool\("get_stock_trade_tape"/);
 assert.match(ownerTools, /registerTool\("get_quote"/);
 assert.match(ownerTools, /registerTool\("get_daily_price"/);
 assert.match(ownerTools, /readFamilyStockMarketContext/);
 assert.match(ownerTools, /readFamilyCanonicalOhlc/);
+assert.match(ownerTools, /readStockMarketContext/);
+assert.match(ownerTools, /recent_trades/);
+assert.match(ownerTools, /trade_tape/);
+assert.match(ownerTools, /classification_method/);
+assert.match(ownerTools, /taiwan_side/);
+assert.match(ownerTools, /is_large/);
 assert.match(ownerTools, /OHLC_READ_SERVICE_STOCK_LIVE/);
 assert.match(ownerTools, /FUGLE_REST_DISPLAY_FALLBACK/);
-assert.doesNotMatch(ownerTools, /GitHub|GITHUB_TOKEN|\.put\(|order_placement|placeOrder|submitOrder/);
+assert.doesNotMatch(ownerTools, /GITHUB_TOKEN|\.put\(|order_placement|placeOrder|submitOrder/);
 
 const familyMcp = await readFile(new URL("../src/v6/family-mcp.ts", import.meta.url), "utf8");
 assert.match(familyMcp, /get_family_stock_market_context/);
