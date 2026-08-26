@@ -6,7 +6,7 @@ import { familyResearchDirective } from "./family-research-policy";
 import { familySharedReadManifest } from "./family-shared-read-plane";
 import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
 
-export const FAMILY_MCP_VERSION = "family-mcp/v3.2.0";
+export const FAMILY_MCP_VERSION = "family-mcp/v3.3.0";
 export const FAMILY_MCP_TOOL_NAMES = [
   "family_engine_status",
   "get_family_stock_market_context",
@@ -26,7 +26,7 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export class FamilyMCP extends McpAgent<Env> {
   server = new McpServer({
     name: "Taiwan Stock AI Family",
-    version: "3.2.0",
+    version: "3.3.0",
   });
 
   async init() {
@@ -52,7 +52,7 @@ export class FamilyMCP extends McpAgent<Env> {
         evidence_contract: "family-evidence/v1",
         evidence_identity: "EVIDENCE_CLASS_CANNOT_BE_SELF_PROMOTED",
         formal_market_chip: "PUBLISHED_GENERATION_ONLY",
-        formal_ohlc: "OHLC_MCP_ONLY",
+        formal_ohlc: "EXISTING_TV_FUGLE_1D_GITHUB_CANONICAL_ONLY",
         stock_live: "EPHEMERAL_READ_ONLY_NO_CANONICAL_WRITE",
         finmind_price_is_formal_ohlc: false,
       },
@@ -63,16 +63,16 @@ export class FamilyMCP extends McpAgent<Env> {
         unified_evidence_bundle: "FAMILY_EVIDENCE_V1_READY",
         evidence_classes: "FORMAL_TRUTH|GOVERNED_CONTEXT|DISPLAY_FALLBACK|WEB_EVIDENCE",
         swing_screening: "V2_FULL_SNAPSHOT_PREFILTER_BOUNDED_DEEP_SCAN",
-        realtime: "OHLC_READ_SERVICE_STOCK_LIVE_PRIMARY_WITH_FIVE_LEVEL_BOOK",
+        realtime: "FUGLE_REST_READ_ONLY_WITH_FIVE_LEVEL_BOOK_AND_RECENT_TRADES",
         formal_chip_history: "READY",
         holder_distribution_400_1000_lots: "FINMIND_FAIL_SOFT",
         monthly_revenue_summary: "READY_WITH_MOM_YOY",
         accounting_summary: "READY_WITH_MARGIN_EPS_CASHFLOW_RISK_FLAGS",
         official_valuation: "TWSE_TPEX_OPENAPI_FAIL_SOFT",
-        canonical_ohlc_bridge: "OHLC_READ_SERVICE_READY_WHEN_BOUND",
-        stock_live_context_bridge: "SAME_OHLC_READ_SERVICE_ENTRYPOINT",
-        txf_context_bridge: "OHLC_READ_SERVICE_READY_WHEN_BOUND",
-        global_context_bridge: "READ_ONLY_ADAPTERS_WHEN_AVAILABLE",
+        canonical_ohlc_bridge: "GITHUB_CANONICAL_READ_ONLY",
+        stock_live_context_bridge: "LOCAL_FUGLE_REST_QUOTE_TRADES",
+        txf_context_bridge: "FAIL_CLOSED_WHEN_CROSS_ACCOUNT_RPC_UNAVAILABLE",
+        global_context_bridge: "FAIL_CLOSED_WHEN_CROSS_ACCOUNT_RPC_UNAVAILABLE",
         web_research: "OPEN_WORLD_AUTONOMOUS_NO_FIXED_SITE_OR_KEYWORD_LIMIT",
         owner_market_research_reads: "SHARED_BY_DEFAULT_WHEN_AVAILABLE",
         global_supply_chain: "SEARCH_AND_VERIFY_WHEN_RELEVANT; NEVER_GUESS",
@@ -81,7 +81,7 @@ export class FamilyMCP extends McpAgent<Env> {
     }));
 
     this.server.registerTool("get_family_stock_market_context", {
-      description: "家人版單股盤中即時入口。透過同一個OHLC_READ_SERVICE唯讀取得Fugle WebSocket最新成交、買一到買五、賣一到賣五、深度不平衡與短窗Order Flow；資料只在記憶體短暫存在，不寫GitHub/OHLC/KV/R2/D1，也不下單。",
+      description: "家人版單股盤中即時入口。直接唯讀Fugle REST quote+trades取得最新成交、最近逐筆、買一到買五、賣一到賣五、深度不平衡與短窗主動買賣；不使用跨Cloudflare帳號Service Binding，不寫GitHub/OHLC/KV/R2/D1，也不下單。",
       inputSchema: {
         symbol: symbolSchema,
       },
@@ -89,7 +89,7 @@ export class FamilyMCP extends McpAgent<Env> {
     }, async ({ symbol }) => out(await readFamilyStockMarketContext(this.env, {
       symbol,
       books: true,
-      wait_ms: 1_800,
+      wait_ms: 0,
     })));
 
     // Family Swing V2 is registered when the Family Durable Object is actually
@@ -112,7 +112,7 @@ export class FamilyMCP extends McpAgent<Env> {
     }, async (input) => out(await getTwMarketChipSummaryPublished(this.env, input)));
 
     this.server.registerTool("analyze_family_stock", {
-      description: "家人版完整單股分析入口。提供Family Unified Evidence V1與1到11點完整證據包，結構化資料、正式OHLC與Stock Live五檔/Order Flow先打底，同時允許GPT自由上網延伸研究；正式籌碼仍以Published generation為準，Evidence等級不得自行升級。",
+      description: "家人版完整單股分析入口。提供Family Unified Evidence V1與1到11點完整證據包；正式OHLC讀既有GitHub canonical，盤中五檔/逐筆/短窗主動買賣直接唯讀Fugle REST，同時允許GPT自由上網延伸研究。正式籌碼仍以Published generation為準，Evidence等級不得自行升級。",
       inputSchema: {
         symbol: symbolSchema,
         as_of_date: dateSchema.optional(),

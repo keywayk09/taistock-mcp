@@ -178,11 +178,7 @@ const unverifiedFuturesEnv = {
   OHLC_READ_SERVICE: {
     ...service,
     async readGlobalFuturesOhlc(args: any) {
-      return {
-        ...verifiedFuture(args),
-        status: "PENDING",
-        verification_level: null,
-      };
+      return { ...verifiedFuture(args), status: "PENDING", verification_level: null };
     },
   },
 } as any;
@@ -217,17 +213,20 @@ assert.equal(revenuePlan.preferred_reads.includes("txf_context"), false);
 
 const wranglerText = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
 const wrangler = JSON.parse(wranglerText.replace(/\/\*[\s\S]*?\*\//g, ""));
-const binding = wrangler.services?.find((item: any) => item.binding === "OHLC_READ_SERVICE");
-assert.deepEqual(binding, {
-  binding: "OHLC_READ_SERVICE",
-  service: "tv-fugle-1d",
-  entrypoint: "OhlcFamilyReadService",
-});
+assert.equal(Array.isArray(wrangler.services) ? wrangler.services.length : 0, 0);
 
 const bridgeSource = await readFile(new URL("../src/v6/family-ohlc-read-bridge.ts", import.meta.url), "utf8");
-assert.doesNotMatch(bridgeSource, /syncOhlc|backfillOhlc|writeOhlc|GITHUB_TOKEN|FUGLE_API_KEY|GLOBAL_FUTURES_ADMIN_KEY/);
-assert.match(bridgeSource, /OHLC_READ_SERVICE/);
+const adapterSource = await readFile(new URL("../src/v6/cross-account-read-service.ts", import.meta.url), "utf8");
+// The bridge may reference FUGLE_API_KEY only to detect that the read-only direct
+// adapter can be constructed. Mutation methods and privileged admin secrets remain forbidden.
+assert.doesNotMatch(bridgeSource, /syncOhlc|backfillOhlc|writeOhlc|GITHUB_TOKEN|GLOBAL_FUTURES_ADMIN_KEY/);
+assert.match(bridgeSource, /createCrossAccountReadService/);
+assert.match(bridgeSource, /FUGLE_API_KEY/);
 assert.match(bridgeSource, /formal_research_eligible/);
 assert.match(bridgeSource, /VERIFIED_RECEIPT_GZIP_LOGICAL_SHA256_BOUND/);
+assert.match(adapterSource, /FUGLE_REST_READ_ONLY/);
+assert.match(adapterSource, /data\/OHLC\/tw\/1d/);
+assert.match(adapterSource, /readGitHubText/);
+assert.doesNotMatch(adapterSource, /updateGitHubJson|putImmutableGitHubJson|placeOrder|submitOrder/);
 
 console.log("family-ohlc-read-bridge: PASS");

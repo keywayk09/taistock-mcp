@@ -5,7 +5,7 @@ import {
   readFamilyStockMarketContext,
 } from "./family-ohlc-read-bridge";
 
-export const SHARED_STOCK_MARKET_CONTEXT_TOOLS_VERSION = "shared-stock-market-context-tools/v1.1.0";
+export const SHARED_STOCK_MARKET_CONTEXT_TOOLS_VERSION = "shared-stock-market-context-tools/v1.2.1";
 
 const symbolSchema = z.string().trim().regex(/^\d{4,6}$/);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -26,7 +26,7 @@ function taipeiDate() {
 function unavailableLive(symbol: string, reason: string) {
   return {
     status: "UNAVAILABLE",
-    source: "OHLC_READ_SERVICE_STOCK_LIVE",
+    source: "FUGLE_REST_READ_ONLY",
     symbol,
     live_status: "LIVE_UNAVAILABLE",
     display_ready: false,
@@ -62,78 +62,46 @@ function normalizeTapeRow(row: unknown) {
   };
 }
 
-async function readOwnerStockTradeTape(env: Env, symbol: string) {
-  const service = (env as any)?.OHLC_READ_SERVICE;
-  if (!service || typeof service.readStockMarketContext !== "function") {
-    return {
-      status: "UNAVAILABLE",
-      source: "OHLC_READ_SERVICE_STOCK_LIVE",
-      symbol,
-      recent_trades: [],
-      trade_tape: null,
-      persistence: "none",
-      error: "OHLC_READ_SERVICE_STOCK_LIVE_NOT_BOUND",
-    };
-  }
+type TapeRow = ReturnType<typeof normalizeTapeRow>;
 
-  try {
-    const raw = await service.readStockMarketContext({
-      symbol,
-      books: true,
-      wait_ms: 1_800,
-      history_days: 1,
-      history_limit: 1,
-    });
-    const value = rec(raw);
-    const live = rec(value.live);
-    const snapshot = rec(live.snapshot);
-    const rawRows = Array.isArray(snapshot.recent_trades) ? snapshot.recent_trades : [];
-    const rows = rawRows.slice(-300).map(normalizeTapeRow).filter((row) => row.time !== null && row.price !== null && row.size !== null);
-    const metadata = rec(snapshot.trade_tape);
-    const status = rows.length > 0
-      ? "READY"
-      : ["WARMING_UP", "DEGRADED"].includes(String(live.live_status ?? "").toUpperCase())
-        ? "DEGRADED"
-        : "UNAVAILABLE";
-    return {
-      status,
-      source: "OHLC_READ_SERVICE_STOCK_LIVE",
-      symbol,
-      live_status: String(live.live_status ?? "LIVE_UNAVAILABLE"),
-      recent_trades: rows,
-      trade_tape: {
-        window_ms: Number(metadata.window_ms ?? 0),
-        returned: rows.length,
-        available_in_window: Number(metadata.available_in_window ?? rows.length),
-        limit: Number(metadata.limit ?? 300),
-        truncated: metadata.truncated === true,
-        large_trade_threshold: Number(metadata.large_trade_threshold ?? 0),
-        classification: String(metadata.classification ?? "quote_then_tick_rule"),
-        persisted: false,
-      },
-      semantics: {
-        BUY: "主動買；通常成交在Ask/外盤，或由tick rule判為買方主動",
-        SELL: "主動賣；通常成交在Bid/內盤，或由tick rule判為賣方主動",
-        OUTSIDE: "外盤",
-        INSIDE: "內盤",
-        classification_method: "quote優先；沒有可靠quote時才用tick/continuity",
-      },
-      persistence: "none",
-      error: status === "UNAVAILABLE"
-        ? String(live.error ?? rec(live.connection).last_error ?? "trade_tape_unavailable")
-        : null,
-    };
-  } catch (error) {
-    return {
-      status: "UNAVAILABLE",
-      source: "OHLC_READ_SERVICE_STOCK_LIVE",
-      symbol,
-      recent_trades: [],
-      trade_tape: null,
-      persistence: "none",
-      error: `STOCK_TRADE_TAPE:${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
+function projectTradeTape(live: any, symbol: string) {
+  const rawRows: unknown[] = Array.isArray(live?.recent_trades) ? live.recent_trades.slice(0, 300) : [];
+  const rows: TapeRow[] = rawRows
+    .map(normalizeTapeRow)
+    .filter((row: TapeRow) => row.time !== null && row.price !== null && row.size !== null);
+  const metadata = rec(live?.trade_tape);
+  const status = rows.length > 0 ? "READY" : live?.status === "DEGRADED" ? "DEGRADED" : "UNAVAILABLE";
+  return {
+    status,
+    source: String(live?.source ?? "FUGLE_REST_READ_ONLY"),
+    symbol,
+    live_status: String(live?.live_status ?? "LIVE_UNAVAILABLE"),
+    recent_trades: rows,
+    trade_tape: {
+      window_ms: Number(metadata.window_ms ?? 0),
+      returned: rows.length,
+      available_in_window: Number(metadata.available_in_window ?? rows.length),
+      limit: Number(metadata.limit ?? 300),
+      truncated: metadata.truncated === true,
+      large_trade_threshold: metadata.large_trade_threshold == null ? null : Number(metadata.large_trade_threshold),
+      classification: String(metadata.classification ?? "quote_then_tick_rule"),
+      persisted: false,
+    },
+    semantics: {
+      BUY: "主動買；成交在Ask/外盤，沒有可靠quote時才用tick rule",
+      SELL: "主動賣；成交在Bid/內盤，沒有可靠quote時才用tick rule",
+      OUTSIDE: "外盤",
+      INSIDE: "內盤",
+      classification_method: "quote優先；沒有可靠quote時才用tick/continuity",
+    },
+    persistence: "none",
+    error: status === "UNAVAILABLE" ? String(live?.error ?? "trade_tape_unavailable") : null,
+  };
+}
+
+async function readOwnerStockTradeTape(env: Env, symbol: string) {
+  const live = await readFamilyStockMarketContext(env, { symbol, books: true, wait_ms: 0 });
+  return projectTradeTape(live, symbol);
 }
 
 async function fugleRestQuoteFallback(env: Env, symbol: string, type: "normal" | "oddlot") {
@@ -142,49 +110,29 @@ async function fugleRestQuoteFallback(env: Env, symbol: string, type: "normal" |
   const url = new URL(`https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/${encodeURIComponent(symbol)}`);
   if (type === "oddlot") url.searchParams.set("type", "oddlot");
   try {
-    const response = await fetch(url, {
-      headers: { Accept: "application/json", "X-API-KEY": key },
-    });
+    const response = await fetch(url, { headers: { Accept: "application/json", "X-API-KEY": key } });
     const text = await response.text();
     let body: any = text;
     try { body = text ? JSON.parse(text) : null; } catch {}
-    if (!response.ok) {
-      return {
-        status: "UNAVAILABLE",
-        source: "FUGLE_REST_DISPLAY_FALLBACK",
-        data: null,
-        error: `FUGLE_REST_HTTP_${response.status}`,
-      };
-    }
-    return {
-      status: "READY",
-      source: "FUGLE_REST_DISPLAY_FALLBACK",
-      formal_research_eligible: false,
-      data: body,
-      error: null,
-    };
+    if (!response.ok) return { status: "UNAVAILABLE", source: "FUGLE_REST_DISPLAY_FALLBACK", data: null, error: `FUGLE_REST_HTTP_${response.status}` };
+    return { status: "READY", source: "FUGLE_REST_DISPLAY_FALLBACK", formal_research_eligible: false, data: body, error: null };
   } catch (error) {
-    return {
-      status: "UNAVAILABLE",
-      source: "FUGLE_REST_DISPLAY_FALLBACK",
-      data: null,
-      error: `FUGLE_REST:${error instanceof Error ? error.message : String(error)}`,
-    };
+    return { status: "UNAVAILABLE", source: "FUGLE_REST_DISPLAY_FALLBACK", data: null, error: `FUGLE_REST:${error instanceof Error ? error.message : String(error)}` };
   }
 }
 
 async function sharedStockContext(env: Env, symbol: string) {
   const asOf = taipeiDate();
-  const [live, canonical, tape] = await Promise.all([
-    readFamilyStockMarketContext(env, { symbol, books: true, wait_ms: 1_800 }),
+  const [live, canonical] = await Promise.all([
+    readFamilyStockMarketContext(env, { symbol, books: true, wait_ms: 0 }),
     readFamilyCanonicalOhlc(env, {
       symbol,
       as_of_date: asOf,
       question: "盤中 現在 五檔 技術 量價",
       intent: "QUICK_STOCK_QUESTION",
     }),
-    readOwnerStockTradeTape(env, symbol),
   ]);
+  const tape = projectTradeTape(live, symbol);
 
   return {
     ok: live.status !== "UNAVAILABLE" || canonical.status === "READY" || tape.status !== "UNAVAILABLE",
@@ -192,22 +140,22 @@ async function sharedStockContext(env: Env, symbol: string) {
     symbol,
     as_of_date: asOf,
     source_priority: [
-      "OHLC_READ_SERVICE_STOCK_LIVE",
-      "OHLC_MCP_VERIFIED_CANONICAL",
+      "FUGLE_REST_READ_ONLY_QUOTE_TRADES",
+      "OHLC_MCP_GITHUB_CANONICAL_READ",
       "FUGLE_REST_DISPLAY_FALLBACK",
     ],
     live_context: {
       ...live,
       recent_trades: tape.recent_trades,
       trade_tape: tape.trade_tape,
-      trade_tape_semantics: tape.semantics ?? null,
+      trade_tape_semantics: tape.semantics,
     },
     trade_tape: tape,
     canonical_ohlc: canonical,
     identity: {
       live: "EPHEMERAL_READ_ONLY_CONTEXT_NOT_FORMAL_OHLC",
-      trade_tape: "EPHEMERAL_NORMALIZED_WEBSOCKET_TRADES_NOT_PERSISTED",
-      canonical_ohlc: "FORMAL_TRUTH_ONLY_WHEN_OHLC_MCP_GATE_READY",
+      trade_tape: "EPHEMERAL_NORMALIZED_FUGLE_REST_TRADES_NOT_PERSISTED",
+      canonical_ohlc: "FORMAL_EXISTING_GITHUB_CANONICAL_READ_ONLY",
       writes: false,
       orders: false,
     },
@@ -216,22 +164,19 @@ async function sharedStockContext(env: Env, symbol: string) {
 
 export function registerSharedStockMarketContextTools(server: McpServer, env: Env) {
   server.registerTool("get_stock_market_context", {
-    description: "單股盤中首選入口：一次取得OHLC MCP正式1D/5m結構，以及tv-fugle-1d StockLiveHub的最新成交、逐筆recent_trades、買一到買五、賣一到賣五、深度不平衡與短窗Order Flow。Live只讀且不持久化；正式技術結構只認OHLC MCP。",
+    description: "單股盤中首選入口：同一個taistock-mcp唯讀取得Fugle最新成交、最近逐筆、買一到買五、賣一到賣五與短窗主動買賣，同時讀取tv-fugle-1d既有GitHub canonical正式1D/5m。無跨Cloudflare帳號Service Binding，無Live持久化。",
     inputSchema: { symbol: symbolSchema },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async ({ symbol }) => out(await sharedStockContext(env, symbol)));
 
   server.registerTool("get_stock_trade_tape", {
-    description: "股票逐筆成交明細。回傳StockLiveHub最近約3分鐘、最多300筆的normalized Fugle WebSocket trades，包含時間、價格、張數、Bid/Ask、主動買賣、外盤/內盤、分類方法、累積量與自適應大單標記。只讀、不持久化。",
+    description: "股票逐筆成交明細。回傳Fugle REST最近約3分鐘、最多300筆成交，包含時間、價格、張數、Bid/Ask、主動買賣、外盤/內盤、分類方法、累積量與自適應大單標記。只讀、不持久化。",
     inputSchema: { symbol: symbolSchema },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async ({ symbol }) => out(await readOwnerStockTradeTape(env, symbol)));
 
-  // Keep the long-standing tool name so the Owner GPT does not need a prompt rewrite.
-  // Normal-lot quote now prefers the shared Stock Live service and returns formal
-  // OHLC plus a bounded recent trade tape; odd-lot remains REST display-only.
   server.registerTool("get_quote", {
-    description: "台股即時報價。normal模式優先回傳StockLiveHub最新成交、逐筆成交、五檔與Order Flow，並同時附OHLC MCP正式1D/5m；oddlot維持Fugle REST顯示資料。",
+    description: "台股即時報價。normal模式直接用Fugle REST回傳最新成交、逐筆成交、五檔與短窗主動買賣，並附GitHub canonical正式1D/5m；oddlot維持Fugle REST顯示資料。",
     inputSchema: {
       symbol: symbolSchema,
       type: z.enum(["normal", "oddlot"]).optional().default("normal"),
@@ -254,15 +199,7 @@ export function registerSharedStockMarketContextTools(server: McpServer, env: En
         symbol,
         quote_type: "oddlot",
         live_context: unavailableLive(symbol, "ODDLOT_USES_FUGLE_REST_DISPLAY_ONLY"),
-        trade_tape: {
-          status: "UNAVAILABLE",
-          source: "OHLC_READ_SERVICE_STOCK_LIVE",
-          symbol,
-          recent_trades: [],
-          trade_tape: null,
-          persistence: "none",
-          error: "ODDLOT_TAPE_NOT_MODELED",
-        },
+        trade_tape: { status: "UNAVAILABLE", source: "FUGLE_REST_READ_ONLY", symbol, recent_trades: [], trade_tape: null, persistence: "none", error: "ODDLOT_TAPE_NOT_MODELED" },
         canonical_ohlc: canonical,
         display_fallback: fallback,
       });
@@ -272,17 +209,11 @@ export function registerSharedStockMarketContextTools(server: McpServer, env: En
     const displayFallback = result.live_context.status === "UNAVAILABLE"
       ? await fugleRestQuoteFallback(env, symbol, "normal")
       : null;
-    return out({
-      ...result,
-      quote_type: "normal",
-      display_fallback: displayFallback,
-    });
+    return out({ ...result, quote_type: "normal", display_fallback: displayFallback });
   });
 
-  // Freeze the old FinMind daily-price identity behind the existing tool name.
-  // The response now comes only from the verified OHLC MCP read bridge.
   server.registerTool("get_daily_price", {
-    description: "正式台股日K。只讀OHLC MCP verified canonical，不再把FinMind價格冒充正式日K。",
+    description: "正式台股日K。直接唯讀tv-fugle-1d已寫入GitHub的canonical CSV，不把FinMind或盤中Fugle快照冒充正式日K。",
     inputSchema: {
       symbol: symbolSchema,
       start_date: isoDate.optional(),
@@ -307,7 +238,7 @@ export function registerSharedStockMarketContextTools(server: McpServer, env: En
     });
     return out({
       ok: canonical.status === "READY",
-      source: "OHLC_MCP",
+      source: String(canonical.source ?? "OHLC_MCP_GITHUB_CANONICAL_READ"),
       formal_research_eligible: canonical.formal_research_eligible === true,
       symbol,
       start_date: start_date ?? null,
