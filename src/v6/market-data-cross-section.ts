@@ -1,5 +1,6 @@
 import { DEFAULT_GITHUB_DATA_BRANCH, DEFAULT_GITHUB_DATA_REPO, readGitHubJson } from "./github-data-store.ts";
 import { decodeGitHubCompressedJsonText, isGitHubCompressedJsonEnvelope } from "./github-compressed-json.ts";
+import { validateMarketReadPublishPrerequisites, type MarketReadManifest } from "./market-data-publish-fence.ts";
 import {
   type InstitutionalRow,
   type MarginRow,
@@ -15,10 +16,11 @@ import {
  * - manifest and every shard are pinned to one immutable Git commit;
  * - large GitHub Contents objects fall back to their immutable Git Blob SHA;
  * - compressed canonical envelopes are decoded inside the reader;
+ * - manifest readiness reuses the canonical publisher fence instead of drifting;
+ * - every requested shard is structurally validated before its rows are consumed;
  * - incomplete or null-contaminated 1d/3d/5d histories are never mislabeled
  *   as complete horizons;
- * - formal eligibility stays fail-closed unless the day and requested prefixes
- *   are complete and every requested shard is present.
+ * - formal eligibility stays fail-closed unless every gate passes.
  */
 export const MARKET_DATA_CROSS_SECTION_VERSION = "diamond-market-data-cross-section/v1";
 
@@ -35,21 +37,6 @@ type SymbolMonthShard = {
   prefix?: string;
   symbols?: Record<string, Partial<Record<TwMarketDataKind, any[]>>>;
   updated_at?: string;
-};
-
-type DailyManifest = {
-  trade_date?: string;
-  day_status?: string;
-  terminal?: boolean;
-  ready_layers?: number;
-  expected_layers?: number;
-  missing_layers?: string[];
-  index_state?: {
-    status?: string;
-    completed_prefixes?: string[];
-    total_prefixes?: number | null;
-    updated_at?: string;
-  };
 };
 
 type CanonicalRead<T> = {
@@ -218,6 +205,48 @@ async function readCanonicalJsonAtRevision<T>(env: Env, path: string, revision: 
   };
 }
 
+function validateManifestForCrossSection(manifest: MarketReadManifest | null, asOf: string) {
+  if (!manifest) return { valid: false, error: "manifest_missing" };
+  try {
+    const validated = validateMarketReadPublishPrerequisites(manifest);
+    if (validated.trade_date !== asOf) return { valid: false, error: "manifest_trade_date_mismatch" };
+    return { valid: true, error: null };
+  } catch (error) {
+    return { valid: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function shardValidationError(shard: SymbolMonthShard | null, expectedMonth: string, expectedPrefix: string): string | null {
+  if (!shard || typeof shard !== "object" || Array.isArray(shard)) return "shard_not_object";
+  if (shard.schema_version !== "diamond-market-data-symbol-shard/v2") return "shard_schema_invalid";
+  if (shard.month !== expectedMonth) return "shard_month_mismatch";
+  if (shard.prefix !== expectedPrefix) return "shard_prefix_mismatch";
+  if (!shard.symbols || typeof shard.symbols !== "object" || Array.isArray(shard.symbols)) return "shard_symbols_invalid";
+
+  for (const [symbol, state] of Object.entries(shard.symbols)) {
+    if (!/^\d{4,6}$/.test(symbol) || !symbol.startsWith(expectedPrefix)) return `shard_symbol_prefix:${symbol}`;
+    if (!state || typeof state !== "object" || Array.isArray(state)) return `shard_symbol_state:${symbol}`;
+
+    for (const kind of ["institutional", "margin", "securities_lending", "sbl_short_sale"] as const) {
+      const rows = state[kind];
+      if (rows === undefined) continue;
+      if (!Array.isArray(rows)) return `shard_kind_not_array:${symbol}:${kind}`;
+      const seen = new Set<string>();
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) return `shard_row_invalid:${symbol}:${kind}`;
+        const tradeDate = String((row as any).trade_date ?? "");
+        if (!validDate(tradeDate) || tradeDate.slice(0, 7) !== expectedMonth) return `shard_row_date:${symbol}:${kind}`;
+        if ((row as any).symbol != null && String((row as any).symbol) !== symbol) return `shard_row_symbol:${symbol}:${kind}`;
+        const market = String((row as any).market ?? "");
+        const key = `${tradeDate}:${market}`;
+        if (seen.has(key)) return `shard_duplicate_trade_date:${symbol}:${kind}:${key}`;
+        seen.add(key);
+      }
+    }
+  }
+  return null;
+}
+
 function dedupeRows<T extends { trade_date: string; market?: string }>(rows: T[]) {
   const map = new Map<string, T>();
   for (const row of rows) map.set(`${row.trade_date}:${row.market ?? ""}`, row);
@@ -361,9 +390,8 @@ export async function getTwMarketCrossSection(env: Env, input: MarketCrossSectio
   const limit = Math.max(1, Math.min(2500, Math.floor(Number(input.limit ?? (requestedPrefix === null ? 2500 : 500)))));
 
   const sourceRevision = await resolveCanonicalRevision(env);
-  const manifest = await readCanonicalJsonAtRevision<DailyManifest>(env, manifestPath(asOf), sourceRevision);
-  const dayComplete = manifest.value?.day_status === "COMPLETE" && manifest.value?.terminal === true;
-  const indexReady = manifest.value?.index_state?.status === "READY";
+  const manifest = await readCanonicalJsonAtRevision<MarketReadManifest>(env, manifestPath(asOf), sourceRevision);
+  const manifestGate = validateManifestForCrossSection(manifest.value, asOf);
   const completedPrefixSet = new Set(manifest.value?.index_state?.completed_prefixes ?? []);
   const requestedPrefixesComplete = prefixes.every((prefix) => completedPrefixSet.has(prefix));
 
@@ -375,15 +403,19 @@ export async function getTwMarketCrossSection(env: Env, input: MarketCrossSectio
   }))));
 
   const missingShards = reads.filter((item) => !item.read.value).map((item) => item.read.path);
+  const invalidShards = reads
+    .filter((item) => item.read.value)
+    .map((item) => ({ path: item.read.path, reason: shardValidationError(item.read.value, item.month, item.prefix) }))
+    .filter((item): item is { path: string; reason: string } => Boolean(item.reason));
+  const invalidShardPaths = new Set(invalidShards.map((item) => item.path));
   const bySymbol = new Map<string, Partial<Record<TwMarketDataKind, any[]>>>();
   const datasets: Array<{ path: string; sha: string | null; month: string; prefix: string }> = [];
 
   for (const item of reads) {
     const shard = item.read.value;
-    if (!shard?.symbols) continue;
+    if (!shard?.symbols || invalidShardPaths.has(item.read.path)) continue;
     datasets.push({ path: item.read.path, sha: item.read.sha, month: item.month, prefix: item.prefix });
     for (const [symbol, state] of Object.entries(shard.symbols)) {
-      if (!/^\d{4,6}$/.test(symbol)) continue;
       const target = bySymbol.get(symbol) ?? {};
       for (const kind of ["institutional", "margin", "securities_lending", "sbl_short_sale"] as const) {
         const incoming = Array.isArray(state[kind]) ? state[kind]! : [];
@@ -423,7 +455,10 @@ export async function getTwMarketCrossSection(env: Env, input: MarketCrossSectio
       };
     });
 
-  const formalResearchEligible = dayComplete && indexReady && requestedPrefixesComplete && missingShards.length === 0;
+  const formalResearchEligible = manifestGate.valid
+    && requestedPrefixesComplete
+    && missingShards.length === 0
+    && invalidShards.length === 0;
   return {
     ok: true,
     version: MARKET_DATA_CROSS_SECTION_VERSION,
@@ -440,6 +475,9 @@ export async function getTwMarketCrossSection(env: Env, input: MarketCrossSectio
       source_revision: sourceRevision,
       manifest_path: manifest.path,
       manifest_sha: manifest.sha,
+      manifest_valid: manifestGate.valid,
+      manifest_error: manifestGate.error,
+      manifest_trade_date: manifest.value?.trade_date ?? null,
       day_status: manifest.value?.day_status ?? null,
       ready_layers: manifest.value?.ready_layers ?? null,
       expected_layers: manifest.value?.expected_layers ?? null,
@@ -453,12 +491,13 @@ export async function getTwMarketCrossSection(env: Env, input: MarketCrossSectio
       months_requested: months,
       shard_reads: reads.length,
       missing_shards: missingShards,
+      invalid_shards: invalidShards,
       symbols_discovered: bySymbol.size,
       symbols_returned: symbols.length,
       limit,
     },
     datasets,
     symbols,
-    note: "Compact canonical market-data feature vectors only. Manifest and shards are pinned to source_revision; large shards are read by immutable blob SHA. Incomplete or null-contaminated horizons return null with row-day and usable-observation receipts. Price/volume remains an OHLC MCP join; sector metadata is a separate research metadata join.",
+    note: "Compact canonical market-data feature vectors only. Manifest and shards are pinned to source_revision; manifest readiness reuses the canonical publish fence; large shards are read by immutable blob SHA; malformed shards are excluded and fail formal eligibility. Incomplete or null-contaminated horizons return null with row-day and usable-observation receipts. Price/volume remains an OHLC MCP join; sector metadata is a separate research metadata join.",
   };
 }
