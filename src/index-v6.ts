@@ -13,6 +13,7 @@ import { getTwMarketDataDayStatus } from "./v6/market-data-day-status";
 import { getResearchStatus, isAuthorizedResearchRequest } from "./v6/research-pipeline";
 import { registerResearchTools } from "./v6/research-tools";
 import { registerAdvancedTools } from "./v6/register";
+import { registerSharedCryptoMarketTools } from "./v6/shared-crypto-market-tools";
 import { registerSharedStockMarketContextTools } from "./v6/shared-stock-market-context-tools";
 import { registerStableMarketTools } from "./v6/stable-market-tools";
 import { registerStableSwingScreenTool } from "./v6/stable-swing-screen";
@@ -50,7 +51,7 @@ function taipeiDateFromMs(ms: number) {
 }
 
 export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock AI", version: "6.18.1" });
+  server = new McpServer({ name: "Taiwan Stock + Crypto AI", version: "6.19.0" });
 
   async init() {
     // Legacy generations still contain implementations that depend on provider
@@ -83,6 +84,7 @@ export class MyMCP extends BaseMCP {
     registerStableMarketTools(this.server, this.env);
     registerStableSwingScreenTool(this.server, this.env);
     registerSharedStockMarketContextTools(this.server, this.env);
+    registerSharedCryptoMarketTools(this.server, this.env);
   }
 }
 
@@ -110,9 +112,9 @@ const appHandler = {
     if (url.pathname === "/" || url.pathname === "/health") {
       const familyLoginConfigured = Boolean(String(env.FAMILY_OAUTH_LOGIN_SECRET || env.MOM_GPT_API_KEY || "").trim());
       return Response.json({
-        service: "Taiwan Stock AI MCP",
+        service: "Taiwan Stock + Crypto AI MCP",
         status: "ok",
-        version: "6.18.1",
+        version: "6.19.0",
         storage: {
           policy: "GITHUB_ONLY_NO_D1_NO_R2",
           github: githubDataStoreHealth(env),
@@ -138,6 +140,9 @@ const appHandler = {
           stock_live_context: "EPHEMERAL_FUGLE_REST_QUOTE_TRADES_FIVE_LEVEL_BOOK_RECENT_TAPE",
           stock_trade_tape: "RECENT_3_MINUTES_MAX_300_NORMALIZED_PRINTS_NOT_PERSISTED",
           stock_live_persistence: "NONE",
+          crypto_gateway: String((env as any).CRYPTO_ENGINE_BASE_URL || "https://tv-crypto-engine.keikei99887.workers.dev"),
+          crypto_policy: "CENTRAL_TV_CRYPTO_ENGINE_READ_ONLY_NO_DUPLICATE_FAMILY_ENGINE",
+          crypto_tools: ["get_crypto_engine_status", "get_crypto_candidates", "get_crypto_deep_probe"],
           capture_owner: "CLOUDFLARE_CRON_CANONICAL_WRITER",
           execution_policy: "FIVE_MINUTE_WAKE; DUE_LAYER_ONLY; NO_PRIVATE_GITHUB_ACTIONS_DEPENDENCY; NO_2230_HARD_STOP",
           expected_layers: 8,
@@ -168,6 +173,7 @@ const appHandler = {
           owner_market_research_reads: "SHARED_BY_DEFAULT_WHEN_AVAILABLE",
           owner_private_context: "DENY_BY_DEFAULT_UNLESS_EXPLICITLY_SHARED",
           realtime: "FUGLE_REST_READ_ONLY_WITH_FIVE_LEVEL_BOOK_AND_RECENT_TRADES",
+          crypto: "SAME_FAMILY_MCP_CONNECTION_TO_CENTRAL_TV_CRYPTO_ENGINE_READ_ONLY",
           web_research: "OPEN_WORLD_AUTONOMOUS_ALLOWED",
           swing_screen: "STABLE_FULL_MARKET_CONTRACT_BOUNDED_FUGLE_HISTORY",
           startup_graph: "LAZY_DEEP_FAMILY_MODULES",
@@ -183,7 +189,7 @@ const appHandler = {
         family_openapi: "/family-openapi.json",
         privacy_policy: "/privacy",
         research_status_endpoint: "/research/status",
-        tools: 115,
+        tools: 118,
       });
     }
 
