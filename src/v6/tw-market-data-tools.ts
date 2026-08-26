@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getTwMarketChipSummaryFast } from "./market-data-fast-gateway";
+import { getTwMarketCrossSection } from "./market-data-cross-section";
 import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
 import { getTwMarketDataDayStatus } from "./market-data-day-status";
 import {
@@ -36,6 +37,12 @@ const familyChipSchema = {
   estimated_financing_cost: z.number().positive().optional(),
   financing_ratio: z.number().min(0.1).max(0.9).optional().default(0.6),
 };
+const crossSectionSchema = {
+  as_of: dateSchema.optional(),
+  calendar_days: z.number().int().min(20).max(62).optional().default(35),
+  prefix: z.string().regex(/^[0-9]$/).optional(),
+  limit: z.number().int().min(1).max(2500).optional(),
+};
 
 export function registerTwMarketDataTools(server: McpServer, env: Env) {
   server.registerTool("get_tw_market_data_contract", {
@@ -46,10 +53,11 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
     version: TW_MARKET_DATA_VERSION,
     owner: "Diamond Market Data Plane",
     preferred_symbol_read_tool: "get_tw_market_chip_summary",
+    preferred_cross_sectional_read_tool: "get_tw_market_cross_section",
     family_symbol_read_tool: "get_family_market_chip_summary",
     family_access: "READ_ONLY_PUBLISHED_GENERATION",
     history_window_calendar_days: 180,
-    read_model: "published generation by default; live prefix-month index + exact-day snapshot overlay only when consistency=live",
+    read_model: "published generation by default; live prefix-month index + exact-day snapshot overlay only when consistency=live; cross-sectional research reads use canonical prefix-month index with COMPLETE+READY fail-closed gate",
     formal_consistency: "PUBLISHED",
     live_consistency: "LIVE_OVERLAY",
     official_sources: {
@@ -84,6 +92,12 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
       family_market_data_write: "FORBIDDEN",
     },
   }));
+
+  server.registerTool("get_tw_market_cross_section", {
+    description: "正式研究用全市場籌碼橫截面 reader。直接解碼 GitHub canonical prefix/month index，回傳可排序的法人、融資融券、借券、借券賣出 1/3/5 日 compact features；只有指定日期 manifest=COMPLETE 且 index=READY 才標記 formal_research_eligible=true。可用 prefix=0..9 分頁掃描以避免大型回應。價格/成交量仍由 OHLC MCP join。",
+    inputSchema: crossSectionSchema,
+    annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
+  }, async (input) => out(await getTwMarketCrossSection(env, input)));
 
   server.registerTool("get_tw_market_chip_summary", {
     description: "正式個股籌碼入口。預設 consistency=published，只讀已完成 audit 並由 published pointer 原子發布的 generation；若要檢查尚未發布的最新 canonical/index/snapshot 狀態，明確指定 consistency=live。整合法人、融資融券、借券、借券賣出與估算維持率風險契約。",
