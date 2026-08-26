@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { getTwMarketCrossSection } from "../src/v6/market-data-cross-section.ts";
 
 const memory = new Map<string, { sha: string; text: string }>();
@@ -8,7 +9,7 @@ function put(path: string, value: unknown) {
   memory.set(path, { sha: `sha-${path}`, text: JSON.stringify(value, null, 2) + "\n" });
 }
 
-put("data/market-data/daily/2026/08/26/manifest.json", {
+const readyManifest = {
   trade_date: "2026-08-26",
   day_status: "COMPLETE",
   terminal: true,
@@ -20,9 +21,9 @@ put("data/market-data/daily/2026/08/26/manifest.json", {
     completed_prefixes: ["0","1","2","3","4","5","6","7","8","9"],
     total_prefixes: 10,
   },
-});
+};
 
-put("data/market-data/index/2026/08/2.json", {
+const readyShard = {
   schema_version: "diamond-market-data-symbol-shard/v2",
   month: "2026-08",
   prefix: "2",
@@ -45,11 +46,16 @@ put("data/market-data/index/2026/08/2.json", {
     },
   },
   updated_at: "2026-08-26T14:21:00Z",
-});
+};
+
+put("data/market-data/daily/2026/08/26/manifest.json", readyManifest);
+put("data/market-data/index/2026/08/2.json", readyShard);
 
 const ready = await getTwMarketCrossSection(env, { as_of:"2026-08-26", calendar_days:20, prefix:"2", limit:50 });
 assert.equal(ready.status, "READY");
 assert.equal(ready.formal_research_eligible, true);
+assert.equal(ready.source_revision, "memory:main");
+assert.equal(ready.data_gate.requested_prefixes_complete, true);
 assert.equal(ready.scan.symbols_returned, 1);
 assert.equal(ready.symbols[0].symbol, "2330");
 assert.equal(ready.symbols[0].coverage.ready_layers, 4);
@@ -73,5 +79,56 @@ const partial = await getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:
 assert.equal(partial.status, "DEGRADED");
 assert.equal(partial.formal_research_eligible, false);
 
+// Even a nominal READY manifest cannot authorize a prefix the manifest did not
+// complete. This protects partial index generations from being used formally.
+put("data/market-data/daily/2026/08/26/manifest.json", {
+  ...readyManifest,
+  index_state: { ...readyManifest.index_state, completed_prefixes: ["0","1"] },
+});
+const missingPrefixReceipt = await getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"2" });
+assert.equal(missingPrefixReceipt.status, "DEGRADED");
+assert.equal(missingPrefixReceipt.formal_research_eligible, false);
+assert.equal(missingPrefixReceipt.data_gate.requested_prefixes_complete, false);
+
 await assert.rejects(() => getTwMarketCrossSection(env, { as_of:"2026-08-26", prefix:"20" }), /invalid prefix/);
+
+// Production-path regression: resolve the moving branch once, then prove every
+// canonical contents request is pinned to that exact immutable commit SHA.
+const originalFetch = globalThis.fetch;
+const revision = "a".repeat(40);
+const seen: string[] = [];
+const jsonContent = (value: unknown) => Buffer.from(JSON.stringify(value, null, 2) + "\n", "utf8").toString("base64");
+try {
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    seen.push(url);
+    if (url.includes("/commits/main")) {
+      return new Response(JSON.stringify({ sha: revision }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/contents/data/market-data/daily/2026/08/26/manifest.json")) {
+      return new Response(JSON.stringify({ sha:"manifest-blob", content:jsonContent(readyManifest) }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url.includes("/contents/data/market-data/index/2026/08/2.json")) {
+      return new Response(JSON.stringify({ sha:"shard-blob", content:jsonContent(readyShard) }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response(JSON.stringify({ message:"not found" }), { status: 404, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+
+  const pinned = await getTwMarketCrossSection({ GITHUB_DATA_REPO:"keywayk09/tv-papertrader", GITHUB_DATA_BRANCH:"main" } as any, {
+    as_of:"2026-08-26",
+    calendar_days:20,
+    prefix:"2",
+    limit:50,
+  });
+  assert.equal(pinned.status, "READY");
+  assert.equal(pinned.formal_research_eligible, true);
+  assert.equal(pinned.source_revision, revision);
+  const contentReads = seen.filter((url) => url.includes("/contents/"));
+  assert.equal(contentReads.length, 2);
+  assert.equal(contentReads.every((url) => url.includes(`ref=${revision}`)), true);
+  assert.equal(contentReads.some((url) => url.includes("ref=main")), false);
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
 console.log("market-data decoded cross-sectional reader tests passed");
