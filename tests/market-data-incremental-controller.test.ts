@@ -64,6 +64,20 @@ const institutionalOnly = dueLayerKeys([ready, pending], "2026-08-20T10:30:00Z")
 assert.equal(institutionalOnly.some((key) => key.startsWith("margin-")), false);
 assert.equal(institutionalOnly.every((key) => key.startsWith("institutional-")), true);
 
+// Regression: a structural placeholder is not a real provider attempt. The
+// next five-minute wake in the same checkpoint must pick it up even though the
+// manifest already contains the layer and next_retry_at is intentionally null.
+const institutionalPlaceholder: MarketManifestLayer = {
+  kind: "institutional", market: "otc", status: "PENDING", source: null, row_count: 0,
+  dataset_version: null, content_sha256: null, snapshot_path: null, raw_paths: [],
+  captured_at: null, error: "not_attempted_in_current_subrequest_window", attempts: 0,
+  first_attempt_at: null, last_attempt_at: null, next_retry_at: null,
+};
+assert.equal(
+  dueLayerKeys([ready, institutionalPlaceholder], "2026-08-20T10:05:00Z").includes("institutional-otc"),
+  true,
+);
+
 // A layer already attempted after checkpoint start cannot be polled again by
 // another five-minute wake in the same checkpoint.
 const attemptedThisCheckpoint = makePendingLayer(
@@ -103,4 +117,4 @@ const identities = [
 const layers = [ready, ...identities.map(([kind, market]) => makePendingLayer({ kind, market }, "2026-08-20T10:15:00Z"))];
 assert.equal(summarizeDay(layers).terminal, false);
 
-console.log("market-data incremental controller + retry-storm guard tests passed");
+console.log("market-data incremental controller + placeholder continuation + retry-storm guard tests passed");
