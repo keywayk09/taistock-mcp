@@ -1,15 +1,15 @@
 {
-  "source_sha": "35d5344fac1104ae4c2082f0df209afa1bf58ad8",
-  "oauth_kv_outcome": "success",
-  "oauth_kv_title": "taistock-mcp-OAUTH_KV",
-  "oauth_kv_created": "false",
-  "deploy_outcome": "success",
-  "cron_outcome": "success",
-  "smoke_outcome": "success",
-  "reason": "DEPLOYED_CRON_AND_FULL_MARKET_SMOKE_VERIFIED",
+  "source_sha": "cfebac3247154036384fcde0cf278c4431e7c947",
+  "oauth_kv_outcome": "skipped",
+  "oauth_kv_title": "",
+  "oauth_kv_created": "",
+  "deploy_outcome": "skipped",
+  "cron_outcome": "skipped",
+  "smoke_outcome": "skipped",
+  "reason": "DEPLOY_RUN_INTERRUPTED_OR_AUTH_STEP_FAILED",
   "diagnostic_path": "tmp/deploy-receipts/taistock-mcp-cloudflare-error.txt",
-  "token_configured": true,
-  "account_id_configured": true,
+  "token_configured": false,
+  "account_id_configured": false,
   "cron": "*/5 * * * *",
-  "recorded_at": "2026-08-24T09:59:00Z"
+  "recorded_at": "2026-08-26T04:48:11Z"
 }
