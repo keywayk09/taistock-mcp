@@ -39,7 +39,7 @@ const familyChipSchema = {
 };
 const crossSectionSchema = {
   as_of: dateSchema.optional(),
-  calendar_days: z.number().int().min(20).max(62).optional().default(35),
+  calendar_days: z.number().int().min(20).max(62).optional().default(20),
   prefix: z.string().regex(/^[0-9]$/).optional(),
   limit: z.number().int().min(1).max(2500).optional(),
 };
