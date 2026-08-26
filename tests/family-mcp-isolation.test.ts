@@ -10,6 +10,7 @@ const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
 const family = read("src/v6/family-mcp.ts");
 const oauth = read("src/v6/family-oauth.ts");
 const index = read("src/index-v6.ts");
+const wrangler = read("wrangler.jsonc");
 
 for (const tool of [
   "family_engine_status",
@@ -24,7 +25,11 @@ for (const tool of [
 
 assert.match(family, /READ_ONLY_FAMILY_SURFACE/);
 assert.match(family, /PUBLISHED_GENERATION_ONLY/);
-assert.match(family, /OHLC_MCP_ONLY/);
+assert.match(family, /EXISTING_TV_FUGLE_1D_GITHUB_CANONICAL_ONLY/);
+assert.match(family, /GITHUB_CANONICAL_READ_ONLY/);
+assert.match(family, /FUGLE_REST_READ_ONLY_WITH_FIVE_LEVEL_BOOK_AND_RECENT_TRADES/);
+assert.match(family, /LOCAL_FUGLE_REST_QUOTE_TRADES/);
+assert.match(family, /FAIL_CLOSED_WHEN_CROSS_ACCOUNT_RPC_UNAVAILABLE/);
 assert.match(family, /production_writes: false/);
 assert.match(family, /github_writes: false/);
 assert.match(family, /diamond_judgment_writes: false/);
@@ -44,6 +49,11 @@ for (const forbidden of [
   assert.doesNotMatch(family, new RegExp(`registerTool\\(\\"${forbidden}\\"`));
 }
 
+// Cross-account Cloudflare Service Binding is intentionally absent. Family keeps
+// its own MCP Durable Object namespace, while market reads remain read-only.
+assert.doesNotMatch(wrangler, /OHLC_READ_SERVICE/);
+assert.doesNotMatch(wrangler, /"services"\s*:/);
+
 // Family must use the Agents SDK's explicit Durable Object binding option.
 // Missing/invalid FAMILY_MCP_OBJECT fails closed; no Proxy remap and no fallback
 // to the full MCP_OBJECT/MyMCP namespace is allowed.
@@ -59,4 +69,4 @@ assert.match(index, /return MyMCP\.serve\(url\.pathname\)\.fetch/);
 assert.match(index, /createFamilyOAuthProvider\(appHandler\)/);
 assert.match(index, /family: "FamilyMCP_READ_ONLY_ISOLATED"/);
 
-console.log("Family MCP native-binding isolated read-only surface contract passed");
+console.log("Family MCP isolated read-only cross-account-safe surface contract passed");
