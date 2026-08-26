@@ -1,4 +1,4 @@
-import { readGitHubJson } from "./github-data-store";
+import { readGitHubJson } from "./github-data-store.ts";
 import {
   institutionalWindows,
   marginWindows,
@@ -9,7 +9,7 @@ import {
   type SecuritiesLendingRow,
   type SblShortSaleRow,
   type TwMarketDataKind,
-} from "./tw-market-data";
+} from "./tw-market-data.ts";
 
 /**
  * Whole-market, read-only research view over the canonical prefix/month index.
