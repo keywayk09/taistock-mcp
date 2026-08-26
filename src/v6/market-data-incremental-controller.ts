@@ -314,6 +314,15 @@ export function dueLayerKeys(existingLayers: MarketManifestLayer[] | undefined, 
     }
 
     if (!layer) return true;
+
+    // A manifest placeholder represents a layer that exists structurally but
+    // has never consumed a provider request. It intentionally has attempts=0,
+    // last_attempt_at=null, and next_retry_at=null. Treat it exactly like a
+    // missing layer so the next five-minute wake can continue the one-layer
+    // batch. Real attempted failures still follow next_retry_at and the
+    // checkpoint guard above, so this cannot create a retry storm.
+    if (Number(layer.attempts || 0) === 0) return true;
+
     if (!layer.next_retry_at) return false;
     const next = new Date(layer.next_retry_at).getTime();
     return Number.isFinite(next) && next <= now;
