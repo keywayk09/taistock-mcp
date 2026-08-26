@@ -165,7 +165,10 @@ export async function getTwMarketCrossSection(env: Env, input: MarketCrossSectio
   const asOf = String(input.as_of ?? taipeiDate());
   if (!validDate(asOf)) throw new Error(`invalid as_of: ${asOf}`);
 
-  const calendarDays = Math.max(20, Math.min(62, Math.floor(Number(input.calendar_days ?? 35))));
+  // Twenty calendar days comfortably covers 1/3/5 trading-day windows while
+  // avoiding an unnecessary previous-month shard dependency for late-month runs.
+  // Callers can explicitly request up to 62 days when longer history is available.
+  const calendarDays = Math.max(20, Math.min(62, Math.floor(Number(input.calendar_days ?? 20))));
   const start = subtractDays(asOf, calendarDays);
   const requestedPrefix = input.prefix == null ? null : String(input.prefix).trim();
   if (requestedPrefix !== null && !/^[0-9]$/.test(requestedPrefix)) throw new Error(`invalid prefix: ${requestedPrefix}`);
