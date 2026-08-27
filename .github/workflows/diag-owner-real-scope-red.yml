@@ -1,0 +1,67 @@
+name: Owner legacy ChatGPT scope RED
+
+on:
+  push:
+    branches:
+      - fix/owner-openid-profile-compat-20260827
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Reproduce legacy ChatGPT scope rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > tests/__diag-owner-real-scope-red.test.ts <<'NODE'
+          import { handleOwnerAuthorize } from '../src/v6/owner-oauth.ts';
+
+          const ORIGIN='https://taistock-mcp.keywayk09.workers.dev';
+          const CLIENT='legacyconfidential12345';
+          const REDIRECT='https://chatgpt.com/connector/oauth/LegacyRealScope123';
+          const clientRecord=JSON.stringify({
+            clientId:CLIENT,
+            redirectUris:[REDIRECT],
+            grantTypes:['authorization_code','refresh_token'],
+            responseTypes:['code'],
+            tokenEndpointAuthMethod:'client_secret_basic',
+            clientSecret:'stored-secret',
+          });
+          const env={
+            MCP_API_KEY:'owner-secret',
+            OAUTH_KV:{
+              async get(k:string){
+                if(k===`client:${CLIENT}`) return clientRecord;
+                if(k===`owner-oauth:legacy-confidential:${CLIENT}`) return 'v1';
+                return null;
+              },
+              async put(){}, async delete(){},
+            },
+            OAUTH_PROVIDER:{ async completeAuthorization(){ throw new Error('not reached'); } },
+          } as unknown as Env;
+          const u=new URL(`${ORIGIN}/authorize`);
+          for(const [k,v] of Object.entries({
+            response_type:'code',
+            client_id:CLIENT,
+            redirect_uri:REDIRECT,
+            resource:`${ORIGIN}/my-mcp`,
+            scope:'openid profile offline_access mcp:tools',
+            state:'legacy-real-scope',
+          })) u.searchParams.set(k,v);
+          const r=await handleOwnerAuthorize(new Request(u), env);
+          console.log('STATUS='+r.status);
+          console.log((await r.text()).slice(0,300));
+          if(r.status!==400) throw new Error(`expected current main to reject legacy ChatGPT openid/profile scope with 400, got ${r.status}`);
+          console.log('OWNER_REAL_CHATGPT_SCOPE_RED=PASS');
+          NODE
+          node --experimental-strip-types tests/__diag-owner-real-scope-red.test.ts
+          rm tests/__diag-owner-real-scope-red.test.ts
