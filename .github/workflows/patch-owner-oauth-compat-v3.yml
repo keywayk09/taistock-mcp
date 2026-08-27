@@ -1,0 +1,127 @@
+name: One-shot patch Owner OAuth compatibility v3
+
+on:
+  push:
+    branches:
+      - fix/owner-oauth-boundary-20260827
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/owner-oauth-boundary-20260827
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply minimal patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          owner = Path('src/v6/owner-oauth.ts')
+          s = owner.read_text()
+          start = s.index('function ownerClientMatches(')
+          end = s.index('\n\nasync function ownerClientState', start)
+          new_fn = '''function ownerClientMatches(raw: string | null, candidate: OwnerConnectorCandidate) {
+            if (!raw) return false;
+            try {
+              const stored = JSON.parse(raw) as StoredOwnerConnectorClient;
+              const authMethod = stored.tokenEndpointAuthMethod;
+              const authCompatible = authMethod === "none"
+                ? !stored.clientSecret
+                : (authMethod === "client_secret_basic" || authMethod === "client_secret_post")
+                  && Boolean(stored.clientSecret);
+
+              return stored.clientId === candidate.clientId
+                && Array.isArray(stored.redirectUris)
+                && stored.redirectUris.length === 1
+                && stored.redirectUris[0] === candidate.redirectUri
+                && Array.isArray(stored.grantTypes)
+                && stored.grantTypes.includes("authorization_code")
+                && Array.isArray(stored.responseTypes)
+                && stored.responseTypes.includes("code")
+                && authCompatible;
+            } catch {
+              return false;
+            }
+          }'''
+          owner.write_text(s[:start] + new_fn + s[end:])
+
+          family = Path('src/v6/family-oauth.ts')
+          s = family.read_text()
+          marker = '\nexport function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {'
+          if 'function bearerAccessToken(' not in s:
+              helper = '''
+
+          function bearerAccessToken(request: Request) {
+            const header = request.headers.get("authorization") || "";
+            const match = /^Bearer\\s+(.+)$/i.exec(header.trim());
+            return match?.[1]?.trim() || "";
+          }
+
+          async function hasEffectiveOAuthScope(request: Request, env: Env, requiredScope: string) {
+            const token = bearerAccessToken(request);
+            if (!token) return false;
+            const summary = await env.OAUTH_PROVIDER.unwrapToken(token);
+            return Boolean(summary?.scope?.includes(requiredScope));
+          }
+          '''
+              idx = s.index(marker)
+              s = s[:idx] + helper + s[idx:]
+
+          family_if = s.index('if (role !== "family" || userId !== "family")')
+          family_try = s.index('\n      try {', family_if)
+          family_scope = '''
+              if (!await hasEffectiveOAuthScope(request, env, FAMILY_SCOPE)) {
+                return Response.json({ error: "insufficient_family_scope" }, { status: 403 });
+              }'''
+          s = s[:family_try] + family_scope + s[family_try:]
+
+          owner_if = s.index('if (role !== "owner" || userId !== "owner")')
+          owner_return = s.index('\n      return appHandler.fetch(request, env, ctx);', owner_if)
+          owner_scope = '''
+              if (!await hasEffectiveOAuthScope(request, env, OWNER_SCOPE)) {
+                return Response.json({ error: "insufficient_owner_scope" }, { status: 403 });
+              }'''
+          s = s[:owner_return] + owner_scope + s[owner_return:]
+          family.write_text(s)
+
+          test = Path('tests/owner-oauth-protected-surface.test.ts')
+          t = test.read_text()
+          if 'const ownerOAuth = fs.readFileSync' not in t:
+              t = t.replace(
+                  'const oauth = fs.readFileSync(path.join(root, "src/v6/family-oauth.ts"), "utf8");\n',
+                  'const oauth = fs.readFileSync(path.join(root, "src/v6/family-oauth.ts"), "utf8");\nconst ownerOAuth = fs.readFileSync(path.join(root, "src/v6/owner-oauth.ts"), "utf8");\n',
+                  1,
+              )
+          if 'OWNER_DCR_AUTH_COMPAT_V1' not in t:
+              t += '''\n// OWNER_DCR_AUTH_COMPAT_V1\nassert.match(ownerOAuth, /client_secret_basic/);\nassert.match(ownerOAuth, /client_secret_post/);\nassert.match(ownerOAuth, /Boolean\\(stored\\.clientSecret\\)/);\n'''
+          test.write_text(t)
+          PY
+          git diff --check
+      - run: npm install
+      - name: Verify patch before commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run type-check
+          npm run test:ops-contracts
+          npx wrangler deploy --dry-run
+      - name: Commit tested patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/v6/owner-oauth.ts src/v6/family-oauth.ts tests/owner-oauth-protected-surface.test.ts
+          git commit -m 'fix: accept compatible ChatGPT OAuth client auth modes'
+          git push origin HEAD:fix/owner-oauth-boundary-20260827
