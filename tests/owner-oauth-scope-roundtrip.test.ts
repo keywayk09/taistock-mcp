@@ -49,13 +49,12 @@ function runtimeEnv() {
   };
 }
 
-// Retained ChatGPT Apps may still request the historical OIDC-style transport
-// scopes in addition to MCP compatibility scopes. These labels are round-tripped
-// for connector compatibility only; owner:full remains the mandatory internal
-// authorization scope enforced by /my-mcp.
+// Trusted ChatGPT connector transport scopes are compatibility metadata, not
+// authorization. The Owner grant must round-trip them while owner:full remains
+// the mandatory internal authorization scope enforced by /my-mcp.
 {
   const runtime = runtimeEnv();
-  const original = authorizeUrl("openid profile offline_access mcp:tools");
+  const original = authorizeUrl("openid profile email offline_access mcp:tools");
   const form = new FormData();
   form.set("oauth_query", original.searchParams.toString());
   form.set("login_secret", "owner-secret");
@@ -67,8 +66,8 @@ function runtimeEnv() {
 
   assert.equal(response.status, 302);
   const authorization = runtime.getAuthorization();
-  assert.deepEqual(authorization.scope, ["owner:full", "openid", "profile", "offline_access", "mcp:tools"]);
-  assert.deepEqual(authorization.request.scope, ["owner:full", "openid", "profile", "offline_access", "mcp:tools"]);
+  assert.deepEqual(authorization.scope, ["owner:full", "openid", "profile", "email", "offline_access", "mcp:tools"]);
+  assert.deepEqual(authorization.request.scope, ["owner:full", "openid", "profile", "email", "offline_access", "mcp:tools"]);
   assert.equal(authorization.props.role, "owner");
   assert.equal(authorization.request.resource, `${ORIGIN}/my-mcp`);
 }
@@ -91,16 +90,35 @@ function runtimeEnv() {
   assert.deepEqual(authorization.scope, ["owner:full", "offline_access", "mcp:tools"]);
 }
 
-// Do not reflect arbitrary scope labels into a token. Compatibility is an
-// explicit Owner-only allowlist, not a generic scope echo mechanism.
+// A future transport label from the trusted ChatGPT connector must not brick
+// authorization. It is round-tripped only; it never replaces owner:full.
+{
+  const runtime = runtimeEnv();
+  const original = authorizeUrl("openid future_connector_scope offline_access mcp:tools");
+  const form = new FormData();
+  form.set("oauth_query", original.searchParams.toString());
+  form.set("login_secret", "owner-secret");
+
+  const response = await handleOwnerAuthorize(new Request(`${ORIGIN}/authorize`, {
+    method: "POST",
+    body: form,
+  }), runtime.env);
+
+  assert.equal(response.status, 302);
+  const authorization = runtime.getAuthorization();
+  assert.deepEqual(authorization.scope, ["owner:full", "openid", "future_connector_scope", "offline_access", "mcp:tools"]);
+}
+
+// Reserved internal authorization namespaces remain fail-closed. A transport
+// request may never mint Family authority or invent another Owner authority.
 for (const scope of [
-  "offline_access mcp:tools unexpected:admin",
-  "openid profile email offline_access mcp:tools",
   "family:read offline_access mcp:tools",
+  "family:admin offline_access mcp:tools",
+  "owner:admin offline_access mcp:tools",
 ]) {
   const runtime = runtimeEnv();
   const response = await handleOwnerAuthorize(new Request(authorizeUrl(scope).toString()), runtime.env);
-  assert.equal(response.status, 400, `unsupported Owner scope must fail closed: ${scope}`);
+  assert.equal(response.status, 400, `reserved internal scope must fail closed: ${scope}`);
 }
 
 console.log("Owner OAuth ChatGPT scope round-trip contract passed");

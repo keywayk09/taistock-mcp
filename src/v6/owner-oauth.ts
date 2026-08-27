@@ -41,13 +41,6 @@ export const OWNER_MCP_TOOLS_COMPAT_SCOPE = "mcp:tools";
 export const OWNER_OFFLINE_ACCESS_COMPAT_SCOPE = "offline_access";
 export const OWNER_OPENID_COMPAT_SCOPE = "openid";
 export const OWNER_PROFILE_COMPAT_SCOPE = "profile";
-const OWNER_REQUESTABLE_SCOPES = new Set([
-  OWNER_SCOPE,
-  OWNER_MCP_TOOLS_COMPAT_SCOPE,
-  OWNER_OFFLINE_ACCESS_COMPAT_SCOPE,
-  OWNER_OPENID_COMPAT_SCOPE,
-  OWNER_PROFILE_COMPAT_SCOPE,
-]);
 const OWNER_MCP_PATHS = new Set(["/my-mcp", "/mcp"]);
 const OWNER_CONNECTOR_NAME = "ChatGPT Owner / Diamond MCP App";
 const LEGACY_OWNER_CONFIDENTIAL_MARKER_PREFIX = "owner-oauth:legacy-confidential:";
@@ -138,15 +131,18 @@ function trustedConnectorRedirect(raw: string) {
 }
 
 /**
- * ChatGPT currently requests connector compatibility scopes in addition to the
- * resource's internal Owner scope. Keep this an explicit allowlist: arbitrary
- * scope labels must never be reflected into an access token.
+ * Trusted ChatGPT connector scope labels are transport compatibility metadata,
+ * not authorization authority. Keep strict RFC-style syntax/size bounds and
+ * permanently reserve our internal `owner:*` / `family:*` namespaces. This
+ * prevents harmless ChatGPT scope drift from bricking Owner login while the
+ * server still authorizes only with the injected OWNER_SCOPE plus role/audience.
  */
 function requestedOwnerScopes(rawScope: string) {
   const scopes = rawScope.split(/\s+/).filter(Boolean);
   if (rawScope.length > MAX_SCOPE_LENGTH || scopes.length > MAX_SCOPE_TOKENS) return null;
   if (!scopes.every((scope) => OAUTH_SCOPE_TOKEN.test(scope))) return null;
-  if (!scopes.every((scope) => OWNER_REQUESTABLE_SCOPES.has(scope))) return null;
+  if (scopes.some((scope) => scope.startsWith("family:"))) return null;
+  if (scopes.some((scope) => scope.startsWith("owner:") && scope !== OWNER_SCOPE)) return null;
   return scopes;
 }
 
