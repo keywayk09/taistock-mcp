@@ -28,6 +28,15 @@ assert.match(oauth, /familyApiHandler/);
 assert.match(oauth, /role\s*!==\s*["']family["']/);
 assert.match(oauth, /userId\s*!==\s*["']family["']/);
 
+// OWNER_EFFECTIVE_SCOPE_V1
+// Role identity alone is not permission. Cloudflare's provider authenticates the
+// bearer/audience but leaves operation-level scope enforcement to the application.
+// Use the provider's native token inspection rather than parsing token storage here.
+assert.match(oauth, /OAUTH_PROVIDER\.unwrapToken\s*\(/);
+assert.match(oauth, /effectiveToken[^;]*\.scope[\s\S]*includes\s*\(\s*requiredScope\s*\)/);
+assert.match(oauth, /requireEffectiveScope\s*\(\s*request\s*,\s*env\s*,\s*OWNER_SCOPE\s*\)/);
+assert.match(oauth, /requireEffectiveScope\s*\(\s*request\s*,\s*env\s*,\s*FAMILY_SCOPE\s*\)/);
+
 // The public endpoint ABI stays frozen. Runtime protection must happen in the
 // OAuth adapter rather than moving or renaming the MCP endpoints.
 assert.match(indexV6, /url\.pathname === ["']\/my-mcp["']/);
