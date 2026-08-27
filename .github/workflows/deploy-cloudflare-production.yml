@@ -12,8 +12,10 @@ on:
       - '.github/workflows/deploy-cloudflare-production.yml'
   workflow_dispatch:
 
+# Deployment is read-only with respect to the source branch. Runtime receipts
+# are archived as per-run Actions artifacts instead of committing back to main.
 permissions:
-  contents: write
+  contents: read
 
 # Production is latest-wins. A stale/hung deployment must never block a newer
 # source commit from reaching Cloudflare.
@@ -72,13 +74,16 @@ jobs:
             echo 'Cloudflare token/account ID is required to resolve OAuth KV.' >&2
             exit 78
           fi
+
           endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
           curl --fail --silent --show-error --max-time 30 "${endpoint}?per_page=1000" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H 'Content-Type: application/json' > /tmp/oauth-kv-list.json
+
           python - <<'PY' > /tmp/oauth-kv-choice.json
           import json
           from pathlib import Path
+
           body=json.loads(Path('/tmp/oauth-kv-list.json').read_text())
           if not body.get('success'):
               raise SystemExit(f"kv_list_failed:{body.get('errors')}")
@@ -97,6 +102,7 @@ jobs:
               chosen=None
           print(json.dumps(chosen or {}))
           PY
+
           kv_id="$(python - <<'PY'
           import json
           from pathlib import Path
@@ -110,6 +116,7 @@ jobs:
           PY
           )"
           created=false
+
           if [ -z "${kv_id}" ]; then
             curl --fail --silent --show-error --max-time 30 -X POST "$endpoint" \
               -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
@@ -118,6 +125,7 @@ jobs:
             kv_id="$(python - <<'PY'
           import json
           from pathlib import Path
+
           body=json.loads(Path('/tmp/oauth-kv-create.json').read_text())
           if not body.get('success'):
               raise SystemExit(f"kv_create_failed:{body.get('errors')}")
@@ -127,6 +135,7 @@ jobs:
             kv_title='taistock-mcp-OAUTH_KV'
             created=true
           fi
+
           if ! [[ "$kv_id" =~ ^[0-9a-fA-F]{32}$ ]]; then
             echo 'invalid OAuth KV namespace id' >&2
             exit 1
@@ -153,11 +162,13 @@ jobs:
             echo 'OAuth KV resolution failed; refusing Production deploy.' >&2
             exit 78
           fi
+
           cp wrangler.jsonc wrangler.production.jsonc
           trap 'rm -f wrangler.production.jsonc' EXIT
           python - <<'PY'
           import os,re
           from pathlib import Path
+
           path=Path('wrangler.production.jsonc')
           text=path.read_text()
           kv=os.environ['OAUTH_KV_ID']
@@ -178,6 +189,7 @@ jobs:
             DEPLOY_EXIT_CODE="$deploy_status" python - <<'PY'
           import os,re
           from pathlib import Path
+
           source=Path('/tmp/wrangler-deploy.log')
           text=source.read_text(errors='replace') if source.exists() else ''
           text=re.sub(r'(?i)(authorization\s*:\s*bearer\s+)[^\s]+', r'\1[REDACTED]', text)
@@ -217,6 +229,7 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
+
           put=json.loads(Path('/tmp/cron-put.json').read_text())
           get=json.loads(Path('/tmp/cron-get.json').read_text())
           schedules=((get.get('result') or {}).get('schedules') or [])
@@ -243,6 +256,7 @@ jobs:
               && python - <<'PY'
           import json
           from pathlib import Path
+
           health=json.loads(Path('/tmp/smoke-health.json').read_text())
           market=json.loads(Path('/tmp/smoke-full-market.json').read_text())
           if health.get('status') != 'ok':
@@ -278,8 +292,9 @@ jobs:
             exit 1
           fi
 
-      - name: Persist deploy receipt
+      - name: Build per-run deployment receipt
         if: always()
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -317,8 +332,10 @@ jobs:
 
           if [ "$reason" != 'DEPLOYED_CRON_AND_FULL_MARKET_SMOKE_VERIFIED' ]; then
             {
-              echo 'SAFE_PRODUCTION_DEPLOY_DIAGNOSTIC_V3'
+              echo 'SAFE_PRODUCTION_DEPLOY_DIAGNOSTIC_V4'
               echo "source_sha=${GITHUB_SHA}"
+              echo "run_id=${GITHUB_RUN_ID}"
+              echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
               echo "reason=${reason}"
               echo '--- wrangler ---'
               cat /tmp/wrangler-deploy-diagnostic.txt 2>/dev/null || true
@@ -332,6 +349,8 @@ jobs:
           cat > tmp/deploy-receipts/taistock-mcp-cloudflare.json <<EOF
           {
             "source_sha": "${GITHUB_SHA}",
+            "run_id": "${GITHUB_RUN_ID}",
+            "run_attempt": "${GITHUB_RUN_ATTEMPT}",
             "oauth_kv_outcome": "${oauth_outcome}",
             "oauth_kv_title": "${{ steps.oauth_kv.outputs.title }}",
             "oauth_kv_created": "${{ steps.oauth_kv.outputs.created }}",
@@ -347,21 +366,15 @@ jobs:
           }
           EOF
 
-          # Stage the whole receipt directory. This safely captures both receipt
-          # updates and a diagnostic-file deletion without failing on a missing path.
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A -- tmp/deploy-receipts
-          git commit -m 'ops: record Cloudflare production deploy result' || exit 0
-          for attempt in 1 2 3 4 5; do
-            if git push origin HEAD:main; then
-              exit 0
-            fi
-            git fetch origin main
-            git rebase origin/main
-          done
-          echo 'deploy receipt push retries exhausted' >&2
-          exit 1
+      - name: Upload per-run deployment receipt
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: taistock-mcp-cloudflare-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tmp/deploy-receipts/
+          if-no-files-found: warn
+          retention-days: 30
 
       - name: Enforce deployment result
         if: steps.oauth_kv.outcome != 'success' || steps.deploy.outcome != 'success' || steps.cron.outcome != 'success' || steps.smoke.outcome != 'success'
