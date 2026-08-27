@@ -11,11 +11,11 @@ const familyContent = read("src/v6/family-mcp.ts");
 const ownerContent = read("src/v6/owner-content-handler.ts");
 const ownerLiveTools = read("src/v6/shared-stock-market-context-tools.ts");
 
-// MCP_RELAY_SEPARATION_V3
+// MCP_RELAY_SEPARATION_V4 (RED gate first)
 // Freeze the known-good Production boundary after Owner OAuth + real MCP E2E PASS:
-// public ABI -> access broker/relay -> Owner/Family content runtime.
-// Future OAuth/ChatGPT compatibility changes must not require edits to the
-// Diamond or Family content implementations.
+// public ABI -> composition root -> access broker/relay -> Owner/Family content runtime.
+// Future OAuth/ChatGPT interface changes must not require the public entrypoint to
+// know concrete Diamond/Family content implementations.
 
 // Layer A: OAuth must not directly own or instantiate content runtimes.
 assert.doesNotMatch(
@@ -34,28 +34,30 @@ assert.doesNotMatch(
   "Owner OAuth must remain protocol/auth only",
 );
 
-// Layer B: the composition root may wire one broker, but must not know every
-// OAuth compatibility shim individually.
-for (const oauthShim of [
+// Layer B: the public entrypoint is interface-only. It may import one composed MCP
+// runtime, but must not wire concrete content handlers or the broker itself.
+for (const forbidden of [
   "family-oauth-legacy-endpoints",
   "family-oauth-public-client-compat",
   "family-oauth-token-recovery",
+  "family-content-handler",
+  "owner-content-handler",
+  "mcp-access-broker",
 ] as const) {
   assert.doesNotMatch(
     entry,
-    new RegExp(oauthShim),
-    `index-v6.ts is still coupled to OAuth shim ${oauthShim}`,
+    new RegExp(forbidden),
+    `index-v6.ts is still coupled to MCP implementation ${forbidden}`,
   );
 }
+assert.doesNotMatch(entry, /familyContentHandler|ownerContentHandler|createMcpAccessBroker/);
 
-// Layer C: Owner content is a first-class injected handler, exactly like Family
-// content. The public entrypoint must not own or serve the Diamond runtime.
+// Layer C: the public entrypoint must never own or serve the Diamond runtime.
 assert.doesNotMatch(
   entry,
   /class\s+MyMCP\s+extends|MyMCP\.serve\(/,
   "index-v6.ts still directly owns/serves the Owner content runtime",
 );
-assert.match(entry, /ownerContentHandler/);
 assert.match(broker, /ownerContentHandler/);
 assert.match(
   broker,
@@ -88,4 +90,4 @@ assert.match(broker, /pathname === "\/my-mcp" \|\| pathname === "\/mcp"/);
 assert.match(ownerOAuth, /OWNER_SCOPE = "owner:full"/);
 assert.match(familyOAuth, /FAMILY_SCOPE = "family:read"/);
 
-console.log("MCP relay separation + Owner/Family content boundary contract passed");
+console.log("MCP interface/composition/relay/content separation contract passed");
