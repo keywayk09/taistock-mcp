@@ -62,6 +62,18 @@ assert.match(dailyRelay, /22:45/);
 assert.doesNotMatch(dailyRelay, /grouped\.setdefault\(item\[0\]/);
 assertPythonCompiles("Daily relay", dailyRelay);
 
+// The final exact-date watchdog must finish before the canonical Cloudflare DAILY_RECOVERY
+// window closes at 22:55 Taipei. A 23:00 watchdog can repair the relay cache but is too late
+// for the same-day canonical 5-minute writer, leaving the Published pointer stale until the
+// next morning's final audit.
+const watchdogRelay = read(".github/workflows/tpex-relay-watchdog-v1.yml");
+const marketSchedule = read("src/v6/market-data-schedule.ts");
+assert.match(marketSchedule, /inMinuteWindow\(hour, minute, 22, 15, 55\)/);
+assert.match(watchdogRelay, /22:50/);
+assert.match(watchdogRelay, /cron: '50 14 \* \* 1-5'/);
+assert.doesNotMatch(watchdogRelay, /cron: '0 15 \* \* 1-5'/);
+assertPythonCompiles("TPEx relay watchdog", watchdogRelay);
+
 // Historical exact-date capture may classify an old date as no-trading only when ALL
 // independent TPEx datasets are empty. A partial empty remains a hard data error.
 const historyRelay = read(".github/workflows/tpex-historical-relay-v1.yml");
