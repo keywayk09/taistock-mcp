@@ -168,9 +168,10 @@ const wrangler = JSON.parse(wranglerText.replace(/\/\*[\s\S]*?\*\//g, ""));
 assert.equal(Array.isArray(wrangler.services) ? wrangler.services.length : 0, 0);
 
 const index = await readFile(new URL("../src/index-v6.ts", import.meta.url), "utf8");
-assert.match(index, /registerSharedStockMarketContextTools/);
-assert.match(index, /"get_quote"/);
-assert.match(index, /"get_daily_price"/);
+const ownerContent = await readFile(new URL("../src/v6/owner-content-handler.ts", import.meta.url), "utf8");
+assert.match(ownerContent, /registerSharedStockMarketContextTools/);
+assert.match(ownerContent, /"get_quote"/);
+assert.match(ownerContent, /"get_daily_price"/);
 assert.doesNotMatch(index, /\/api\/live-market-context/);
 
 const ownerTools = await readFile(new URL("../src/v6/shared-stock-market-context-tools.ts", import.meta.url), "utf8");
