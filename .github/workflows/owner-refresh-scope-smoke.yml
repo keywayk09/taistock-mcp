@@ -1,0 +1,167 @@
+name: One-shot Owner Family refresh scope smoke
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh-scope:
+    if: github.head_ref == 'fix/owner-oauth-effective-scope-20260827'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Verify refresh tokens cannot widen effective permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler dev --local --ip 127.0.0.1 --port 8787 \
+            --var MCP_API_KEY:owner-local-secret \
+            --var MOM_GPT_API_KEY:family-local-secret \
+            >/tmp/refresh-scope.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; tail -140 /tmp/refresh-scope.log || true' EXIT
+          for i in $(seq 1 45); do
+            curl --silent --max-time 2 http://127.0.0.1:8787/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+
+          node <<'NODE'
+          const crypto = await import('node:crypto');
+          const base = 'http://127.0.0.1:8787';
+
+          function assert(cond, message, detail) {
+            if (!cond) throw new Error(`${message}${detail === undefined ? '' : `: ${JSON.stringify(detail)}`}`);
+          }
+          function challenge(verifier) {
+            return crypto.createHash('sha256').update(verifier).digest('base64url');
+          }
+          async function responseJson(response) {
+            const text = await response.text();
+            try { return JSON.parse(text); } catch { throw new Error(`expected JSON ${response.status}: ${text.slice(0, 500)}`); }
+          }
+          async function register(label, callback) {
+            const response = await fetch(`${base}/oauth/register`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                client_name: label,
+                redirect_uris: [callback],
+                grant_types: ['authorization_code', 'refresh_token'],
+                response_types: ['code'],
+                token_endpoint_auth_method: 'none',
+              }),
+            });
+            assert(response.status === 201, `${label} DCR`, response.status);
+            return responseJson(response);
+          }
+          async function issueGrant({ label, callback, verifier, resource, requestedScope, secret }) {
+            const client = await register(label, callback);
+            const authorize = new URL(`${base}/authorize`);
+            authorize.searchParams.set('response_type', 'code');
+            authorize.searchParams.set('client_id', client.client_id);
+            authorize.searchParams.set('redirect_uri', callback);
+            authorize.searchParams.set('scope', `${requestedScope} offline_access`);
+            authorize.searchParams.set('state', `${label}-state`);
+            authorize.searchParams.set('code_challenge', challenge(verifier));
+            authorize.searchParams.set('code_challenge_method', 'S256');
+            authorize.searchParams.set('resource', resource);
+
+            const start = await fetch(authorize, { redirect: 'manual' });
+            assert(start.status === 200, `${label} authorize GET`, start.status);
+            const finish = await fetch(`${base}/authorize`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({ oauth_query: authorize.searchParams.toString(), login_secret: secret }),
+              redirect: 'manual',
+            });
+            assert(finish.status === 302, `${label} authorize POST`, finish.status);
+            const code = new URL(finish.headers.get('location')).searchParams.get('code');
+            assert(code, `${label} missing code`);
+
+            const exchange = await tokenRequest({
+              grant_type: 'authorization_code',
+              code,
+              redirect_uri: callback,
+              code_verifier: verifier,
+              client_id: client.client_id,
+              resource,
+            });
+            assert(exchange.status === 200, `${label} code exchange`, exchange.body);
+            assert(exchange.body.access_token && exchange.body.refresh_token, `${label} tokens missing`, exchange.body);
+            return { client, exchange: exchange.body };
+          }
+          async function tokenRequest(params) {
+            const response = await fetch(`${base}/oauth/token`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams(params),
+            });
+            const text = await response.text();
+            let body;
+            try { body = JSON.parse(text); } catch { body = { raw: text }; }
+            return { status: response.status, body };
+          }
+          async function protectedCall(path, token) {
+            return fetch(`${base}${path}`, {
+              method: 'POST',
+              headers: {
+                authorization: `Bearer ${token}`,
+                'content-type': 'application/json',
+                accept: 'application/json, text/event-stream',
+              },
+              body: JSON.stringify({
+                jsonrpc: '2.0', id: 1, method: 'initialize',
+                params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'refresh-scope-smoke', version: '1' } },
+              }),
+            });
+          }
+
+          const owner = await issueGrant({
+            label: 'OwnerRefreshScope',
+            callback: 'https://chatgpt.com/connector/oauth/OwnerRefreshScope123',
+            verifier: 'owner-refresh-scope-verifier-that-is-long-enough-for-pkce-s256',
+            resource: `${base}/my-mcp`,
+            requestedScope: 'owner:full',
+            secret: 'owner-local-secret',
+          });
+          const ownerNarrowRefresh = await tokenRequest({
+            grant_type: 'refresh_token',
+            refresh_token: owner.exchange.refresh_token,
+            client_id: owner.client.client_id,
+            resource: `${base}/my-mcp`,
+            scope: 'family:read',
+          });
+          assert(ownerNarrowRefresh.status === 200 && ownerNarrowRefresh.body.access_token, 'Owner downscoped refresh failed', ownerNarrowRefresh.body);
+          assert(!(ownerNarrowRefresh.body.scope || '').split(/\s+/).filter(Boolean).includes('owner:full'), 'Owner refresh scope expanded/retained unexpectedly', ownerNarrowRefresh.body);
+          const ownerDenied = await protectedCall('/my-mcp', ownerNarrowRefresh.body.access_token);
+          assert(ownerDenied.status === 403, 'Owner refresh token without owner:full reached MyMCP', ownerDenied.status);
+
+          const family = await issueGrant({
+            label: 'FamilyRefreshScope',
+            callback: 'https://chatgpt.com/connector/oauth/FamilyRefreshScope123',
+            verifier: 'family-refresh-scope-verifier-that-is-long-enough-for-pkce-s256',
+            resource: `${base}/family-mcp`,
+            requestedScope: 'family:read',
+            secret: 'family-local-secret',
+          });
+          const familyNarrowRefresh = await tokenRequest({
+            grant_type: 'refresh_token',
+            refresh_token: family.exchange.refresh_token,
+            client_id: family.client.client_id,
+            resource: `${base}/family-mcp`,
+            scope: 'owner:full',
+          });
+          assert(familyNarrowRefresh.status === 200 && familyNarrowRefresh.body.access_token, 'Family downscoped refresh failed', familyNarrowRefresh.body);
+          assert(!(familyNarrowRefresh.body.scope || '').split(/\s+/).filter(Boolean).includes('family:read'), 'Family refresh scope expanded/retained unexpectedly', familyNarrowRefresh.body);
+          const familyDenied = await protectedCall('/family-mcp', familyNarrowRefresh.body.access_token);
+          assert(familyDenied.status === 403, 'Family refresh token without family:read reached FamilyMCP', familyDenied.status);
+
+          console.log('OWNER_FAMILY_REFRESH_SCOPE=PASS');
+          NODE
