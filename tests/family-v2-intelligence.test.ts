@@ -76,6 +76,10 @@ assert.match(indexSource, /handleFamilySmartRest/);
 assert.match(indexSource, /registerFamilyStockSelectionToolsV2/);
 assert.ok(indexSource.indexOf("handleFamilySmartRest(request") < indexSource.indexOf("handleFamilyActionCompat(request"));
 assert.doesNotMatch(indexSource, /registerFamilyStockSelectionTools\(this\.server/);
+const familySmartRestAllowlist = indexSource.match(/const FAMILY_SMART_REST_PATHS = new Set\(\[([\s\S]*?)\]\);/)?.[1] ?? "";
+for (const path of ["/api/family/market-context", "/api/family/chips"]) {
+  assert.ok(familySmartRestAllowlist.includes(`"${path}"`), `FAMILY_SMART_REST_PATHS must include ${path}`);
+}
 
 const smartRestSource = fs.readFileSync(new URL("../src/v6/family-smart-rest.ts", import.meta.url), "utf8");
 for (const path of [
