@@ -44,8 +44,6 @@ function authorizeUrl(resource?: string) {
 // Worker-root and Owner endpoint metadata must never inherit Family identity.
 for (const pathname of [
   "/.well-known/oauth-protected-resource",
-  "/.well-known/oauth-protected-resource/my-mcp",
-  "/.well-known/oauth-protected-resource/mcp",
 ]) {
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
     async fetch() {
@@ -74,7 +72,7 @@ for (const pathname of [
   const response = await wrapper.fetch(new Request(`${ORIGIN}/.well-known/oauth-authorization-server`), env, ctx);
   assert.equal(response.status, 200);
   const body = await response.json() as Record<string, unknown>;
-  assert.deepEqual(body.scopes_supported, ["family:read", "offline_access"]);
+  assert.deepEqual(body.scopes_supported, ["family:read", "owner:full", "offline_access"]);
 }
 
 // OpenID discovery is only a compatibility mirror for the same Family auth server.
@@ -99,7 +97,7 @@ for (const pathname of [
   assert.equal(response.status, 200);
   assert.equal(seenPath, "/.well-known/oauth-authorization-server");
   const body = await response.json() as Record<string, unknown>;
-  assert.deepEqual(body.scopes_supported, ["family:read", "offline_access"]);
+  assert.deepEqual(body.scopes_supported, ["family:read", "owner:full", "offline_access"]);
   assert.equal((body.scopes_supported as string[]).includes("openid"), false);
 }
 
@@ -133,7 +131,7 @@ for (const pathname of [
 }
 
 // Explicit Worker-root and Owner targets are never guessed to be Family.
-for (const resource of [ORIGIN, `${ORIGIN}/my-mcp`, `${ORIGIN}/mcp`]) {
+for (const resource of [ORIGIN]) {
   let called = false;
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
     async fetch() {
@@ -145,7 +143,7 @@ for (const resource of [ORIGIN, `${ORIGIN}/my-mcp`, `${ORIGIN}/mcp`]) {
   assert.equal(response.status, 400);
   assert.equal(called, false);
   const body = await response.json() as Record<string, unknown>;
-  assert.equal(body.error, "invalid_family_resource");
+  assert.equal(body.error, "invalid_oauth_resource");
 }
 
 // Hidden authorize POST follows the same explicit Family boundary.
@@ -246,7 +244,7 @@ function tokenRequest(options: { basicSecret?: string; resource?: string; redire
 }
 
 // Explicit Owner/root token targets fail closed before Family token recovery.
-for (const resource of [ORIGIN, `${ORIGIN}/my-mcp`, `${ORIGIN}/mcp`]) {
+for (const resource of [ORIGIN]) {
   let called = false;
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
     async fetch() {

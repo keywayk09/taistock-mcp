@@ -5,6 +5,7 @@ import {
   type OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
 import { FamilyMCP } from "./family-mcp";
+import { handleOwnerAuthorize, isOwnerAuthorizeRequest, OWNER_SCOPE } from "./owner-oauth";
 
 declare global {
   interface Env {
@@ -664,6 +665,11 @@ async function rollbackPreparedTokenBootstrap(prepared: PreparedTokenBootstrap, 
 export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
   const familyApiHandler: ConcreteFetchHandler = {
     async fetch(request, env, ctx) {
+      const props = (ctx as ExecutionContext & { props?: { userId?: string; role?: string } }).props;
+      const { userId, role } = props || {};
+      if (role !== "family" || userId !== "family") {
+        return Response.json({ error: "forbidden_family_role" }, { status: 403 });
+      }
       try {
         return await FamilyMCP.serve("/family-mcp", { binding: "FAMILY_MCP_OBJECT" }).fetch(request, env, ctx);
       } catch (error) {
@@ -679,29 +685,46 @@ export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
     },
   };
 
+  const ownerApiHandler: ConcreteFetchHandler = {
+    async fetch(request, env, ctx) {
+      const props = (ctx as ExecutionContext & { props?: { userId?: string; role?: string } }).props;
+      const { userId, role } = props || {};
+      if (role !== "owner" || userId !== "owner") {
+        return Response.json({ error: "forbidden_owner_role" }, { status: 403 });
+      }
+      return appHandler.fetch(request, env, ctx);
+    },
+  };
+
   const defaultHandler: ConcreteFetchHandler = {
     async fetch(request, env, ctx) {
       const url = new URL(request.url);
-      if (url.pathname === "/authorize") return handleAuthorize(request, env);
+      if (url.pathname === "/authorize") {
+        if (await isOwnerAuthorizeRequest(request)) return handleOwnerAuthorize(request, env);
+        return handleAuthorize(request, env);
+      }
       return appHandler.fetch(request, env, ctx);
     },
   };
 
   const provider = new OAuthProvider<Env>({
-    apiRoute: "/family-mcp",
-    apiHandler: familyApiHandler,
+    apiHandlers: {
+      "/family-mcp": familyApiHandler,
+      "/my-mcp": ownerApiHandler,
+      "/mcp": ownerApiHandler,
+    },
     defaultHandler,
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/oauth/token",
     clientRegistrationEndpoint: "/oauth/register",
-    scopesSupported: [FAMILY_SCOPE],
+    scopesSupported: [FAMILY_SCOPE, OWNER_SCOPE],
     allowPlainPKCE: false,
     allowImplicitFlow: false,
     clientIdMetadataDocumentEnabled: true,
     resourceMetadata: {
-      scopes_supported: [FAMILY_SCOPE],
+      scopes_supported: [FAMILY_SCOPE, OWNER_SCOPE],
       bearer_methods_supported: ["header"],
-      resource_name: "Taiwan Stock AI Family MCP",
+      resource_name: "Taiwan Stock AI OAuth Server",
     },
   }) as unknown as ConcreteFetchHandler;
 
