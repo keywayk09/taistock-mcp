@@ -742,7 +742,7 @@ export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
     allowImplicitFlow: false,
     clientIdMetadataDocumentEnabled: true,
     resourceMetadata: {
-      scopes_supported: [FAMILY_SCOPE, OWNER_SCOPE],
+      // Path-scoped protected-resource metadata defines each MCP scope.
       bearer_methods_supported: ["header"],
       resource_name: "Taiwan Stock AI OAuth Server",
     },
