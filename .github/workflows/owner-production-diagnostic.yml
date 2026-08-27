@@ -1,0 +1,229 @@
+name: One-shot Production Owner OAuth diagnostic
+
+on:
+  push:
+    branches:
+      - fix/owner-oauth-boundary-20260827
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      BASE: https://taistock-mcp.keywayk09.workers.dev
+    steps:
+      - name: Probe live Production OAuth boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+
+          status() {
+            curl --silent --show-error --max-time 20 -D "$2.h" -o "$2.b" -w '%{http_code}' "$1"
+          }
+
+          echo '=== health ==='
+          h="$(status "$BASE/health" "$tmp/health")"
+          echo "health_status=$h"
+          test "$h" = 200
+          python - "$tmp/health.b" <<'PY'
+          import json,sys
+          body=json.load(open(sys.argv[1]))
+          print('health_version=', body.get('version'))
+          print('health_mcp_endpoint=', body.get('mcp_endpoint'))
+          assert body.get('status') == 'ok'
+          assert body.get('mcp_endpoint') == '/my-mcp'
+          PY
+
+          echo '=== protected resource metadata ==='
+          for pair in \
+            'my-mcp:owner:full' \
+            'mcp:owner:full' \
+            'family-mcp:family:read'
+          do
+            path="${pair%%:*}"
+            rest="${pair#*:}"
+            expected_scope="$rest"
+            code="$(status "$BASE/.well-known/oauth-protected-resource/$path" "$tmp/meta-$path")"
+            echo "$path metadata status=$code"
+            test "$code" = 200
+            python - "$tmp/meta-$path.b" "$BASE/$path" "$expected_scope" <<'PY'
+          import json,sys
+          body=json.load(open(sys.argv[1]))
+          print('resource=',body.get('resource'),'scopes=',body.get('scopes_supported'))
+          assert body.get('resource') == sys.argv[2], body
+          assert body.get('scopes_supported') == [sys.argv[3]], body
+          PY
+          done
+
+          root="$(status "$BASE/.well-known/oauth-protected-resource" "$tmp/root")"
+          echo "root_metadata_status=$root"
+          test "$root" = 404
+
+          echo '=== unauthenticated MCP challenges ==='
+          for path in my-mcp mcp family-mcp; do
+            code="$(status "$BASE/$path" "$tmp/ch-$path")"
+            challenge="$(tr -d '\r' < "$tmp/ch-$path.h" | grep -i '^www-authenticate:' || true)"
+            echo "$path status=$code challenge=$challenge"
+            test "$code" = 401
+            echo "$challenge" | grep -F "/.well-known/oauth-protected-resource/$path" >/dev/null
+          done
+
+          echo '=== authorization server discovery ==='
+          authmeta="$(status "$BASE/.well-known/oauth-authorization-server" "$tmp/authmeta")"
+          echo "auth_metadata_status=$authmeta"
+          test "$authmeta" = 200
+          python - "$tmp/authmeta.b" <<'PY'
+          import json,sys
+          b=json.load(open(sys.argv[1]))
+          print('authorization_endpoint=',b.get('authorization_endpoint'))
+          print('token_endpoint=',b.get('token_endpoint'))
+          print('registration_endpoint=',b.get('registration_endpoint'))
+          print('scopes_supported=',b.get('scopes_supported'))
+          scopes=set(b.get('scopes_supported') or [])
+          assert 'owner:full' in scopes
+          assert 'family:read' in scopes
+          assert 'offline_access' in scopes
+          PY
+
+          callback='https://chatgpt.com/connector/oauth/OwnerProdDiagnostic123'
+          challenge='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_abc'
+
+          register() {
+            local label="$1"
+            local mode="$2"
+            local out="$3"
+            if [ "$mode" = explicit-none ]; then
+              body="$(python - "$label" "$callback" <<'PY'
+          import json,sys
+          print(json.dumps({
+            'client_name':sys.argv[1],
+            'redirect_uris':[sys.argv[2]],
+            'grant_types':['authorization_code','refresh_token'],
+            'response_types':['code'],
+            'token_endpoint_auth_method':'none',
+          }))
+          PY
+              )"
+            else
+              body="$(python - "$label" "$callback" <<'PY'
+          import json,sys
+          print(json.dumps({
+            'client_name':sys.argv[1],
+            'redirect_uris':[sys.argv[2]],
+            'grant_types':['authorization_code','refresh_token'],
+            'response_types':['code'],
+          }))
+          PY
+              )"
+            fi
+            code="$(curl --silent --show-error --max-time 20 -D "$out.h" -o "$out.b" -w '%{http_code}' \
+              -X POST "$BASE/oauth/register" -H 'content-type: application/json' --data "$body")"
+            echo "DCR $mode status=$code"
+            test "$code" = 201
+            python - "$out.b" <<'PY'
+          import json,sys
+          b=json.load(open(sys.argv[1]))
+          print('client_id=',b.get('client_id'))
+          print('token_endpoint_auth_method=',b.get('token_endpoint_auth_method'))
+          print('has_client_secret=',bool(b.get('client_secret')))
+          assert b.get('client_id')
+          PY
+          }
+
+          register 'Owner Diagnostic Public' explicit-none "$tmp/dcr-public"
+          public_id="$(python - "$tmp/dcr-public.b" <<'PY'
+          import json,sys; print(json.load(open(sys.argv[1]))['client_id'])
+          PY
+          )"
+
+          echo '=== Owner authorize with fresh public PKCE client ==='
+          owner_status="$(curl --silent --show-error --max-time 20 -D "$tmp/owner-auth.h" -o "$tmp/owner-auth.b" -w '%{http_code}' \
+            --get "$BASE/authorize" \
+            --data-urlencode 'response_type=code' \
+            --data-urlencode "client_id=$public_id" \
+            --data-urlencode "redirect_uri=$callback" \
+            --data-urlencode 'scope=owner:full offline_access' \
+            --data-urlencode 'state=owner-prod-diagnostic' \
+            --data-urlencode "code_challenge=$challenge" \
+            --data-urlencode 'code_challenge_method=S256' \
+            --data-urlencode "resource=$BASE/my-mcp")"
+          echo "owner_authorize_public_status=$owner_status"
+          grep -o 'Owner / 鑽石引擎' "$tmp/owner-auth.b" | head -1 || true
+          test "$owner_status" = 200
+          grep -F 'Owner / 鑽石引擎' "$tmp/owner-auth.b" >/dev/null
+
+          echo '=== Wrong Owner secret must not grant ==='
+          oauth_query="$(python - "$public_id" "$callback" "$challenge" "$BASE" <<'PY'
+          import sys,urllib.parse
+          p={
+            'response_type':'code','client_id':sys.argv[1],'redirect_uri':sys.argv[2],
+            'scope':'owner:full offline_access','state':'owner-prod-diagnostic',
+            'code_challenge':sys.argv[3],'code_challenge_method':'S256',
+            'resource':sys.argv[4]+'/my-mcp'
+          }
+          print(urllib.parse.urlencode(p))
+          PY
+          )"
+          wrong="$(curl --silent --show-error --max-time 20 -D "$tmp/wrong.h" -o "$tmp/wrong.b" -w '%{http_code}' \
+            -X POST "$BASE/authorize" -H 'content-type: application/x-www-form-urlencoded' \
+            --data-urlencode "oauth_query=$oauth_query" --data-urlencode 'login_secret=definitely-wrong-owner-diagnostic-secret')"
+          echo "wrong_owner_secret_status=$wrong"
+          test "$wrong" = 200
+          grep -F 'Owner 驗證碼錯誤' "$tmp/wrong.b" >/dev/null
+          ! tr -d '\r' < "$tmp/wrong.h" | grep -qi '^location:'
+
+          echo '=== Legacy /mcp Owner authorize ==='
+          legacy="$(curl --silent --show-error --max-time 20 -o "$tmp/legacy.b" -w '%{http_code}' \
+            --get "$BASE/authorize" \
+            --data-urlencode 'response_type=code' \
+            --data-urlencode "client_id=$public_id" \
+            --data-urlencode "redirect_uri=$callback" \
+            --data-urlencode 'scope=owner:full offline_access' \
+            --data-urlencode 'state=owner-prod-legacy' \
+            --data-urlencode "code_challenge=$challenge" \
+            --data-urlencode 'code_challenge_method=S256' \
+            --data-urlencode "resource=$BASE/mcp")"
+          echo "owner_authorize_legacy_status=$legacy"
+          test "$legacy" = 200
+          grep -F 'Owner / 鑽石引擎' "$tmp/legacy.b" >/dev/null
+
+          echo '=== Explicit root resource must be rejected ==='
+          badroot="$(curl --silent --show-error --max-time 20 -o "$tmp/badroot.b" -w '%{http_code}' \
+            --get "$BASE/authorize" \
+            --data-urlencode 'response_type=code' \
+            --data-urlencode "client_id=$public_id" \
+            --data-urlencode "redirect_uri=$callback" \
+            --data-urlencode 'scope=owner:full offline_access' \
+            --data-urlencode 'state=owner-prod-root' \
+            --data-urlencode "code_challenge=$challenge" \
+            --data-urlencode 'code_challenge_method=S256' \
+            --data-urlencode "resource=$BASE/")"
+          echo "owner_authorize_root_status=$badroot body=$(cat "$tmp/badroot.b")"
+          test "$badroot" = 400
+
+          echo '=== DCR default auth-method compatibility ==='
+          register 'Owner Diagnostic Default DCR' omitted "$tmp/dcr-default"
+          default_id="$(python - "$tmp/dcr-default.b" <<'PY'
+          import json,sys; print(json.load(open(sys.argv[1]))['client_id'])
+          PY
+          )"
+          default_auth="$(curl --silent --show-error --max-time 20 -o "$tmp/default-auth.b" -w '%{http_code}' \
+            --get "$BASE/authorize" \
+            --data-urlencode 'response_type=code' \
+            --data-urlencode "client_id=$default_id" \
+            --data-urlencode "redirect_uri=$callback" \
+            --data-urlencode 'scope=owner:full offline_access' \
+            --data-urlencode 'state=owner-prod-default-dcr' \
+            --data-urlencode "code_challenge=$challenge" \
+            --data-urlencode 'code_challenge_method=S256' \
+            --data-urlencode "resource=$BASE/my-mcp")"
+          echo "owner_authorize_default_dcr_status=$default_auth"
+          echo "owner_authorize_default_dcr_body=$(tr '\n' ' ' < "$tmp/default-auth.b" | head -c 400)"
+
+          echo 'OWNER_PRODUCTION_DIAGNOSTIC_COMPLETE=PASS'
