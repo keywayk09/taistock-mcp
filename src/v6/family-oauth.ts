@@ -662,6 +662,20 @@ async function rollbackPreparedTokenBootstrap(prepared: PreparedTokenBootstrap, 
   await env.OAUTH_KV.put(prepared.clientKey, prepared.previousClientRaw).catch(() => undefined);
 }
 
+
+function bearerAccessToken(request: Request) {
+  const header = request.headers.get("authorization") || "";
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return match?.[1]?.trim() || "";
+}
+
+async function requireEffectiveScope(request: Request, env: Env, requiredScope: string) {
+  const token = bearerAccessToken(request);
+  if (!token) return false;
+  const effectiveToken = await env.OAUTH_PROVIDER.unwrapToken(token);
+  return Boolean(effectiveToken?.scope?.includes(requiredScope));
+}
+
 export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
   const familyApiHandler: ConcreteFetchHandler = {
     async fetch(request, env, ctx) {
@@ -670,6 +684,9 @@ export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
       if (role !== "family" || userId !== "family") {
         return Response.json({ error: "forbidden_family_role" }, { status: 403 });
       }
+    if (!await requireEffectiveScope(request, env, FAMILY_SCOPE)) {
+      return Response.json({ error: "insufficient_family_scope" }, { status: 403 });
+    }
       try {
         return await FamilyMCP.serve("/family-mcp", { binding: "FAMILY_MCP_OBJECT" }).fetch(request, env, ctx);
       } catch (error) {
@@ -692,6 +709,9 @@ export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
       if (role !== "owner" || userId !== "owner") {
         return Response.json({ error: "forbidden_owner_role" }, { status: 403 });
       }
+    if (!await requireEffectiveScope(request, env, OWNER_SCOPE)) {
+      return Response.json({ error: "insufficient_owner_scope" }, { status: 403 });
+    }
       return appHandler.fetch(request, env, ctx);
     },
   };

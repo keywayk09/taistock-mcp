@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const oauth = fs.readFileSync(path.join(root, "src/v6/family-oauth.ts"), "utf8");
+const ownerOAuth = fs.readFileSync(path.join(root, "src/v6/owner-oauth.ts"), "utf8");
 const indexV6 = fs.readFileSync(path.join(root, "src/index-v6.ts"), "utf8");
 
 // OWNER_PROTECTED_SURFACE_V1
@@ -49,3 +50,11 @@ assert.match(oauth, /isOwnerAuthorizeRequest/);
 assert.match(oauth, /handleOwnerAuthorize/);
 
 console.log("Owner OAuth protected MCP surface contract passed");
+
+// OWNER_DCR_AUTH_COMPAT_V1
+// Existing DCR clients may be public PKCE or confidential Basic/Post.
+// Their auth mode may be reused only with the existing exact redirect/client identity;
+// Owner privilege is still minted only after the Owner login secret succeeds.
+assert.match(ownerOAuth, /client_secret_basic/);
+assert.match(ownerOAuth, /client_secret_post/);
+assert.match(ownerOAuth, /Boolean\(stored\.clientSecret\)/);
