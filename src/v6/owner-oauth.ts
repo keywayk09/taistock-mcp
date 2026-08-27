@@ -21,6 +21,7 @@ type OwnerConnectorCandidate = {
   codeChallenge: string;
   codeChallengeMethod: "S256";
   resource: string;
+  requestedScopes: string[];
 };
 
 type StoredOwnerConnectorClient = {
@@ -36,6 +37,13 @@ type StoredOwnerConnectorClient = {
 };
 
 export const OWNER_SCOPE = "owner:full";
+export const OWNER_MCP_TOOLS_COMPAT_SCOPE = "mcp:tools";
+export const OWNER_OFFLINE_ACCESS_COMPAT_SCOPE = "offline_access";
+const OWNER_REQUESTABLE_SCOPES = new Set([
+  OWNER_SCOPE,
+  OWNER_MCP_TOOLS_COMPAT_SCOPE,
+  OWNER_OFFLINE_ACCESS_COMPAT_SCOPE,
+]);
 const OWNER_MCP_PATHS = new Set(["/my-mcp", "/mcp"]);
 const OWNER_CONNECTOR_NAME = "ChatGPT Owner / Diamond MCP App";
 const CHATGPT_CONNECTOR_CALLBACK_PATH = /^\/connector\/oauth\/[A-Za-z0-9_-]{8,256}$/;
@@ -124,10 +132,17 @@ function trustedConnectorRedirect(raw: string) {
   return redirect;
 }
 
-function validRequestedScopes(rawScope: string) {
+/**
+ * ChatGPT currently requests connector compatibility scopes in addition to the
+ * resource's internal Owner scope. Keep this an explicit allowlist: arbitrary
+ * scope labels must never be reflected into an access token.
+ */
+function requestedOwnerScopes(rawScope: string) {
   const scopes = rawScope.split(/\s+/).filter(Boolean);
-  if (rawScope.length > MAX_SCOPE_LENGTH || scopes.length > MAX_SCOPE_TOKENS) return false;
-  return scopes.every((scope) => OAUTH_SCOPE_TOKEN.test(scope));
+  if (rawScope.length > MAX_SCOPE_LENGTH || scopes.length > MAX_SCOPE_TOKENS) return null;
+  if (!scopes.every((scope) => OAUTH_SCOPE_TOKEN.test(scope))) return null;
+  if (!scopes.every((scope) => OWNER_REQUESTABLE_SCOPES.has(scope))) return null;
+  return scopes;
 }
 
 function ownerConnectorCandidate(url: URL): OwnerConnectorCandidate | null {
@@ -150,7 +165,8 @@ function ownerConnectorCandidate(url: URL): OwnerConnectorCandidate | null {
   if (!state || state.length > 2_000) return null;
 
   const rawScope = String(url.searchParams.get("scope") || "");
-  if (!validRequestedScopes(rawScope)) return null;
+  const requestedScopes = requestedOwnerScopes(rawScope);
+  if (!requestedScopes) return null;
 
   return {
     clientId,
@@ -159,6 +175,7 @@ function ownerConnectorCandidate(url: URL): OwnerConnectorCandidate | null {
     codeChallenge: challenge,
     codeChallengeMethod: "S256",
     resource,
+    requestedScopes,
   };
 }
 
@@ -272,12 +289,20 @@ async function validateOwnerSecret(request: Request, env: Env, supplied: string,
   return { ok: true as const };
 }
 
-function ownerAuthRequest(candidate: OwnerConnectorCandidate, origin: string): AuthRequest {
+function ownerGrantScopes(candidate: OwnerConnectorCandidate) {
+  const scopes = [OWNER_SCOPE];
+  for (const scope of candidate.requestedScopes) {
+    if (!scopes.includes(scope)) scopes.push(scope);
+  }
+  return scopes;
+}
+
+function ownerAuthRequest(candidate: OwnerConnectorCandidate, origin: string, scopes: string[]): AuthRequest {
   return {
     responseType: "code",
     clientId: candidate.clientId,
     redirectUri: candidate.redirectUri,
-    scope: [OWNER_SCOPE],
+    scope: scopes,
     state: candidate.state,
     codeChallenge: candidate.codeChallenge,
     codeChallengeMethod: candidate.codeChallengeMethod,
@@ -335,12 +360,13 @@ export async function handleOwnerAuthorize(request: Request, env: Env) {
       return html("<h2>Owner OAuth client 不相容</h2><p>拒絕覆寫既有 OAuth client 身分。</p>", 409);
     }
 
+    const grantedScopes = ownerGrantScopes(candidate);
     try {
       const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-        request: ownerAuthRequest(candidate, synthetic.origin),
+        request: ownerAuthRequest(candidate, synthetic.origin, grantedScopes),
         userId: "owner",
         metadata: { clientName: OWNER_CONNECTOR_NAME },
-        scope: [OWNER_SCOPE],
+        scope: grantedScopes,
         props: { userId: "owner", role: "owner" } satisfies OwnerAuthProps,
       });
       return Response.redirect(redirectTo, 302);

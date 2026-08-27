@@ -139,7 +139,8 @@ jobs:
           if meta.get('registration_endpoint') != f'{owner}/oauth/register':
               raise SystemExit(f"registration_endpoint={meta.get('registration_endpoint')}")
           scopes=set(meta.get('scopes_supported') or [])
-          if 'owner:full' not in scopes or 'offline_access' not in scopes:
+          required={'owner:full','mcp:tools','offline_access'}
+          if not required.issubset(scopes):
               raise SystemExit(f'scopes={sorted(scopes)}')
           if 'family:read' in scopes:
               raise SystemExit(f'family_scope_leak={sorted(scopes)}')

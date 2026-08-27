@@ -13,6 +13,7 @@ import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
  */
 
 const OWNER_SCOPE = "owner:full";
+const MCP_TOOLS_SCOPE = "mcp:tools";
 const OFFLINE_ACCESS_SCOPE = "offline_access";
 const DEFAULT_OWNER_MCP_ORIGIN = "https://taistock-mcp.keywayk09.workers.dev";
 const OWNER_MCP_PATHS = new Set(["/my-mcp", "/mcp"]);
@@ -156,11 +157,20 @@ async function handleStagingAuthorization(request: Request, env: OwnerOAuthWorke
   } catch {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
+  const requestedScopes = Array.isArray(oauthRequest.scope)
+    ? oauthRequest.scope.filter((scope): scope is string => typeof scope === "string")
+    : [];
+  const grantedScopes = [OWNER_SCOPE];
+  for (const scope of requestedScopes) {
+    if ((scope === MCP_TOOLS_SCOPE || scope === OFFLINE_ACCESS_SCOPE) && !grantedScopes.includes(scope)) {
+      grantedScopes.push(scope);
+    }
+  }
   const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-    request: oauthRequest,
+    request: { ...oauthRequest, scope: grantedScopes },
     userId: "owner",
     metadata: { role: "owner", staging: true },
-    scope: [OWNER_SCOPE],
+    scope: grantedScopes,
     props: { userId: "owner", role: "owner" },
   });
   return Response.redirect(redirectTo, 302);
@@ -203,7 +213,7 @@ const provider = new OAuthProvider<OwnerOAuthWorkerEnv>({
   authorizeEndpoint: "/authorize",
   tokenEndpoint: TOKEN_ENDPOINT,
   clientRegistrationEndpoint: REGISTER_ENDPOINT,
-  scopesSupported: [OWNER_SCOPE],
+  scopesSupported: [OWNER_SCOPE, MCP_TOOLS_SCOPE],
   allowPlainPKCE: false,
   allowImplicitFlow: false,
   clientIdMetadataDocumentEnabled: true,
@@ -228,6 +238,7 @@ async function authorizationServerMetadata(request: Request, env: OwnerOAuthWork
     ? body.scopes_supported.filter((scope): scope is string => typeof scope === "string")
     : [];
   if (!scopes.includes(OWNER_SCOPE)) scopes.push(OWNER_SCOPE);
+  if (!scopes.includes(MCP_TOOLS_SCOPE)) scopes.push(MCP_TOOLS_SCOPE);
   if (!scopes.includes(OFFLINE_ACCESS_SCOPE)) scopes.push(OFFLINE_ACCESS_SCOPE);
   body.scopes_supported = scopes;
   const headers = new Headers(response.headers);
