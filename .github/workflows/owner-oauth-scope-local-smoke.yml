@@ -1,0 +1,164 @@
+name: Owner OAuth scope local smoke
+
+on:
+  push:
+    branches:
+      - fix/owner-oauth-scope-roundtrip-20260827
+    paths:
+      - '.github/workflows/owner-oauth-scope-local-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install
+      - name: Start local isolated Owner OAuth provider
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler dev --config wrangler.owner-oauth.jsonc --local --port 8788 \
+            --var OWNER_OAUTH_STAGING_SECRET:scope-smoke-secret \
+            > /tmp/owner-oauth.log 2>&1 &
+          echo $! > /tmp/owner-oauth.pid
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8788/health >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/owner-oauth.log
+          exit 1
+      - name: DCR PKCE code token refresh scope round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          const base='http://127.0.0.1:8788';
+          const resource='https://taistock-mcp.keywayk09.workers.dev/my-mcp';
+          const redirect='https://chatgpt.com/connector/oauth/ScopeRoundtripSmoke123';
+          const verifier='owner-scope-roundtrip-pkce-verifier-longer-than-forty-three-characters';
+          const challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
+          const read=async r=>{const t=await r.text();try{return JSON.parse(t)}catch{return{raw:t}}};
+          const ok=(cond,msg,data)=>{if(!cond)throw new Error(`${msg}: ${JSON.stringify(data)}`)};
+
+          const metadataResponse=await fetch(`${base}/.well-known/oauth-authorization-server`);
+          const metadata=await read(metadataResponse);
+          ok(metadataResponse.status===200,'metadata status',{status:metadataResponse.status,metadata});
+          const supported=new Set(metadata.scopes_supported||[]);
+          ok(supported.has('owner:full'),'metadata owner scope',metadata);
+          ok(supported.has('mcp:tools'),'metadata mcp tools scope',metadata);
+          ok(supported.has('offline_access'),'metadata offline scope',metadata);
+          ok(!supported.has('family:read'),'metadata Family leak',metadata);
+
+          const registerResponse=await fetch(`${base}/oauth/register`,{
+            method:'POST',
+            headers:{'content-type':'application/json'},
+            body:JSON.stringify({
+              client_name:'Owner Scope Roundtrip Smoke',
+              redirect_uris:[redirect],
+              grant_types:['authorization_code','refresh_token'],
+              response_types:['code'],
+              token_endpoint_auth_method:'none'
+            })
+          });
+          const client=await read(registerResponse);
+          ok(registerResponse.status===201&&client.client_id,'DCR',{status:registerResponse.status,client});
+
+          const auth=new URL(`${base}/authorize`);
+          for(const [k,v] of Object.entries({
+            response_type:'code',
+            client_id:client.client_id,
+            redirect_uri:redirect,
+            scope:'offline_access mcp:tools',
+            state:'scope-smoke-state',
+            code_challenge:challenge,
+            code_challenge_method:'S256',
+            resource,
+          })) auth.searchParams.set(k,v);
+
+          const page=await fetch(auth,{redirect:'manual'});
+          ok(page.status===200,'authorize GET',{status:page.status,body:(await page.text()).slice(0,200)});
+
+          const form=new URLSearchParams({oauth_query:auth.searchParams.toString(),login_secret:'scope-smoke-secret'});
+          const approved=await fetch(`${base}/authorize`,{
+            method:'POST',
+            headers:{'content-type':'application/x-www-form-urlencoded'},
+            body:form,
+            redirect:'manual'
+          });
+          ok(approved.status===302,'authorize POST',{status:approved.status,body:await approved.text()});
+          const location=approved.headers.get('location');
+          ok(location,'authorize redirect location',{});
+          const callback=new URL(location);
+          const code=callback.searchParams.get('code');
+          ok(code,'authorization code',{location});
+
+          const tokenBody=new URLSearchParams({
+            grant_type:'authorization_code',
+            code,
+            code_verifier:verifier,
+            redirect_uri:redirect,
+            client_id:client.client_id,
+            resource,
+          });
+          const tokenResponse=await fetch(`${base}/oauth/token`,{
+            method:'POST',
+            headers:{'content-type':'application/x-www-form-urlencoded'},
+            body:tokenBody,
+          });
+          const token=await read(tokenResponse);
+          ok(tokenResponse.status===200,'token exchange',{status:tokenResponse.status,token});
+          const granted=new Set(String(token.scope||'').split(/\s+/).filter(Boolean));
+          ok(granted.has('owner:full'),'token owner scope',token);
+          ok(granted.has('offline_access'),'token offline scope',token);
+          ok(granted.has('mcp:tools'),'token mcp tools scope',token);
+          ok(token.refresh_token,'refresh token',token);
+
+          const refreshBody=new URLSearchParams({
+            grant_type:'refresh_token',
+            refresh_token:token.refresh_token,
+            client_id:client.client_id,
+            resource,
+          });
+          const refreshResponse=await fetch(`${base}/oauth/token`,{
+            method:'POST',
+            headers:{'content-type':'application/x-www-form-urlencoded'},
+            body:refreshBody,
+          });
+          const refreshed=await read(refreshResponse);
+          ok(refreshResponse.status===200,'refresh',{status:refreshResponse.status,refreshed});
+          const refreshedScopes=new Set(String(refreshed.scope||'').split(/\s+/).filter(Boolean));
+          ok(refreshedScopes.has('owner:full'),'refresh owner scope',refreshed);
+          ok(refreshedScopes.has('offline_access'),'refresh offline scope',refreshed);
+          ok(refreshedScopes.has('mcp:tools'),'refresh mcp tools scope',refreshed);
+
+          const driftBody=new URLSearchParams({
+            grant_type:'refresh_token',
+            refresh_token:refreshed.refresh_token||token.refresh_token,
+            client_id:client.client_id,
+            resource:'https://taistock-mcp.keywayk09.workers.dev/family-mcp',
+          });
+          const driftResponse=await fetch(`${base}/oauth/token`,{
+            method:'POST',
+            headers:{'content-type':'application/x-www-form-urlencoded'},
+            body:driftBody,
+          });
+          const drift=await read(driftResponse);
+          ok(driftResponse.status===400&&drift.error==='invalid_target','cross-resource refresh blocked',{status:driftResponse.status,drift});
+
+          console.log('OWNER_OAUTH_SCOPE_REAL_PROVIDER=PASS');
+          console.log('TOKEN_SCOPE='+token.scope);
+          console.log('REFRESH_SCOPE='+refreshed.scope);
+          NODE
+      - name: Dump local log on failure
+        if: failure()
+        run: cat /tmp/owner-oauth.log || true
