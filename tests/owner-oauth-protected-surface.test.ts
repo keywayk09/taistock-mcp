@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const oauth = fs.readFileSync(path.join(root, "src/v6/family-oauth.ts"), "utf8");
+const ownerOAuth = fs.readFileSync(path.join(root, "src/v6/owner-oauth.ts"), "utf8");
 const indexV6 = fs.readFileSync(path.join(root, "src/index-v6.ts"), "utf8");
 
 // OWNER_PROTECTED_SURFACE_V1
@@ -38,5 +39,16 @@ assert.doesNotMatch(indexV6, /\/owner-mcp-v\d+/);
 assert.match(oauth, /scopesSupported\s*:\s*\[FAMILY_SCOPE, OWNER_SCOPE\]/);
 assert.match(oauth, /isOwnerAuthorizeRequest/);
 assert.match(oauth, /handleOwnerAuthorize/);
+
+// OWNER_EFFECTIVE_SCOPE_V1
+assert.match(oauth, /OAUTH_PROVIDER\.unwrapToken\s*\(/);
+assert.match(oauth, /effectiveToken[^;]*\.scope[\s\S]*includes\s*\(\s*requiredScope\s*\)/);
+assert.match(oauth, /requireEffectiveScope\s*\(\s*request\s*,\s*env\s*,\s*OWNER_SCOPE\s*\)/);
+assert.match(oauth, /requireEffectiveScope\s*\(\s*request\s*,\s*env\s*,\s*FAMILY_SCOPE\s*\)/);
+
+// OWNER_DCR_AUTH_COMPAT_V1
+assert.match(ownerOAuth, /client_secret_basic/);
+assert.match(ownerOAuth, /client_secret_post/);
+assert.match(ownerOAuth, /Boolean\(stored\.clientSecret\)/);
 
 console.log("Owner OAuth protected MCP surface contract passed");
