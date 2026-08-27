@@ -1,0 +1,82 @@
+name: Production Owner OAuth postdeploy probe
+
+on:
+  push:
+    branches:
+      - diag/prod-owner-oauth-postdeploy-20260827
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BASE: https://taistock-mcp.keywayk09.workers.dev
+    steps:
+      - name: Verify health and protected MCP ingress
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --max-time 20 -o /tmp/health.json -w '%{http_code}' "$BASE/health")"
+          test "$code" = 200
+          python - <<'PY'
+          import json
+          b=json.load(open('/tmp/health.json'))
+          assert b.get('status') == 'ok', b
+          assert b.get('mcp_endpoint') == '/my-mcp', b
+          print('health=PASS')
+          PY
+
+          check_401() {
+            local path="$1"
+            local metadata="$2"
+            local status
+            status="$(curl --silent --show-error --max-time 20 -D /tmp/h.txt -o /tmp/b.txt -w '%{http_code}' "$BASE$path")"
+            test "$status" = 401
+            tr -d '\r' </tmp/h.txt | grep -i '^www-authenticate:' | grep -F "$metadata" >/dev/null
+          }
+          check_401 '/my-mcp' '/.well-known/oauth-protected-resource/my-mcp'
+          check_401 '/mcp' '/.well-known/oauth-protected-resource/mcp'
+          check_401 '/family-mcp' '/.well-known/oauth-protected-resource/family-mcp'
+          echo 'protected_ingress=PASS'
+
+      - name: Verify role-scoped OAuth metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 20 "$BASE/.well-known/oauth-protected-resource/my-mcp" >/tmp/owner.json
+          curl --fail --silent --show-error --max-time 20 "$BASE/.well-known/oauth-protected-resource/family-mcp" >/tmp/family.json
+          root_code="$(curl --silent --show-error --max-time 20 -o /tmp/root.txt -w '%{http_code}' "$BASE/.well-known/oauth-protected-resource")"
+          test "$root_code" = 404
+          python - <<'PY'
+          import json
+          owner=json.load(open('/tmp/owner.json'))
+          family=json.load(open('/tmp/family.json'))
+          base='https://taistock-mcp.keywayk09.workers.dev'
+          assert owner.get('resource') == base + '/my-mcp', owner
+          assert owner.get('scopes_supported') == ['owner:full'], owner
+          assert owner.get('authorization_servers') == [base], owner
+          assert family.get('resource') == base + '/family-mcp', family
+          assert family.get('scopes_supported') == ['family:read'], family
+          assert family.get('authorization_servers') == [base], family
+          print('role_scoped_metadata=PASS')
+          PY
+
+      - name: Verify Owner authorize page replaces old Family error
+        shell: bash
+        run: |
+          set -euo pipefail
+          challenge='AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+          url="$BASE/authorize?response_type=code&client_id=OwnerPostDeploy12345&redirect_uri=https%3A%2F%2Fchatgpt.com%2Fconnector%2Foauth%2FOwnerPostDeploy123&code_challenge=${challenge}&code_challenge_method=S256&state=owner-postdeploy-state&scope=owner%3Afull%20offline_access&resource=${BASE}%2Fmy-mcp"
+          status="$(curl --silent --show-error --max-time 20 -o /tmp/authorize.html -w '%{http_code}' "$url")"
+          test "$status" = 200
+          grep -F 'Owner / 鑽石引擎' /tmp/authorize.html >/dev/null
+          grep -F 'Owner 連線驗證碼' /tmp/authorize.html >/dev/null
+          if grep -F 'invalid_family_resource' /tmp/authorize.html >/dev/null; then
+            echo 'old Family resource error still present' >&2
+            exit 1
+          fi
+          echo 'owner_authorize_page=PASS'
+          echo 'PRODUCTION_OWNER_OAUTH_BOUNDARY=PASS'
