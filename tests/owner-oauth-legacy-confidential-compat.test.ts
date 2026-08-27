@@ -7,6 +7,7 @@ const PUBLIC_CLIENT = "publicowner12345";
 const BASIC_CLIENT = "basicowner123456";
 const POST_CLIENT = "postowner1234567";
 const NEW_CLIENT = "newowner12345678";
+const UNMARKED_BASIC_CLIENT = "unmarkedbasic123";
 const CHALLENGE = "A".repeat(43);
 
 function clientRecord(clientId: string, method: "none" | "client_secret_basic" | "client_secret_post") {
@@ -30,11 +31,14 @@ function runtimeEnv() {
     [`client:${PUBLIC_CLIENT}`, clientRecord(PUBLIC_CLIENT, "none")],
     [`client:${BASIC_CLIENT}`, clientRecord(BASIC_CLIENT, "client_secret_basic")],
     [`client:${POST_CLIENT}`, clientRecord(POST_CLIENT, "client_secret_post")],
+    [`client:${UNMARKED_BASIC_CLIENT}`, clientRecord(UNMARKED_BASIC_CLIENT, "client_secret_basic")],
   ]);
   const kv = {
     async get(key: string) {
-      return records.get(key) ?? null;
-    },
+    if (key === `owner-oauth:legacy-confidential:${BASIC_CLIENT}`) return "v1";
+    if (key === `owner-oauth:legacy-confidential:${POST_CLIENT}`) return "v1";
+    return records.get(key) ?? null;
+  },
     async put(key: string, value: string) {
       writes.push([key, value]);
       records.set(key, value);
@@ -108,6 +112,15 @@ for (const clientId of [BASIC_CLIENT, POST_CLIENT]) {
   const runtime = runtimeEnv();
   const get = await handleOwnerAuthorize(new Request(authorizeUrl(PUBLIC_CLIENT)), runtime.env);
   assert.equal(get.status, 400, "public client without PKCE must remain rejected");
+}
+
+// Merely existing as a confidential DCR client is not enough. Only clients
+// explicitly marked by the pre-deployment Owner-grant migration may use
+// the legacy no-PKCE compatibility path.
+{
+  const runtime = runtimeEnv();
+  const get = await handleOwnerAuthorize(new Request(authorizeUrl(UNMARKED_BASIC_CLIENT)), runtime.env);
+  assert.equal(get.status, 400, "unmarked confidential client without PKCE must be rejected");
 }
 
 // Unknown/new clients may not use the confidential-client compatibility path.

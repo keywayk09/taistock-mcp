@@ -46,6 +46,7 @@ const OWNER_REQUESTABLE_SCOPES = new Set([
 ]);
 const OWNER_MCP_PATHS = new Set(["/my-mcp", "/mcp"]);
 const OWNER_CONNECTOR_NAME = "ChatGPT Owner / Diamond MCP App";
+const LEGACY_OWNER_CONFIDENTIAL_MARKER_PREFIX = "owner-oauth:legacy-confidential:";
 const CHATGPT_CONNECTOR_CALLBACK_PATH = /^\/connector\/oauth\/[A-Za-z0-9_-]{8,256}$/;
 const CHATGPT_LEGACY_CONNECTOR_CALLBACK_PATH = "/connector_platform_oauth_redirect";
 const OPAQUE_CLIENT_ID = /^[A-Za-z0-9._~-]{8,256}$/;
@@ -209,6 +210,10 @@ function ownerClientKey(clientId: string) {
   return `client:${clientId}`;
 }
 
+function legacyOwnerConfidentialMarkerKey(clientId: string) {
+  return `${LEGACY_OWNER_CONFIDENTIAL_MARKER_PREFIX}${clientId}`;
+}
+
 function ownerClientMatches(raw: string | null, candidate: OwnerConnectorCandidate) {
   if (!raw) return false;
   try {
@@ -266,10 +271,14 @@ async function ownerClientState(candidate: OwnerConnectorCandidate, env: Env) {
 
   const authMethod = storedOwnerAuthMethod(raw);
   const confidential = authMethod === "client_secret_basic" || authMethod === "client_secret_post";
+  const strictPkce = ownerHasStrictPkce(candidate);
+  const legacyMarker = confidential && !strictPkce
+    ? await env.OAUTH_KV.get(legacyOwnerConfidentialMarkerKey(candidate.clientId))
+    : null;
   return {
     exists: true as const,
     compatible: true as const,
-    authorizationCompatible: confidential || ownerHasStrictPkce(candidate),
+    authorizationCompatible: strictPkce || (confidential && legacyMarker === "v1"),
   };
 }
 
