@@ -687,6 +687,9 @@ export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
     if (!await requireEffectiveScope(request, env, FAMILY_SCOPE)) {
       return Response.json({ error: "insufficient_family_scope" }, { status: 403 });
     }
+    if (!await requireEffectiveScope(request, env, FAMILY_SCOPE)) {
+      return Response.json({ error: "insufficient_family_scope" }, { status: 403 });
+    }
       try {
         return await FamilyMCP.serve("/family-mcp", { binding: "FAMILY_MCP_OBJECT" }).fetch(request, env, ctx);
       } catch (error) {
@@ -709,6 +712,9 @@ export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
       if (role !== "owner" || userId !== "owner") {
         return Response.json({ error: "forbidden_owner_role" }, { status: 403 });
       }
+    if (!await requireEffectiveScope(request, env, OWNER_SCOPE)) {
+      return Response.json({ error: "insufficient_owner_scope" }, { status: 403 });
+    }
     if (!await requireEffectiveScope(request, env, OWNER_SCOPE)) {
       return Response.json({ error: "insufficient_owner_scope" }, { status: 403 });
     }
