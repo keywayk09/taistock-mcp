@@ -11,6 +11,7 @@ const family = read("src/v6/family-mcp.ts");
 const oauth = read("src/v6/family-oauth.ts");
 const familyContent = read("src/v6/family-content-handler.ts");
 const ownerContent = read("src/v6/owner-content-handler.ts");
+const composition = read("src/v6/mcp-runtime-composition.ts");
 const broker = read("src/v6/mcp-access-broker.ts");
 const index = read("src/index-v6.ts");
 const wrangler = read("wrangler.jsonc");
@@ -67,12 +68,17 @@ assert.doesNotMatch(oauth, /if \(property === "MCP_OBJECT"\)/);
 assert.doesNotMatch(oauth, /binding: "MCP_OBJECT"/);
 assert.doesNotMatch(oauth, /FamilyMCP\.serve\(/);
 
-// Owner and Family now share the same architectural shape: the broker owns
-// ingress routing, while each content adapter owns its runtime implementation.
+// Owner and Family share the same architectural shape. The composition root is
+// the only layer that wires concrete content handlers into the access broker;
+// the public entrypoint only receives the already-composed runtime.
 assert.match(broker, /pathname === "\/my-mcp" \|\| pathname === "\/mcp"/);
 assert.match(broker, /ownerContentHandler\.fetch\(request, env, ctx\)/);
 assert.match(ownerContent, /MyMCP\.serve\(pathname\)\.fetch/);
-assert.match(index, /createMcpAccessBroker\([\s\S]*publicAppHandler,[\s\S]*ownerContentHandler,[\s\S]*familyContentHandler/);
+assert.match(composition, /createMcpAccessBroker/);
+assert.match(composition, /ownerContentHandler/);
+assert.match(composition, /familyContentHandler/);
+assert.match(index, /createComposedMcpRuntime\(publicAppHandler\)/);
+assert.doesNotMatch(index, /createMcpAccessBroker|ownerContentHandler|familyContentHandler/);
 assert.match(index, /family: "FamilyMCP_READ_ONLY_ISOLATED"/);
 
 console.log("Family MCP isolated read-only cross-account-safe surface contract passed");
