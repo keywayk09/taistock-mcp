@@ -1,0 +1,84 @@
+name: Verify live Owner OAuth cutover
+
+on:
+  push:
+    branches:
+      - fix/owner-oauth-issuer-isolation-20260827
+    paths:
+      - '.github/workflows/verify-live-owner-oauth-cutover.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify production OAuth separation
+        shell: bash
+        run: |
+          set -euo pipefail
+          MCP='https://taistock-mcp.keywayk09.workers.dev'
+          OWNER='https://taistock-owner-oauth.keywayk09.workers.dev'
+
+          curl -fsS --max-time 20 "$MCP/.well-known/oauth-protected-resource/my-mcp" > /tmp/owner-prm.json
+          curl -fsS --max-time 20 "$MCP/.well-known/oauth-protected-resource/family-mcp" > /tmp/family-prm.json
+          curl -fsS --max-time 20 "$OWNER/.well-known/oauth-authorization-server" > /tmp/owner-as.json
+          curl -fsS --max-time 20 "$OWNER/health" > /tmp/owner-health.json
+
+          root_status="$(curl -sS -o /tmp/root-prm.txt -w '%{http_code}' --max-time 20 "$MCP/.well-known/oauth-protected-resource")"
+
+          challenge_status="$(curl -sS -D /tmp/owner-challenge.headers -o /tmp/owner-challenge.body -w '%{http_code}' --max-time 20 \
+            -X POST "$MCP/my-mcp" \
+            -H 'content-type: application/json' \
+            -H 'accept: application/json, text/event-stream' \
+            --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"live-cutover-gate","version":"1"}}}')"
+
+          export MCP OWNER ROOT_STATUS="$root_status" CHALLENGE_STATUS="$challenge_status"
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+
+          mcp=os.environ['MCP']
+          owner=os.environ['OWNER']
+          owner_prm=json.loads(Path('/tmp/owner-prm.json').read_text())
+          family_prm=json.loads(Path('/tmp/family-prm.json').read_text())
+          owner_as=json.loads(Path('/tmp/owner-as.json').read_text())
+          owner_health=json.loads(Path('/tmp/owner-health.json').read_text())
+          challenge_headers=Path('/tmp/owner-challenge.headers').read_text(errors='replace')
+
+          assert owner_prm.get('resource') == f'{mcp}/my-mcp', owner_prm
+          assert owner_prm.get('authorization_servers') == [owner], owner_prm
+          assert owner_prm.get('scopes_supported') == ['owner:full'], owner_prm
+
+          assert family_prm.get('resource') == f'{mcp}/family-mcp', family_prm
+          assert family_prm.get('authorization_servers') == [mcp], family_prm
+          assert family_prm.get('scopes_supported') == ['family:read'], family_prm
+
+          assert os.environ['ROOT_STATUS'] == '404', os.environ['ROOT_STATUS']
+
+          assert owner_as.get('issuer') == owner, owner_as
+          assert owner_as.get('authorization_endpoint') == f'{owner}/authorize', owner_as
+          assert owner_as.get('token_endpoint') == f'{owner}/oauth/token', owner_as
+          assert owner_as.get('registration_endpoint') == f'{owner}/oauth/register', owner_as
+          scopes=set(owner_as.get('scopes_supported') or [])
+          assert 'owner:full' in scopes, scopes
+          assert 'offline_access' in scopes, scopes
+          assert 'family:read' not in scopes, scopes
+
+          assert owner_health.get('ok') is True, owner_health
+          assert owner_health.get('role') == 'owner-oauth', owner_health
+          assert owner_health.get('mcp_resource') == f'{mcp}/my-mcp', owner_health
+
+          assert os.environ['CHALLENGE_STATUS'] in {'401','403'}, os.environ['CHALLENGE_STATUS']
+          lower=challenge_headers.lower()
+          assert 'www-authenticate:' in lower, challenge_headers
+          assert 'oauth-protected-resource/my-mcp' in lower, challenge_headers
+
+          print('LIVE_OWNER_OAUTH_CUTOVER=PASS')
+          print('OWNER_RESOURCE_AUTH_SERVER='+owner_prm['authorization_servers'][0])
+          print('FAMILY_RESOURCE_AUTH_SERVER='+family_prm['authorization_servers'][0])
+          print('ROOT_PRM_STATUS='+os.environ['ROOT_STATUS'])
+          print('OWNER_CHALLENGE_STATUS='+os.environ['CHALLENGE_STATUS'])
+          PY
