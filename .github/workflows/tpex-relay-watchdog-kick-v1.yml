@@ -1,0 +1,29 @@
+name: TPEx Relay Watchdog Merge Kick
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/tpex-relay-watchdog-v1.yml'
+      - '.github/workflows/tpex-relay-watchdog-kick-v1.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/tpex-relay-watchdog-kick-v1.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  kick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate kick contract on pull request
+        if: github.event_name == 'pull_request'
+        run: echo 'PR validation only; production dispatch is push-to-main only.'
+      - name: Dispatch merged watchdog
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run tpex-relay-watchdog-v1.yml --repo keywayk09/taistock-mcp --ref main
