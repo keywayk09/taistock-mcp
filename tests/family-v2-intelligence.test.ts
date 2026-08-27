@@ -72,10 +72,11 @@ assert.ok(scored.score > 0 && scored.score <= 100);
 assert.ok(["GREEN_RESEARCH", "YELLOW_WAIT", "RED_SKIP"].includes(scored.bucket));
 
 const indexSource = fs.readFileSync(new URL("../src/index-v6.ts", import.meta.url), "utf8");
+const ownerContentSource = fs.readFileSync(new URL("../src/v6/owner-content-handler.ts", import.meta.url), "utf8");
 assert.match(indexSource, /handleFamilySmartRest/);
-assert.match(indexSource, /registerFamilyStockSelectionToolsV2/);
+assert.match(ownerContentSource, /registerFamilyStockSelectionToolsV2/);
 assert.ok(indexSource.indexOf("handleFamilySmartRest(request") < indexSource.indexOf("handleFamilyActionCompat(request"));
-assert.doesNotMatch(indexSource, /registerFamilyStockSelectionTools\(this\.server/);
+assert.doesNotMatch(ownerContentSource, /registerFamilyStockSelectionTools\(this\.server/);
 const familySmartRestAllowlist = indexSource.match(/const FAMILY_SMART_REST_PATHS = new Set\(\[([\s\S]*?)\]\);/)?.[1] ?? "";
 for (const path of ["/api/family/market-context", "/api/family/chips"]) {
   assert.ok(familySmartRestAllowlist.includes(`"${path}"`), `FAMILY_SMART_REST_PATHS must include ${path}`);
