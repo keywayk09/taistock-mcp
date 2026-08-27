@@ -1,0 +1,138 @@
+name: Diagnose Owner OAuth production state
+
+on:
+  push:
+    branches:
+      - diag/owner-oauth-production-state-20260827
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inspect OAuth KV categorically
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl --fail --silent --show-error --max-time 30 "${endpoint}?per_page=1000" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/ns.json
+          kv_id="$(python - <<'PY'
+          import json
+          body=json.load(open('/tmp/ns.json'))
+          rows=body.get('result') or []
+          preferred=[x for x in rows if x.get('title')=='taistock-mcp-OAUTH_KV']
+          legacy=[x for x in rows if x.get('title')=='OAUTH_KV']
+          chosen=preferred[0] if len(preferred)==1 else (legacy[0] if len(legacy)==1 else None)
+          if not chosen: raise SystemExit('oauth_kv_not_resolved')
+          print(chosen['id'])
+          PY
+          )"
+          base="${endpoint}/${kv_id}"
+          curl --fail --silent --show-error --max-time 30 "${base}/keys?prefix=grant%3Aowner%3A&limit=1000" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/grants.json
+          curl --fail --silent --show-error --max-time 30 "${base}/keys?prefix=client%3A&limit=1000" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/clients.json
+
+          python - <<'PY'
+          import hashlib, json, os, urllib.parse, urllib.request
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          acct=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          ns=json.load(open('/tmp/ns.json'))
+          rows=ns.get('result') or []
+          preferred=[x for x in rows if x.get('title')=='taistock-mcp-OAUTH_KV']
+          legacy=[x for x in rows if x.get('title')=='OAUTH_KV']
+          chosen=preferred[0] if len(preferred)==1 else (legacy[0] if len(legacy)==1 else None)
+          kv=chosen['id']
+          base=f'https://api.cloudflare.com/client/v4/accounts/{acct}/storage/kv/namespaces/{kv}'
+          headers={'Authorization':f'Bearer {token}'}
+          def get_value(key):
+              req=urllib.request.Request(base+'/values/'+urllib.parse.quote(key,safe=''),headers=headers)
+              with urllib.request.urlopen(req,timeout=20) as r:
+                  return r.read().decode('utf-8','replace')
+          def short(v):
+              return hashlib.sha256(str(v).encode()).hexdigest()[:12] if v else 'none'
+
+          grants=json.load(open('/tmp/grants.json')).get('result') or []
+          print(f'OWNER_GRANT_COUNT={len(grants)}')
+          owner_client_hashes=set()
+          for row in grants:
+              key=row.get('name','')
+              try:
+                  g=json.loads(get_value(key))
+              except Exception as e:
+                  print(f'OWNER_GRANT unreadable key_hash={short(key)} error={type(e).__name__}')
+                  continue
+              scopes=g.get('scope') if isinstance(g.get('scope'),list) else []
+              client=g.get('clientId','')
+              owner_client_hashes.add(short(client))
+              redir=g.get('redirectUri','')
+              try:
+                  u=urllib.parse.urlsplit(redir)
+                  redir_safe=f'{u.hostname or "?"}{u.path}'
+              except Exception:
+                  redir_safe='invalid'
+              print('OWNER_GRANT',
+                    f'key_hash={short(key)}',
+                    f'client_hash={short(client)}',
+                    f'user={g.get("userId")}',
+                    f'scope={"|".join(scopes) if scopes else "none"}',
+                    f'pkce={g.get("codeChallengeMethod")}',
+                    f'redirect={redir_safe}',
+                    f'has_auth_code={bool(g.get("authCodeId"))}')
+
+          clients=json.load(open('/tmp/clients.json')).get('result') or []
+          matched=0
+          for row in clients:
+              key=row.get('name','')
+              try:
+                  c=json.loads(get_value(key))
+              except Exception:
+                  continue
+              h=short(c.get('clientId',''))
+              if h not in owner_client_hashes: continue
+              matched += 1
+              redirects=c.get('redirectUris') if isinstance(c.get('redirectUris'),list) else []
+              redir='none'
+              if redirects:
+                  try:
+                      u=urllib.parse.urlsplit(redirects[0]); redir=f'{u.hostname or "?"}{u.path}'
+                  except Exception: redir='invalid'
+              print('OWNER_CLIENT',
+                    f'client_hash={h}',
+                    f'name={c.get("clientName")}',
+                    f'auth_method={c.get("tokenEndpointAuthMethod")}',
+                    f'has_secret={bool(c.get("clientSecret"))}',
+                    f'grant_types={"|".join(c.get("grantTypes") or [])}',
+                    f'redirect={redir}')
+          print(f'OWNER_CLIENT_MATCH_COUNT={matched}')
+          PY
+
+      - name: Probe current public OAuth discovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://taistock-mcp.keywayk09.workers.dev'
+          for p in '/.well-known/oauth-protected-resource/my-mcp' '/.well-known/oauth-protected-resource/mcp' '/.well-known/oauth-protected-resource/family-mcp' '/.well-known/oauth-authorization-server' '/.well-known/openid-configuration'; do
+            code="$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 20 "$base$p")"
+            echo "PROBE $p status=$code"
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          t=Path('/tmp/body').read_text(errors='replace')
+          try:
+              j=json.loads(t)
+          except Exception:
+              print('body_type=non_json'); raise SystemExit
+          keep={k:j.get(k) for k in ['resource','authorization_servers','scopes_supported','authorization_endpoint','token_endpoint','registration_endpoint','issuer'] if k in j}
+          print(json.dumps(keep,ensure_ascii=False,sort_keys=True))
+          PY
+          done
