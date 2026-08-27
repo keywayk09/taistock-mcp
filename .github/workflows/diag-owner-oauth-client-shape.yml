@@ -40,26 +40,53 @@ jobs:
           print(chosen['id'])
           PY
           )"
+          export OAUTH_KV_ID="$kv_id"
 
           curl --fail --silent --show-error --max-time 30 \
             "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kv_id}/keys?prefix=client%3A&limit=1000" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/client-keys.json
 
           python - <<'PY'
-          import json, os, re, subprocess, hashlib
+          import hashlib, json, os, re, urllib.parse, urllib.request
           from pathlib import Path
-          body=json.loads(Path('/tmp/client-keys.json').read_text())
-          rows=body.get('result') or []
-          print(f'CLIENT_KEY_COUNT={len(rows)}')
+
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          kv=os.environ['OAUTH_KV_ID']
+          rows=(json.loads(Path('/tmp/client-keys.json').read_text()).get('result') or [])
           opaque=re.compile(r'^[A-Za-z0-9._~-]{8,256}$')
           callback=re.compile(r'^/connector/oauth/[A-Za-z0-9_-]{8,256}$')
+          legacy='/connector_platform_oauth_redirect'
+          print(f'CLIENT_KEY_COUNT={len(rows)}')
+          chatgpt_count=0
           for i,row in enumerate(rows):
               name=str(row.get('name') or '')
               if not name.startswith('client:'): continue
               cid=name[7:]
               digest=hashlib.sha256(cid.encode()).hexdigest()[:10]
-              print(f'CLIENT[{i}] id_hash={digest} id_len={len(cid)} opaque_ok={bool(opaque.fullmatch(cid))}')
-              bad=sorted(set(ch for ch in cid if not re.fullmatch(r'[A-Za-z0-9._~-]', ch)))
-              if bad:
-                  print(f'CLIENT[{i}] id_bad_codepoints={[ord(ch) for ch in bad]}')
+              key=urllib.parse.quote(name, safe='')
+              url=f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{kv}/values/{key}'
+              req=urllib.request.Request(url, headers={'Authorization':f'Bearer {token}'})
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as resp:
+                      raw=resp.read().decode('utf-8')
+                  rec=json.loads(raw)
+              except Exception as e:
+                  print(f'CLIENT[{i}] id_hash={digest} read_error={type(e).__name__}')
+                  continue
+              redirects=rec.get('redirectUris') or rec.get('redirect_uris') or []
+              auth=rec.get('tokenEndpointAuthMethod') or rec.get('token_endpoint_auth_method')
+              grants=rec.get('grantTypes') or rec.get('grant_types') or []
+              for r in redirects:
+                  try:
+                      u=urllib.parse.urlsplit(str(r))
+                      host=u.hostname or ''
+                      path=u.path or ''
+                      trusted=host in {'chatgpt.com','chat.openai.com'} and (bool(callback.fullmatch(path)) or path==legacy) and u.scheme=='https' and not u.query and not u.fragment
+                  except Exception:
+                      trusted=False; host=''; path=''
+                  if host in {'chatgpt.com','chat.openai.com'}:
+                      chatgpt_count+=1
+                      print(f'CHATGPT_CLIENT id_hash={digest} id_len={len(cid)} opaque_ok={bool(opaque.fullmatch(cid))} redirect_host={host} redirect_path_len={len(path)} redirect_ok={trusted} auth={auth} grants={sorted(map(str,grants))}')
+          print(f'CHATGPT_REDIRECT_RECORDS={chatgpt_count}')
           PY
