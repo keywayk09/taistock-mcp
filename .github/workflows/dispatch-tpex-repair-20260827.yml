@@ -1,0 +1,20 @@
+name: Dispatch TPEx 2026-08-27 Relay Repair
+
+on:
+  push:
+    branches: [test/tpex-live-smoke-20260828]
+    paths:
+      - '.github/workflows/dispatch-tpex-repair-20260827.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch merged relay watchdog for exact date
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run tpex-relay-watchdog-v1.yml --repo keywayk09/taistock-mcp --ref main -f trade_date=2026-08-27
