@@ -1,0 +1,73 @@
+name: Path scoped OAuth challenge fix v4
+
+on:
+  push:
+    branches:
+      - fix/path-scoped-www-authenticate-20260827
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/path-scoped-www-authenticate-20260827
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Patch source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -c "from pathlib import Path; p=Path('src/v6/family-oauth.ts'); s=p.read_text(); n='      scopes_supported: [FAMILY_SCOPE, OWNER_SCOPE],\\n'; assert s.count(n)==1, s.count(n); p.write_text(s.replace(n,'      // Path-scoped protected-resource metadata defines each MCP scope.\\n',1))"
+          python -c "from pathlib import Path; p=Path('tests/owner-oauth-protected-surface.test.ts'); s=p.read_text(); a='// OWNER_EFFECTIVE_SCOPE_V1\\n'; b='// PATH_SCOPED_CHALLENGE_SCOPE_V1\\nassert.match(oauth, /scopesSupported\\\\s*:\\\\s*\\\\[FAMILY_SCOPE, OWNER_SCOPE\\\\]/);\\nassert.doesNotMatch(oauth, /scopes_supported\\\\s*:\\\\s*\\\\[FAMILY_SCOPE, OWNER_SCOPE\\\\]/);\\n\\n'; assert a in s; p.write_text(s if 'PATH_SCOPED_CHALLENGE_SCOPE_V1' in s else s.replace(a,b+a,1))"
+          git diff --check
+      - run: npm install
+      - name: Full gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run type-check
+          npm run test:research
+          npx wrangler deploy --dry-run
+      - name: Runtime challenge matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler dev --local --ip 127.0.0.1 --port 8787 --var MCP_API_KEY:owner-local-secret --var MOM_GPT_API_KEY:family-local-secret >/tmp/pathscope.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; tail -120 /tmp/pathscope.log || true' EXIT
+          for i in $(seq 1 45); do
+            if curl -fsS --max-time 2 http://127.0.0.1:8787/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          for pair in 'my-mcp owner:full' 'mcp owner:full' 'family-mcp family:read'; do
+            set -- $pair
+            path="$1"
+            expected="$2"
+            headers="$(mktemp)"
+            code="$(curl -sS --max-time 10 -D "$headers" -o /tmp/body -w '%{http_code}' http://127.0.0.1:8787/$path)"
+            test "$code" = 401
+            challenge="$(tr -d '\r' < "$headers" | grep -i '^www-authenticate:' || true)"
+            echo "$path $challenge"
+            echo "$challenge" | grep -F "/.well-known/oauth-protected-resource/$path" >/dev/null
+            ! echo "$challenge" | grep -F 'family:read owner:full' >/dev/null
+            ! echo "$challenge" | grep -F 'owner:full family:read' >/dev/null
+            curl -fsS --max-time 10 http://127.0.0.1:8787/.well-known/oauth-protected-resource/$path | python -c 'import json,sys; d=json.load(sys.stdin); e=sys.argv[1]; assert d.get("scopes_supported")==[e],d' "$expected"
+          done
+          curl -fsS --max-time 10 http://127.0.0.1:8787/.well-known/oauth-authorization-server | python -c 'import json,sys; d=json.load(sys.stdin); s=set(d.get("scopes_supported") or []); assert {"owner:full","family:read","offline_access"} <= s,d'
+          echo PATH_SCOPED_WWW_AUTH_MATRIX=PASS
+      - name: Commit validated fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/fix-path-scoped-www-auth-v4.yml
+          git config user.name github-actions
+          git config user.email github-actions@users.noreply.github.com
+          git add src/v6/family-oauth.ts tests/owner-oauth-protected-surface.test.ts .github/workflows/fix-path-scoped-www-auth-v4.yml
+          git commit -m 'fix: keep OAuth bearer challenge scopes path-scoped'
+          git push origin HEAD:fix/path-scoped-www-authenticate-20260827
