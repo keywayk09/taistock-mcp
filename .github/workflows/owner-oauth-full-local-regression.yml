@@ -1,0 +1,185 @@
+name: Owner and Family OAuth full local regression
+
+on:
+  push:
+    branches:
+      - fix/owner-oauth-boundary-20260827
+
+permissions:
+  contents: read
+
+jobs:
+  oauth-full-flow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Run local Worker and full OAuth matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler dev --local --ip 127.0.0.1 --port 8787 \
+            --var MCP_API_KEY:owner-local-secret \
+            --var MOM_GPT_API_KEY:family-local-secret \
+            >/tmp/oauth-full-local.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; tail -160 /tmp/oauth-full-local.log || true' EXIT
+
+          ready=false
+          for i in $(seq 1 45); do
+            if curl --silent --max-time 2 http://127.0.0.1:8787/health >/dev/null 2>&1; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
+
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          const base = 'http://127.0.0.1:8787';
+          const callback = 'https://chatgpt.com/connector/oauth/OAuthRegression123';
+          const assert = (c,m,d) => { if (!c) throw new Error(`${m}${d === undefined ? '' : ': '+JSON.stringify(d)}`); };
+          const challenge = v => crypto.createHash('sha256').update(v).digest('base64url');
+
+          async function bodyJson(r) {
+            const text = await r.text();
+            try { return JSON.parse(text); } catch { return { raw:text }; }
+          }
+          async function register(label, authMode) {
+            const body = {
+              client_name: label,
+              redirect_uris: [callback],
+              grant_types: ['authorization_code','refresh_token'],
+              response_types: ['code'],
+            };
+            if (authMode) body.token_endpoint_auth_method = authMode;
+            const r = await fetch(`${base}/oauth/register`, {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+            const j = await bodyJson(r);
+            assert(r.status===201,'DCR status',{status:r.status,j});
+            return j;
+          }
+          async function authorizeStart({clientId, verifier, resource, scope}) {
+            const u = new URL(`${base}/authorize`);
+            const p = {
+              response_type:'code', client_id:clientId, redirect_uri:callback,
+              scope, state:'oauth-regression-state', code_challenge:challenge(verifier),
+              code_challenge_method:'S256', resource,
+            };
+            for (const [k,v] of Object.entries(p)) u.searchParams.set(k,v);
+            const r = await fetch(u,{redirect:'manual'});
+            const text = await r.text();
+            assert(r.status===200,'authorize start',{status:r.status,text:text.slice(0,500)});
+            return u.searchParams.toString();
+          }
+          async function authorizeFinish(query, secret) {
+            const r = await fetch(`${base}/authorize`, {
+              method:'POST', redirect:'manual', headers:{'content-type':'application/x-www-form-urlencoded'},
+              body:new URLSearchParams({oauth_query:query, login_secret:secret}),
+            });
+            const text = r.status===302 ? '' : await r.text();
+            assert(r.status===302,'authorize finish',{status:r.status,text:text.slice(0,500)});
+            const loc = r.headers.get('location');
+            assert(loc,'authorize redirect missing');
+            const code = new URL(loc).searchParams.get('code');
+            assert(code,'authorization code missing',loc);
+            return code;
+          }
+          async function tokenRequest(params, client) {
+            const headers = {'content-type':'application/x-www-form-urlencoded'};
+            const p = {...params};
+            if (client.client_secret) {
+              headers.authorization = `Basic ${Buffer.from(`${client.client_id}:${client.client_secret}`).toString('base64')}`;
+              delete p.client_id;
+            } else {
+              p.client_id = client.client_id;
+            }
+            const r = await fetch(`${base}/oauth/token`, {method:'POST',headers,body:new URLSearchParams(p)});
+            const j = await bodyJson(r);
+            return {r,j};
+          }
+          async function mcp(path, accessToken) {
+            const r = await fetch(`${base}${path}`, {
+              method:'POST',
+              headers:{authorization:`Bearer ${accessToken}`,'content-type':'application/json',accept:'application/json, text/event-stream'},
+              body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'oauth-regression',version:'1'}}}),
+            });
+            const text = await r.text();
+            return {status:r.status,text};
+          }
+
+          // Missing/invalid bearer protection.
+          for (const path of ['/my-mcp','/mcp','/family-mcp']) {
+            const r = await fetch(`${base}${path}`,{redirect:'manual'});
+            assert(r.status===401,`missing bearer ${path}`,r.status);
+          }
+          const invalid = await mcp('/my-mcp','not-a-token');
+          assert(invalid.status===401,'invalid Owner bearer',invalid);
+
+          // OWNER confidential DCR: omitted auth method becomes client_secret_basic.
+          const ownerVerifier = 'owner-confidential-verifier-that-is-longer-than-forty-three-chars';
+          const owner = await register('Owner Confidential Regression');
+          assert(owner.token_endpoint_auth_method==='client_secret_basic','Owner default DCR auth method',owner);
+          assert(Boolean(owner.client_secret),'Owner default DCR secret missing',owner);
+          const oq = await authorizeStart({clientId:owner.client_id,verifier:ownerVerifier,resource:`${base}/my-mcp`,scope:'owner:full offline_access'});
+
+          // Wrong secret must never grant.
+          {
+            const r = await fetch(`${base}/authorize`, {method:'POST',redirect:'manual',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({oauth_query:oq,login_secret:'wrong-owner-secret'})});
+            const text=await r.text();
+            assert(r.status===200 && text.includes('Owner 驗證碼錯誤'),'wrong Owner secret',{status:r.status,text:text.slice(0,300)});
+            assert(!r.headers.get('location'),'wrong Owner secret redirected');
+          }
+
+          const ownerCode = await authorizeFinish(oq,'owner-local-secret');
+          const ownerX = await tokenRequest({grant_type:'authorization_code',code:ownerCode,redirect_uri:callback,code_verifier:ownerVerifier,resource:`${base}/my-mcp`},owner);
+          assert(ownerX.r.status===200,'Owner confidential token exchange',{status:ownerX.r.status,j:ownerX.j});
+          assert((ownerX.j.scope||'').split(/\s+/).includes('owner:full'),'Owner effective scope',ownerX.j);
+          assert(ownerX.j.access_token && ownerX.j.refresh_token,'Owner tokens missing',ownerX.j);
+          const ownerGood=await mcp('/my-mcp',ownerX.j.access_token);
+          assert(ownerGood.status!==401 && ownerGood.status!==403,'Owner MCP rejected valid token',ownerGood);
+          const ownerLegacy=await mcp('/mcp',ownerX.j.access_token);
+          assert(ownerLegacy.status===401 || ownerLegacy.status===403,'/my-mcp token must not cross to legacy /mcp audience',ownerLegacy.status);
+          const ownerIntoFamily=await mcp('/family-mcp',ownerX.j.access_token);
+          assert(ownerIntoFamily.status===401 || ownerIntoFamily.status===403,'Owner token crossed into Family',ownerIntoFamily.status);
+
+          const ownerWrongTarget=await tokenRequest({grant_type:'refresh_token',refresh_token:ownerX.j.refresh_token,resource:`${base}/family-mcp`},owner);
+          assert(ownerWrongTarget.r.status===400 && ownerWrongTarget.j.error==='invalid_target','Owner refresh crossed resource',ownerWrongTarget.j);
+          const ownerRefresh=await tokenRequest({grant_type:'refresh_token',refresh_token:ownerX.j.refresh_token,resource:`${base}/my-mcp`},owner);
+          assert(ownerRefresh.r.status===200 && ownerRefresh.j.access_token,'Owner refresh failed',ownerRefresh.j);
+          assert((ownerRefresh.j.scope||'').split(/\s+/).includes('owner:full'),'Owner refresh scope drift',ownerRefresh.j);
+          const ownerRefreshGood=await mcp('/my-mcp',ownerRefresh.j.access_token);
+          assert(ownerRefreshGood.status!==401 && ownerRefreshGood.status!==403,'refreshed Owner token rejected',ownerRefreshGood);
+
+          // OWNER public PKCE DCR remains valid.
+          const publicVerifier='owner-public-verifier-that-is-longer-than-forty-three-characters';
+          const ownerPublic=await register('Owner Public Regression','none');
+          assert(ownerPublic.token_endpoint_auth_method==='none' && !ownerPublic.client_secret,'Owner public DCR shape',ownerPublic);
+          const opq=await authorizeStart({clientId:ownerPublic.client_id,verifier:publicVerifier,resource:`${base}/my-mcp`,scope:'owner:full offline_access'});
+          const opc=await authorizeFinish(opq,'owner-local-secret');
+          const opx=await tokenRequest({grant_type:'authorization_code',code:opc,redirect_uri:callback,code_verifier:publicVerifier,resource:`${base}/my-mcp`},ownerPublic);
+          assert(opx.r.status===200 && opx.j.access_token,'Owner public exchange',opx.j);
+          const opGood=await mcp('/my-mcp',opx.j.access_token);
+          assert(opGood.status!==401 && opGood.status!==403,'Owner public MCP rejected',opGood);
+
+          // FAMILY public PKCE flow remains isolated and refresh-safe.
+          const familyVerifier='family-public-verifier-that-is-longer-than-forty-three-chars';
+          const family=await register('Family Public Regression','none');
+          const fq=await authorizeStart({clientId:family.client_id,verifier:familyVerifier,resource:`${base}/family-mcp`,scope:'family:read offline_access'});
+          const fc=await authorizeFinish(fq,'family-local-secret');
+          const fx=await tokenRequest({grant_type:'authorization_code',code:fc,redirect_uri:callback,code_verifier:familyVerifier,resource:`${base}/family-mcp`},family);
+          assert(fx.r.status===200,'Family exchange',{status:fx.r.status,j:fx.j});
+          assert((fx.j.scope||'').split(/\s+/).includes('family:read'),'Family effective scope',fx.j);
+          const familyGood=await mcp('/family-mcp',fx.j.access_token);
+          assert(familyGood.status!==401 && familyGood.status!==403,'Family MCP rejected',familyGood);
+          const familyIntoOwner=await mcp('/my-mcp',fx.j.access_token);
+          assert(familyIntoOwner.status===401 || familyIntoOwner.status===403,'Family token crossed into Owner',familyIntoOwner.status);
+          const familyWrongTarget=await tokenRequest({grant_type:'refresh_token',refresh_token:fx.j.refresh_token,resource:`${base}/my-mcp`},family);
+          assert(familyWrongTarget.r.status===400 && familyWrongTarget.j.error==='invalid_target','Family refresh crossed resource',familyWrongTarget.j);
+          const familyRefresh=await tokenRequest({grant_type:'refresh_token',refresh_token:fx.j.refresh_token,resource:`${base}/family-mcp`},family);
+          assert(familyRefresh.r.status===200 && familyRefresh.j.access_token,'Family refresh failed',familyRefresh.j);
+          assert((familyRefresh.j.scope||'').split(/\s+/).includes('family:read'),'Family refresh scope drift',familyRefresh.j);
+
+          console.log('OWNER_FAMILY_OAUTH_FULL_MATRIX=PASS');
+          NODE
