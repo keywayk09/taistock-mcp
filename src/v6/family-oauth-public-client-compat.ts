@@ -4,6 +4,7 @@ type ConcreteFetchHandler = {
 
 const FAMILY_SCOPE = "family:read";
 const OWNER_SCOPE = "owner:full";
+const OWNER_AUTHORIZATION_SERVER = "https://taistock-owner-oauth.keywayk09.workers.dev";
 const OFFLINE_ACCESS_SCOPE = "offline_access";
 const FAMILY_MCP_PATH = "/family-mcp";
 const OWNER_MCP_PATHS = new Set(["/my-mcp", "/mcp"]);
@@ -297,7 +298,7 @@ function ownerProtectedResourceMetadata(request: Request, pathname: string) {
   const url = new URL(request.url);
   return Response.json({
     resource: canonicalOwnerResource(url, pathname),
-    authorization_servers: [url.origin],
+    authorization_servers: [OWNER_AUTHORIZATION_SERVER],
     bearer_methods_supported: ["header"],
     scopes_supported: [OWNER_SCOPE],
     resource_name: "Taiwan Stock AI Owner / Diamond MCP",
