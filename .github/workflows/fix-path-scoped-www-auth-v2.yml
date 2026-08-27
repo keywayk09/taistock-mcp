@@ -1,0 +1,164 @@
+name: One-shot path-scoped WWW-Authenticate fix v2
+
+on:
+  push:
+    branches:
+      - fix/path-scoped-www-authenticate-20260827
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/path-scoped-www-authenticate-20260827
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply minimal challenge-scope fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          oauth = Path('src/v6/family-oauth.ts')
+          s = oauth.read_text()
+          needle = '      scopes_supported: [FAMILY_SCOPE, OWNER_SCOPE],\n'
+          if s.count(needle) != 1:
+              raise SystemExit(f'union_scope_line_count={s.count(needle)}')
+          replacement = '''      // Keep generic bearer challenges scope-neutral. Each MCP path exposes
+          // its exact scope through path-scoped protected-resource metadata.
+'''
+          oauth.write_text(s.replace(needle, replacement, 1))
+
+          test = Path('tests/owner-oauth-protected-surface.test.ts')
+          t = test.read_text()
+          anchor = '// OWNER_EFFECTIVE_SCOPE_V1\n'
+          block = '''// PATH_SCOPED_CHALLENGE_SCOPE_V1
+// Authorization-server metadata may support both roles, but generic protected
+// resource metadata must not advertise their union in every bearer challenge.
+assert.match(oauth, /scopesSupported\\s*:\\s*\\[FAMILY_SCOPE, OWNER_SCOPE\\]/);
+assert.doesNotMatch(oauth, /scopes_supported\\s*:\\s*\\[FAMILY_SCOPE, OWNER_SCOPE\\]/);
+
+'''
+          if 'PATH_SCOPED_CHALLENGE_SCOPE_V1' not in t:
+              if anchor not in t:
+                  raise SystemExit('test_anchor_missing')
+              t = t.replace(anchor, block + anchor, 1)
+          test.write_text(t)
+          PY
+          git diff --check
+
+      - run: npm install
+
+      - name: Full static and research gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run type-check
+          npm run test:research
+          npx wrangler deploy --dry-run
+
+      - name: Runtime challenge and metadata matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler dev --local --ip 127.0.0.1 --port 8787 \
+            --var MCP_API_KEY:owner-local-secret \
+            --var MOM_GPT_API_KEY:family-local-secret \
+            >/tmp/path-scope-v2.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; tail -160 /tmp/path-scope-v2.log || true' EXIT
+
+          ready=false
+          for i in $(seq 1 45); do
+            if curl --silent --max-time 2 http://127.0.0.1:8787/health >/dev/null 2>&1; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
+
+          python - <<'PY'
+          import json, urllib.request, urllib.error
+          base='http://127.0.0.1:8787'
+
+          def get(path):
+              req=urllib.request.Request(base+path)
+              try:
+                  with urllib.request.urlopen(req, timeout=10) as r:
+                      return r.status, dict(r.headers), r.read()
+              except urllib.error.HTTPError as e:
+                  return e.code, dict(e.headers), e.read()
+
+          expected={'/my-mcp':'owner:full','/mcp':'owner:full','/family-mcp':'family:read'}
+          for path, expected_scope in expected.items():
+              status, headers, body = get(path)
+              assert status == 401, (path,status,body[:300])
+              challenge = headers.get('WWW-Authenticate') or headers.get('Www-Authenticate') or ''
+              print(path, 'challenge=', challenge)
+              assert f'/.well-known/oauth-protected-resource{path}' in challenge, challenge
+              assert 'family:read owner:full' not in challenge, challenge
+              assert 'owner:full family:read' not in challenge, challenge
+
+              ms, mh, mb = get('/.well-known/oauth-protected-resource'+path)
+              assert ms == 200, (path,ms,mb[:300])
+              meta=json.loads(mb)
+              print(path, 'metadata_scopes=', meta.get('scopes_supported'))
+              assert meta['resource'] == base+path, meta
+              assert meta.get('scopes_supported') == [expected_scope], meta
+
+          s,h,b=get('/.well-known/oauth-authorization-server')
+          assert s == 200, (s,b[:300])
+          auth=json.loads(b)
+          scopes=set(auth.get('scopes_supported') or [])
+          assert {'family:read','owner:full','offline_access'} <= scopes, auth
+          print('PATH_SCOPED_WWW_AUTH_MATRIX=PASS')
+          PY
+
+      - name: Owner OAuth grant still works
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          const base='http://127.0.0.1:8787';
+          const callback='https://chatgpt.com/connector/oauth/PathScopeRegression123';
+          const verifier='path-scope-owner-verifier-longer-than-forty-three-characters';
+          const challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
+          const assert=(c,m,d)=>{if(!c)throw new Error(`${m}: ${JSON.stringify(d)}`)};
+          const parse=async r=>{const t=await r.text();try{return JSON.parse(t)}catch{return{raw:t}}};
+
+          const rr=await fetch(`${base}/oauth/register`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({client_name:'Path Scope Owner Regression',redirect_uris:[callback],grant_types:['authorization_code','refresh_token'],response_types:['code'],token_endpoint_auth_method:'none'})});
+          const client=await parse(rr); assert(rr.status===201,'DCR',{status:rr.status,client});
+          const u=new URL(`${base}/authorize`);
+          for(const[k,v]of Object.entries({response_type:'code',client_id:client.client_id,redirect_uri:callback,scope:'owner:full offline_access',state:'path-scope',code_challenge:challenge,code_challenge_method:'S256',resource:`${base}/my-mcp`}))u.searchParams.set(k,v);
+          const start=await fetch(u,{redirect:'manual'}); const page=await start.text();
+          assert(start.status===200&&page.includes('Owner / 鑽石引擎'),'Owner authorize',{status:start.status,page:page.slice(0,300)});
+          const finish=await fetch(`${base}/authorize`,{method:'POST',redirect:'manual',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({oauth_query:u.searchParams.toString(),login_secret:'owner-local-secret'})});
+          assert(finish.status===302,'Owner finish',finish.status);
+          const code=new URL(finish.headers.get('location')).searchParams.get('code');
+          const tx=await fetch(`${base}/oauth/token`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:callback,code_verifier:verifier,client_id:client.client_id,resource:`${base}/my-mcp`})});
+          const token=await parse(tx); assert(tx.status===200,'token exchange',{status:tx.status,token});
+          assert((token.scope||'').split(/\s+/).includes('owner:full'),'owner scope',token);
+          const m=await fetch(`${base}/my-mcp`,{method:'POST',headers:{authorization:`Bearer ${token.access_token}`,'content-type':'application/json',accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'path-scope-regression',version:'1'}}})});
+          assert(m.status===200,'Owner MCP after challenge fix',m.status);
+          console.log('OWNER_OAUTH_AFTER_CHALLENGE_FIX=PASS');
+          NODE
+
+      - name: Commit only source and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/fix-path-scoped-www-auth-v2.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/v6/family-oauth.ts tests/owner-oauth-protected-surface.test.ts .github/workflows/fix-path-scoped-www-auth-v2.yml
+          git commit -m 'fix: keep OAuth bearer challenge scopes path-scoped'
+          git push origin HEAD:fix/path-scoped-www-authenticate-20260827
