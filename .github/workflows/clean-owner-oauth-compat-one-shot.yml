@@ -1,0 +1,219 @@
+name: One-shot clean Owner OAuth compatibility fix
+
+on:
+  push:
+    branches:
+      - fix/owner-oauth-chatgpt-compat-20260827
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/owner-oauth-chatgpt-compat-20260827
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply exactly-once minimal patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          # 1) Existing ChatGPT DCR clients may be public (none) or confidential
+          # (client_secret_basic/client_secret_post). Reuse their existing auth
+          # mode; never replace their stored client identity or secret.
+          owner = Path('src/v6/owner-oauth.ts')
+          s = owner.read_text()
+          start = s.index('function ownerClientMatches(')
+          end = s.index('\n\nasync function ownerClientState', start)
+          new_fn = '''function ownerClientMatches(raw: string | null, candidate: OwnerConnectorCandidate) {
+            if (!raw) return false;
+            try {
+              const stored = JSON.parse(raw) as StoredOwnerConnectorClient;
+              const authMethod = stored.tokenEndpointAuthMethod;
+              const authCompatible = authMethod === "none"
+                ? !stored.clientSecret
+                : (authMethod === "client_secret_basic" || authMethod === "client_secret_post")
+                  && Boolean(stored.clientSecret);
+
+              return stored.clientId === candidate.clientId
+                && Array.isArray(stored.redirectUris)
+                && stored.redirectUris.length === 1
+                && stored.redirectUris[0] === candidate.redirectUri
+                && Array.isArray(stored.grantTypes)
+                && stored.grantTypes.includes("authorization_code")
+                && Array.isArray(stored.responseTypes)
+                && stored.responseTypes.includes("code")
+                && authCompatible;
+            } catch {
+              return false;
+            }
+          }'''
+          owner.write_text(s[:start] + new_fn + s[end:])
+
+          # 2) Provider validates bearer validity/audience; app handlers still
+          # require effective access-token scope using provider-native unwrapToken.
+          family = Path('src/v6/family-oauth.ts')
+          s = family.read_text()
+          assert 'function bearerAccessToken(' not in s, 'scope helper already exists unexpectedly'
+          marker = '\nexport function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {'
+          helper = '''
+
+          function bearerAccessToken(request: Request) {
+            const header = request.headers.get("authorization") || "";
+            const match = /^Bearer\\s+(.+)$/i.exec(header.trim());
+            return match?.[1]?.trim() || "";
+          }
+
+          async function requireEffectiveScope(request: Request, env: Env, requiredScope: string) {
+            const token = bearerAccessToken(request);
+            if (!token) return false;
+            const effectiveToken = await env.OAUTH_PROVIDER.unwrapToken(token);
+            return Boolean(effectiveToken?.scope?.includes(requiredScope));
+          }
+          '''
+          idx = s.index(marker)
+          s = s[:idx] + helper + s[idx:]
+
+          family_if = s.index('if (role !== "family" || userId !== "family")')
+          family_try = s.index('\n      try {', family_if)
+          s = s[:family_try] + '''
+              if (!await requireEffectiveScope(request, env, FAMILY_SCOPE)) {
+                return Response.json({ error: "insufficient_family_scope" }, { status: 403 });
+              }''' + s[family_try:]
+
+          owner_if = s.index('if (role !== "owner" || userId !== "owner")')
+          owner_return = s.index('\n      return appHandler.fetch(request, env, ctx);', owner_if)
+          s = s[:owner_return] + '''
+              if (!await requireEffectiveScope(request, env, OWNER_SCOPE)) {
+                return Response.json({ error: "insufficient_owner_scope" }, { status: 403 });
+              }''' + s[owner_return:]
+          family.write_text(s)
+
+          # 3) Freeze both security properties as regressions.
+          test = Path('tests/owner-oauth-protected-surface.test.ts')
+          t = test.read_text()
+          if 'const ownerOAuth = fs.readFileSync' not in t:
+              t = t.replace(
+                  'const oauth = fs.readFileSync(path.join(root, "src/v6/family-oauth.ts"), "utf8");\n',
+                  'const oauth = fs.readFileSync(path.join(root, "src/v6/family-oauth.ts"), "utf8");\nconst ownerOAuth = fs.readFileSync(path.join(root, "src/v6/owner-oauth.ts"), "utf8");\n',
+                  1,
+              )
+          anchor = 'console.log("Owner OAuth protected MCP surface contract passed");'
+          block = '''// OWNER_EFFECTIVE_SCOPE_V1
+          assert.match(oauth, /OAUTH_PROVIDER\\.unwrapToken\\s*\\(/);
+          assert.match(oauth, /effectiveToken[^;]*\\.scope[\\s\\S]*includes\\s*\\(\\s*requiredScope\\s*\\)/);
+          assert.match(oauth, /requireEffectiveScope\\s*\\(\\s*request\\s*,\\s*env\\s*,\\s*OWNER_SCOPE\\s*\\)/);
+          assert.match(oauth, /requireEffectiveScope\\s*\\(\\s*request\\s*,\\s*env\\s*,\\s*FAMILY_SCOPE\\s*\\)/);
+
+          // OWNER_DCR_AUTH_COMPAT_V1
+          assert.match(ownerOAuth, /client_secret_basic/);
+          assert.match(ownerOAuth, /client_secret_post/);
+          assert.match(ownerOAuth, /Boolean\\(stored\\.clientSecret\\)/);
+          '''
+          assert anchor in t
+          t = t.replace(anchor, block + '\n' + anchor, 1)
+          test.write_text(t)
+          PY
+          git diff --check
+
+      - run: npm install
+
+      - name: Full static and research gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run type-check
+          npm run test:research
+          npx wrangler deploy --dry-run
+
+      - name: Reproduce fixed confidential DCR flow locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler dev --local --ip 127.0.0.1 --port 8787 \
+            --var MCP_API_KEY:owner-local-secret \
+            --var MOM_GPT_API_KEY:family-local-secret \
+            >/tmp/clean-owner-oauth.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; tail -120 /tmp/clean-owner-oauth.log || true' EXIT
+          ready=false
+          for i in $(seq 1 45); do
+            if curl --silent --max-time 2 http://127.0.0.1:8787/health >/dev/null 2>&1; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
+
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          const base='http://127.0.0.1:8787';
+          const callback='https://chatgpt.com/connector/oauth/CleanOwnerOAuth123';
+          const verifier='clean-owner-confidential-verifier-longer-than-forty-three-chars';
+          const ch=crypto.createHash('sha256').update(verifier).digest('base64url');
+          const assert=(c,m,d)=>{if(!c)throw new Error(`${m}: ${JSON.stringify(d)}`)};
+          const read=async r=>{const t=await r.text();try{return JSON.parse(t)}catch{return{raw:t}}};
+
+          for(const path of ['/my-mcp','/mcp','/family-mcp']) {
+            const r=await fetch(`${base}${path}`);
+            assert(r.status===401,'missing bearer '+path,r.status);
+          }
+
+          const rr=await fetch(`${base}/oauth/register`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({client_name:'Clean Owner Confidential',redirect_uris:[callback],grant_types:['authorization_code','refresh_token'],response_types:['code']})});
+          const client=await read(rr);
+          assert(rr.status===201,'DCR',{status:rr.status,client});
+          assert(client.token_endpoint_auth_method==='client_secret_basic'&&client.client_secret,'default confidential DCR',client);
+
+          const u=new URL(`${base}/authorize`);
+          for(const[k,v]of Object.entries({response_type:'code',client_id:client.client_id,redirect_uri:callback,scope:'owner:full offline_access',state:'clean-owner',code_challenge:ch,code_challenge_method:'S256',resource:`${base}/my-mcp`}))u.searchParams.set(k,v);
+          const begin=await fetch(u,{redirect:'manual'});
+          const page=await begin.text();
+          assert(begin.status===200&&page.includes('Owner / 鑽石引擎'),'Owner authorize page',{status:begin.status,page:page.slice(0,300)});
+          const q=u.searchParams.toString();
+
+          const wrong=await fetch(`${base}/authorize`,{method:'POST',redirect:'manual',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({oauth_query:q,login_secret:'wrong'})});
+          assert(wrong.status===200&&!wrong.headers.get('location'),'wrong Owner secret',wrong.status);
+
+          const done=await fetch(`${base}/authorize`,{method:'POST',redirect:'manual',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({oauth_query:q,login_secret:'owner-local-secret'})});
+          assert(done.status===302,'Owner authorize finish',done.status);
+          const code=new URL(done.headers.get('location')).searchParams.get('code');
+          assert(code,'authorization code',done.headers.get('location'));
+
+          const auth=`Basic ${Buffer.from(`${client.client_id}:${client.client_secret}`).toString('base64')}`;
+          async function token(params){const r=await fetch(`${base}/oauth/token`,{method:'POST',headers:{authorization:auth,'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams(params)});return{r,j:await read(r)}}
+          async function mcp(path,t){return fetch(`${base}${path}`,{method:'POST',headers:{authorization:`Bearer ${t}`,'content-type':'application/json',accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'clean-owner-oauth',version:'1'}}})})}
+
+          const x=await token({grant_type:'authorization_code',code,redirect_uri:callback,code_verifier:verifier,resource:`${base}/my-mcp`});
+          assert(x.r.status===200&&x.j.access_token&&x.j.refresh_token,'Owner token exchange',{status:x.r.status,j:x.j});
+          assert((x.j.scope||'').split(/\s+/).includes('owner:full'),'Owner scope',x.j);
+          assert((await mcp('/my-mcp',x.j.access_token)).status===200,'Owner protected MCP');
+          assert([401,403].includes((await mcp('/family-mcp',x.j.access_token)).status),'Owner token crossed Family');
+
+          const cross=await token({grant_type:'refresh_token',refresh_token:x.j.refresh_token,resource:`${base}/family-mcp`});
+          assert(cross.r.status===400&&cross.j.error==='invalid_target','Owner refresh cross-target',cross.j);
+          const refresh=await token({grant_type:'refresh_token',refresh_token:x.j.refresh_token,resource:`${base}/my-mcp`});
+          assert(refresh.r.status===200&&refresh.j.access_token,'Owner refresh',refresh.j);
+          assert((await mcp('/my-mcp',refresh.j.access_token)).status===200,'refreshed Owner MCP');
+
+          console.log('CLEAN_OWNER_CONFIDENTIAL_OAUTH_FLOW=PASS');
+          NODE
+
+      - name: Commit clean three-file fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/clean-owner-oauth-compat-one-shot.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/v6/owner-oauth.ts src/v6/family-oauth.ts tests/owner-oauth-protected-surface.test.ts .github/workflows/clean-owner-oauth-compat-one-shot.yml
+          git commit -m 'fix: preserve compatible ChatGPT Owner OAuth clients'
+          git push origin HEAD:fix/owner-oauth-chatgpt-compat-20260827
