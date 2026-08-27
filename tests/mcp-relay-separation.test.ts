@@ -8,6 +8,7 @@ const broker = read("src/v6/mcp-access-broker.ts");
 const familyOAuth = read("src/v6/family-oauth.ts");
 const ownerOAuth = read("src/v6/owner-oauth.ts");
 const familyContent = read("src/v6/family-mcp.ts");
+const ownerContent = read("src/v6/owner-content-handler.ts");
 const ownerLiveTools = read("src/v6/shared-stock-market-context-tools.ts");
 
 // MCP_RELAY_SEPARATION_V3
@@ -47,32 +48,27 @@ for (const oauthShim of [
   );
 }
 
-// Layer C: Owner content must now be a first-class injected handler, exactly
-// like Family content. The public entrypoint must not own the Diamond runtime.
+// Layer C: Owner content is a first-class injected handler, exactly like Family
+// content. The public entrypoint must not own or serve the Diamond runtime.
 assert.doesNotMatch(
   entry,
   /class\s+MyMCP\s+extends|MyMCP\.serve\(/,
   "index-v6.ts still directly owns/serves the Owner content runtime",
 );
-assert.match(
-  entry,
-  /ownerContentHandler/,
-  "index-v6.ts must inject an Owner content handler into the relay",
-);
+assert.match(entry, /ownerContentHandler/);
+assert.match(broker, /ownerContentHandler/);
 assert.match(
   broker,
-  /ownerContentHandler/,
-  "MCP access broker must accept the Owner content handler explicitly",
+  /ownerContentHandler\.fetch\(request, env, ctx\)/,
+  "MCP relay must hand authorized Owner requests to Owner content",
 );
-assert.match(
-  familyOAuth,
-  /ownerContentHandler\.fetch\(/,
-  "Owner OAuth authorization must delegate to the Owner content handler, not the public app handler",
-);
+assert.match(ownerContent, /class\s+MyMCP\s+extends/);
+assert.match(ownerContent, /MyMCP\.serve\(pathname\)/);
 
 // Layer D: content implementations must never depend on OAuth/ChatGPT details.
 for (const [name, source] of [
   ["Family content", familyContent],
+  ["Owner content", ownerContent],
   ["Owner live tools", ownerLiveTools],
 ] as const) {
   assert.doesNotMatch(
@@ -83,9 +79,10 @@ for (const [name, source] of [
 }
 
 // Frozen public ABI. These are external contracts and must not drift.
-assert.match(entry, /url\.pathname === "\/my-mcp"|canonical.*\/my-mcp|mcp_endpoint:\s*"\/my-mcp"/);
-assert.match(entry, /legacy_mcp_endpoint:\s*"\/mcp"|\/mcp/);
+assert.match(entry, /mcp_endpoint:\s*"\/my-mcp"/);
+assert.match(entry, /legacy_mcp_endpoint:\s*"\/mcp"/);
 assert.match(entry, /endpoint:\s*"\/family-mcp"/);
+assert.match(broker, /pathname === "\/my-mcp" \|\| pathname === "\/mcp"/);
 
 // Owner/Family authority names are also frozen across the extraction.
 assert.match(ownerOAuth, /OWNER_SCOPE = "owner:full"/);
