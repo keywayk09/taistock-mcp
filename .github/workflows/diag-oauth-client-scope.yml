@@ -1,0 +1,56 @@
+name: Diagnose overlapping OAuth client scope metadata
+
+on:
+  push:
+    branches:
+      - diag/owner-oauth-production-state-20260827
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect safe client metadata
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,os,urllib.parse,urllib.request
+          token=os.environ['CLOUDFLARE_API_TOKEN']; acct=os.environ['CLOUDFLARE_ACCOUNT_ID']; H={'Authorization':f'Bearer {token}'}
+          root=f'https://api.cloudflare.com/client/v4/accounts/{acct}/storage/kv/namespaces'
+          def http(url):
+              with urllib.request.urlopen(urllib.request.Request(url,headers=H),timeout=20) as r:return r.read().decode('utf-8','replace')
+          rows=json.loads(http(root+'?per_page=1000')).get('result') or []
+          p=[x for x in rows if x.get('title')=='taistock-mcp-OAUTH_KV']; l=[x for x in rows if x.get('title')=='OAUTH_KV']; chosen=p[0] if len(p)==1 else (l[0] if len(l)==1 else None)
+          if not chosen: raise SystemExit('oauth_kv_not_resolved')
+          base=root+'/'+chosen['id']
+          def keys(prefix):return json.loads(http(base+'/keys?prefix='+urllib.parse.quote(prefix,safe='')+'&limit=1000')).get('result') or []
+          def val(k):return json.loads(http(base+'/values/'+urllib.parse.quote(k,safe='')))
+          def h(v):return hashlib.sha256(str(v).encode()).hexdigest()[:12] if v else 'none'
+          owner_ids=set()
+          for row in keys('grant:owner:'):
+              try:g=val(row.get('name',''))
+              except:continue
+              if g.get('clientId'): owner_ids.add(g['clientId'])
+          family_ids=set()
+          for row in keys('grant:family:'):
+              try:g=val(row.get('name',''))
+              except:continue
+              if g.get('clientId'): family_ids.add(g['clientId'])
+          overlap=owner_ids & family_ids
+          for cid in overlap:
+              try:c=val('client:'+cid)
+              except Exception as e:
+                  print('CLIENT_READ_ERROR',type(e).__name__); continue
+              fields=sorted(k for k in c.keys() if k not in {'clientSecret','jwks','jwksUri'})
+              raw_scope=c.get('scope')
+              if isinstance(raw_scope,list): scope='|'.join(map(str,raw_scope))
+              else: scope=str(raw_scope) if raw_scope is not None else 'none'
+              print('OVERLAP_CLIENT',f'client_hash={h(cid)}',f'fields={"|".join(fields)}',f'name={c.get("clientName")}',f'scope={scope}',f'auth={c.get("tokenEndpointAuthMethod")}',f'auth_explicit={c.get("authMethodExplicit")}',f'recovery={c.get("recoveryKind")}')
+          PY
