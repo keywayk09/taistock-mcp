@@ -62,11 +62,21 @@ function parseExplicitFamilyResource(raw: string, origin: string) {
   }
 }
 
-function normalizeExplicitFamilyResource(url: URL) {
+function normalizeFamilyAuthorizeResource(url: URL) {
   const raw = String(url.searchParams.get("resource") || "").trim();
+  const canonical = canonicalFamilyResource(url);
+
+  // Retained ChatGPT Family connectors may omit RFC 8707 `resource` during
+  // reauthorization. Omission is not an Owner identity: default it only at the
+  // Family authorization boundary after the request is proven to be a trusted
+  // ChatGPT connector. Explicit root/Owner targets are rejected separately.
+  if (!raw) {
+    url.searchParams.set("resource", canonical);
+    return true;
+  }
+
   const resource = parseExplicitFamilyResource(raw, url.origin);
   if (!resource) return false;
-  const canonical = canonicalFamilyResource(url);
   if (resource.toString() === canonical) return false;
   url.searchParams.set("resource", canonical);
   return true;
@@ -75,7 +85,7 @@ function normalizeExplicitFamilyResource(url: URL) {
 function familyBoundaryError() {
   return Response.json({
     error: "invalid_family_resource",
-    message: "Family OAuth requires the explicit /family-mcp resource; Owner/root resources are never normalized to Family.",
+    message: "Family OAuth accepts /family-mcp or an omitted legacy resource; explicit Owner/root resources are never normalized to Family.",
   }, {
     status: 400,
     headers: { "cache-control": "no-store" },
@@ -89,7 +99,7 @@ async function guardFamilyConnectorAuthorization(request: Request) {
   if (request.method === "GET") {
     if (!isTrustedConnectorAuthorization(url)) return null;
     const raw = String(url.searchParams.get("resource") || "").trim();
-    if (!parseExplicitFamilyResource(raw, url.origin)) return familyBoundaryError();
+    if (raw && !parseExplicitFamilyResource(raw, url.origin)) return familyBoundaryError();
     return null;
   }
 
@@ -111,7 +121,7 @@ async function guardFamilyConnectorAuthorization(request: Request) {
   synthetic.search = oauthQuery;
   if (!isTrustedConnectorAuthorization(synthetic)) return null;
   const raw = String(synthetic.searchParams.get("resource") || "").trim();
-  if (!parseExplicitFamilyResource(raw, synthetic.origin)) return familyBoundaryError();
+  if (raw && !parseExplicitFamilyResource(raw, synthetic.origin)) return familyBoundaryError();
   return null;
 }
 
@@ -122,7 +132,7 @@ async function normalizeAuthorizeRequest(request: Request) {
   if (request.method === "GET") {
     const normalized = new URL(url.toString());
     if (!isTrustedConnectorAuthorization(normalized)) return request;
-    if (!normalizeExplicitFamilyResource(normalized)) return request;
+    if (!normalizeFamilyAuthorizeResource(normalized)) return request;
     return new Request(normalized.toString(), request);
   }
 
@@ -143,7 +153,7 @@ async function normalizeAuthorizeRequest(request: Request) {
   const synthetic = new URL("/authorize", request.url);
   synthetic.search = oauthQuery;
   if (!isTrustedConnectorAuthorization(synthetic)) return request;
-  if (!normalizeExplicitFamilyResource(synthetic)) return request;
+  if (!normalizeFamilyAuthorizeResource(synthetic)) return request;
 
   form.set("oauth_query", synthetic.searchParams.toString());
   const headers = new Headers(request.headers);
@@ -191,6 +201,11 @@ async function connectorTokenTargetIsInvalid(request: Request) {
   if (!PKCE_VERIFIER.test(String(params.get("code_verifier") || ""))) return false;
   if (!trustedConnectorRedirect(String(params.get("redirect_uri") || ""))) return false;
   const raw = String(params.get("resource") || "").trim();
+
+  // RFC 8707 resource is optional at the token endpoint. If omitted, do not
+  // invent a target here; the existing token-recovery/provider path validates
+  // the authorization code and inherits the resource from the proven grant.
+  if (!raw) return false;
   return !parseExplicitFamilyResource(raw, url.origin);
 }
 
@@ -329,9 +344,11 @@ async function authorizationServerMetadataWithOfflineAccess(
  *
  * RFC 9728 path-scoped protected-resource metadata is used so Family OAuth can
  * evolve internally without ever claiming the Worker root or Owner endpoints.
- * Only an explicit /family-mcp resource may enter connector authorization or
- * authorization-code token exchange. Custom GPT Action compatibility remains
- * handled by the existing inner provider/recovery layers.
+ * When `resource` is present it must be /family-mcp; retained ChatGPT Family
+ * connectors may omit it. Omission defaults to Family at authorization and is
+ * inherited from the validated grant at token exchange. Explicit root/Owner
+ * targets are always rejected. Custom GPT Action compatibility remains handled
+ * by the existing inner provider/recovery layers.
  */
 export function createFamilyOAuthPublicClientCompatWrapper(provider: ConcreteFetchHandler): ConcreteFetchHandler {
   return {
