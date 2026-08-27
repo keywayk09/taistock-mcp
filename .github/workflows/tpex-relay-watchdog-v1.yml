@@ -1,0 +1,192 @@
+name: TPEx Relay Watchdog V1
+
+on:
+  workflow_dispatch:
+    inputs:
+      trade_date:
+        description: 'Optional YYYY-MM-DD exact date; blank uses latest completed Taipei weekday'
+        required: false
+        type: string
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/tpex-relay-watchdog-v1.yml'
+  schedule:
+    # Asia/Taipei 21:30 / 22:30 / 23:00 on weekdays.
+    - cron: '30 13 * * 1-5'
+    - cron: '30 14 * * 1-5'
+    - cron: '0 15 * * 1-5'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tpex-relay-watchdog-v1
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Load relay cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/tpex-watchdog
+          mkdir -p /tmp/tpex-watchdog/data/market-data/tpex-relay
+          git fetch origin market-data-relay:refs/remotes/origin/market-data-relay || true
+          if git show-ref --verify --quiet refs/remotes/origin/market-data-relay; then
+            git archive refs/remotes/origin/market-data-relay data/market-data/tpex-relay | tar -x -C /tmp/tpex-watchdog
+          fi
+      - name: Verify and build exact-date relay snapshot
+        shell: bash
+        env:
+          REQUESTED_TRADE_DATE: ${{ github.event.inputs.trade_date || '' }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime as dt
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import re
+          import urllib.parse
+          import urllib.request
+          from zoneinfo import ZoneInfo
+
+          ROOT=pathlib.Path('/tmp/tpex-watchdog/data/market-data/tpex-relay')
+          TAIPEI=ZoneInfo('Asia/Taipei')
+          REQUIRED=('institutional','margin','sbl_balance','sbl_volume')
+          HEADERS={
+            'Accept':'application/json,text/plain,*/*',
+            'Accept-Language':'zh-TW,zh;q=0.9,en;q=0.8',
+            'Referer':'https://www.tpex.org.tw/',
+            'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36',
+          }
+
+          def target_date():
+            requested=os.environ.get('REQUESTED_TRADE_DATE','').strip()
+            if requested:
+              return dt.date.fromisoformat(requested)
+            now=dt.datetime.now(TAIPEI)
+            day=now.date()
+            # Before the post-close publication window, repair the prior weekday.
+            if now.hour < 17:
+              day-=dt.timedelta(days=1)
+            while day.weekday()>=5:
+              day-=dt.timedelta(days=1)
+            return day
+
+          def clean(v):
+            return re.sub(r'<[^>]*>','',str(v or '')).replace('&nbsp;',' ').strip()
+
+          def number(v):
+            try:return float(clean(v).replace(',',''))
+            except:return 0.0
+
+          def exact_table(url,label,day):
+            req=urllib.request.Request(url,headers=HEADERS)
+            with urllib.request.urlopen(req,timeout=30) as response:
+              raw=response.read(); final=response.geturl()
+              if response.status!=200: raise RuntimeError(f'{label}_http_{response.status}')
+              if '/errors' in final: raise RuntimeError(f'{label}_redirected_to_errors:{final}')
+            body=json.loads(raw.decode('utf-8-sig'))
+            expected=day.strftime('%Y%m%d')
+            if not isinstance(body,dict) or str(body.get('date') or '')!=expected:
+              raise RuntimeError(f'{label}_source_date_mismatch:{getattr(body,"get",lambda *_:None)("date")}')
+            tables=body.get('tables')
+            if not isinstance(tables,list) or not tables or not isinstance(tables[0],dict):
+              raise RuntimeError(f'{label}_tables_missing')
+            rows=tables[0].get('data')
+            rows=[r for r in rows if isinstance(r,list)] if isinstance(rows,list) else []
+            if not rows: raise RuntimeError(f'{label}_exact_date_empty')
+            return rows
+
+          day=target_date(); trade_date=day.isoformat(); base=ROOT/trade_date
+          manifest_path=base/'manifest.json'
+          if manifest_path.exists():
+            try:
+              existing=json.loads(manifest_path.read_text(encoding='utf-8'))
+            except: existing={}
+            if existing.get('schema')=='TPEX_OFFICIAL_RELAY_V2' and existing.get('status')=='COMPLETE' and all(k in (existing.get('datasets') or {}) for k in REQUIRED):
+              print(f'WATCHDOG NOOP already COMPLETE {trade_date}')
+              raise SystemExit(0)
+
+          roc=urllib.parse.quote(f'{day.year-1911:03d}/{day.month:02d}/{day.day:02d}',safe='')
+          ad=urllib.parse.quote(day.strftime('%Y/%m/%d'),safe='')
+          urls={
+            'institutional':f'https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date={roc}&id=&response=json',
+            'margin':f'https://www.tpex.org.tw/www/zh-tw/margin/balance?date={roc}&id=&response=json',
+            'sbl':f'https://www.tpex.org.tw/www/zh-tw/margin/sbl?date={ad}&id=&response=json',
+          }
+          inst=exact_table(urls['institutional'],'TPEX_INSTI_WATCHDOG',day)
+          margin=exact_table(urls['margin'],'TPEX_MARGIN_WATCHDOG',day)
+          sbl=exact_table(urls['sbl'],'TPEX_SBL_WATCHDOG',day)
+
+          datasets={
+            'institutional':[
+              {'Date':trade_date,'證券代號':clean(r[0]),'證券名稱':clean(r[1]),'外資及陸資買賣超股數':r[10],'投信買賣超股數':r[13],'自營商買賣超股數':r[22],'三大法人買賣超股數':r[23]}
+              for r in inst if len(r)>23 and clean(r[0])
+            ],
+            'margin':[
+              {'Date':trade_date,'證券代號':clean(r[0]),'證券名稱':clean(r[1]),'融資前日餘額':r[2],'融資今日餘額':r[6],'融券前日餘額':r[10],'融券今日餘額':r[14]}
+              for r in margin if len(r)>14 and clean(r[0])
+            ],
+            'sbl_balance':[
+              {'Date':trade_date,'SecuritiesCompanyCode':clean(r[0]),'CompanyName':clean(r[1]),'SecuritiesBorrowingBalancePreviousDay':r[8],'SecuritiesBorrowingSale':r[9],'SecuritiesBorrowingReturn':r[10],'SecuritiesBorrowingAdjustment':r[11],'SecuritiesBorrowingBalanceOfTheMarketDay':r[12],'AvailableVolumesForSBLShortSale':r[13]}
+              for r in sbl if len(r)>13 and clean(r[0])
+            ],
+            'sbl_volume':[
+              {'Date':trade_date,'SecuritiesCompanyCode':clean(r[0]),'CompanyName':clean(r[1]),'SBLVolume':number(r[9])/1000,'SBLAmount':None}
+              for r in sbl if len(r)>9 and clean(r[0])
+            ],
+          }
+          if any(not datasets[k] for k in REQUIRED): raise RuntimeError('watchdog_normalization_empty')
+
+          base.mkdir(parents=True,exist_ok=True)
+          now=dt.datetime.now(dt.timezone.utc).isoformat().replace('+00:00','Z')
+          manifest={'schema':'TPEX_OFFICIAL_RELAY_V2','trade_date':trade_date,'captured_at_utc':now,'source_owner':'TPEx','transport':'GitHub hosted runner exact-date watchdog','canonical_storage':'keywayk09/tv-papertrader main/data','datasets':{},'capture_errors':{},'status':'COMPLETE','missing_datasets':[]}
+          endpoint={'institutional':urls['institutional'],'margin':urls['margin'],'sbl_balance':urls['sbl'],'sbl_volume':urls['sbl']}
+          for name,rows in datasets.items():
+            payload=json.dumps(rows,ensure_ascii=False,separators=(',',':'),sort_keys=True)
+            digest=hashlib.sha256(payload.encode()).hexdigest(); filename=f'{name}.json'
+            (base/filename).write_text(payload+'\n',encoding='utf-8')
+            manifest['datasets'][name]={'source_date':trade_date,'row_count':len(rows),'sha256':digest,'endpoint':endpoint[name],'file':filename}
+          manifest_path.write_text(json.dumps(manifest,ensure_ascii=False,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+
+          latest_path=ROOT/'latest.json'; latest_date=''
+          if latest_path.exists():
+            try: latest_date=str(json.loads(latest_path.read_text()).get('trade_date') or '')
+            except: pass
+          if not latest_date or trade_date>=latest_date:
+            latest_path.write_text(json.dumps({'schema':'TPEX_OFFICIAL_RELAY_LATEST_V2','trade_date':trade_date,'updated_at_utc':now},indent=2,sort_keys=True)+'\n')
+          print(json.dumps({'status':'PASS','trade_date':trade_date,'rows':{k:len(v) for k,v in datasets.items()}},ensure_ascii=False))
+          PY
+      - name: Publish watchdog relay snapshot
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'tpex-relay-watchdog-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git fetch origin market-data-relay:refs/remotes/origin/market-data-relay || true
+          if git show-ref --verify --quiet refs/remotes/origin/market-data-relay; then
+            git checkout -B market-data-relay refs/remotes/origin/market-data-relay
+          else
+            git checkout --orphan market-data-relay
+            git rm -rf . || true
+          fi
+          mkdir -p data/market-data/tpex-relay
+          cp -a /tmp/tpex-watchdog/data/market-data/tpex-relay/. data/market-data/tpex-relay/
+          git add data/market-data/tpex-relay
+          if git diff --cached --quiet; then
+            echo 'Watchdog relay cache unchanged.'
+            exit 0
+          fi
+          git commit -m 'market-data: watchdog refresh exact-date TPEx relay'
+          git push origin HEAD:refs/heads/market-data-relay
