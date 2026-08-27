@@ -39,10 +39,14 @@ type StoredOwnerConnectorClient = {
 export const OWNER_SCOPE = "owner:full";
 export const OWNER_MCP_TOOLS_COMPAT_SCOPE = "mcp:tools";
 export const OWNER_OFFLINE_ACCESS_COMPAT_SCOPE = "offline_access";
+export const OWNER_OPENID_COMPAT_SCOPE = "openid";
+export const OWNER_PROFILE_COMPAT_SCOPE = "profile";
 const OWNER_REQUESTABLE_SCOPES = new Set([
   OWNER_SCOPE,
   OWNER_MCP_TOOLS_COMPAT_SCOPE,
   OWNER_OFFLINE_ACCESS_COMPAT_SCOPE,
+  OWNER_OPENID_COMPAT_SCOPE,
+  OWNER_PROFILE_COMPAT_SCOPE,
 ]);
 const OWNER_MCP_PATHS = new Set(["/my-mcp", "/mcp"]);
 const OWNER_CONNECTOR_NAME = "ChatGPT Owner / Diamond MCP App";
