@@ -4,6 +4,7 @@ import fs from "node:fs";
 const read = (path: string) => fs.readFileSync(path, "utf8");
 
 const entry = read("src/index-v6.ts");
+const composition = read("src/v6/mcp-runtime-composition.ts");
 const broker = read("src/v6/mcp-access-broker.ts");
 const familyOAuth = read("src/v6/family-oauth.ts");
 const ownerOAuth = read("src/v6/owner-oauth.ts");
@@ -11,9 +12,9 @@ const familyContent = read("src/v6/family-mcp.ts");
 const ownerContent = read("src/v6/owner-content-handler.ts");
 const ownerLiveTools = read("src/v6/shared-stock-market-context-tools.ts");
 
-// MCP_RELAY_SEPARATION_V4 (RED gate first)
-// Freeze the known-good Production boundary after Owner OAuth + real MCP E2E PASS:
-// public ABI -> composition root -> access broker/relay -> Owner/Family content runtime.
+// MCP_RELAY_SEPARATION_V4
+// Frozen architecture:
+// public interface -> composition root -> access broker/relay -> Owner/Family content.
 // Future OAuth/ChatGPT interface changes must not require the public entrypoint to
 // know concrete Diamond/Family content implementations.
 
@@ -34,8 +35,8 @@ assert.doesNotMatch(
   "Owner OAuth must remain protocol/auth only",
 );
 
-// Layer B: the public entrypoint is interface-only. It may import one composed MCP
-// runtime, but must not wire concrete content handlers or the broker itself.
+// Layer B: the public entrypoint is interface-only. It may call one composition
+// root, but must not wire concrete content handlers or the broker itself.
 for (const forbidden of [
   "family-oauth-legacy-endpoints",
   "family-oauth-public-client-compat",
@@ -51,8 +52,27 @@ for (const forbidden of [
   );
 }
 assert.doesNotMatch(entry, /familyContentHandler|ownerContentHandler|createMcpAccessBroker/);
+assert.match(entry, /createComposedMcpRuntime\(publicAppHandler\)/);
+assert.match(entry, /mcpRuntime\.fetch\(request, env, ctx\)/);
 
-// Layer C: the public entrypoint must never own or serve the Diamond runtime.
+// Layer C: one explicit composition root is the only module that knows both the
+// broker and concrete content handlers.
+assert.match(composition, /createMcpAccessBroker/);
+assert.match(composition, /familyContentHandler/);
+assert.match(composition, /ownerContentHandler/);
+assert.match(
+  composition,
+  /createMcpAccessBroker\([\s\S]*publicAppHandler[\s\S]*ownerContentHandler[\s\S]*familyContentHandler[\s\S]*\)/,
+  "composition root must wire public -> broker -> Owner/Family content",
+);
+assert.doesNotMatch(
+  composition,
+  /redirect_uri|code_challenge|token_endpoint_auth_method|register(?:Advanced|Research|Stable|Shared|TwMarketData)/,
+  "composition root must remain wiring-only",
+);
+
+// Layer D: Owner content is a first-class injected handler, exactly like Family
+// content. The public entrypoint must not own or serve the Diamond runtime.
 assert.doesNotMatch(
   entry,
   /class\s+MyMCP\s+extends|MyMCP\.serve\(/,
@@ -67,7 +87,7 @@ assert.match(
 assert.match(ownerContent, /class\s+MyMCP\s+extends/);
 assert.match(ownerContent, /MyMCP\.serve\(pathname\)/);
 
-// Layer D: content implementations must never depend on OAuth/ChatGPT details.
+// Layer E: content implementations must never depend on OAuth/ChatGPT details.
 for (const [name, source] of [
   ["Family content", familyContent],
   ["Owner content", ownerContent],
