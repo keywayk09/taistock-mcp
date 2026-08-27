@@ -25,6 +25,8 @@ export { FamilyMCP } from "./v6/family-mcp";
 const FAMILY_SMART_REST_PATHS = new Set([
   "/family-openapi.json",
   "/api/family/query",
+  "/api/family/market-context",
+  "/api/family/chips",
   "/api/family/analyze",
   "/api/family/compare",
   "/api/family/screen",

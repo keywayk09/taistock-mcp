@@ -1,9 +1,11 @@
 import { runSmartFamilyAnalysis } from "./family-analysis";
 import { extractFamilyQuerySymbols, planFamilyQuery } from "./family-adaptive-planner";
+import { readFamilyStockMarketContext } from "./family-ohlc-read-bridge";
 import { familyOpenApiV2 } from "./family-openapi-v2";
 import { familyResearchDirective } from "./family-research-policy";
 import { familySharedReadManifest } from "./family-shared-read-plane";
 import { runFamilySwingScreenV2 } from "./family-stock-selection-v2";
+import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
 
 type RuntimeFamilyEnv = Env & { MOM_GPT_API_KEY?: string };
 
@@ -55,6 +57,11 @@ function validDate(value: unknown) {
   return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
 }
 
+function optionalPositiveNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : undefined;
+}
+
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -70,6 +77,8 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
 
   const familyPaths = new Set([
     "/api/family/query",
+    "/api/family/market-context",
+    "/api/family/chips",
     "/api/family/analyze",
     "/api/family/compare",
     "/api/family/screen",
@@ -87,23 +96,32 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
     return json({
       ok: true,
       service: "Taiwan Stock AI Family Read-Only API",
-      version: "family-rest/v3.0.0",
+      version: "family-rest/v3.1.0",
       intelligence_model: "SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS",
       capabilities: {
         natural_language_query: "ADAPTIVE_INTENT_PLANNER",
         single_stock: "INTENT_ADAPTIVE_WITH_11_POINT_FULL_ANALYSIS_CONTRACT",
         compare_2_to_5: "SAME_EVIDENCE_MODEL_ADAPTIVE_RENDERING",
         swing_screen: "V2_FULL_SNAPSHOT_PREFILTER_BOUNDED_DEEP_SCAN",
-        realtime: "FUGLE_PRIMARY_WHEN_AVAILABLE",
+        realtime: "FUGLE_PRIMARY_DIRECT_ACTION_AND_ANALYSIS",
         web_research: "OPEN_WORLD_AUTONOMOUS_NOT_FIXED_SITES_OR_KEYWORDS",
-        formal_chip: "PUBLISHED_GENERATION_ONLY",
+        formal_chip: "PUBLISHED_GENERATION_DIRECT_ACTION_AND_ANALYSIS",
         formal_ohlc: "OHLC_MCP_ONLY",
         owner_market_research_reads: "SHARED_BY_DEFAULT_WHEN_AVAILABLE",
+        action_surface_parity: "FAMILY_MCP_CORE_READ_TOOLS_EXPOSED",
         writes: "DENIED",
       },
       shared_read_plane: familySharedReadManifest(),
       research_policy: familyResearchDirective([]),
-      endpoints: ["/api/family/query", "/api/family/analyze", "/api/family/compare", "/api/family/screen"],
+      endpoints: [
+        "/api/family/query",
+        "/api/family/market-context",
+        "/api/family/chips",
+        "/api/family/analyze",
+        "/api/family/compare",
+        "/api/family/screen",
+        "/api/family/status",
+      ],
       read_only: true,
     }, 200, cors());
   }
@@ -118,6 +136,39 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
   }
 
   try {
+    if (url.pathname === "/api/family/market-context") {
+      const symbol = validSymbol(body.symbol);
+      if (!symbol) return json({ error: "invalid_symbol" }, 400, cors());
+      const waitMs = Number.isFinite(Number(body.wait_ms))
+        ? Math.max(0, Math.min(2_500, Math.trunc(Number(body.wait_ms))))
+        : 0;
+      return json(await readFamilyStockMarketContext(env, {
+        symbol,
+        books: body.books !== false,
+        wait_ms: waitMs,
+      }), 200, cors());
+    }
+
+    if (url.pathname === "/api/family/chips") {
+      const symbol = validSymbol(body.symbol);
+      if (!symbol) return json({ error: "invalid_symbol" }, 400, cors());
+      const calendarDays = Number.isFinite(Number(body.calendar_days))
+        ? Math.max(30, Math.min(180, Math.trunc(Number(body.calendar_days))))
+        : 60;
+      const rawFinancingRatio = Number(body.financing_ratio);
+      const financingRatio = Number.isFinite(rawFinancingRatio)
+        ? Math.max(0.1, Math.min(0.9, rawFinancingRatio))
+        : 0.6;
+      return json(await getTwMarketChipSummaryPublished(env, {
+        symbol,
+        as_of: validDate(body.as_of),
+        calendar_days: calendarDays,
+        reference_price: optionalPositiveNumber(body.reference_price),
+        estimated_financing_cost: optionalPositiveNumber(body.estimated_financing_cost),
+        financing_ratio: financingRatio,
+      }), 200, cors());
+    }
+
     if (url.pathname === "/api/family/query") {
       const query = String(body.query ?? "").trim();
       if (!query) return json({ error: "query_required" }, 400, cors());
@@ -152,7 +203,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
       return json({
         ok: true,
         service: "Taiwan Stock AI Family Read-Only API",
-        version: "family-rest/v3.0.0",
+        version: "family-rest/v3.1.0",
         route: "adaptive_open_research",
         query,
         resolved_symbols: [],

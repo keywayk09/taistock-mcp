@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { buildFamilyElevenPointAnalysis } from "../src/v6/family-eleven-point.ts";
+import { familyOpenApiV2 } from "../src/v6/family-openapi-v2.ts";
 import { familyResearchDirective } from "../src/v6/family-research-policy.ts";
 import { normalizeFinMindMarketSnapshotV2, scoreFamilyCandidateV2 } from "../src/v6/family-stock-selection-v2.ts";
 
@@ -75,15 +76,37 @@ assert.match(indexSource, /handleFamilySmartRest/);
 assert.match(indexSource, /registerFamilyStockSelectionToolsV2/);
 assert.ok(indexSource.indexOf("handleFamilySmartRest(request") < indexSource.indexOf("handleFamilyActionCompat(request"));
 assert.doesNotMatch(indexSource, /registerFamilyStockSelectionTools\(this\.server/);
+const familySmartRestAllowlist = indexSource.match(/const FAMILY_SMART_REST_PATHS = new Set\(\[([\s\S]*?)\]\);/)?.[1] ?? "";
+for (const path of ["/api/family/market-context", "/api/family/chips"]) {
+  assert.ok(familySmartRestAllowlist.includes(`"${path}"`), `FAMILY_SMART_REST_PATHS must include ${path}`);
+}
 
 const smartRestSource = fs.readFileSync(new URL("../src/v6/family-smart-rest.ts", import.meta.url), "utf8");
-for (const path of ["/api/family/analyze", "/api/family/compare", "/api/family/screen", "/api/family/status"]) {
+for (const path of [
+  "/api/family/query",
+  "/api/family/market-context",
+  "/api/family/chips",
+  "/api/family/analyze",
+  "/api/family/compare",
+  "/api/family/screen",
+  "/api/family/status",
+]) {
   assert.ok(smartRestSource.includes(path));
 }
+assert.match(smartRestSource, /readFamilyStockMarketContext/);
+assert.match(smartRestSource, /getTwMarketChipSummaryPublished/);
 assert.doesNotMatch(smartRestSource, /symbol:\s*undefined\s+as\s+never/);
+
+const openapi = familyOpenApiV2("https://example.test") as any;
+assert.equal(openapi.paths["/api/family/market-context"].post.operationId, "getFamilyStockMarketContext");
+assert.equal(openapi.paths["/api/family/chips"].post.operationId, "getFamilyMarketChipSummary");
+assert.equal(openapi.paths["/api/family/analyze"].post.operationId, "analyzeFamilyStock11Point");
+assert.equal(openapi.paths["/api/family/compare"].post.operationId, "compareFamilyStocks11Point");
+assert.equal(openapi.paths["/api/family/screen"].post.operationId, "screenFamilySwingCandidates");
 
 const openapiSource = fs.readFileSync(new URL("../src/v6/family-openapi-v2.ts", import.meta.url), "utf8");
 assert.match(openapiSource, /OPEN|open-world/i);
 assert.match(openapiSource, /Fugle/i);
+assert.match(openapiSource, /Published generation/i);
 
 console.log("family-v2-intelligence.test.ts: PASS");
