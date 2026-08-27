@@ -4,6 +4,7 @@ import fs from "node:fs";
 const read = (path: string) => fs.readFileSync(path, "utf8");
 
 const entry = read("src/index-v6.ts");
+const composition = read("src/v6/mcp-runtime-composition.ts");
 const broker = read("src/v6/mcp-access-broker.ts");
 const familyOAuth = read("src/v6/family-oauth.ts");
 const ownerOAuth = read("src/v6/owner-oauth.ts");
@@ -11,11 +12,11 @@ const familyContent = read("src/v6/family-mcp.ts");
 const ownerContent = read("src/v6/owner-content-handler.ts");
 const ownerLiveTools = read("src/v6/shared-stock-market-context-tools.ts");
 
-// MCP_RELAY_SEPARATION_V3
-// Freeze the known-good Production boundary after Owner OAuth + real MCP E2E PASS:
-// public ABI -> access broker/relay -> Owner/Family content runtime.
-// Future OAuth/ChatGPT compatibility changes must not require edits to the
-// Diamond or Family content implementations.
+// MCP_RELAY_SEPARATION_V4
+// Frozen architecture:
+// public interface -> composition root -> access broker/relay -> Owner/Family content.
+// Future OAuth/ChatGPT interface changes must not require the public entrypoint to
+// know concrete Diamond/Family content implementations.
 
 // Layer A: OAuth must not directly own or instantiate content runtimes.
 assert.doesNotMatch(
@@ -34,28 +35,49 @@ assert.doesNotMatch(
   "Owner OAuth must remain protocol/auth only",
 );
 
-// Layer B: the composition root may wire one broker, but must not know every
-// OAuth compatibility shim individually.
-for (const oauthShim of [
+// Layer B: the public entrypoint is interface-only. It may call one composition
+// root, but must not wire concrete content handlers or the broker itself.
+for (const forbidden of [
   "family-oauth-legacy-endpoints",
   "family-oauth-public-client-compat",
   "family-oauth-token-recovery",
+  "family-content-handler",
+  "owner-content-handler",
+  "mcp-access-broker",
 ] as const) {
   assert.doesNotMatch(
     entry,
-    new RegExp(oauthShim),
-    `index-v6.ts is still coupled to OAuth shim ${oauthShim}`,
+    new RegExp(forbidden),
+    `index-v6.ts is still coupled to MCP implementation ${forbidden}`,
   );
 }
+assert.doesNotMatch(entry, /familyContentHandler|ownerContentHandler|createMcpAccessBroker/);
+assert.match(entry, /createComposedMcpRuntime\(publicAppHandler\)/);
+assert.match(entry, /mcpRuntime\.fetch\(request, env, ctx\)/);
 
-// Layer C: Owner content is a first-class injected handler, exactly like Family
+// Layer C: one explicit composition root is the only module that knows both the
+// broker and concrete content handlers.
+assert.match(composition, /createMcpAccessBroker/);
+assert.match(composition, /familyContentHandler/);
+assert.match(composition, /ownerContentHandler/);
+assert.match(
+  composition,
+  /createMcpAccessBroker\([\s\S]*publicAppHandler[\s\S]*ownerContentHandler[\s\S]*familyContentHandler[\s\S]*\)/,
+  "composition root must wire public -> broker -> Owner/Family content",
+);
+assert.doesNotMatch(
+  composition,
+  /redirect_uri|code_challenge|token_endpoint_auth_method|register(?:Advanced|Research|Stable|Shared|TwMarketData)/,
+  "composition root must remain wiring-only",
+);
+
+// Layer D: Owner content is a first-class injected handler, exactly like Family
 // content. The public entrypoint must not own or serve the Diamond runtime.
 assert.doesNotMatch(
   entry,
   /class\s+MyMCP\s+extends|MyMCP\.serve\(/,
   "index-v6.ts still directly owns/serves the Owner content runtime",
 );
-assert.match(entry, /ownerContentHandler/);
 assert.match(broker, /ownerContentHandler/);
 assert.match(
   broker,
@@ -65,7 +87,7 @@ assert.match(
 assert.match(ownerContent, /class\s+MyMCP\s+extends/);
 assert.match(ownerContent, /MyMCP\.serve\(pathname\)/);
 
-// Layer D: content implementations must never depend on OAuth/ChatGPT details.
+// Layer E: content implementations must never depend on OAuth/ChatGPT details.
 for (const [name, source] of [
   ["Family content", familyContent],
   ["Owner content", ownerContent],
@@ -88,4 +110,4 @@ assert.match(broker, /pathname === "\/my-mcp" \|\| pathname === "\/mcp"/);
 assert.match(ownerOAuth, /OWNER_SCOPE = "owner:full"/);
 assert.match(familyOAuth, /FAMILY_SCOPE = "family:read"/);
 
-console.log("MCP relay separation + Owner/Family content boundary contract passed");
+console.log("MCP interface/composition/relay/content separation contract passed");

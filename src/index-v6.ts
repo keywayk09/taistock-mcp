@@ -1,16 +1,13 @@
 import { handleFamilyActionCompat } from "./v6/family-action-compat";
-import { familyContentHandler } from "./v6/family-content-handler";
 import { FAMILY_MCP_TOOL_NAMES } from "./v6/family-mcp";
 import { githubDataStoreHealth } from "./v6/github-data-store";
 import { runExtendedScheduledMarketDataController } from "./v6/market-data-scheduled-dispatch";
 import { getTwMarketDataDayStatus } from "./v6/market-data-day-status";
-import { createMcpAccessBroker } from "./v6/mcp-access-broker";
-import { ownerContentHandler } from "./v6/owner-content-handler";
+import { createComposedMcpRuntime } from "./v6/mcp-runtime-composition";
 import { getResearchStatus, isAuthorizedResearchRequest } from "./v6/research-pipeline";
 import { TW_MARKET_DATA_VERSION } from "./v6/tw-market-data-github";
 
-export { FamilyMCP } from "./v6/family-mcp";
-export { MyMCP } from "./v6/owner-content-handler";
+export { FamilyMCP, MyMCP } from "./v6/mcp-runtime-composition";
 
 const FAMILY_SMART_REST_PATHS = new Set([
   "/family-openapi.json",
@@ -35,9 +32,9 @@ function taipeiDateFromMs(ms: number) {
 /**
  * Public non-MCP application surface.
  *
- * OAuth-protected Owner/Family MCP requests are intercepted by the access
- * broker and delegated to injected content handlers. This handler therefore
- * owns only health/REST/research compatibility endpoints, never MyMCP/FamilyMCP.
+ * OAuth-protected Owner/Family MCP requests are intercepted by the composed MCP
+ * runtime and delegated through the access broker to isolated content handlers.
+ * This handler therefore owns only health/REST/research compatibility endpoints.
  */
 const publicAppHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
@@ -188,15 +185,11 @@ const publicAppHandler = {
   },
 };
 
-const mcpAccessBroker = createMcpAccessBroker(
-  publicAppHandler,
-  ownerContentHandler,
-  familyContentHandler,
-);
+const mcpRuntime = createComposedMcpRuntime(publicAppHandler);
 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    return mcpAccessBroker.fetch(request, env, ctx);
+    return mcpRuntime.fetch(request, env, ctx);
   },
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {

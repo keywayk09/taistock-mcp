@@ -9,6 +9,7 @@ const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
 
 const oauth = read("src/v6/family-oauth.ts");
 const familyContent = read("src/v6/family-content-handler.ts");
+const composition = read("src/v6/mcp-runtime-composition.ts");
 const broker = read("src/v6/mcp-access-broker.ts");
 const tokenRecovery = read("src/v6/family-oauth-token-recovery.ts");
 const indexV6 = read("src/index-v6.ts");
@@ -111,11 +112,15 @@ assert.match(oauth, /if \(response\.ok\)/);
 assert.match(oauth, /env\.OAUTH_KV\.delete\(prepared\.pendingKey\)/);
 
 // Plugin/MCP stale-client recovery must also cover the final /oauth/token step.
-// The wrapper only accepts trusted ChatGPT connector callbacks, proves an exact
-// unconsumed Family authorization code/grant, retains PKCE S256 enforcement in
-// the provider, and can recover either public or confidential DCR auth methods.
+// The public entrypoint must not know the token-recovery implementation or
+// concrete content handlers. The composition root wires those handlers into the
+// access broker, and the broker owns the compatibility wrappers.
 assert.doesNotMatch(indexV6, /family-oauth-token-recovery/);
-assert.match(indexV6, /createMcpAccessBroker\([\s\S]*publicAppHandler,[\s\S]*ownerContentHandler,[\s\S]*familyContentHandler/);
+assert.doesNotMatch(indexV6, /createMcpAccessBroker|ownerContentHandler|familyContentHandler/);
+assert.match(indexV6, /createComposedMcpRuntime\(publicAppHandler\)/);
+assert.match(composition, /createMcpAccessBroker/);
+assert.match(composition, /ownerContentHandler/);
+assert.match(composition, /familyContentHandler/);
 assert.match(broker, /createFamilyOAuthTokenRecoveryWrapper/);
 assert.match(broker, /createFamilyOAuthProvider\(appHandler, familyContentHandler\)/);
 assert.match(broker, /ownerContentHandler\.fetch\(request, env, ctx\)/);
