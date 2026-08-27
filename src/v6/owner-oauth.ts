@@ -152,7 +152,6 @@ function requestedOwnerScopes(rawScope: string) {
 
 type OwnerAuthorizeDiag =
   | "METHOD_OR_RESPONSE"
-  | "RESOURCE"
   | "CLIENT_ID"
   | "REDIRECT_URI"
   | "PKCE"
@@ -162,7 +161,6 @@ type OwnerAuthorizeDiag =
 
 function ownerAuthorizeDiag(url: URL): OwnerAuthorizeDiag | null {
   if (url.pathname !== "/authorize" || url.searchParams.get("response_type") !== "code") return "METHOD_OR_RESPONSE";
-  if (!canonicalOwnerResource(String(url.searchParams.get("resource") || "").trim(), url.origin)) return "RESOURCE";
   if (!OPAQUE_CLIENT_ID.test(String(url.searchParams.get("client_id") || ""))) return "CLIENT_ID";
   if (!trustedConnectorRedirect(String(url.searchParams.get("redirect_uri") || ""))) return "REDIRECT_URI";
   const method = String(url.searchParams.get("code_challenge_method") || "");

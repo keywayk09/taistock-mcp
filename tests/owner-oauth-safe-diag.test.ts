@@ -5,7 +5,6 @@ const env={MCP_API_KEY:'x',OAUTH_KV:{async get(){return null},async put(){},asyn
 async function body(params:Record<string,string>){const u=new URL(`${ORIGIN}/authorize`);for(const[k,v]of Object.entries(params))u.searchParams.set(k,v);const r=await handleOwnerAuthorize(new Request(u),env);return {status:r.status,text:await r.text()}}
 const base={response_type:'code',client_id:'abcdefgh12345678',redirect_uri:'https://chatgpt.com/connector/oauth/OwnerDiag123',resource:`${ORIGIN}/my-mcp`,scope:'owner:full offline_access mcp:tools',state:'state'};
 for(const [label,patch] of [
-  ['RESOURCE',{resource:`${ORIGIN}/family-mcp`}],
   ['CLIENT_ID',{client_id:'x'}],
   ['REDIRECT_URI',{redirect_uri:'https://example.com/callback'}],
   ['STATE',{state:''}],
