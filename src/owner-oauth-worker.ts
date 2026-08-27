@@ -174,7 +174,7 @@ async function proxyOwnerAuthorization(request: Request, env: OwnerOAuthWorkerEn
   return fetch(upstream, { redirect: "manual" });
 }
 
-const defaultHandler: ExportedHandler<OwnerOAuthWorkerEnv> = {
+const defaultHandler: ConcreteFetchHandler = {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/health") {
@@ -190,7 +190,7 @@ const defaultHandler: ExportedHandler<OwnerOAuthWorkerEnv> = {
   },
 };
 
-const neverApiHandler: ExportedHandler<OwnerOAuthWorkerEnv> = {
+const neverApiHandler: ConcreteFetchHandler = {
   async fetch() {
     return new Response("Not Found", { status: 404 });
   },
