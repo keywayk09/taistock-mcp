@@ -1,0 +1,209 @@
+name: Address Owner legacy confidential marker P1
+
+on:
+  push:
+    branches:
+      - fix/owner-legacy-confidential-family-safe-20260827
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/owner-legacy-confidential-family-safe-20260827
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Require explicit legacy Owner marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path('src/v6/owner-oauth.ts')
+          s=p.read_text()
+
+          anchor='const OWNER_CONNECTOR_NAME = "ChatGPT Owner / Diamond MCP App";\n'
+          repl=anchor+'const LEGACY_OWNER_CONFIDENTIAL_MARKER_PREFIX = "owner-oauth:legacy-confidential:";\n'
+          if anchor not in s: raise SystemExit('marker_prefix_anchor_missing')
+          s=s.replace(anchor,repl,1)
+
+          anchor='''function ownerClientKey(clientId: string) {
+            return `client:${clientId}`;
+          }
+          '''
+          repl='''function ownerClientKey(clientId: string) {
+            return `client:${clientId}`;
+          }
+
+          function legacyOwnerConfidentialMarkerKey(clientId: string) {
+            return `${LEGACY_OWNER_CONFIDENTIAL_MARKER_PREFIX}${clientId}`;
+          }
+          '''
+          if anchor not in s: raise SystemExit('marker_key_anchor_missing')
+          s=s.replace(anchor,repl,1)
+
+          old='''  const authMethod = storedOwnerAuthMethod(raw);
+            const confidential = authMethod === "client_secret_basic" || authMethod === "client_secret_post";
+            return {
+              exists: true as const,
+              compatible: true as const,
+              authorizationCompatible: confidential || ownerHasStrictPkce(candidate),
+            };
+          }'''
+          new='''  const authMethod = storedOwnerAuthMethod(raw);
+            const confidential = authMethod === "client_secret_basic" || authMethod === "client_secret_post";
+            const legacyMarker = confidential && !ownerHasStrictPkce(candidate)
+              ? await env.OAUTH_KV.get(legacyOwnerConfidentialMarkerKey(candidate.clientId))
+              : null;
+            return {
+              exists: true as const,
+              compatible: true as const,
+              authorizationCompatible: ownerHasStrictPkce(candidate) || (confidential && legacyMarker === "v1"),
+            };
+          }'''
+          if old not in s: raise SystemExit('authorization_compat_anchor_missing')
+          s=s.replace(old,new,1)
+          p.write_text(s)
+
+          t=Path('tests/owner-oauth-legacy-confidential-compat.test.ts')
+          q=t.read_text()
+          q=q.replace(
+            'const NEW_CLIENT = "newowner12345678";\n',
+            'const NEW_CLIENT = "newowner12345678";\nconst UNMARKED_BASIC_CLIENT = "unmarkedbasic123";\n',1)
+          q=q.replace(
+            '[`client:${POST_CLIENT}`, clientRecord(POST_CLIENT, "client_secret_post")],\n',
+            '[`client:${POST_CLIENT}`, clientRecord(POST_CLIENT, "client_secret_post")],\n    [`client:${UNMARKED_BASIC_CLIENT}`, clientRecord(UNMARKED_BASIC_CLIENT, "client_secret_basic")],\n',1)
+          old_get='''    async get(key: string) {
+              return records.get(key) ?? null;
+            },'''
+          new_get='''    async get(key: string) {
+              if (key === `owner-oauth:legacy-confidential:${BASIC_CLIENT}`) return "v1";
+              if (key === `owner-oauth:legacy-confidential:${POST_CLIENT}`) return "v1";
+              return records.get(key) ?? null;
+            },'''
+          if old_get not in q: raise SystemExit('test_kv_get_anchor_missing')
+          q=q.replace(old_get,new_get,1)
+          insert='''
+
+          // Merely existing as a confidential DCR client is not enough. Only clients
+          // explicitly marked from the pre-deployment Owner-grant migration may use
+          // the legacy no-PKCE compatibility path.
+          {
+            const runtime = runtimeEnv();
+            const get = await handleOwnerAuthorize(new Request(authorizeUrl(UNMARKED_BASIC_CLIENT)), runtime.env);
+            assert.equal(get.status, 400, "unmarked confidential client without PKCE must be rejected");
+          }
+          '''
+          target='''// Unknown/new clients may not use the confidential-client compatibility path.
+          {'''
+          if target not in q: raise SystemExit('unmarked_test_anchor_missing')
+          q=q.replace(target,insert+'\n'+target,1)
+          t.write_text(q)
+          PY
+          git diff --check
+
+      - run: npm install
+
+      - name: Focused Owner and Family contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run type-check
+          node --experimental-strip-types tests/owner-oauth-legacy-confidential-compat.test.ts
+          npm run test:family-selection
+          npm run test:ops-contracts
+
+      - name: Real provider matrix for new confidential + Family
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler dev --local --ip 127.0.0.1 --port 8787 \
+            --var MCP_API_KEY:owner-local-secret \
+            --var MOM_GPT_API_KEY:family-local-secret \
+            >/tmp/marker-p1-local.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; tail -160 /tmp/marker-p1-local.log || true' EXIT
+          ready=false
+          for i in $(seq 1 45); do
+            if curl --silent --max-time 2 http://127.0.0.1:8787/health >/dev/null 2>&1; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
+
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          const base='http://127.0.0.1:8787';
+          const callback='https://chatgpt.com/connector/oauth/MarkerP1Matrix123';
+          const assert=(c,m,d)=>{if(!c)throw new Error(`${m}${d===undefined?'':': '+JSON.stringify(d)}`)};
+          const parse=async r=>{const t=await r.text();try{return JSON.parse(t)}catch{return{raw:t}}};
+          const pkce=v=>crypto.createHash('sha256').update(v).digest('base64url');
+
+          async function reg(body){const r=await fetch(`${base}/oauth/register`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const j=await parse(r);assert(r.status===201,'DCR',{status:r.status,j});return j}
+          async function finish(u,secret){const r=await fetch(`${base}/authorize`,{method:'POST',redirect:'manual',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({oauth_query:u.searchParams.toString(),login_secret:secret})});assert(r.status===302,'authorize finish',{status:r.status,body:await r.text()});return new URL(r.headers.get('location')).searchParams.get('code')}
+          async function token(client,p){const h={'content-type':'application/x-www-form-urlencoded'},b={...p};if(client.client_secret){h.authorization=`Basic ${Buffer.from(`${client.client_id}:${client.client_secret}`).toString('base64')}`;delete b.client_id}else b.client_id=client.client_id;const r=await fetch(`${base}/oauth/token`,{method:'POST',headers:h,body:new URLSearchParams(b)});return{r,j:await parse(r)}}
+          async function mcp(path,t){const r=await fetch(`${base}${path}`,{method:'POST',headers:{authorization:`Bearer ${t}`,'content-type':'application/json',accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'marker-p1',version:'1'}}})});return r.status}
+
+          // Fresh confidential DCR: no marker, therefore NO-PKCE must fail.
+          const owner=await reg({client_name:'Fresh Confidential P1',redirect_uris:[callback],grant_types:['authorization_code','refresh_token'],response_types:['code']});
+          assert(owner.token_endpoint_auth_method==='client_secret_basic'&&owner.client_secret,'fresh confidential shape',owner);
+          const noPkce=new URL(`${base}/authorize`);
+          for(const[k,v]of Object.entries({response_type:'code',client_id:owner.client_id,redirect_uri:callback,scope:'offline_access mcp:tools',state:'fresh-no-pkce',resource:`${base}/my-mcp`}))noPkce.searchParams.set(k,v);
+          assert((await fetch(noPkce,{redirect:'manual'})).status===400,'fresh confidential no-PKCE must be rejected');
+
+          // The same fresh confidential client is valid with strict S256 PKCE.
+          const ov='fresh-confidential-verifier-longer-than-forty-three-characters';
+          const secure=new URL(noPkce); secure.searchParams.set('state','fresh-pkce'); secure.searchParams.set('code_challenge',pkce(ov)); secure.searchParams.set('code_challenge_method','S256');
+          const begin=await fetch(secure,{redirect:'manual'}); const page=await begin.text();assert(begin.status===200&&page.includes('Owner / 鑽石引擎'),'fresh confidential with PKCE',{status:begin.status,page:page.slice(0,300)});
+          const code=await finish(secure,'owner-local-secret');
+          const ox=await token(owner,{grant_type:'authorization_code',code,redirect_uri:callback,code_verifier:ov,resource:`${base}/my-mcp`});
+          assert(ox.r.status===200&&ox.j.access_token&&ox.j.refresh_token,'secure Owner token',ox.j);
+          assert((await mcp('/my-mcp',ox.j.access_token))===200,'secure Owner MCP');
+          assert([401,403].includes(await mcp('/family-mcp',ox.j.access_token)),'Owner into Family blocked');
+          const ocross=await token(owner,{grant_type:'refresh_token',refresh_token:ox.j.refresh_token,resource:`${base}/family-mcp`});
+          assert(ocross.r.status===400&&ocross.j.error==='invalid_target','Owner cross refresh blocked',ocross.j);
+
+          // Family/Mom remains public PKCE + family:read only.
+          const fv='family-marker-verifier-longer-than-forty-three-characters';
+          const family=await reg({client_name:'Family Marker Matrix',redirect_uris:[callback],grant_types:['authorization_code','refresh_token'],response_types:['code'],token_endpoint_auth_method:'none'});
+          const fu=new URL(`${base}/authorize`);
+          for(const[k,v]of Object.entries({response_type:'code',client_id:family.client_id,redirect_uri:callback,scope:'family:read',state:'family',code_challenge:pkce(fv),code_challenge_method:'S256',resource:`${base}/family-mcp`}))fu.searchParams.set(k,v);
+          assert((await fetch(fu,{redirect:'manual'})).status===200,'Family login');
+          const fc=await finish(fu,'family-local-secret');
+          const fx=await token(family,{grant_type:'authorization_code',code:fc,redirect_uri:callback,code_verifier:fv,resource:`${base}/family-mcp`});
+          assert(fx.r.status===200&&(fx.j.scope||'').trim()==='family:read','Family token/scope',fx.j);
+          assert((await mcp('/family-mcp',fx.j.access_token))===200,'Family MCP');
+          assert([401,403].includes(await mcp('/my-mcp',fx.j.access_token)),'Family into Owner blocked');
+          const fcross=await token(family,{grant_type:'refresh_token',refresh_token:fx.j.refresh_token,resource:`${base}/my-mcp`});
+          assert(fcross.r.status===400&&fcross.j.error==='invalid_target','Family cross refresh blocked',fcross.j);
+
+          console.log('OWNER_LEGACY_MARKER_P1_AND_FAMILY_MATRIX=PASS');
+          NODE
+
+      - name: Full suite and both dry-runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:research
+          npx wrangler deploy --dry-run
+          npx wrangler deploy --dry-run --config wrangler.owner-oauth.jsonc
+
+      - name: Commit only permanent fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/address-owner-legacy-marker-p1.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/v6/owner-oauth.ts tests/owner-oauth-legacy-confidential-compat.test.ts .github/workflows/address-owner-legacy-marker-p1.yml
+          git commit -m 'fix: gate legacy Owner no-PKCE by explicit marker'
+          git push origin HEAD:fix/owner-legacy-confidential-family-safe-20260827
