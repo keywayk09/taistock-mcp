@@ -1,0 +1,162 @@
+name: Production Owner historical-scope live smoke
+
+on:
+  push:
+    branches:
+      - diag/prod-owner-openid-live-20260827
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MCP_BASE: https://taistock-mcp.keywayk09.workers.dev
+      OWNER_BASE: https://taistock-owner-oauth.keywayk09.workers.dev
+    steps:
+      - name: Verify retained Owner app and Family/Mom Production paths
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, hashlib, json, os, re, urllib.error, urllib.parse, urllib.request
+
+          mcp=os.environ['MCP_BASE'].rstrip('/')
+          owner=os.environ['OWNER_BASE'].rstrip('/')
+          account=os.environ.get('CLOUDFLARE_ACCOUNT_ID','')
+          token=os.environ.get('CLOUDFLARE_API_TOKEN','')
+          if not account or not token: raise SystemExit('cloudflare_credentials_missing')
+
+          def http(url, method='GET', data=None, headers=None):
+              h={'User-Agent':'taistock-prod-owner-openid-live/1'}
+              if headers: h.update(headers)
+              req=urllib.request.Request(url,data=data,headers=h,method=method)
+              try:
+                  with urllib.request.urlopen(req,timeout=20) as r:
+                      return r.status,{k.lower():v for k,v in r.headers.items()},r.read()
+              except urllib.error.HTTPError as e:
+                  return e.code,{k.lower():v for k,v in e.headers.items()},e.read()
+
+          cf={'Authorization':f'Bearer {token}','Content-Type':'application/json'}
+          st,_,raw=http(f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces?per_page=1000',headers=cf)
+          if st!=200: raise SystemExit('kv_namespace_list_failed')
+          rows=(json.loads(raw).get('result') or [])
+          preferred=[x for x in rows if x.get('title')=='taistock-mcp-OAUTH_KV']
+          legacy=[x for x in rows if x.get('title')=='OAUTH_KV']
+          chosen=preferred[0] if len(preferred)==1 else (legacy[0] if len(legacy)==1 else None)
+          if not chosen: raise SystemExit('oauth_kv_not_resolved')
+          kv=chosen['id']
+
+          def kv_keys(prefix):
+              q=urllib.parse.urlencode({'prefix':prefix,'limit':'1000'})
+              st,_,raw=http(f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{kv}/keys?{q}',headers=cf)
+              if st!=200: raise SystemExit('kv_keys_failed')
+              return [str(x.get('name') or '') for x in (json.loads(raw).get('result') or [])]
+          def kv_get(key):
+              u=f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{kv}/values/{urllib.parse.quote(key,safe="")}'
+              st,_,raw=http(u,headers={'Authorization':f'Bearer {token}'})
+              if st==404:return None
+              if st!=200:raise SystemExit('kv_get_failed')
+              return raw.decode('utf-8','replace')
+          def kv_delete(key):
+              u=f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{kv}/values/{urllib.parse.quote(key,safe="")}'
+              st,_,_=http(u,method='DELETE',headers={'Authorization':f'Bearer {token}'})
+              if st not in (200,204,404): raise SystemExit('kv_delete_failed')
+
+          def trusted_redirect(raw):
+              try:u=urllib.parse.urlparse(raw)
+              except Exception:return False
+              return u.scheme=='https' and u.hostname in {'chatgpt.com','chat.openai.com'} and not u.query and not u.fragment and bool(re.fullmatch(r'/connector/oauth/[A-Za-z0-9_-]{8,256}',u.path) or u.path=='/connector_platform_oauth_redirect')
+
+          # Select a real pre-existing marked confidential ChatGPT client without logging its identity.
+          sample=None
+          markers=kv_keys('owner-oauth:legacy-confidential:')
+          if len(markers)<18: raise SystemExit(f'legacy_marker_regression:{len(markers)}')
+          for mk in markers:
+              cid=mk.split(':',2)[-1]
+              raw=kv_get('client:'+cid)
+              if not raw: continue
+              try: rec=json.loads(raw)
+              except Exception: continue
+              method=str(rec.get('tokenEndpointAuthMethod') or rec.get('token_endpoint_auth_method') or '')
+              redirects=rec.get('redirectUris') or rec.get('redirect_uris') or []
+              secret=str(rec.get('clientSecret') or rec.get('client_secret') or '')
+              if method not in {'client_secret_basic','client_secret_post'} or not secret: continue
+              if not isinstance(redirects,list) or len(redirects)!=1 or not trusted_redirect(str(redirects[0])): continue
+              sample=(cid,str(redirects[0])); break
+          if not sample: raise SystemExit('marked_legacy_owner_client_not_found')
+          cid,redirect=sample
+
+          historical='openid profile offline_access mcp:tools'
+          params={
+              'response_type':'code','client_id':cid,'redirect_uri':redirect,
+              'resource':f'{mcp}/my-mcp','scope':historical,'state':'prod-legacy-openid-profile-smoke'
+          }
+          query=urllib.parse.urlencode(params)
+
+          # Exact path visible in the user's retained ChatGPT app.
+          st,_,raw=http(f'{mcp}/authorize?{query}')
+          text=raw.decode('utf-8','replace')
+          if st!=200 or 'Owner / 鑽石引擎' not in text or '授權要求無效' in text:
+              raise SystemExit(f'legacy_main_authorize_failed:{st}')
+          print('PROD_LEGACY_MAIN_OPENID_PROFILE_AUTHORIZE=PASS')
+
+          # Isolated Owner issuer must proxy the same retained client request successfully.
+          st,_,raw=http(f'{owner}/authorize?{query}')
+          text=raw.decode('utf-8','replace')
+          if st!=200 or 'Owner / 鑽石引擎' not in text or '授權要求無效' in text:
+              raise SystemExit(f'isolated_owner_authorize_failed:{st}')
+          print('PROD_ISOLATED_OWNER_OPENID_PROFILE_AUTHORIZE=PASS')
+
+          # Owner must still reject Family privilege injection.
+          bad=dict(params); bad['scope']='openid profile offline_access mcp:tools family:read'
+          st,_,_=http(f'{mcp}/authorize?'+urllib.parse.urlencode(bad))
+          if st!=400: raise SystemExit(f'owner_family_scope_injection_not_blocked:{st}')
+          print('PROD_OWNER_FAMILY_SCOPE_ISOLATION=PASS')
+
+          # Fresh Family/Mom public PKCE path remains independent and functional.
+          callback='https://chatgpt.com/connector/oauth/ProdFamilyOpenIdSmoke123'
+          body=json.dumps({
+              'client_name':'Production Family OpenID isolation smoke',
+              'redirect_uris':[callback],
+              'grant_types':['authorization_code','refresh_token'],
+              'response_types':['code'],
+              'token_endpoint_auth_method':'none',
+          }).encode()
+          st,_,raw=http(f'{mcp}/oauth/register',method='POST',data=body,headers={'Content-Type':'application/json'})
+          if st!=201: raise SystemExit(f'family_dcr_failed:{st}')
+          fam=json.loads(raw); fam_id=str(fam.get('client_id') or '')
+          if not fam_id: raise SystemExit('family_client_missing')
+          try:
+              verifier='prod-family-openid-smoke-verifier-abcdefghijklmnopqrstuvwxyz'
+              challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
+              fp={
+                  'response_type':'code','client_id':fam_id,'redirect_uri':callback,
+                  'resource':f'{mcp}/family-mcp','scope':'family:read','state':'prod-family-isolation',
+                  'code_challenge':challenge,'code_challenge_method':'S256'
+              }
+              st,_,raw=http(f'{mcp}/authorize?'+urllib.parse.urlencode(fp))
+              text=raw.decode('utf-8','replace')
+              if st!=200 or 'Family 授權' not in text or 'Owner / 鑽石引擎' in text:
+                  raise SystemExit(f'family_authorize_regressed:{st}')
+              print('PROD_FAMILY_MOM_PKCE_READONLY=PASS')
+          finally:
+              kv_delete('client:'+fam_id)
+              kv_delete('owner-oauth:legacy-confidential:'+fam_id)
+
+          # Public discovery boundaries remain split.
+          for url,label in [(f'{mcp}/.well-known/oauth-protected-resource/my-mcp','owner-resource'),(f'{mcp}/.well-known/oauth-protected-resource/family-mcp','family-resource')]:
+              st,_,raw=http(url)
+              if st!=200: raise SystemExit(f'{label}_metadata_failed:{st}')
+              meta=json.loads(raw)
+              scopes=set(meta.get('scopes_supported') or [])
+              if label=='owner-resource' and ('owner:full' not in scopes or 'family:read' in scopes): raise SystemExit('owner_metadata_scope_regression')
+              if label=='family-resource' and ('family:read' not in scopes or 'owner:full' in scopes): raise SystemExit('family_metadata_scope_regression')
+          print('PROD_OWNER_FAMILY_METADATA_ISOLATION=PASS')
+          print('PRODUCTION_RETAINED_OWNER_OPENID_PROFILE_LIVE_SMOKE=PASS')
+          PY
