@@ -1,0 +1,75 @@
+name: One-shot Owner OAuth branch patch
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'fix/owner-oauth-boundary-20260827'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/owner-oauth-boundary-20260827
+          fetch-depth: 0
+      - name: Apply narrow role-aware provider patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path=Path('src/v6/family-oauth.ts')
+          text=path.read_text()
+
+          import_old='import { FamilyMCP } from "./family-mcp";\n'
+          import_new=import_old+'import { handleOwnerAuthorize, isOwnerAuthorizeRequest, OWNER_SCOPE } from "./owner-oauth";\n'
+          if 'from "./owner-oauth"' not in text:
+              if import_old not in text: raise SystemExit('owner_import_anchor_missing')
+              text=text.replace(import_old, import_new, 1)
+
+          handler_old='''      if (url.pathname === "/authorize") return handleAuthorize(request, env);'''
+          handler_new='''      if (url.pathname === "/authorize") {\n        if (await isOwnerAuthorizeRequest(request)) return handleOwnerAuthorize(request, env);\n        return handleAuthorize(request, env);\n      }'''
+          if 'await isOwnerAuthorizeRequest(request)' not in text:
+              if handler_old not in text: raise SystemExit('authorize_handler_anchor_missing')
+              text=text.replace(handler_old, handler_new, 1)
+
+          if 'scopesSupported: [FAMILY_SCOPE, OWNER_SCOPE]' not in text:
+              old='scopesSupported: [FAMILY_SCOPE],'
+              if old not in text: raise SystemExit('supported_scope_anchor_missing')
+              text=text.replace(old, 'scopesSupported: [FAMILY_SCOPE, OWNER_SCOPE],', 1)
+
+          if 'scopes_supported: [FAMILY_SCOPE, OWNER_SCOPE]' not in text:
+              old='scopes_supported: [FAMILY_SCOPE],'
+              if old not in text: raise SystemExit('resource_scope_anchor_missing')
+              text=text.replace(old, 'scopes_supported: [FAMILY_SCOPE, OWNER_SCOPE],', 1)
+
+          text=text.replace('resource_name: "Taiwan Stock AI Family MCP",', 'resource_name: "Taiwan Stock AI OAuth Server",', 1)
+          path.write_text(text)
+
+          test=Path('tests/family-oauth-contract.test.ts')
+          t=test.read_text()
+          t=t.replace(
+              'assert.match(oauth, /scopesSupported: \\[FAMILY_SCOPE\\]/);',
+              'assert.match(oauth, /scopesSupported: \\[FAMILY_SCOPE, OWNER_SCOPE\\]/);',
+              1,
+          )
+          if 'OWNER_SCOPE' not in t:
+              raise SystemExit('family_contract_scope_patch_failed')
+          test.write_text(t)
+          PY
+
+          git diff --check
+          if git diff --quiet; then
+            echo 'already_patched=true'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/v6/family-oauth.ts tests/family-oauth-contract.test.ts
+          git commit -m 'fix: route Owner authorization inside shared OAuth provider'
+          git push origin HEAD:fix/owner-oauth-boundary-20260827
