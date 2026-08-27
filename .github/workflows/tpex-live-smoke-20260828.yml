@@ -5,6 +5,10 @@ on:
     branches: [test/tpex-live-smoke-20260828]
     paths:
       - '.github/workflows/tpex-live-smoke-20260828.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/tpex-live-smoke-20260828.yml'
 
 permissions:
   contents: read
