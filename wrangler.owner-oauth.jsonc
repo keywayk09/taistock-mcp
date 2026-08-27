@@ -1,0 +1,25 @@
+/**
+ * Owner/Diamond authorization server only.
+ * The MCP resource remains the frozen taistock-mcp /my-mcp endpoint.
+ * OAUTH_KV intentionally points at the same ephemeral OAuth namespace as the
+ * canonical resource Worker so opaque bearer tokens are portable across the
+ * isolated authorization-server origin.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "taistock-owner-oauth",
+  "main": "src/owner-oauth-worker.ts",
+  "compatibility_date": "2025-03-10",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "vars": {
+    "OWNER_MCP_ORIGIN": "https://taistock-mcp.keywayk09.workers.dev"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
