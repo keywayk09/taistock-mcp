@@ -25,6 +25,7 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          import re
 
           p = Path('src/v6/family-oauth.ts')
           s = p.read_text()
@@ -66,35 +67,35 @@ jobs:
               raise SystemExit('helper_anchor_missing')
           s = s.replace(helper_anchor, helper_replacement, 1)
 
-          family_anchor = '''if (role !== "family" || userId !== "family") {
-                return Response.json({ error: "forbidden_family_role" }, { status: 403 });
-              }
-              try {'''
-          family_replacement = '''if (role !== "family" || userId !== "family") {
-                return Response.json({ error: "forbidden_family_role" }, { status: 403 });
-              }
-              if (!(await requireEffectiveScope(request, env, FAMILY_SCOPE))) {
-                return Response.json({ error: "insufficient_family_scope" }, { status: 403 });
-              }
-              try {'''
-          if family_anchor not in s:
-              raise SystemExit('family_handler_anchor_missing')
-          s = s.replace(family_anchor, family_replacement, 1)
+          family_pattern = re.compile(
+              r'(if \(role !== "family" \|\| userId !== "family"\) \{\n'
+              r'\s*return Response\.json\(\{ error: "forbidden_family_role" \}, \{ status: 403 \}\);\n'
+              r'\s*\}\n)(\s*try \{)'
+          )
+          s, family_count = family_pattern.subn(
+              r'\1      if (!(await requireEffectiveScope(request, env, FAMILY_SCOPE))) {\n'
+              r'        return Response.json({ error: "insufficient_family_scope" }, { status: 403 });\n'
+              r'      }\n\2',
+              s,
+              count=1,
+          )
+          if family_count != 1:
+              raise SystemExit(f'family_handler_match_count={family_count}')
 
-          owner_anchor = '''if (role !== "owner" || userId !== "owner") {
-                return Response.json({ error: "forbidden_owner_role" }, { status: 403 });
-              }
-              return appHandler.fetch(request, env, ctx);'''
-          owner_replacement = '''if (role !== "owner" || userId !== "owner") {
-                return Response.json({ error: "forbidden_owner_role" }, { status: 403 });
-              }
-              if (!(await requireEffectiveScope(request, env, OWNER_SCOPE))) {
-                return Response.json({ error: "insufficient_owner_scope" }, { status: 403 });
-              }
-              return appHandler.fetch(request, env, ctx);'''
-          if owner_anchor not in s:
-              raise SystemExit('owner_handler_anchor_missing')
-          s = s.replace(owner_anchor, owner_replacement, 1)
+          owner_pattern = re.compile(
+              r'(if \(role !== "owner" \|\| userId !== "owner"\) \{\n'
+              r'\s*return Response\.json\(\{ error: "forbidden_owner_role" \}, \{ status: 403 \}\);\n'
+              r'\s*\}\n)(\s*return appHandler\.fetch\(request, env, ctx\);)'
+          )
+          s, owner_count = owner_pattern.subn(
+              r'\1      if (!(await requireEffectiveScope(request, env, OWNER_SCOPE))) {\n'
+              r'        return Response.json({ error: "insufficient_owner_scope" }, { status: 403 });\n'
+              r'      }\n\2',
+              s,
+              count=1,
+          )
+          if owner_count != 1:
+              raise SystemExit(f'owner_handler_match_count={owner_count}')
 
           p.write_text(s)
           PY
