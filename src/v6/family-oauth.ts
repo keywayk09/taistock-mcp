@@ -5,6 +5,7 @@ import {
   type OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
 import { FamilyMCP } from "./family-mcp";
+import { handleOwnerAuthorize, isOwnerAuthorizeRequest, OWNER_SCOPE } from "./owner-oauth";
 
 declare global {
   interface Env {
@@ -682,7 +683,10 @@ export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
   const defaultHandler: ConcreteFetchHandler = {
     async fetch(request, env, ctx) {
       const url = new URL(request.url);
-      if (url.pathname === "/authorize") return handleAuthorize(request, env);
+      if (url.pathname === "/authorize") {
+        if (await isOwnerAuthorizeRequest(request)) return handleOwnerAuthorize(request, env);
+        return handleAuthorize(request, env);
+      }
       return appHandler.fetch(request, env, ctx);
     },
   };
@@ -694,14 +698,14 @@ export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/oauth/token",
     clientRegistrationEndpoint: "/oauth/register",
-    scopesSupported: [FAMILY_SCOPE],
+    scopesSupported: [FAMILY_SCOPE, OWNER_SCOPE],
     allowPlainPKCE: false,
     allowImplicitFlow: false,
     clientIdMetadataDocumentEnabled: true,
     resourceMetadata: {
-      scopes_supported: [FAMILY_SCOPE],
+      scopes_supported: [FAMILY_SCOPE, OWNER_SCOPE],
       bearer_methods_supported: ["header"],
-      resource_name: "Taiwan Stock AI Family MCP",
+      resource_name: "Taiwan Stock AI OAuth Server",
     },
   }) as unknown as ConcreteFetchHandler;
 

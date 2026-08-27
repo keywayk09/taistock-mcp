@@ -23,7 +23,7 @@ assert.match(oauth, /clientRegistrationEndpoint: "\/oauth\/register"/);
 assert.match(oauth, /clientIdMetadataDocumentEnabled: true/);
 assert.match(oauth, /allowPlainPKCE: false/);
 assert.match(oauth, /allowImplicitFlow: false/);
-assert.match(oauth, /scopesSupported: \[FAMILY_SCOPE\]/);
+assert.match(oauth, /scopesSupported: \[FAMILY_SCOPE, OWNER_SCOPE\]/);
 assert.match(oauth, /FAMILY_OAUTH_LOGIN_SECRET \|\| env\.MOM_GPT_API_KEY/);
 assert.match(oauth, /constantTimeEqual/);
 assert.match(oauth, /family-oauth:loginfail/);
