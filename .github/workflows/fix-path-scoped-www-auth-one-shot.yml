@@ -1,0 +1,148 @@
+name: One-shot path-scoped WWW-Authenticate fix
+
+on:
+  push:
+    branches:
+      - fix/path-scoped-www-authenticate-20260827
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/path-scoped-www-authenticate-20260827
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply minimal shared-provider challenge fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          oauth = Path('src/v6/family-oauth.ts')
+          s = oauth.read_text()
+          old = '''    resourceMetadata: {
+              scopes_supported: [FAMILY_SCOPE, OWNER_SCOPE],
+              bearer_methods_supported: ["header"],
+              resource_name: "Taiwan Stock AI OAuth Server",
+            },'''
+          new = '''    resourceMetadata: {
+              // Do not advertise a union of Owner + Family scopes in the generic
+              // bearer challenge. Path-scoped protected-resource metadata below
+              // is the source of truth for /my-mcp, /mcp and /family-mcp.
+              bearer_methods_supported: ["header"],
+              resource_name: "Taiwan Stock AI OAuth Server",
+            },'''
+          if old not in s:
+              raise SystemExit('shared_resource_metadata_anchor_missing')
+          oauth.write_text(s.replace(old, new, 1))
+
+          test = Path('tests/owner-oauth-protected-surface.test.ts')
+          t = test.read_text()
+          anchor = '// OWNER_EFFECTIVE_SCOPE_V1\n'
+          block = '''// PATH_SCOPED_CHALLENGE_SCOPE_V1
+          // The authorization server supports both roles, but the generic provider
+          // resource metadata must not advertise their union in WWW-Authenticate.
+          // Clients follow each route's resource_metadata URL to learn the exact scope.
+          assert.match(oauth, /scopesSupported\\s*:\\s*\\[FAMILY_SCOPE, OWNER_SCOPE\\]/);
+          const providerResourceMetadata = oauth.match(/resourceMetadata\\s*:\\s*\\{([\\s\\S]*?)\\n\\s*\\},\\n\\s*\\}\\) as unknown as ConcreteFetchHandler;/)?.[1] ?? "";
+          assert.ok(providerResourceMetadata.length > 0, "provider resourceMetadata block missing");
+          assert.doesNotMatch(providerResourceMetadata, /scopes_supported/);
+
+          '''
+          if 'PATH_SCOPED_CHALLENGE_SCOPE_V1' not in t:
+              if anchor not in t:
+                  raise SystemExit('test_anchor_missing')
+              t = t.replace(anchor, block + anchor, 1)
+          test.write_text(t)
+          PY
+          git diff --check
+
+      - run: npm install
+
+      - name: Static + full research gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run type-check
+          npm run test:research
+          npx wrangler deploy --dry-run
+
+      - name: Runtime path-scoped challenge matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler dev --local --ip 127.0.0.1 --port 8787 \
+            --var MCP_API_KEY:owner-local-secret \
+            --var MOM_GPT_API_KEY:family-local-secret \
+            >/tmp/path-scope-oauth.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; tail -160 /tmp/path-scope-oauth.log || true' EXIT
+
+          ready=false
+          for i in $(seq 1 45); do
+            if curl --silent --max-time 2 http://127.0.0.1:8787/health >/dev/null 2>&1; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
+
+          python - <<'PY'
+          import json, urllib.request, urllib.error
+          base='http://127.0.0.1:8787'
+
+          def get(path):
+              try:
+                  with urllib.request.urlopen(base+path, timeout=10) as r:
+                      return r.status, dict(r.headers), r.read()
+              except urllib.error.HTTPError as e:
+                  return e.code, dict(e.headers), e.read()
+
+          expected={
+              '/my-mcp': 'owner:full',
+              '/mcp': 'owner:full',
+              '/family-mcp': 'family:read',
+          }
+          for path, scope in expected.items():
+              status, headers, body=get(path)
+              assert status == 401, (path,status,body[:300])
+              challenge=headers.get('WWW-Authenticate') or headers.get('Www-Authenticate') or ''
+              print(path, challenge)
+              assert f'/.well-known/oauth-protected-resource{path}' in challenge, challenge
+              # Critical regression: generic challenge must not claim the union.
+              assert 'family:read owner:full' not in challenge, challenge
+              assert 'owner:full family:read' not in challenge, challenge
+
+              ms, mh, mb=get('/.well-known/oauth-protected-resource'+path)
+              assert ms == 200, (path,ms,mb[:300])
+              meta=json.loads(mb)
+              assert meta['resource'] == base+path, meta
+              assert meta['scopes_supported'] == [scope], meta
+
+          s,h,b=get('/.well-known/oauth-authorization-server')
+          assert s == 200, (s,b[:300])
+          auth=json.loads(b)
+          scopes=set(auth.get('scopes_supported') or [])
+          assert {'owner:full','family:read','offline_access'} <= scopes, auth
+          print('PATH_SCOPED_WWW_AUTH_MATRIX=PASS')
+          PY
+
+      - name: Commit only production fix and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/fix-path-scoped-www-auth-one-shot.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/v6/family-oauth.ts tests/owner-oauth-protected-surface.test.ts .github/workflows/fix-path-scoped-www-auth-one-shot.yml
+          git commit -m 'fix: keep OAuth bearer challenge scopes path-scoped'
+          git push origin HEAD:fix/path-scoped-www-authenticate-20260827
