@@ -2,15 +2,16 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const index = fs.readFileSync("src/index-v6.ts", "utf8");
+const ownerContent = fs.readFileSync("src/v6/owner-content-handler.ts", "utf8");
 const familyMcp = fs.readFileSync("src/v6/family-mcp.ts", "utf8");
 const wrangler = fs.readFileSync("wrangler.jsonc", "utf8");
 
 // Cloudflare 10021 regression guard:
 // Deep Family V2/V3 modules must not be top-level static imports.
 assert.doesNotMatch(index, /^import .*handleFamilySmartRest.*family-smart-rest/m);
-assert.doesNotMatch(index, /^import .*registerFamilyStockSelectionToolsV2.*family-stock-selection-v2/m);
+assert.doesNotMatch(ownerContent, /^import .*registerFamilyStockSelectionToolsV2.*family-stock-selection-v2/m);
 assert.match(index, /await import\("\.\/v6\/family-smart-rest"\)/);
-assert.match(index, /await import\("\.\/v6\/family-stock-selection-v2"\)/);
+assert.match(ownerContent, /await import\("\.\/family-stock-selection-v2"\)/);
 assert.match(index, /FAMILY_SMART_REST_PATHS/);
 assert.match(index, /startup_graph: "LAZY_DEEP_FAMILY_MODULES"/);
 
