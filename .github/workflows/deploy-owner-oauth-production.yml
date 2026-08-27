@@ -1,0 +1,154 @@
+name: Deploy Owner OAuth to Cloudflare
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/owner-oauth-worker.ts'
+      - 'wrangler.owner-oauth.jsonc'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-owner-oauth-production.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: taistock-owner-oauth-cloudflare-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OWNER_BASE_URL: https://taistock-owner-oauth.keywayk09.workers.dev
+      MCP_BASE_URL: https://taistock-mcp.keywayk09.workers.dev
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Resolve shared OAuth KV
+        id: oauth_kv
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo 'Cloudflare token/account ID is required.' >&2
+            exit 78
+          fi
+
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl --fail --silent --show-error --max-time 30 "${endpoint}?per_page=1000" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' > /tmp/oauth-kv-list.json
+
+          kv_id="$(python - <<'PY'
+          import json
+          from pathlib import Path
+
+          body=json.loads(Path('/tmp/oauth-kv-list.json').read_text())
+          if not body.get('success'):
+              raise SystemExit(f"kv_list_failed:{body.get('errors')}")
+          rows=body.get('result') or []
+          preferred=[x for x in rows if x.get('title')=='taistock-mcp-OAUTH_KV']
+          legacy=[x for x in rows if x.get('title')=='OAUTH_KV']
+          if len(preferred)>1:
+              raise SystemExit('ambiguous_preferred_oauth_kv')
+          if preferred:
+              chosen=preferred[0]
+          elif len(legacy)==1:
+              chosen=legacy[0]
+          else:
+              raise SystemExit('oauth_kv_not_resolved')
+          print(chosen.get('id',''))
+          PY
+          )"
+          if ! [[ "$kv_id" =~ ^[0-9a-fA-F]{32}$ ]]; then
+            echo 'invalid OAuth KV namespace id' >&2
+            exit 1
+          fi
+          echo "id=${kv_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy isolated Owner OAuth Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp wrangler.owner-oauth.jsonc wrangler.owner-oauth.production.jsonc
+          trap 'rm -f wrangler.owner-oauth.production.jsonc' EXIT
+          python - <<'PY'
+          import os,re
+          from pathlib import Path
+
+          path=Path('wrangler.owner-oauth.production.jsonc')
+          text=path.read_text()
+          kv=os.environ['OAUTH_KV_ID']
+          pattern=r'("binding"\s*:\s*"OAUTH_KV")(\s*)(\})'
+          updated,n=re.subn(pattern, lambda m: m.group(1)+',\n      "id": "'+kv+'"'+m.group(2)+m.group(3), text, count=1)
+          if n != 1:
+              raise SystemExit('oauth_kv_binding_injection_failed')
+          path.write_text(updated)
+          PY
+          timeout 300 npx wrangler deploy --config wrangler.owner-oauth.production.jsonc
+
+      - name: Verify live Owner OAuth contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          passed=false
+          for attempt in 1 2 3; do
+            if curl --fail --silent --show-error --max-time 15 "${OWNER_BASE_URL}/health" > /tmp/owner-health.json \
+              && curl --fail --silent --show-error --max-time 15 "${OWNER_BASE_URL}/.well-known/oauth-authorization-server" > /tmp/owner-as.json \
+              && python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          health=json.loads(Path('/tmp/owner-health.json').read_text())
+          meta=json.loads(Path('/tmp/owner-as.json').read_text())
+          owner=os.environ['OWNER_BASE_URL']
+          mcp=os.environ['MCP_BASE_URL']
+
+          if health.get('ok') is not True or health.get('role') != 'owner-oauth':
+              raise SystemExit(f'owner_health={health}')
+          if health.get('mcp_resource') != f'{mcp}/my-mcp':
+              raise SystemExit(f"owner_resource={health.get('mcp_resource')}")
+          if meta.get('issuer') != owner:
+              raise SystemExit(f"issuer={meta.get('issuer')}")
+          if meta.get('authorization_endpoint') != f'{owner}/authorize':
+              raise SystemExit(f"authorization_endpoint={meta.get('authorization_endpoint')}")
+          if meta.get('token_endpoint') != f'{owner}/oauth/token':
+              raise SystemExit(f"token_endpoint={meta.get('token_endpoint')}")
+          if meta.get('registration_endpoint') != f'{owner}/oauth/register':
+              raise SystemExit(f"registration_endpoint={meta.get('registration_endpoint')}")
+          scopes=set(meta.get('scopes_supported') or [])
+          if 'owner:full' not in scopes or 'offline_access' not in scopes:
+              raise SystemExit(f'scopes={sorted(scopes)}')
+          if 'family:read' in scopes:
+              raise SystemExit(f'family_scope_leak={sorted(scopes)}')
+          print('Owner OAuth production smoke PASS')
+          PY
+            then
+              passed=true
+              break
+            fi
+            sleep 10
+          done
+          test "$passed" = true
