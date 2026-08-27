@@ -1,0 +1,77 @@
+name: One-shot Owner OAuth local runtime smoke
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  local-oauth-smoke:
+    if: github.head_ref == 'fix/owner-oauth-boundary-20260827'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Start local Worker and verify protected ingress
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler dev --local --ip 127.0.0.1 --port 8787 >/tmp/owner-oauth-local.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; tail -120 /tmp/owner-oauth-local.log || true' EXIT
+
+          ready=false
+          for i in $(seq 1 45); do
+            if curl --silent --max-time 2 http://127.0.0.1:8787/health >/tmp/health.json 2>/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            echo 'local_worker_not_ready' >&2
+            exit 1
+          fi
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/health.json').read_text())
+          assert body.get('status') == 'ok', body
+          assert body.get('mcp_endpoint') == '/my-mcp', body
+          PY
+
+          check_401() {
+            local path="$1"
+            local expected_meta="$2"
+            curl --silent --show-error --max-time 10 -D /tmp/headers.txt -o /tmp/body.txt "http://127.0.0.1:8787${path}" || true
+            status="$(awk 'NR==1{print $2}' /tmp/headers.txt)"
+            test "$status" = 401
+            tr -d '\r' </tmp/headers.txt | grep -i '^www-authenticate:' | grep -F "$expected_meta"
+          }
+
+          check_401 '/my-mcp' '/.well-known/oauth-protected-resource/my-mcp'
+          check_401 '/mcp' '/.well-known/oauth-protected-resource/mcp'
+          check_401 '/family-mcp' '/.well-known/oauth-protected-resource/family-mcp'
+
+          curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8787/.well-known/oauth-protected-resource/my-mcp >/tmp/owner-meta.json
+          curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8787/.well-known/oauth-protected-resource/family-mcp >/tmp/family-meta.json
+          root_status="$(curl --silent --show-error --max-time 10 -o /tmp/root-meta.txt -w '%{http_code}' http://127.0.0.1:8787/.well-known/oauth-protected-resource)"
+          test "$root_status" = 404
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          owner=json.loads(Path('/tmp/owner-meta.json').read_text())
+          family=json.loads(Path('/tmp/family-meta.json').read_text())
+          assert owner.get('resource') == 'http://127.0.0.1:8787/my-mcp', owner
+          assert owner.get('scopes_supported') == ['owner:full'], owner
+          assert family.get('resource') == 'http://127.0.0.1:8787/family-mcp', family
+          assert family.get('scopes_supported') == ['family:read'], family
+          print('OWNER_OAUTH_LOCAL_RUNTIME_SMOKE=PASS')
+          PY
