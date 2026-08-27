@@ -1,0 +1,157 @@
+name: One-shot Owner OAuth tools list smoke
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  owner-tools:
+    if: github.head_ref == 'fix/owner-oauth-effective-scope-20260827'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Verify authenticated Owner MCP tool surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler dev --local --ip 127.0.0.1 --port 8787 \
+            --var MCP_API_KEY:owner-local-secret \
+            --var MOM_GPT_API_KEY:family-local-secret \
+            >/tmp/owner-tools-list.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; tail -160 /tmp/owner-tools-list.log || true' EXIT
+          for i in $(seq 1 45); do
+            curl --silent --max-time 2 http://127.0.0.1:8787/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+
+          node <<'NODE'
+          const crypto = await import('node:crypto');
+          const base = 'http://127.0.0.1:8787';
+          const callback = 'https://chatgpt.com/connector/oauth/OwnerToolsListSmoke123';
+          const verifier = 'owner-tools-list-verifier-that-is-long-enough-for-pkce-s256';
+
+          function assert(cond, message, detail) {
+            if (!cond) throw new Error(`${message}${detail === undefined ? '' : `: ${JSON.stringify(detail)}`}`);
+          }
+          function challenge(value) {
+            return crypto.createHash('sha256').update(value).digest('base64url');
+          }
+          async function json(response) {
+            const text = await response.text();
+            try { return JSON.parse(text); } catch { throw new Error(`expected JSON ${response.status}: ${text.slice(0, 600)}`); }
+          }
+          function parseRpc(text) {
+            const trimmed = text.trim();
+            if (!trimmed) return null;
+            try { return JSON.parse(trimmed); } catch {}
+            const dataLines = trimmed.split(/\r?\n/).filter((line) => line.startsWith('data:'));
+            for (let i = dataLines.length - 1; i >= 0; i--) {
+              const raw = dataLines[i].slice(5).trim();
+              try { return JSON.parse(raw); } catch {}
+            }
+            throw new Error(`unparseable MCP response: ${trimmed.slice(0, 1000)}`);
+          }
+          async function tokenRequest(params) {
+            const response = await fetch(`${base}/oauth/token`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams(params),
+            });
+            const body = await json(response);
+            assert(response.status === 200, 'token request', body);
+            return body;
+          }
+          async function mcpRpc(token, method, params, id, sessionId = '') {
+            const headers = {
+              authorization: `Bearer ${token}`,
+              'content-type': 'application/json',
+              accept: 'application/json, text/event-stream',
+            };
+            if (sessionId) headers['mcp-session-id'] = sessionId;
+            const response = await fetch(`${base}/my-mcp`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(id === undefined
+                ? { jsonrpc: '2.0', method, params }
+                : { jsonrpc: '2.0', id, method, params }),
+            });
+            const text = await response.text();
+            return { response, text, body: parseRpc(text) };
+          }
+
+          const registrationResponse = await fetch(`${base}/oauth/register`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              client_name: 'Owner Tools List Smoke',
+              redirect_uris: [callback],
+              grant_types: ['authorization_code', 'refresh_token'],
+              response_types: ['code'],
+              token_endpoint_auth_method: 'none',
+            }),
+          });
+          assert(registrationResponse.status === 201, 'Owner DCR', registrationResponse.status);
+          const client = await json(registrationResponse);
+
+          const authorize = new URL(`${base}/authorize`);
+          authorize.searchParams.set('response_type', 'code');
+          authorize.searchParams.set('client_id', client.client_id);
+          authorize.searchParams.set('redirect_uri', callback);
+          authorize.searchParams.set('scope', 'owner:full');
+          authorize.searchParams.set('state', 'owner-tools-state');
+          authorize.searchParams.set('code_challenge', challenge(verifier));
+          authorize.searchParams.set('code_challenge_method', 'S256');
+          authorize.searchParams.set('resource', `${base}/my-mcp`);
+          const start = await fetch(authorize, { redirect: 'manual' });
+          assert(start.status === 200, 'Owner authorize GET', start.status);
+          const finish = await fetch(`${base}/authorize`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ oauth_query: authorize.searchParams.toString(), login_secret: 'owner-local-secret' }),
+            redirect: 'manual',
+          });
+          assert(finish.status === 302, 'Owner authorize POST', finish.status);
+          const code = new URL(finish.headers.get('location')).searchParams.get('code');
+          assert(code, 'Owner authorization code missing');
+          const token = await tokenRequest({
+            grant_type: 'authorization_code',
+            code,
+            redirect_uri: callback,
+            code_verifier: verifier,
+            client_id: client.client_id,
+            resource: `${base}/my-mcp`,
+          });
+          assert((token.scope || '').split(/\s+/).filter(Boolean).includes('owner:full'), 'Owner token scope', token);
+
+          const init = await mcpRpc(token.access_token, 'initialize', {
+            protocolVersion: '2025-03-26',
+            capabilities: {},
+            clientInfo: { name: 'owner-tools-list-smoke', version: '1' },
+          }, 1);
+          assert(init.response.status === 200, 'MCP initialize HTTP', { status: init.response.status, body: init.text.slice(0, 600) });
+          assert(init.body?.result, 'MCP initialize result missing', init.body);
+          const sessionId = init.response.headers.get('mcp-session-id') || '';
+          assert(sessionId, 'MCP session id missing', [...init.response.headers.entries()]);
+
+          const initialized = await mcpRpc(token.access_token, 'notifications/initialized', {}, undefined, sessionId);
+          assert(initialized.response.status === 200 || initialized.response.status === 202, 'initialized notification HTTP', initialized.response.status);
+
+          const listed = await mcpRpc(token.access_token, 'tools/list', {}, 2, sessionId);
+          assert(listed.response.status === 200, 'tools/list HTTP', { status: listed.response.status, body: listed.text.slice(0, 700) });
+          const tools = listed.body?.result?.tools;
+          assert(Array.isArray(tools), 'tools/list missing tools array', listed.body);
+          const names = new Set(tools.map((tool) => tool.name));
+          const required = ['get_intraday_trades', 'get_stock_market_context', 'get_stock_trade_tape', 'get_quote'];
+          for (const name of required) assert(names.has(name), `required Owner tool missing: ${name}`);
+          assert(tools.length >= 121 && tools.length <= 125, 'unexpected Owner tool count', tools.length);
+
+          console.log(`OWNER_AUTH_TOOLS_LIST=PASS count=${tools.length}`);
+          NODE
