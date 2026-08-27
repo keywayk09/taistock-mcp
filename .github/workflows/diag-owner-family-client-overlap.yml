@@ -1,0 +1,53 @@
+name: Diagnose Owner Family OAuth client overlap
+
+on:
+  push:
+    branches:
+      - diag/owner-oauth-production-state-20260827
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Compare Owner and Family grant client identities safely
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS --max-time 30 "${endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/ns.json
+          python - <<'PY'
+          import hashlib,json,os,urllib.parse,urllib.request
+          token=os.environ['CLOUDFLARE_API_TOKEN']; acct=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          rows=json.load(open('/tmp/ns.json')).get('result') or []
+          p=[x for x in rows if x.get('title')=='taistock-mcp-OAUTH_KV']; l=[x for x in rows if x.get('title')=='OAUTH_KV']
+          chosen=p[0] if len(p)==1 else (l[0] if len(l)==1 else None)
+          if not chosen: raise SystemExit('oauth_kv_not_resolved')
+          base=f"https://api.cloudflare.com/client/v4/accounts/{acct}/storage/kv/namespaces/{chosen['id']}"
+          H={'Authorization':f'Bearer {token}'}
+          def req(path):
+              with urllib.request.urlopen(urllib.request.Request(base+path,headers=H),timeout=20) as r: return r.read().decode('utf-8','replace')
+          def keys(prefix): return json.loads(req('/keys?prefix='+urllib.parse.quote(prefix,safe='')+'&limit=1000')).get('result') or []
+          def val(k): return json.loads(req('/values/'+urllib.parse.quote(k,safe='')))
+          def h(v): return hashlib.sha256(str(v).encode()).hexdigest()[:12] if v else 'none'
+          groups={}
+          for role in ('owner','family'):
+              rows=[]
+              for x in keys(f'grant:{role}:'):
+                  try:g=val(x.get('name',''))
+                  except Exception: continue
+                  rows.append((h(g.get('clientId','')), tuple(g.get('scope') or []), g.get('userId')))
+              groups[role]=rows
+              print(role.upper()+'_GRANTS='+str(len(rows)))
+              for ch,scope,user in rows: print(role.upper(),f'client_hash={ch}',f'user={user}',f'scope={"|".join(scope) if scope else "none"}')
+          oh={x[0] for x in groups['owner']}; fh={x[0] for x in groups['family']}
+          overlap=sorted(oh & fh)
+          print('OWNER_FAMILY_CLIENT_OVERLAP_COUNT='+str(len(overlap)))
+          for ch in overlap: print('OVERLAP client_hash='+ch)
+          PY
