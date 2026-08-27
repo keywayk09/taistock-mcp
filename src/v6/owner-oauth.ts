@@ -18,8 +18,8 @@ type OwnerConnectorCandidate = {
   clientId: string;
   redirectUri: string;
   state: string;
-  codeChallenge: string;
-  codeChallengeMethod: "S256";
+  codeChallenge?: string;
+  codeChallengeMethod?: "S256";
   resource: string;
   requestedScopes: string[];
 };
@@ -159,7 +159,8 @@ function ownerConnectorCandidate(url: URL): OwnerConnectorCandidate | null {
 
   const method = String(url.searchParams.get("code_challenge_method") || "");
   const challenge = String(url.searchParams.get("code_challenge") || "");
-  if (method !== "S256" || !PKCE_S256_CHALLENGE.test(challenge)) return null;
+  const hasPkce = Boolean(method || challenge);
+  if (hasPkce && (method !== "S256" || !PKCE_S256_CHALLENGE.test(challenge))) return null;
 
   const state = String(url.searchParams.get("state") || "");
   if (!state || state.length > 2_000) return null;
@@ -172,8 +173,7 @@ function ownerConnectorCandidate(url: URL): OwnerConnectorCandidate | null {
     clientId,
     redirectUri: redirect.toString(),
     state,
-    codeChallenge: challenge,
-    codeChallengeMethod: "S256",
+    ...(hasPkce ? { codeChallenge: challenge, codeChallengeMethod: "S256" as const } : {}),
     resource,
     requestedScopes,
   };
@@ -233,10 +233,44 @@ function ownerClientMatches(raw: string | null, candidate: OwnerConnectorCandida
   }
 }
 
+function ownerHasStrictPkce(candidate: OwnerConnectorCandidate) {
+  return candidate.codeChallengeMethod === "S256"
+    && typeof candidate.codeChallenge === "string"
+    && PKCE_S256_CHALLENGE.test(candidate.codeChallenge);
+}
+
+function storedOwnerAuthMethod(raw: string | null) {
+  if (!raw) return null;
+  try {
+    const stored = JSON.parse(raw) as StoredOwnerConnectorClient;
+    return stored.tokenEndpointAuthMethod || null;
+  } catch {
+    return null;
+  }
+}
+
 async function ownerClientState(candidate: OwnerConnectorCandidate, env: Env) {
   const raw = await env.OAUTH_KV.get(ownerClientKey(candidate.clientId));
-  if (!raw) return { exists: false as const, compatible: true as const };
-  return { exists: true as const, compatible: ownerClientMatches(raw, candidate) };
+  if (!raw) {
+    return {
+      exists: false as const,
+      compatible: true as const,
+      authorizationCompatible: ownerHasStrictPkce(candidate),
+    };
+  }
+
+  const compatible = ownerClientMatches(raw, candidate);
+  if (!compatible) {
+    return { exists: true as const, compatible: false as const, authorizationCompatible: false as const };
+  }
+
+  const authMethod = storedOwnerAuthMethod(raw);
+  const confidential = authMethod === "client_secret_basic" || authMethod === "client_secret_post";
+  return {
+    exists: true as const,
+    compatible: true as const,
+    authorizationCompatible: confidential || ownerHasStrictPkce(candidate),
+  };
 }
 
 async function registerOwnerClient(candidate: OwnerConnectorCandidate, env: Env) {
@@ -304,8 +338,9 @@ function ownerAuthRequest(candidate: OwnerConnectorCandidate, origin: string, sc
     redirectUri: candidate.redirectUri,
     scope: scopes,
     state: candidate.state,
-    codeChallenge: candidate.codeChallenge,
-    codeChallengeMethod: candidate.codeChallengeMethod,
+    ...(ownerHasStrictPkce(candidate)
+      ? { codeChallenge: candidate.codeChallenge, codeChallengeMethod: candidate.codeChallengeMethod }
+      : {}),
     resource: candidate.resource,
     issuer: origin,
   };
@@ -324,6 +359,7 @@ export async function handleOwnerAuthorize(request: Request, env: Env) {
 
     const state = await ownerClientState(candidate, env);
     if (!state.compatible) return html("<h2>Owner OAuth client 不相容</h2><p>拒絕覆寫既有 OAuth client 身分。</p>", 409);
+    if (!state.authorizationCompatible) return html("<h2>Owner OAuth 授權要求無效</h2>", 400);
 
     const { failures } = await readOwnerLoginFailures(request, env);
     if (failures >= LOGIN_FAIL_MAX) {
@@ -346,6 +382,10 @@ export async function handleOwnerAuthorize(request: Request, env: Env) {
     synthetic.search = oauthQuery;
     const candidate = ownerConnectorCandidate(synthetic);
     if (!candidate) return html("<h2>Owner OAuth 授權要求無效</h2>", 400);
+
+    const state = await ownerClientState(candidate, env);
+    if (!state.compatible) return html("<h2>Owner OAuth client 不相容</h2><p>拒絕覆寫既有 OAuth client 身分。</p>", 409);
+    if (!state.authorizationCompatible) return html("<h2>Owner OAuth 授權要求無效</h2>", 400);
 
     const checked = await validateOwnerSecret(
       request,
