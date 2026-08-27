@@ -1,0 +1,56 @@
+name: Finalize isolated Owner OAuth metadata
+
+on:
+  push:
+    branches:
+      - fix/owner-oauth-issuer-isolation-20260827
+    paths:
+      - '.github/workflows/owner-oauth-finalize-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch Owner protected-resource metadata only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/v6/family-oauth-public-client-compat.ts')
+          s=p.read_text()
+          const_old='const OWNER_SCOPE = "owner:full";\n'
+          const_new='const OWNER_SCOPE = "owner:full";\nconst OWNER_AUTHORIZATION_SERVER = "https://taistock-owner-oauth.keywayk09.workers.dev";\n'
+          if 'const OWNER_AUTHORIZATION_SERVER =' not in s:
+              if s.count(const_old) != 1:
+                  raise SystemExit('owner_scope_anchor_not_unique')
+              s=s.replace(const_old,const_new,1)
+          block_old='''function ownerProtectedResourceMetadata(request: Request, pathname: string) {\n  const url = new URL(request.url);\n  return Response.json({\n    resource: canonicalOwnerResource(url, pathname),\n    authorization_servers: [url.origin],\n'''
+          block_new='''function ownerProtectedResourceMetadata(request: Request, pathname: string) {\n  const url = new URL(request.url);\n  return Response.json({\n    resource: canonicalOwnerResource(url, pathname),\n    authorization_servers: [OWNER_AUTHORIZATION_SERVER],\n'''
+          if block_new not in s:
+              if s.count(block_old) != 1:
+                  raise SystemExit('owner_metadata_anchor_not_unique')
+              s=s.replace(block_old,block_new,1)
+          if s.count('authorization_servers: [OWNER_AUTHORIZATION_SERVER]') != 1:
+              raise SystemExit('owner_auth_server_patch_failed')
+          if s.count('authorization_servers: [url.origin]') < 1:
+              raise SystemExit('family_auth_server_was_lost')
+          p.write_text(s)
+          PY
+          git diff --check
+          git diff -- src/v6/family-oauth-public-client-compat.ts
+          if git diff --quiet; then
+            echo 'No patch needed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/v6/family-oauth-public-client-compat.ts
+          git commit -m 'fix: isolate Owner OAuth authorization server'
+          git push origin HEAD:fix/owner-oauth-issuer-isolation-20260827
