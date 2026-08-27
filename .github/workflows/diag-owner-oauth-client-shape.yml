@@ -1,0 +1,65 @@
+name: Diagnose Owner OAuth client shapes
+
+on:
+  push:
+    branches:
+      - diag/owner-oauth-client-shape-20260827
+    paths:
+      - '.github/workflows/diag-owner-oauth-client-shape.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect sanitized OAuth client shapes
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl --fail --silent --show-error --max-time 30 "${endpoint}?per_page=1000" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' > /tmp/oauth-kv-list.json
+
+          kv_id="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/oauth-kv-list.json').read_text())
+          rows=body.get('result') or []
+          preferred=[x for x in rows if x.get('title')=='taistock-mcp-OAUTH_KV']
+          legacy=[x for x in rows if x.get('title')=='OAUTH_KV']
+          chosen=preferred[0] if len(preferred)==1 else (legacy[0] if len(legacy)==1 else None)
+          if not chosen: raise SystemExit('oauth_kv_not_resolved')
+          print(chosen['id'])
+          PY
+          )"
+
+          curl --fail --silent --show-error --max-time 30 \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kv_id}/keys?prefix=client%3A&limit=1000" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/client-keys.json
+
+          python - <<'PY'
+          import json, os, re, subprocess, hashlib
+          from pathlib import Path
+          body=json.loads(Path('/tmp/client-keys.json').read_text())
+          rows=body.get('result') or []
+          print(f'CLIENT_KEY_COUNT={len(rows)}')
+          opaque=re.compile(r'^[A-Za-z0-9._~-]{8,256}$')
+          callback=re.compile(r'^/connector/oauth/[A-Za-z0-9_-]{8,256}$')
+          for i,row in enumerate(rows):
+              name=str(row.get('name') or '')
+              if not name.startswith('client:'): continue
+              cid=name[7:]
+              digest=hashlib.sha256(cid.encode()).hexdigest()[:10]
+              print(f'CLIENT[{i}] id_hash={digest} id_len={len(cid)} opaque_ok={bool(opaque.fullmatch(cid))}')
+              bad=sorted(set(ch for ch in cid if not re.fullmatch(r'[A-Za-z0-9._~-]', ch)))
+              if bad:
+                  print(f'CLIENT[{i}] id_bad_codepoints={[ord(ch) for ch in bad]}')
+          PY
