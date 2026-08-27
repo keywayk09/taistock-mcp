@@ -19,14 +19,25 @@ export function createMcpAccessBroker(
   ownerContentHandler: McpRelayHandler,
   familyContentHandler: McpRelayHandler,
 ): McpRelayHandler {
+  // family-oauth intentionally sees one application handler for its Owner API
+  // handoff and default non-MCP fallback. The relay, not OAuth, decides whether
+  // an already-authorized Owner request enters Diamond content. Because the
+  // OAuthProvider wraps this handler, direct unauthenticated requests cannot
+  // bypass the provider's role/scope checks.
+  const appHandler: McpRelayHandler = {
+    fetch(request, env, ctx) {
+      const pathname = new URL(request.url).pathname;
+      if (pathname === "/my-mcp" || pathname === "/mcp") {
+        return ownerContentHandler.fetch(request, env, ctx);
+      }
+      return publicAppHandler.fetch(request, env, ctx);
+    },
+  };
+
   return createFamilyOAuthLegacyEndpointWrapper(
     createFamilyOAuthPublicClientCompatWrapper(
       createFamilyOAuthTokenRecoveryWrapper(
-        createFamilyOAuthProvider(
-          publicAppHandler,
-          ownerContentHandler,
-          familyContentHandler,
-        ),
+        createFamilyOAuthProvider(appHandler, familyContentHandler),
       ),
     ),
   );
