@@ -1,6 +1,3 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { MyMCP as BaseMCP } from "./index";
-import { registerDailyReportFormatTool } from "./v6/daily-report-format";
 import { handleFamilyActionCompat } from "./v6/family-action-compat";
 import { familyContentHandler } from "./v6/family-content-handler";
 import { FAMILY_MCP_TOOL_NAMES } from "./v6/family-mcp";
@@ -8,17 +5,12 @@ import { githubDataStoreHealth } from "./v6/github-data-store";
 import { runExtendedScheduledMarketDataController } from "./v6/market-data-scheduled-dispatch";
 import { getTwMarketDataDayStatus } from "./v6/market-data-day-status";
 import { createMcpAccessBroker } from "./v6/mcp-access-broker";
+import { ownerContentHandler } from "./v6/owner-content-handler";
 import { getResearchStatus, isAuthorizedResearchRequest } from "./v6/research-pipeline";
-import { registerResearchTools } from "./v6/research-tools";
-import { registerAdvancedTools } from "./v6/register";
-import { registerSharedCryptoMarketTools } from "./v6/shared-crypto-market-tools";
-import { registerSharedStockMarketContextTools } from "./v6/shared-stock-market-context-tools";
-import { registerStableMarketTools } from "./v6/stable-market-tools";
-import { registerStableSwingScreenTool } from "./v6/stable-swing-screen";
 import { TW_MARKET_DATA_VERSION } from "./v6/tw-market-data-github";
-import { registerTwMarketDataTools } from "./v6/tw-market-data-tools";
 
 export { FamilyMCP } from "./v6/family-mcp";
+export { MyMCP } from "./v6/owner-content-handler";
 
 const FAMILY_SMART_REST_PATHS = new Set([
   "/family-openapi.json",
@@ -31,16 +23,6 @@ const FAMILY_SMART_REST_PATHS = new Set([
   "/api/family/status",
 ]);
 
-const FROZEN_STABLE_MARKET_TOOL_NAMES = new Set([
-  "get_quote",
-  "get_daily_price",
-  "get_market_rankings",
-  "get_market_regime",
-  "get_macro_risk_dashboard",
-  "get_data_health",
-  "screen_family_swing_candidates",
-]);
-
 function taipeiDateFromMs(ms: number) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Taipei",
@@ -50,53 +32,16 @@ function taipeiDateFromMs(ms: number) {
   }).format(new Date(ms));
 }
 
-export class MyMCP extends BaseMCP {
-  server = new McpServer({ name: "Taiwan Stock + Crypto AI", version: "6.19.0" });
-
-  async init() {
-    // Legacy generations still contain implementations that depend on provider
-    // routes already proven unreliable from Cloudflare egress, or old price
-    // identities that are no longer canonical. Suppress only the frozen names
-    // during legacy registration, then register their stable versions exactly once
-    // below. Every unrelated Diamond tool remains unchanged.
-    const serverAny = this.server as any;
-    const originalRegisterTool = serverAny.registerTool;
-    serverAny.registerTool = function (name: string, ...args: any[]) {
-      if (FROZEN_STABLE_MARKET_TOOL_NAMES.has(name)) return undefined;
-      return originalRegisterTool.call(this, name, ...args);
-    };
-
-    try {
-      await super.init();
-      registerAdvancedTools(this.server, this.env);
-      registerDailyReportFormatTool(this.server);
-      registerResearchTools(this.server, this.env);
-
-      // Keep the legacy module available for its non-frozen internals, but its
-      // screen_family_swing_candidates registration is suppressed above.
-      const { registerFamilyStockSelectionToolsV2 } = await import("./v6/family-stock-selection-v2");
-      registerFamilyStockSelectionToolsV2(this.server, this.env);
-      registerTwMarketDataTools(this.server, this.env);
-    } finally {
-      serverAny.registerTool = originalRegisterTool;
-    }
-
-    registerStableMarketTools(this.server, this.env);
-    registerStableSwingScreenTool(this.server, this.env);
-    registerSharedStockMarketContextTools(this.server, this.env);
-    registerSharedCryptoMarketTools(this.server, this.env);
-  }
-}
-
-const appHandler = {
+/**
+ * Public non-MCP application surface.
+ *
+ * OAuth-protected Owner/Family MCP requests are intercepted by the access
+ * broker and delegated to injected content handlers. This handler therefore
+ * owns only health/REST/research compatibility endpoints, never MyMCP/FamilyMCP.
+ */
+const publicAppHandler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
-
-    // Owner / Diamond full MCP is canonical on /my-mcp. Keep /mcp as a legacy alias.
-    // These routes must never be remapped to the Family OAuth-protected surface.
-    if (url.pathname === "/my-mcp" || url.pathname === "/mcp") {
-      return MyMCP.serve(url.pathname).fetch(request, env, ctx);
-    }
 
     // Family V3 smart REST is intentionally lazy-loaded only for Family routes.
     // The route contract remains identical; only Worker startup evaluation changes.
@@ -243,7 +188,11 @@ const appHandler = {
   },
 };
 
-const mcpAccessBroker = createMcpAccessBroker(appHandler, familyContentHandler);
+const mcpAccessBroker = createMcpAccessBroker(
+  publicAppHandler,
+  ownerContentHandler,
+  familyContentHandler,
+);
 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {

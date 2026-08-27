@@ -115,9 +115,10 @@ assert.match(oauth, /env\.OAUTH_KV\.delete\(prepared\.pendingKey\)/);
 // unconsumed Family authorization code/grant, retains PKCE S256 enforcement in
 // the provider, and can recover either public or confidential DCR auth methods.
 assert.doesNotMatch(indexV6, /family-oauth-token-recovery/);
-assert.match(indexV6, /createMcpAccessBroker\(appHandler, familyContentHandler\)/);
+assert.match(indexV6, /createMcpAccessBroker\([\s\S]*publicAppHandler,[\s\S]*ownerContentHandler,[\s\S]*familyContentHandler/);
 assert.match(broker, /createFamilyOAuthTokenRecoveryWrapper/);
 assert.match(broker, /createFamilyOAuthProvider\(appHandler, familyContentHandler\)/);
+assert.match(broker, /ownerContentHandler\.fetch\(request, env, ctx\)/);
 assert.match(tokenRecovery, /FAMILY_SCOPE = "family:read"/);
 assert.match(tokenRecovery, /FAMILY_CONNECTOR_NAME = "ChatGPT Family Plugin \/ MCP App"/);
 assert.match(tokenRecovery, /TRUSTED_CHATGPT_HOSTS = new Set\(\["chatgpt\.com", "chat\.openai\.com"\]\)/);
