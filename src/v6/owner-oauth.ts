@@ -150,6 +150,34 @@ function requestedOwnerScopes(rawScope: string) {
   return scopes;
 }
 
+type OwnerAuthorizeDiag =
+  | "METHOD_OR_RESPONSE"
+  | "RESOURCE"
+  | "CLIENT_ID"
+  | "REDIRECT_URI"
+  | "PKCE"
+  | "STATE"
+  | "SCOPE"
+  | "CLIENT_AUTH";
+
+function ownerAuthorizeDiag(url: URL): OwnerAuthorizeDiag | null {
+  if (url.pathname !== "/authorize" || url.searchParams.get("response_type") !== "code") return "METHOD_OR_RESPONSE";
+  if (!canonicalOwnerResource(String(url.searchParams.get("resource") || "").trim(), url.origin)) return "RESOURCE";
+  if (!OPAQUE_CLIENT_ID.test(String(url.searchParams.get("client_id") || ""))) return "CLIENT_ID";
+  if (!trustedConnectorRedirect(String(url.searchParams.get("redirect_uri") || ""))) return "REDIRECT_URI";
+  const method = String(url.searchParams.get("code_challenge_method") || "");
+  const challenge = String(url.searchParams.get("code_challenge") || "");
+  if (Boolean(method || challenge) && (method !== "S256" || !PKCE_S256_CHALLENGE.test(challenge))) return "PKCE";
+  const state = String(url.searchParams.get("state") || "");
+  if (!state || state.length > 2_000) return "STATE";
+  if (!requestedOwnerScopes(String(url.searchParams.get("scope") || ""))) return "SCOPE";
+  return null;
+}
+
+function renderOwnerInvalid(diag: OwnerAuthorizeDiag) {
+  return html(`<h2>Owner OAuth 授權要求無效</h2><p><small>OAUTH-DIAG: ${escapeHtml(diag)}</small></p>`, 400);
+}
+
 function ownerConnectorCandidate(url: URL): OwnerConnectorCandidate | null {
   if (url.pathname !== "/authorize" || url.searchParams.get("response_type") !== "code") return null;
 
@@ -368,11 +396,11 @@ export async function handleOwnerAuthorize(request: Request, env: Env) {
   if (request.method === "GET") {
     const url = new URL(request.url);
     const candidate = ownerConnectorCandidate(url);
-    if (!candidate) return html("<h2>Owner OAuth 授權要求無效</h2>", 400);
+    if (!candidate) return renderOwnerInvalid(ownerAuthorizeDiag(url) || "METHOD_OR_RESPONSE");
 
     const state = await ownerClientState(candidate, env);
     if (!state.compatible) return html("<h2>Owner OAuth client 不相容</h2><p>拒絕覆寫既有 OAuth client 身分。</p>", 409);
-    if (!state.authorizationCompatible) return html("<h2>Owner OAuth 授權要求無效</h2>", 400);
+    if (!state.authorizationCompatible) return renderOwnerInvalid("CLIENT_AUTH");
 
     const { failures } = await readOwnerLoginFailures(request, env);
     if (failures >= LOGIN_FAIL_MAX) {
@@ -394,11 +422,11 @@ export async function handleOwnerAuthorize(request: Request, env: Env) {
     const synthetic = new URL("/authorize", request.url);
     synthetic.search = oauthQuery;
     const candidate = ownerConnectorCandidate(synthetic);
-    if (!candidate) return html("<h2>Owner OAuth 授權要求無效</h2>", 400);
+    if (!candidate) return renderOwnerInvalid(ownerAuthorizeDiag(synthetic) || "METHOD_OR_RESPONSE");
 
     const state = await ownerClientState(candidate, env);
     if (!state.compatible) return html("<h2>Owner OAuth client 不相容</h2><p>拒絕覆寫既有 OAuth client 身分。</p>", 409);
-    if (!state.authorizationCompatible) return html("<h2>Owner OAuth 授權要求無效</h2>", 400);
+    if (!state.authorizationCompatible) return renderOwnerInvalid("CLIENT_AUTH");
 
     const checked = await validateOwnerSecret(
       request,
