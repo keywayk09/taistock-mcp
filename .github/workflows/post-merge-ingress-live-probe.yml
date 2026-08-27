@@ -1,0 +1,91 @@
+name: Post-merge ingress live probe
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE_URL: https://taistock-mcp.keywayk09.workers.dev
+      OWNER_MCP_URL: https://taistock-mcp.keywayk09.workers.dev/my-mcp
+
+    steps:
+      - name: Verify live protected-resource identities
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          family_code="$(curl -sS -o /tmp/family-meta.json -w '%{http_code}' \
+            "$BASE_URL/.well-known/oauth-protected-resource/family-mcp")"
+          test "$family_code" = '200'
+          node - <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/family-meta.json', 'utf8'));
+          const base = process.env.BASE_URL;
+          if (body.resource !== `${base}/family-mcp`) throw new Error(`family_resource=${body.resource}`);
+          if (JSON.stringify(body.scopes_supported) !== JSON.stringify(['family:read'])) {
+            throw new Error(`family_scopes=${JSON.stringify(body.scopes_supported)}`);
+          }
+          console.log('family_path_scoped_metadata=PASS');
+          NODE
+
+          for path in \
+            '/.well-known/oauth-protected-resource' \
+            '/.well-known/oauth-protected-resource/my-mcp' \
+            '/.well-known/oauth-protected-resource/mcp'; do
+            code="$(curl -sS -o /tmp/nonfamily-meta -w '%{http_code}' "$BASE_URL$path")"
+            if [ "$code" != '404' ]; then
+              echo "unexpected Family/Owner metadata status path=$path status=$code" >&2
+              cat /tmp/nonfamily-meta >&2 || true
+              exit 1
+            fi
+          done
+          echo 'owner_root_not_family_metadata=PASS'
+
+      - name: List live Owner tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx -y @modelcontextprotocol/inspector@latest --cli "$OWNER_MCP_URL" \
+            --transport http --method tools/list --format json > /tmp/tools.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/tools.json', 'utf8'));
+          const tools = body?.result?.tools || body?.tools || [];
+          const names = tools.map((x) => x?.name).filter(Boolean);
+          console.log(`tool_count=${names.length}`);
+          for (const name of [
+            'get_intraday_trades',
+            'get_stock_trade_tape',
+            'get_stock_market_context',
+            'get_quote',
+          ]) {
+            if (!names.includes(name)) throw new Error(`missing_live_tool:${name}`);
+          }
+          console.log('owner_required_live_tools=PASS');
+          NODE
+
+      - name: Call live Owner market reads
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx -y @modelcontextprotocol/inspector@latest --cli "$OWNER_MCP_URL" \
+            --transport http --method tools/call --tool-name get_intraday_trades \
+            --tool-args-json '{"symbol":"2426"}' --format json > /tmp/trades.json
+          npx -y @modelcontextprotocol/inspector@latest --cli "$OWNER_MCP_URL" \
+            --transport http --method tools/call --tool-name get_stock_market_context \
+            --tool-args-json '{"symbol":"2426"}' --format json > /tmp/context.json
+          node - <<'NODE'
+          const fs = require('fs');
+          for (const [name, path] of [['get_intraday_trades','/tmp/trades.json'],['get_stock_market_context','/tmp/context.json']]) {
+            const body = JSON.parse(fs.readFileSync(path, 'utf8'));
+            if (body?.result?.isError === true || body?.isError === true) throw new Error(`${name}_live_call_failed`);
+            console.log(`${name}=PASS`);
+          }
+          NODE
