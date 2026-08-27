@@ -662,6 +662,18 @@ async function rollbackPreparedTokenBootstrap(prepared: PreparedTokenBootstrap, 
   await env.OAUTH_KV.put(prepared.clientKey, prepared.previousClientRaw).catch(() => undefined);
 }
 
+// OAuthProvider authenticates bearer validity and audience before API handlers.
+// The application must still enforce the effective access-token permission scope.
+async function requireEffectiveScope(request: Request, env: Env, requiredScope: string) {
+  const authorization = String(request.headers.get("authorization") || "").trim();
+  const match = /^Bearer\s+(\S+)$/i.exec(authorization);
+  const token = match?.[1] || "";
+  if (!token) return false;
+
+  const effectiveToken = await env.OAUTH_PROVIDER.unwrapToken(token);
+  return Boolean(effectiveToken?.scope.includes(requiredScope));
+}
+
 export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
   const familyApiHandler: ConcreteFetchHandler = {
     async fetch(request, env, ctx) {
@@ -669,6 +681,9 @@ export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
       const { userId, role } = props || {};
       if (role !== "family" || userId !== "family") {
         return Response.json({ error: "forbidden_family_role" }, { status: 403 });
+      }
+      if (!(await requireEffectiveScope(request, env, FAMILY_SCOPE))) {
+        return Response.json({ error: "insufficient_family_scope" }, { status: 403 });
       }
       try {
         return await FamilyMCP.serve("/family-mcp", { binding: "FAMILY_MCP_OBJECT" }).fetch(request, env, ctx);
@@ -691,6 +706,9 @@ export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
       const { userId, role } = props || {};
       if (role !== "owner" || userId !== "owner") {
         return Response.json({ error: "forbidden_owner_role" }, { status: 403 });
+      }
+      if (!(await requireEffectiveScope(request, env, OWNER_SCOPE))) {
+        return Response.json({ error: "insufficient_owner_scope" }, { status: 403 });
       }
       return appHandler.fetch(request, env, ctx);
     },
