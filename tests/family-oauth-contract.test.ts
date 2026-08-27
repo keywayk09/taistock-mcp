@@ -8,6 +8,8 @@ const root = path.resolve(here, "..");
 const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
 
 const oauth = read("src/v6/family-oauth.ts");
+const familyContent = read("src/v6/family-content-handler.ts");
+const broker = read("src/v6/mcp-access-broker.ts");
 const tokenRecovery = read("src/v6/family-oauth-token-recovery.ts");
 const indexV6 = read("src/index-v6.ts");
 const wrangler = read("wrangler.jsonc");
@@ -32,9 +34,11 @@ assert.match(oauth, /constantTimeEqual/);
 assert.match(oauth, /family-oauth:loginfail/);
 assert.match(oauth, /LOGIN_FAIL_MAX = 5/);
 assert.match(oauth, /completeAuthorization/);
-assert.match(oauth, /FamilyMCP\.serve\("\/family-mcp", \{ binding: "FAMILY_MCP_OBJECT" \}\)/);
-assert.match(oauth, /refusing to fall back to the full MCP_OBJECT namespace/);
+assert.match(oauth, /familyContentHandler\.fetch\(request, env, ctx\)/);
+assert.match(familyContent, /FamilyMCP\.serve\("\/family-mcp", \{ binding: "FAMILY_MCP_OBJECT" \}\)/);
+assert.match(familyContent, /refusing to fall back to the full MCP_OBJECT namespace/);
 assert.doesNotMatch(oauth, /binding: "MCP_OBJECT"/);
+assert.doesNotMatch(oauth, /FamilyMCP\.serve\(/);
 
 // Stale ChatGPT Plugin/MCP and Custom GPT Action recovery must stay narrow.
 assert.match(oauth, /CHATGPT_CONNECTOR_CALLBACK_PATH/);
@@ -110,8 +114,10 @@ assert.match(oauth, /env\.OAUTH_KV\.delete\(prepared\.pendingKey\)/);
 // The wrapper only accepts trusted ChatGPT connector callbacks, proves an exact
 // unconsumed Family authorization code/grant, retains PKCE S256 enforcement in
 // the provider, and can recover either public or confidential DCR auth methods.
-assert.match(indexV6, /createFamilyOAuthTokenRecoveryWrapper/);
-assert.match(indexV6, /createFamilyOAuthTokenRecoveryWrapper\(createFamilyOAuthProvider\(appHandler\)\)/);
+assert.doesNotMatch(indexV6, /family-oauth-token-recovery/);
+assert.match(indexV6, /createMcpAccessBroker\(appHandler, familyContentHandler\)/);
+assert.match(broker, /createFamilyOAuthTokenRecoveryWrapper/);
+assert.match(broker, /createFamilyOAuthProvider\(appHandler, familyContentHandler\)/);
 assert.match(tokenRecovery, /FAMILY_SCOPE = "family:read"/);
 assert.match(tokenRecovery, /FAMILY_CONNECTOR_NAME = "ChatGPT Family Plugin \/ MCP App"/);
 assert.match(tokenRecovery, /TRUSTED_CHATGPT_HOSTS = new Set\(\["chatgpt\.com", "chat\.openai\.com"\]\)/);
