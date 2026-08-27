@@ -1,0 +1,179 @@
+name: Stage isolated Owner OAuth issuer
+
+on:
+  push:
+    branches:
+      - fix/owner-oauth-issuer-isolation-20260827
+
+permissions:
+  contents: read
+
+jobs:
+  stage-and-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      STAGE_NAME: taistock-owner-oauth-stage
+      STAGE_BASE: https://taistock-owner-oauth-stage.keywayk09.workers.dev
+      MCP_BASE: https://taistock-mcp.keywayk09.workers.dev
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+
+      - name: Static gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run type-check
+          npx wrangler deploy --dry-run --config wrangler.owner-oauth.jsonc
+
+      - name: Resolve shared OAuth KV
+        id: oauth_kv
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl -fsS --max-time 30 "${endpoint}?per_page=1000" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/kv.json
+          kv_id="$(python - <<'PY'
+          import json
+          rows=json.load(open('/tmp/kv.json')).get('result') or []
+          p=[x for x in rows if x.get('title')=='taistock-mcp-OAUTH_KV']
+          l=[x for x in rows if x.get('title')=='OAUTH_KV']
+          c=p[0] if len(p)==1 else (l[0] if len(l)==1 else None)
+          if not c: raise SystemExit('oauth_kv_not_resolved')
+          print(c['id'])
+          PY
+          )"
+          echo "id=${kv_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and deploy isolated staging issuer
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OAUTH_KV_ID: ${{ steps.oauth_kv.outputs.id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp wrangler.owner-oauth.jsonc /tmp/wrangler.owner-oauth.stage.jsonc
+          python - <<'PY'
+          import os,re
+          from pathlib import Path
+          p=Path('/tmp/wrangler.owner-oauth.stage.jsonc')
+          s=p.read_text()
+          s=s.replace('"name": "taistock-owner-oauth"','"name": "taistock-owner-oauth-stage"',1)
+          pat=r'("binding"\s*:\s*"OAUTH_KV")(\s*)(\})'
+          s,n=re.subn(pat,lambda m:m.group(1)+',\n      "id": "'+os.environ['OAUTH_KV_ID']+'"'+m.group(2)+m.group(3),s,count=1)
+          if n!=1: raise SystemExit('oauth_kv_injection_failed')
+          p.write_text(s)
+          PY
+          npx wrangler deploy --config /tmp/wrangler.owner-oauth.stage.jsonc
+
+          secret="$(openssl rand -hex 32)"
+          echo "::add-mask::${secret}"
+          printf '%s' "$secret" | npx wrangler secret put OWNER_OAUTH_STAGING_SECRET --config /tmp/wrangler.owner-oauth.stage.jsonc >/tmp/secret-put.log
+          printf '%s' "$secret" >/tmp/stage-secret
+
+      - name: Full cross-origin OAuth runtime matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready=false
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 5 "${STAGE_BASE}/health" >/tmp/health.json 2>/dev/null; then ready=true; break; fi
+            sleep 2
+          done
+          test "$ready" = true
+
+          STAGING_SECRET="$(cat /tmp/stage-secret)" node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          const stage=process.env.STAGE_BASE;
+          const mcp=process.env.MCP_BASE;
+          const secret=process.env.STAGING_SECRET;
+          const callback='https://chatgpt.com/connector/oauth/OwnerIssuerIsolationStage123';
+          const resource=`${mcp}/my-mcp`;
+          const verifier='owner-isolated-issuer-pkce-verifier-longer-than-forty-three-chars';
+          const challenge=crypto.createHash('sha256').update(verifier).digest('base64url');
+          const assert=(ok,msg,detail)=>{if(!ok) throw new Error(`${msg}${detail===undefined?'':': '+JSON.stringify(detail)}`)};
+          const parse=async r=>{const t=await r.text();try{return JSON.parse(t)}catch{return{raw:t}}};
+
+          const metaResp=await fetch(`${stage}/.well-known/oauth-authorization-server`);
+          const meta=await parse(metaResp);
+          assert(metaResp.status===200,'AS metadata status',meta);
+          assert(meta.issuer===stage,'isolated issuer',meta);
+          assert(meta.authorization_endpoint===`${stage}/authorize`,'isolated authorize endpoint',meta);
+          assert(meta.token_endpoint===`${stage}/oauth/token`,'isolated token endpoint',meta);
+          assert(meta.registration_endpoint===`${stage}/oauth/register`,'isolated registration endpoint',meta);
+          assert((meta.scopes_supported||[]).includes('owner:full'),'owner scope advertised',meta);
+          assert((meta.scopes_supported||[]).includes('offline_access'),'offline_access advertised',meta);
+          assert(!(meta.scopes_supported||[]).includes('family:read'),'Family scope absent from Owner issuer',meta);
+
+          const reg=await fetch(`${stage}/oauth/register`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({client_name:'Owner Issuer Isolation Stage',redirect_uris:[callback],grant_types:['authorization_code','refresh_token'],response_types:['code']})});
+          const client=await parse(reg);
+          assert(reg.status===201,'DCR status',{status:reg.status,client});
+          assert(client.client_id&&client.client_secret,'confidential DCR client',client);
+          assert(client.token_endpoint_auth_method==='client_secret_basic','default DCR auth method',client);
+
+          const auth=new URL(`${stage}/authorize`);
+          for(const [k,v] of Object.entries({response_type:'code',client_id:client.client_id,redirect_uri:callback,scope:'owner:full offline_access',state:'owner-isolated-stage',code_challenge:challenge,code_challenge_method:'S256',resource})) auth.searchParams.set(k,v);
+          const page=await fetch(auth,{redirect:'manual'});
+          const html=await page.text();
+          assert(page.status===200&&html.includes('Owner OAuth staging'),'staging authorize page',{status:page.status,body:html.slice(0,200)});
+          const oauthQuery=auth.searchParams.toString();
+
+          const wrong=await fetch(`${stage}/authorize`,{method:'POST',redirect:'manual',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({oauth_query:oauthQuery,login_secret:'wrong'})});
+          assert(wrong.status===403,'wrong staging secret rejected',wrong.status);
+
+          const done=await fetch(`${stage}/authorize`,{method:'POST',redirect:'manual',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({oauth_query:oauthQuery,login_secret:secret})});
+          assert(done.status===302,'authorization completion',done.status);
+          const location=done.headers.get('location');
+          const code=location?new URL(location).searchParams.get('code'):null;
+          assert(code,'authorization code',location);
+
+          const basic='Basic '+Buffer.from(`${client.client_id}:${client.client_secret}`).toString('base64');
+          const tokenResp=await fetch(`${stage}/oauth/token`,{method:'POST',headers:{authorization:basic,'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:callback,code_verifier:verifier,resource})});
+          const tok=await parse(tokenResp);
+          assert(tokenResp.status===200&&tok.access_token&&tok.refresh_token,'isolated token exchange',{status:tokenResp.status,tok:{...tok,access_token:!!tok.access_token,refresh_token:!!tok.refresh_token}});
+          assert((tok.scope||'').split(/\s+/).includes('owner:full'),'isolated token owner scope',tok.scope);
+
+          async function mcpCall(path,access){
+            return fetch(`${mcp}${path}`,{method:'POST',headers:{authorization:`Bearer ${access}`,'content-type':'application/json',accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'owner-issuer-stage',version:'1'}}})});
+          }
+          const owner=await mcpCall('/my-mcp',tok.access_token);
+          assert(owner.status===200,'CROSS_ORIGIN_OWNER_TOKEN_ACCEPTED_BY_PRODUCTION',{status:owner.status,body:(await owner.text()).slice(0,300)});
+          const family=await mcpCall('/family-mcp',tok.access_token);
+          assert([401,403].includes(family.status),'Owner token rejected by Family',family.status);
+
+          const crossRefresh=await fetch(`${stage}/oauth/token`,{method:'POST',headers:{authorization:basic,'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',refresh_token:tok.refresh_token,resource:`${mcp}/family-mcp`})});
+          const crossBody=await parse(crossRefresh);
+          assert(crossRefresh.status===400&&['invalid_target','invalid_request'].includes(crossBody.error),'cross-target refresh blocked',{status:crossRefresh.status,body:crossBody});
+
+          const refreshResp=await fetch(`${stage}/oauth/token`,{method:'POST',headers:{authorization:basic,'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',refresh_token:tok.refresh_token,resource})});
+          const refreshed=await parse(refreshResp);
+          assert(refreshResp.status===200&&refreshed.access_token,'same-target refresh',refreshed);
+          assert((await mcpCall('/my-mcp',refreshed.access_token)).status===200,'refreshed isolated token accepted');
+
+          // Best-effort revoke both issued credentials before deleting staging Worker.
+          for (const candidate of [refreshed.access_token, refreshed.refresh_token, tok.access_token, tok.refresh_token].filter(Boolean)) {
+            await fetch(`${stage}/oauth/revoke`,{method:'POST',headers:{authorization:basic,'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({token:candidate})}).catch(()=>undefined);
+          }
+          console.log('ISOLATED_OWNER_ISSUER_CROSS_ORIGIN_MATRIX=PASS');
+          NODE
+
+      - name: Delete staging issuer
+        if: always()
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set +e
+          npx wrangler delete --config /tmp/wrangler.owner-oauth.stage.jsonc --force >/tmp/stage-delete.log 2>&1
+          rm -f /tmp/stage-secret /tmp/wrangler.owner-oauth.stage.jsonc
+          exit 0
