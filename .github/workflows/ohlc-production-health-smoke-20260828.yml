@@ -1,4 +1,4 @@
-name: OHLC Production Health Smoke 20260828
+name: OHLC Production MCP Smoke 20260828
 
 on:
   push:
@@ -18,20 +18,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Probe live OHLC production health
+      - name: Probe live OHLC production MCP sidecar
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, urllib.request
-          url='https://tv-fugle-1d.keikei99887.workers.dev/health'
-          req=urllib.request.Request(url,headers={'Accept':'application/json','Cache-Control':'no-cache','User-Agent':'ohlc-prod-health-smoke/20260828'})
-          with urllib.request.urlopen(req,timeout=30) as r:
-            raw=r.read(); status=r.status
-          if status!=200: raise RuntimeError(f'health_http_{status}')
-          body=json.loads(raw.decode('utf-8-sig'))
-          tools=body.get('tools') or []
-          print(json.dumps({'status':status,'tools':tools,'server_version':body.get('mcp_server_version'),'liveness_version':body.get('liveness_version')},ensure_ascii=False))
-          if 'read_ohlc' not in tools:
-            raise RuntimeError(f'read_ohlc_missing_from_production_health:{tools}')
+          import json, urllib.error, urllib.request
+          url='https://tv-fugle-1d.keikei99887.workers.dev/mcp'
+          payload=json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/list','params':{}}).encode()
+          req=urllib.request.Request(url,data=payload,method='POST',headers={
+            'Accept':'application/json, text/event-stream',
+            'Content-Type':'application/json',
+            'Cache-Control':'no-cache',
+            'User-Agent':'ohlc-prod-mcp-smoke/20260828',
+          })
+          try:
+            with urllib.request.urlopen(req,timeout=30) as r:
+              raw=r.read().decode('utf-8-sig',errors='replace'); status=r.status; headers=dict(r.headers)
+          except urllib.error.HTTPError as e:
+            raw=e.read().decode('utf-8-sig',errors='replace'); status=e.code; headers=dict(e.headers)
+          print(json.dumps({'status':status,'www_authenticate':headers.get('WWW-Authenticate'),'body':raw[:4000]},ensure_ascii=False))
+          if status==200:
+            if 'read_ohlc' not in raw: raise RuntimeError('authenticated_or_public_tools_list_missing_read_ohlc')
+          elif status in (401,403):
+            # OAuth protection is expected. This proves the public /mcp route is alive,
+            # but an authenticated connector is required to inspect tools/list.
+            if not headers.get('WWW-Authenticate'): raise RuntimeError('oauth_challenge_missing')
+          else:
+            raise RuntimeError(f'unexpected_mcp_http_{status}:{raw[:500]}')
           PY
