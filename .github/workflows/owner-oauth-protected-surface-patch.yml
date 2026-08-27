@@ -1,0 +1,71 @@
+name: One-shot Owner OAuth protected-surface patch
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'fix/owner-oauth-boundary-20260827'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/owner-oauth-boundary-20260827
+          fetch-depth: 0
+      - name: Apply protected multi-handler OAuth patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/v6/family-oauth.ts')
+          text = path.read_text()
+
+          old_family = '''  const familyApiHandler: ConcreteFetchHandler = {\n    async fetch(request, env, ctx) {\n      try {\n        return await FamilyMCP.serve("/family-mcp", { binding: "FAMILY_MCP_OBJECT" }).fetch(request, env, ctx);'''
+          new_family = '''  const familyApiHandler: ConcreteFetchHandler = {\n    async fetch(request, env, ctx) {\n      const props = (ctx as ExecutionContext & { props?: { userId?: string; role?: string } }).props;\n      const { userId, role } = props || {};\n      if (role !== "family" || userId !== "family") {\n        return Response.json({ error: "forbidden_family_role" }, { status: 403 });\n      }\n      try {\n        return await FamilyMCP.serve("/family-mcp", { binding: "FAMILY_MCP_OBJECT" }).fetch(request, env, ctx);'''
+          if 'forbidden_family_role' not in text:
+              if old_family not in text:
+                  raise SystemExit('family_handler_anchor_missing')
+              text = text.replace(old_family, new_family, 1)
+
+          owner_anchor = '''  const defaultHandler: ConcreteFetchHandler = {'''
+          owner_block = '''  const ownerApiHandler: ConcreteFetchHandler = {\n    async fetch(request, env, ctx) {\n      const props = (ctx as ExecutionContext & { props?: { userId?: string; role?: string } }).props;\n      const { userId, role } = props || {};\n      if (role !== "owner" || userId !== "owner") {\n        return Response.json({ error: "forbidden_owner_role" }, { status: 403 });\n      }\n      return appHandler.fetch(request, env, ctx);\n    },\n  };\n\n'''
+          if 'const ownerApiHandler' not in text:
+              if owner_anchor not in text:
+                  raise SystemExit('owner_handler_anchor_missing')
+              text = text.replace(owner_anchor, owner_block + owner_anchor, 1)
+
+          old_provider = '''    apiRoute: "/family-mcp",\n    apiHandler: familyApiHandler,'''
+          new_provider = '''    apiHandlers: {\n      "/family-mcp": familyApiHandler,\n      "/my-mcp": ownerApiHandler,\n      "/mcp": ownerApiHandler,\n    },'''
+          if 'apiHandlers: {' not in text:
+              if old_provider not in text:
+                  raise SystemExit('provider_route_anchor_missing')
+              text = text.replace(old_provider, new_provider, 1)
+
+          path.write_text(text)
+
+          contract = Path('tests/family-oauth-contract.test.ts')
+          c = contract.read_text()
+          c = c.replace(
+              'assert.match(oauth, /apiRoute: "\\/family-mcp"/);',
+              'assert.match(oauth, /apiHandlers: \\{/);\nassert.match(oauth, /"\\/family-mcp": familyApiHandler/);\nassert.match(oauth, /"\\/my-mcp": ownerApiHandler/);\nassert.match(oauth, /"\\/mcp": ownerApiHandler/);',
+              1,
+          )
+          contract.write_text(c)
+          PY
+
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+keywayk09@users.noreply.github.com'
+          if git diff --quiet; then
+            echo 'already_patched=true'
+            exit 0
+          fi
+          git add src/v6/family-oauth.ts tests/family-oauth-contract.test.ts
+          git commit -m 'fix: protect Owner and Family MCP through shared OAuth provider'
+          git push origin HEAD:fix/owner-oauth-boundary-20260827
