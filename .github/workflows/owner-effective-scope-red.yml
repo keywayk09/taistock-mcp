@@ -1,0 +1,21 @@
+name: One-shot Owner effective scope red gate
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  red-gate:
+    if: github.head_ref == 'fix/owner-oauth-effective-scope-20260827'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Confirm effective-scope contract is red before runtime patch
+        run: npm run test:ops-contracts
