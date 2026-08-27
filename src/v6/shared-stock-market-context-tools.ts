@@ -5,7 +5,7 @@ import {
   readFamilyStockMarketContext,
 } from "./family-ohlc-read-bridge";
 
-export const SHARED_STOCK_MARKET_CONTEXT_TOOLS_VERSION = "shared-stock-market-context-tools/v1.2.1";
+export const SHARED_STOCK_MARKET_CONTEXT_TOOLS_VERSION = "shared-stock-market-context-tools/v1.3.0";
 
 const symbolSchema = z.string().trim().regex(/^\d{4,6}$/);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -171,6 +171,15 @@ export function registerSharedStockMarketContextTools(server: McpServer, env: En
 
   server.registerTool("get_stock_trade_tape", {
     description: "股票逐筆成交明細。回傳Fugle REST最近約3分鐘、最多300筆成交，包含時間、價格、張數、Bid/Ask、主動買賣、外盤/內盤、分類方法、累積量與自適應大單標記。只讀、不持久化。",
+    inputSchema: { symbol: symbolSchema },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async ({ symbol }) => out(await readOwnerStockTradeTape(env, symbol)));
+
+  // Compatibility name for GPT/tool clients that describe Fugle's
+  // /intraday/trades/{symbol} endpoint literally. Keep one implementation so
+  // trade classification, limits and read-only semantics cannot drift.
+  server.registerTool("get_intraday_trades", {
+    description: "台股逐筆即時成交相容入口。唯讀取得Fugle /intraday/trades/{symbol} 正規化結果，包含成交時間、價格、張數、Bid/Ask、serial、累積量、主動買賣與內外盤；不開放原始WebSocket、不持久化。",
     inputSchema: { symbol: symbolSchema },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async ({ symbol }) => out(await readOwnerStockTradeTape(env, symbol)));
