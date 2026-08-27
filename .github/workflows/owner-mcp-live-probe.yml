@@ -1,0 +1,75 @@
+name: Owner MCP live tools probe
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OWNER_MCP_URL: https://taistock-mcp.keywayk09.workers.dev/my-mcp
+
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: List live Owner tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx -y @modelcontextprotocol/inspector@latest --cli "$OWNER_MCP_URL" \
+            --transport http --method tools/list --format json > /tmp/tools.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/tools.json', 'utf8'));
+          const tools = body?.result?.tools || body?.tools || [];
+          const names = tools.map((x) => x?.name).filter(Boolean);
+          console.log(`tool_count=${names.length}`);
+          for (const name of [
+            'get_intraday_trades',
+            'get_stock_trade_tape',
+            'get_stock_market_context',
+            'get_quote',
+          ]) {
+            if (!names.includes(name)) throw new Error(`missing_live_tool:${name}`);
+          }
+          console.log('required_live_tools=PASS');
+          NODE
+
+      - name: Call live intraday trades
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx -y @modelcontextprotocol/inspector@latest --cli "$OWNER_MCP_URL" \
+            --transport http --method tools/call --tool-name get_intraday_trades \
+            --tool-args-json '{"symbol":"2426"}' --format json > /tmp/trades.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/trades.json', 'utf8'));
+          if (body?.result?.isError === true || body?.isError === true) {
+            throw new Error('get_intraday_trades_live_call_failed');
+          }
+          console.log('get_intraday_trades=PASS');
+          NODE
+
+      - name: Call live market context
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx -y @modelcontextprotocol/inspector@latest --cli "$OWNER_MCP_URL" \
+            --transport http --method tools/call --tool-name get_stock_market_context \
+            --tool-args-json '{"symbol":"2426"}' --format json > /tmp/context.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/context.json', 'utf8'));
+          if (body?.result?.isError === true || body?.isError === true) {
+            throw new Error('get_stock_market_context_live_call_failed');
+          }
+          console.log('get_stock_market_context=PASS');
+          NODE
