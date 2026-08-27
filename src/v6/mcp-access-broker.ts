@@ -11,17 +11,22 @@ export type McpRelayHandler = {
  * MCP Access Broker / Relay.
  *
  * Public OAuth / ChatGPT compatibility is composed here. The composition root
- * sees one broker, while authorized requests are forwarded to injected content
- * handlers. Tool implementations and market-data logic must not live here.
+ * injects separate public, Owner-content, and Family-content handlers. Tool
+ * implementations and market-data logic must not live here.
  */
 export function createMcpAccessBroker(
-  appHandler: McpRelayHandler,
+  publicAppHandler: McpRelayHandler,
+  ownerContentHandler: McpRelayHandler,
   familyContentHandler: McpRelayHandler,
 ): McpRelayHandler {
   return createFamilyOAuthLegacyEndpointWrapper(
     createFamilyOAuthPublicClientCompatWrapper(
       createFamilyOAuthTokenRecoveryWrapper(
-        createFamilyOAuthProvider(appHandler, familyContentHandler),
+        createFamilyOAuthProvider(
+          publicAppHandler,
+          ownerContentHandler,
+          familyContentHandler,
+        ),
       ),
     ),
   );
