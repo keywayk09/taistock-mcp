@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createFamilyOAuthPublicClientCompatWrapper } from "../src/v6/family-oauth-public-client-compat.ts";
+import { handleOwnerAuthorize } from "../src/v6/owner-oauth.ts";
 
 const ORIGIN = "https://taistock-mcp.keywayk09.workers.dev";
 const CLIENT_ID = "owner-client-12345";
@@ -65,8 +66,7 @@ function authorizeUrl(resource: string) {
 }
 
 // A trusted ChatGPT Owner authorize request must reach the inner role-aware
-// OAuth handler unchanged. The public compatibility adapter may not reject it
-// as `invalid_family_resource` and may not rewrite it to /family-mcp.
+// OAuth handler unchanged. The public adapter may not rewrite it to Family.
 {
   let seen = "";
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
@@ -103,7 +103,7 @@ function tokenRequest(resource: string) {
 }
 
 // Owner token exchange is a valid public-client PKCE path; it must not be
-// rejected by a Family-only resource gate.
+// rejected by the Family compatibility layer.
 {
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
     async fetch(request) {
@@ -118,8 +118,8 @@ function tokenRequest(resource: string) {
   assert.equal(response.status, 200);
 }
 
-// Shared authorization-server discovery may advertise both roles, but the
-// protected-resource metadata above remains role-specific.
+// Shared authorization-server discovery advertises both roles; each protected
+// resource above still exposes only its own scope.
 {
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
     async fetch() {
@@ -141,16 +141,112 @@ function tokenRequest(resource: string) {
   assert.deepEqual(body.scopes_supported, ["family:read", "owner:full", "offline_access"]);
 }
 
-// Owner authorization must use the existing Owner secret boundary, not the
-// Family secret. MCP_API_KEY already exists in Production and is the fallback
-// Owner login identity unless OWNER_OAUTH_LOGIN_SECRET is configured later.
+function runtimeEnv(options: { existingClient?: boolean } = {}) {
+  const writes: Array<[string, string]> = [];
+  let authorization: any = null;
+  const clientRecord = JSON.stringify({
+    clientId: CLIENT_ID,
+    redirectUris: [REDIRECT_URI],
+    clientName: "Retained ChatGPT MCP App",
+    grantTypes: ["authorization_code", "refresh_token"],
+    responseTypes: ["code"],
+    registrationDate: 1,
+    tokenEndpointAuthMethod: "none",
+    authMethodExplicit: true,
+  });
+  const kv = {
+    async get(key: string) {
+      if (key === `client:${CLIENT_ID}` && options.existingClient) return clientRecord;
+      return null;
+    },
+    async put(key: string, value: string) {
+      writes.push([key, value]);
+    },
+    async delete() {},
+  };
+  const oauthProvider = {
+    async completeAuthorization(input: any) {
+      authorization = input;
+      return { redirectTo: `${REDIRECT_URI}?code=owner-code&state=owner-state-123` };
+    },
+  };
+  return {
+    env: {
+      OAUTH_KV: kv,
+      OAUTH_PROVIDER: oauthProvider,
+      MCP_API_KEY: "owner-secret",
+    } as unknown as Env,
+    writes,
+    getAuthorization: () => authorization,
+  };
+}
+
+// GET is read-only and renders the dedicated Owner page. It must not silently
+// create or mutate an OAuth client before the Owner secret is proven.
+{
+  const runtime = runtimeEnv();
+  const response = await handleOwnerAuthorize(
+    new Request(authorizeUrl(`${ORIGIN}/my-mcp`).toString()),
+    runtime.env,
+  );
+  assert.equal(response.status, 200);
+  const page = await response.text();
+  assert.match(page, /Owner \/ 鑽石引擎/);
+  assert.match(page, /Owner 連線驗證碼/);
+  assert.equal(runtime.writes.length, 0);
+}
+
+// POST with the existing Owner secret creates/reuses only the public connector
+// registration and grants exactly owner:full to the explicit /my-mcp resource.
+{
+  const runtime = runtimeEnv();
+  const original = authorizeUrl(`${ORIGIN}/my-mcp`);
+  const form = new FormData();
+  form.set("oauth_query", original.searchParams.toString());
+  form.set("login_secret", "owner-secret");
+  const response = await handleOwnerAuthorize(new Request(`${ORIGIN}/authorize`, {
+    method: "POST",
+    body: form,
+  }), runtime.env);
+  assert.equal(response.status, 302);
+  const authorization = runtime.getAuthorization();
+  assert.equal(authorization.userId, "owner");
+  assert.deepEqual(authorization.scope, ["owner:full"]);
+  assert.equal(authorization.props.role, "owner");
+  assert.deepEqual(authorization.request.scope, ["owner:full"]);
+  assert.equal(authorization.request.resource, `${ORIGIN}/my-mcp`);
+  assert.equal(runtime.writes.some(([key]) => key === `client:${CLIENT_ID}`), true);
+}
+
+// A retained compatible public client may be reused only after the Owner secret
+// succeeds; its old display name does not grant Owner authority by itself.
+{
+  const runtime = runtimeEnv({ existingClient: true });
+  const original = authorizeUrl(`${ORIGIN}/my-mcp`);
+  const form = new FormData();
+  form.set("oauth_query", original.searchParams.toString());
+  form.set("login_secret", "owner-secret");
+  const response = await handleOwnerAuthorize(new Request(`${ORIGIN}/authorize`, {
+    method: "POST",
+    body: form,
+  }), runtime.env);
+  assert.equal(response.status, 302);
+  assert.equal(runtime.writes.some(([key]) => key === `client:${CLIENT_ID}`), false);
+  assert.equal(runtime.getAuthorization().props.role, "owner");
+}
+
+// Owner authorization uses its own existing secret boundary, not the Family
+// secret. Production currently has MCP_API_KEY, so no new secret is required.
 {
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const source = fs.readFileSync(path.resolve(here, "../src/v6/family-oauth.ts"), "utf8");
-  assert.match(source, /OWNER_SCOPE\s*=\s*["']owner:full["']/);
-  assert.match(source, /OWNER_OAUTH_LOGIN_SECRET/);
-  assert.match(source, /MCP_API_KEY/);
-  assert.match(source, /role:\s*["']owner["']/);
+  const ownerSource = fs.readFileSync(path.resolve(here, "../src/v6/owner-oauth.ts"), "utf8");
+  const familySource = fs.readFileSync(path.resolve(here, "../src/v6/family-oauth.ts"), "utf8");
+  assert.match(ownerSource, /OWNER_SCOPE\s*=\s*["']owner:full["']/);
+  assert.match(ownerSource, /OWNER_OAUTH_LOGIN_SECRET \|\| env\.MCP_API_KEY/);
+  assert.match(ownerSource, /role:\s*["']owner["']/);
+  assert.match(familySource, /isOwnerAuthorizeRequest/);
+  assert.match(familySource, /handleOwnerAuthorize/);
+  assert.match(familySource, /scopesSupported: \[FAMILY_SCOPE, OWNER_SCOPE\]/);
 }
 
 console.log("Owner OAuth boundary contract passed");
