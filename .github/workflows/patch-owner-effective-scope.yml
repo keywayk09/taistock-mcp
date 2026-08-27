@@ -29,8 +29,7 @@ jobs:
           p = Path('src/v6/family-oauth.ts')
           s = p.read_text()
 
-          # Idempotency: if the complete helper and both handler gates already exist,
-          # leave the branch untouched rather than creating duplicate code.
+          # Idempotency: never duplicate the permission guard on reruns.
           if (
               'async function requireEffectiveScope(' in s
               and 'requireEffectiveScope(request, env, FAMILY_SCOPE)' in s
@@ -67,11 +66,11 @@ jobs:
               raise SystemExit('helper_anchor_missing')
           s = s.replace(helper_anchor, helper_replacement, 1)
 
-          family_anchor = '''      if (role !== "family" || userId !== "family") {
+          family_anchor = '''if (role !== "family" || userId !== "family") {
                 return Response.json({ error: "forbidden_family_role" }, { status: 403 });
               }
               try {'''
-          family_replacement = '''      if (role !== "family" || userId !== "family") {
+          family_replacement = '''if (role !== "family" || userId !== "family") {
                 return Response.json({ error: "forbidden_family_role" }, { status: 403 });
               }
               if (!(await requireEffectiveScope(request, env, FAMILY_SCOPE))) {
@@ -82,11 +81,11 @@ jobs:
               raise SystemExit('family_handler_anchor_missing')
           s = s.replace(family_anchor, family_replacement, 1)
 
-          owner_anchor = '''      if (role !== "owner" || userId !== "owner") {
+          owner_anchor = '''if (role !== "owner" || userId !== "owner") {
                 return Response.json({ error: "forbidden_owner_role" }, { status: 403 });
               }
               return appHandler.fetch(request, env, ctx);'''
-          owner_replacement = '''      if (role !== "owner" || userId !== "owner") {
+          owner_replacement = '''if (role !== "owner" || userId !== "owner") {
                 return Response.json({ error: "forbidden_owner_role" }, { status: 403 });
               }
               if (!(await requireEffectiveScope(request, env, OWNER_SCOPE))) {
