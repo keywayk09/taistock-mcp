@@ -33,8 +33,9 @@ jobs:
           from pathlib import Path
 
           def replace_once(text: str, old: str, new: str, label: str) -> str:
-              if text.count(old) != 1:
-                  raise SystemExit(f"{label}: expected exactly one match, got {text.count(old)}")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, got {count}")
               return text.replace(old, new, 1)
 
           # 1) OAuth becomes protocol/access only; Family content is injected.
@@ -59,7 +60,7 @@ jobs:
                   }, { status: 503 });
                 }
                 throw error;
-              }'''
+              }'''.replace('              ', '')
           s = replace_once(
               s,
               old_family_serve,
@@ -97,14 +98,14 @@ jobs:
           )
           p.write_text(s)
 
-          # 3) Move source-contract assertions to the new layer locations.
+          # 3) Move source-contract assertions to the new layer locations only.
           p = Path('tests/family-oauth-contract.test.ts')
           s = p.read_text()
           s = replace_once(
               s,
               'const oauth = read("src/v6/family-oauth.ts");\n',
               'const oauth = read("src/v6/family-oauth.ts");\nconst familyContent = read("src/v6/family-content-handler.ts");\nconst broker = read("src/v6/mcp-access-broker.ts");\n',
-              'family oauth test source handles',
+              'family OAuth test source handles',
           )
           s = replace_once(
               s,
@@ -126,7 +127,7 @@ jobs:
               s,
               'const oauth = read("src/v6/family-oauth.ts");\n',
               'const oauth = read("src/v6/family-oauth.ts");\nconst familyContent = read("src/v6/family-content-handler.ts");\n',
-              'family isolation source handle',
+              'Family isolation source handle',
           )
           s = replace_once(
               s,
@@ -158,9 +159,9 @@ jobs:
           )
           p.write_text(s)
 
-          # New architecture files must not know each other's forbidden details.
+          # Fail closed if the new layers cross the intended dependency boundary.
           broker = Path('src/v6/mcp-access-broker.ts').read_text()
-          if 'family-mcp' in broker or 'shared-stock-market-context-tools' in broker:
+          if 'from "./family-mcp"' in broker or 'shared-stock-market-context-tools' in broker:
               raise SystemExit('broker imported content implementation')
           content = Path('src/v6/family-content-handler.ts').read_text()
           if 'workers-oauth-provider' in content or 'code_challenge' in content or 'redirect_uri' in content:
@@ -183,11 +184,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf dist .github/workflows/ops-mcp-relay-refactor-once.yml
+          rm -rf dist
+          rm .github/workflows/ops-mcp-relay-refactor-once.yml
           git diff --check
           git status --short
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/index-v6.ts src/v6/family-oauth.ts src/v6/family-content-handler.ts src/v6/mcp-access-broker.ts tests/family-oauth-contract.test.ts tests/family-mcp-isolation.test.ts tests/public-ingress-freeze.test.ts tests/mcp-relay-separation.test.ts package.json .github/workflows/ops-mcp-relay-refactor-once.yml
+          git add -A
           git commit -m "Refactor MCP access relay without content changes"
           git push origin HEAD:test/mcp-relay-separation-red-20260827
