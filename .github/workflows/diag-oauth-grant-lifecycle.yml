@@ -1,0 +1,60 @@
+name: Diagnose OAuth grant lifecycle
+
+on:
+  push:
+    branches:
+      - diag/owner-oauth-production-state-20260827
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Compare safe grant field shapes and token ownership
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,os,urllib.parse,urllib.request
+          token=os.environ['CLOUDFLARE_API_TOKEN']; acct=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          H={'Authorization':f'Bearer {token}'}
+          root=f'https://api.cloudflare.com/client/v4/accounts/{acct}/storage/kv/namespaces'
+          def http(url):
+              with urllib.request.urlopen(urllib.request.Request(url,headers=H),timeout=20) as r:return r.read().decode('utf-8','replace')
+          rows=json.loads(http(root+'?per_page=1000')).get('result') or []
+          p=[x for x in rows if x.get('title')=='taistock-mcp-OAUTH_KV']; l=[x for x in rows if x.get('title')=='OAUTH_KV']
+          chosen=p[0] if len(p)==1 else (l[0] if len(l)==1 else None)
+          if not chosen: raise SystemExit('oauth_kv_not_resolved')
+          base=root+'/'+chosen['id']
+          def keys(prefix):return json.loads(http(base+'/keys?prefix='+urllib.parse.quote(prefix,safe='')+'&limit=1000')).get('result') or []
+          def val(k):return json.loads(http(base+'/values/'+urllib.parse.quote(k,safe='')))
+          def h(v):return hashlib.sha256(str(v).encode()).hexdigest()[:12] if v else 'none'
+          owner_clients=set()
+          family_clients=set()
+          for role, bag in [('owner',owner_clients),('family',family_clients)]:
+              for row in keys('grant:'+role+':'):
+                  try:g=val(row.get('name',''))
+                  except Exception:continue
+                  bag.add(h(g.get('clientId','')))
+                  safe_fields=sorted(k for k in g.keys() if k not in {'authCodeWrappedKey','props','metadata'})
+                  print('GRANT_SHAPE',f'role={role}',f'client_hash={h(g.get("clientId",""))}',f'fields={"|".join(safe_fields)}',f'has_authCodeId={bool(g.get("authCodeId"))}',f'has_codeChallenge={bool(g.get("codeChallenge"))}',f'codeChallengeMethod={g.get("codeChallengeMethod")}',f'scope={"|".join(g.get("scope") or [])}')
+          token_rows=keys('token:')
+          owner_token_refs=family_token_refs=unknown=0
+          for row in token_rows:
+              try:t=val(row.get('name',''))
+              except Exception:continue
+              ch=h(t.get('clientId',''))
+              if ch in owner_clients: owner_token_refs+=1
+              if ch in family_clients: family_token_refs+=1
+              if ch not in owner_clients and ch not in family_clients: unknown+=1
+          print('TOKEN_RECORDS_TOTAL='+str(len(token_rows)))
+          print('TOKEN_RECORDS_MATCH_OWNER_CLIENTS='+str(owner_token_refs))
+          print('TOKEN_RECORDS_MATCH_FAMILY_CLIENTS='+str(family_token_refs))
+          print('TOKEN_RECORDS_UNKNOWN='+str(unknown))
+          PY
