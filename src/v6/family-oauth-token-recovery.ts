@@ -5,6 +5,7 @@ type ConcreteFetchHandler = {
 type ConnectorAuthRequest = {
   clientId: string;
   redirectUri: string;
+  role: "family" | "owner";
 };
 
 type StoredFamilyConnectorClient = {
@@ -42,6 +43,8 @@ type PreparedConnectorToken = {
 
 const FAMILY_SCOPE = "family:read";
 const FAMILY_CONNECTOR_NAME = "ChatGPT Family Plugin / MCP App";
+const FAMILY_MCP_PATH = "/family-mcp";
+const OWNER_MCP_PATHS = new Set(["/my-mcp", "/mcp"]);
 const CHATGPT_CONNECTOR_CALLBACK_PATH = /^\/connector\/oauth\/[A-Za-z0-9_-]{8,256}$/;
 const CHATGPT_LEGACY_CONNECTOR_CALLBACK_PATH = "/connector_platform_oauth_redirect";
 const OPAQUE_CLIENT_ID = /^[A-Za-z0-9._~-]{8,256}$/;
@@ -89,6 +92,23 @@ function trustedConnectorRedirect(raw: string) {
   return redirect;
 }
 
+function connectorResourceRole(url: URL): "family" | "owner" | null {
+  const raw = String(url.searchParams.get("resource") || "").trim();
+  if (!raw) return "family";
+  try {
+    const resource = new URL(raw);
+    if (resource.origin !== url.origin || resource.search || resource.hash) return null;
+    const pathname = resource.pathname.endsWith("/") && resource.pathname !== "/"
+      ? resource.pathname.slice(0, -1)
+      : resource.pathname;
+    if (pathname === FAMILY_MCP_PATH) return "family";
+    if (OWNER_MCP_PATHS.has(pathname)) return "owner";
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function connectorAuthorization(url: URL): ConnectorAuthRequest | null {
   if (url.pathname !== "/authorize" || url.searchParams.get("response_type") !== "code") return null;
   const clientId = String(url.searchParams.get("client_id") || "");
@@ -108,21 +128,20 @@ function connectorAuthorization(url: URL): ConnectorAuthRequest | null {
   const rawScope = String(url.searchParams.get("scope") || "");
   if (!validConnectorScopes(rawScope)) return null;
 
-  const resourceRaw = String(url.searchParams.get("resource") || "").trim();
-  if (resourceRaw) {
-    try {
-      if (new URL(resourceRaw).origin !== url.origin) return null;
-    } catch {
-      return null;
-    }
-  }
-
-  return { clientId, redirectUri: redirect.toString() };
+  const role = connectorResourceRole(url);
+  if (!role) return null;
+  return { clientId, redirectUri: redirect.toString(), role };
 }
 
 function normalizeConnectorAuthorizeUrl(url: URL) {
   const candidate = connectorAuthorization(url);
   if (!candidate) return { url, candidate: null as ConnectorAuthRequest | null };
+
+  // This wrapper is strictly Family stale-client recovery. Explicit Owner
+  // requests must cross it byte-for-byte so the role-aware provider can grant
+  // owner:full only after the Owner secret is proven.
+  if (candidate.role === "owner") return { url, candidate };
+
   const normalized = new URL(url.toString());
   normalized.searchParams.set("scope", FAMILY_SCOPE);
   return { url: normalized, candidate };
@@ -134,7 +153,9 @@ async function normalizeAuthorizeRequest(request: Request) {
 
   if (request.method === "GET") {
     const normalized = normalizeConnectorAuthorizeUrl(url);
-    if (!normalized.candidate) return { request, candidate: null as ConnectorAuthRequest | null };
+    if (!normalized.candidate || normalized.url.toString() === url.toString()) {
+      return { request, candidate: normalized.candidate };
+    }
     return {
       request: new Request(normalized.url.toString(), request),
       candidate: normalized.candidate,
@@ -160,7 +181,9 @@ async function normalizeAuthorizeRequest(request: Request) {
   const synthetic = new URL("/authorize", request.url);
   synthetic.search = oauthQuery;
   const normalized = normalizeConnectorAuthorizeUrl(synthetic);
-  if (!normalized.candidate) return { request, candidate: null as ConnectorAuthRequest | null };
+  if (!normalized.candidate || normalized.url.toString() === synthetic.toString()) {
+    return { request, candidate: normalized.candidate };
+  }
 
   form.set("oauth_query", normalized.url.searchParams.toString());
   const headers = new Headers(request.headers);
