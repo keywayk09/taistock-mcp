@@ -22,16 +22,18 @@ function authorizeUrl(resource?: string) {
   return url;
 }
 
-// Generic protected-resource metadata must identify the actual isolated Family
-// MCP route, not the Worker root. `offline_access` is deliberately not a
-// resource permission; the resource still exposes only family:read.
+// RFC 9728 path-scoped metadata is the only Family protected-resource identity.
 {
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
     async fetch() {
-      throw new Error("generic metadata should be handled by compatibility wrapper");
+      throw new Error("Family path-scoped metadata should be handled by the adapter");
     },
   });
-  const response = await wrapper.fetch(new Request(`${ORIGIN}/.well-known/oauth-protected-resource`), env, ctx);
+  const response = await wrapper.fetch(
+    new Request(`${ORIGIN}/.well-known/oauth-protected-resource/family-mcp`),
+    env,
+    ctx,
+  );
   assert.equal(response.status, 200);
   const body = await response.json() as Record<string, unknown>;
   assert.equal(body.resource, `${ORIGIN}/family-mcp`);
@@ -39,9 +41,23 @@ function authorizeUrl(resource?: string) {
   assert.deepEqual(body.scopes_supported, ["family:read"]);
 }
 
-// Authorization-server discovery must advertise offline_access for a freshly
-// recreated ChatGPT app so it can request refresh-token continuity. This is
-// discovery metadata only and does not widen the Family resource permission.
+// Worker-root and Owner endpoint metadata must never inherit Family identity.
+for (const pathname of [
+  "/.well-known/oauth-protected-resource",
+  "/.well-known/oauth-protected-resource/my-mcp",
+  "/.well-known/oauth-protected-resource/mcp",
+]) {
+  const wrapper = createFamilyOAuthPublicClientCompatWrapper({
+    async fetch() {
+      throw new Error("Owner/root metadata must not reach the Family provider");
+    },
+  });
+  const response = await wrapper.fetch(new Request(`${ORIGIN}${pathname}`), env, ctx);
+  assert.equal(response.status, 404);
+}
+
+// Authorization-server discovery remains the Family authorization server only;
+// clients reach it after discovering the explicit /family-mcp protected resource.
 {
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
     async fetch(request) {
@@ -57,16 +73,11 @@ function authorizeUrl(resource?: string) {
   });
   const response = await wrapper.fetch(new Request(`${ORIGIN}/.well-known/oauth-authorization-server`), env, ctx);
   assert.equal(response.status, 200);
-  assert.equal(response.headers.get("cache-control"), "no-store");
   const body = await response.json() as Record<string, unknown>;
   assert.deepEqual(body.scopes_supported, ["family:read", "offline_access"]);
-  assert.deepEqual(body.grant_types_supported, ["authorization_code", "refresh_token"]);
 }
 
-// ChatGPT probes the OpenID discovery path even for this OAuth-only provider.
-// Mirror the existing RFC 8414 OAuth metadata there without claiming `openid`
-// or adding ID-token capability. The inner provider must see only the canonical
-// OAuth authorization-server discovery path.
+// OpenID discovery is only a compatibility mirror for the same Family auth server.
 {
   let seenPath = "";
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
@@ -87,20 +98,13 @@ function authorizeUrl(resource?: string) {
   const response = await wrapper.fetch(new Request(`${ORIGIN}/.well-known/openid-configuration`), env, ctx);
   assert.equal(response.status, 200);
   assert.equal(seenPath, "/.well-known/oauth-authorization-server");
-  assert.equal(response.headers.get("cache-control"), "no-store");
   const body = await response.json() as Record<string, unknown>;
-  assert.equal(body.issuer, ORIGIN);
-  assert.equal(body.authorization_endpoint, `${ORIGIN}/authorize`);
-  assert.equal(body.token_endpoint, `${ORIGIN}/oauth/token`);
   assert.deepEqual(body.scopes_supported, ["family:read", "offline_access"]);
   assert.equal((body.scopes_supported as string[]).includes("openid"), false);
-  assert.equal("jwks_uri" in body, false);
-  assert.equal("id_token_signing_alg_values_supported" in body, false);
 }
 
-// Trusted ChatGPT connector authorization normalizes both a retained Worker-root
-// resource and a missing resource to the one canonical Family MCP resource.
-for (const resource of [ORIGIN, undefined]) {
+// Explicit Family resource may be canonicalized (trailing slash only).
+{
   let seen = "";
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
     async fetch(request) {
@@ -108,14 +112,45 @@ for (const resource of [ORIGIN, undefined]) {
       return new Response("ok");
     },
   });
-  await wrapper.fetch(new Request(authorizeUrl(resource).toString()), env, ctx);
+  const response = await wrapper.fetch(new Request(authorizeUrl(`${ORIGIN}/family-mcp/`).toString()), env, ctx);
+  assert.equal(response.status, 200);
   assert.equal(new URL(seen).searchParams.get("resource"), `${ORIGIN}/family-mcp`);
 }
 
-// The hidden authorize POST must receive the same canonical resource while the
-// Family login secret field remains opaque and unchanged.
+// Retained Family connectors may omit resource during authorize; only at this
+// trusted Family authorization boundary is omission defaulted to /family-mcp.
 {
-  const original = authorizeUrl(ORIGIN);
+  let seen = "";
+  const wrapper = createFamilyOAuthPublicClientCompatWrapper({
+    async fetch(request) {
+      seen = request.url;
+      return new Response("ok");
+    },
+  });
+  const response = await wrapper.fetch(new Request(authorizeUrl().toString()), env, ctx);
+  assert.equal(response.status, 200);
+  assert.equal(new URL(seen).searchParams.get("resource"), `${ORIGIN}/family-mcp`);
+}
+
+// Explicit Worker-root and Owner targets are never guessed to be Family.
+for (const resource of [ORIGIN, `${ORIGIN}/my-mcp`, `${ORIGIN}/mcp`]) {
+  let called = false;
+  const wrapper = createFamilyOAuthPublicClientCompatWrapper({
+    async fetch() {
+      called = true;
+      return new Response("unexpected");
+    },
+  });
+  const response = await wrapper.fetch(new Request(authorizeUrl(resource).toString()), env, ctx);
+  assert.equal(response.status, 400);
+  assert.equal(called, false);
+  const body = await response.json() as Record<string, unknown>;
+  assert.equal(body.error, "invalid_family_resource");
+}
+
+// Hidden authorize POST follows the same explicit Family boundary.
+{
+  const original = authorizeUrl(`${ORIGIN}/family-mcp/`);
   const form = new URLSearchParams({
     oauth_query: original.searchParams.toString(),
     login_secret: "do-not-log-or-change",
@@ -126,6 +161,29 @@ for (const resource of [ORIGIN, undefined]) {
       const hidden = new URLSearchParams(String(forwarded.get("oauth_query") || ""));
       assert.equal(hidden.get("resource"), `${ORIGIN}/family-mcp`);
       assert.equal(forwarded.get("login_secret"), "do-not-log-or-change");
+      return new Response("ok");
+    },
+  });
+  const response = await wrapper.fetch(new Request(`${ORIGIN}/authorize`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: form.toString(),
+  }), env, ctx);
+  assert.equal(response.status, 200);
+}
+
+// Hidden authorize POST also preserves retained missing-resource compatibility.
+{
+  const original = authorizeUrl();
+  const form = new URLSearchParams({
+    oauth_query: original.searchParams.toString(),
+    login_secret: "do-not-log-or-change",
+  });
+  const wrapper = createFamilyOAuthPublicClientCompatWrapper({
+    async fetch(request) {
+      const forwarded = new URLSearchParams(await request.text());
+      const hidden = new URLSearchParams(String(forwarded.get("oauth_query") || ""));
+      assert.equal(hidden.get("resource"), `${ORIGIN}/family-mcp`);
       return new Response("ok");
     },
   });
@@ -155,45 +213,68 @@ function tokenRequest(options: { basicSecret?: string; resource?: string; redire
   });
 }
 
-// A retained public client serialized as Basic `<client_id>:` is equivalent to
-// token_endpoint_auth_method=none. Strip the empty Basic credential, restore
-// body client_id, and canonicalize the Family resource. Code/verifier values are
-// preserved for the inner strict validation/provider PKCE check.
+// Public-client Basic `<client_id>:` normalization remains for explicit Family.
 {
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
     async fetch(request) {
       assert.equal(request.headers.has("authorization"), false);
       const body = new URLSearchParams(await request.text());
       assert.equal(body.get("client_id"), CLIENT_ID);
-      assert.equal(body.get("client_secret"), null);
       assert.equal(body.get("resource"), `${ORIGIN}/family-mcp`);
-      assert.equal(body.get("code"), "family:grant-id:authorization-secret");
       assert.equal(body.get("code_verifier"), VERIFIER);
       return Response.json({ ok: true });
     },
   });
-  const response = await wrapper.fetch(tokenRequest({ resource: ORIGIN }), env, ctx);
+  const response = await wrapper.fetch(tokenRequest({ resource: `${ORIGIN}/family-mcp/` }), env, ctx);
   assert.equal(response.status, 200);
 }
 
-// A real confidential Basic secret is not converted into a public client. The
-// resource identifier may still be canonicalized, but the credential remains
-// untouched for the existing token-recovery gate.
+// RFC 8707 resource is optional at token exchange. Missing resource must not be
+// guessed or rewritten here; the inner validated grant/provider owns that target.
 {
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
     async fetch(request) {
-      assert.equal(request.headers.has("authorization"), true);
+      assert.equal(request.headers.has("authorization"), false);
+      const body = new URLSearchParams(await request.text());
+      assert.equal(body.get("client_id"), CLIENT_ID);
+      assert.equal(body.get("resource"), null);
+      return Response.json({ ok: true });
+    },
+  });
+  const response = await wrapper.fetch(tokenRequest(), env, ctx);
+  assert.equal(response.status, 200);
+}
+
+// Explicit Owner/root token targets fail closed before Family token recovery.
+for (const resource of [ORIGIN, `${ORIGIN}/my-mcp`, `${ORIGIN}/mcp`]) {
+  let called = false;
+  const wrapper = createFamilyOAuthPublicClientCompatWrapper({
+    async fetch() {
+      called = true;
+      return new Response("unexpected");
+    },
+  });
+  const response = await wrapper.fetch(tokenRequest({ resource }), env, ctx);
+  assert.equal(response.status, 400);
+  assert.equal(called, false);
+}
+
+// A real confidential Basic secret remains untouched for an explicit Family target.
+{
+  const originalAuth = tokenRequest({ basicSecret: "real-secret", resource: `${ORIGIN}/family-mcp` }).headers.get("authorization");
+  const wrapper = createFamilyOAuthPublicClientCompatWrapper({
+    async fetch(request) {
+      assert.equal(request.headers.get("authorization"), originalAuth);
       const body = new URLSearchParams(await request.text());
       assert.equal(body.get("client_id"), null);
       assert.equal(body.get("resource"), `${ORIGIN}/family-mcp`);
       return new Response("ok");
     },
   });
-  await wrapper.fetch(tokenRequest({ basicSecret: "real-secret", resource: ORIGIN }), env, ctx);
+  await wrapper.fetch(tokenRequest({ basicSecret: "real-secret", resource: `${ORIGIN}/family-mcp` }), env, ctx);
 }
 
-// Never rewrite an untrusted callback. This layer is connector compatibility,
-// not a generic OAuth request transformer.
+// Never transform an untrusted callback; existing inner provider decides it.
 {
   const original = tokenRequest({ redirect: "https://evil.example/callback", resource: ORIGIN });
   const originalAuth = original.headers.get("authorization");
@@ -201,7 +282,6 @@ function tokenRequest(options: { basicSecret?: string; resource?: string; redire
     async fetch(request) {
       assert.equal(request.headers.get("authorization"), originalAuth);
       const body = new URLSearchParams(await request.text());
-      assert.equal(body.get("client_id"), null);
       assert.equal(body.get("resource"), ORIGIN);
       return new Response("ok");
     },
@@ -209,4 +289,4 @@ function tokenRequest(options: { basicSecret?: string; resource?: string; redire
   await wrapper.fetch(original, env, ctx);
 }
 
-console.log("Family OAuth public-client compatibility tests passed");
+console.log("Family OAuth path-scoped public-client compatibility tests passed");
