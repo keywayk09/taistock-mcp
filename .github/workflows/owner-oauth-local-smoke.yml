@@ -10,20 +10,23 @@ jobs:
   local-oauth-smoke:
     if: github.head_ref == 'fix/owner-oauth-boundary-20260827'
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm install
-      - name: Start local Worker and verify protected ingress
+      - name: Start local Worker and verify protected ingress plus full OAuth flows
         shell: bash
         run: |
           set -euo pipefail
-          npx wrangler dev --local --ip 127.0.0.1 --port 8787 >/tmp/owner-oauth-local.log 2>&1 &
+          npx wrangler dev --local --ip 127.0.0.1 --port 8787 \
+            --var MCP_API_KEY:owner-local-secret \
+            --var MOM_GPT_API_KEY:family-local-secret \
+            >/tmp/owner-oauth-local.log 2>&1 &
           pid=$!
-          trap 'kill "$pid" 2>/dev/null || true; tail -120 /tmp/owner-oauth-local.log || true' EXIT
+          trap 'kill "$pid" 2>/dev/null || true; tail -160 /tmp/owner-oauth-local.log || true' EXIT
 
           ready=false
           for i in $(seq 1 45); do
@@ -38,40 +41,207 @@ jobs:
             exit 1
           fi
 
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          body=json.loads(Path('/tmp/health.json').read_text())
-          assert body.get('status') == 'ok', body
-          assert body.get('mcp_endpoint') == '/my-mcp', body
-          PY
+          node <<'NODE'
+          const crypto = require('node:crypto');
+          const base = 'http://127.0.0.1:8787';
 
-          check_401() {
-            local path="$1"
-            local expected_meta="$2"
-            curl --silent --show-error --max-time 10 -D /tmp/headers.txt -o /tmp/body.txt "http://127.0.0.1:8787${path}" || true
-            status="$(awk 'NR==1{print $2}' /tmp/headers.txt)"
-            test "$status" = 401
-            tr -d '\r' </tmp/headers.txt | grep -i '^www-authenticate:' | grep -F "$expected_meta"
+          function assert(cond, message, detail) {
+            if (!cond) throw new Error(`${message}${detail === undefined ? '' : `: ${JSON.stringify(detail)}`}`);
+          }
+          async function json(response) {
+            const text = await response.text();
+            try { return JSON.parse(text); } catch { throw new Error(`expected JSON ${response.status}: ${text.slice(0, 600)}`); }
+          }
+          function challenge(verifier) {
+            return crypto.createHash('sha256').update(verifier).digest('base64url');
+          }
+          async function register(label, callback) {
+            const response = await fetch(`${base}/oauth/register`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                client_name: label,
+                redirect_uris: [callback],
+                grant_types: ['authorization_code', 'refresh_token'],
+                response_types: ['code'],
+                token_endpoint_auth_method: 'none',
+              }),
+              redirect: 'manual',
+            });
+            assert(response.status === 201, 'DCR status', { status: response.status, body: await response.text() });
+            return json(response);
+          }
+          async function authorizeStart({ clientId, callback, verifier, resource, scope }) {
+            const u = new URL(`${base}/authorize`);
+            u.searchParams.set('response_type', 'code');
+            u.searchParams.set('client_id', clientId);
+            u.searchParams.set('redirect_uri', callback);
+            u.searchParams.set('scope', scope);
+            u.searchParams.set('state', 'local-state');
+            u.searchParams.set('code_challenge', challenge(verifier));
+            u.searchParams.set('code_challenge_method', 'S256');
+            u.searchParams.set('resource', resource);
+            const response = await fetch(u, { redirect: 'manual' });
+            assert(response.status === 200, 'authorize login-page status', { status: response.status, body: (await response.text()).slice(0, 500) });
+            return u.searchParams.toString();
+          }
+          async function authorizeFinish({ oauthQuery, secret, expectedPage }) {
+            const body = new URLSearchParams({ oauth_query: oauthQuery, login_secret: secret });
+            const response = await fetch(`${base}/authorize`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/x-www-form-urlencoded' },
+              body,
+              redirect: 'manual',
+            });
+            if (response.status !== 302) {
+              const text = await response.text();
+              throw new Error(`${expectedPage} authorize POST status ${response.status}: ${text.slice(0, 800)}`);
+            }
+            const location = response.headers.get('location');
+            assert(location, `${expectedPage} authorize missing redirect`);
+            const redirect = new URL(location);
+            const code = redirect.searchParams.get('code');
+            assert(code, `${expectedPage} authorize missing code`, location);
+            return code;
+          }
+          async function tokenRequest(params) {
+            const response = await fetch(`${base}/oauth/token`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams(params),
+            });
+            const text = await response.text();
+            let body;
+            try { body = JSON.parse(text); } catch { body = { raw: text }; }
+            return { response, body };
+          }
+          async function protectedCall(path, token) {
+            return fetch(`${base}${path}`, {
+              method: 'POST',
+              headers: {
+                authorization: `Bearer ${token}`,
+                'content-type': 'application/json',
+                accept: 'application/json, text/event-stream',
+              },
+              body: JSON.stringify({
+                jsonrpc: '2.0', id: 1, method: 'initialize',
+                params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'oauth-local-smoke', version: '1' } },
+              }),
+              redirect: 'manual',
+            });
           }
 
-          check_401 '/my-mcp' '/.well-known/oauth-protected-resource/my-mcp'
-          check_401 '/mcp' '/.well-known/oauth-protected-resource/mcp'
-          check_401 '/family-mcp' '/.well-known/oauth-protected-resource/family-mcp'
+          // Public health remains public after MCP protection is enabled.
+          {
+            const response = await fetch(`${base}/health`);
+            assert(response.status === 200, 'health must remain public', response.status);
+            const body = await json(response);
+            assert(body.status === 'ok', 'health status', body);
+            assert(body.mcp_endpoint === '/my-mcp', 'frozen Owner endpoint', body);
+          }
 
-          curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8787/.well-known/oauth-protected-resource/my-mcp >/tmp/owner-meta.json
-          curl --fail --silent --show-error --max-time 10 http://127.0.0.1:8787/.well-known/oauth-protected-resource/family-mcp >/tmp/family-meta.json
-          root_status="$(curl --silent --show-error --max-time 10 -o /tmp/root-meta.txt -w '%{http_code}' http://127.0.0.1:8787/.well-known/oauth-protected-resource)"
-          test "$root_status" = 404
+          // Missing bearer tokens challenge the exact path-scoped metadata.
+          for (const [path, metadataPath] of [
+            ['/my-mcp', '/.well-known/oauth-protected-resource/my-mcp'],
+            ['/mcp', '/.well-known/oauth-protected-resource/mcp'],
+            ['/family-mcp', '/.well-known/oauth-protected-resource/family-mcp'],
+          ]) {
+            const response = await fetch(`${base}${path}`, { redirect: 'manual' });
+            assert(response.status === 401, `missing bearer ${path}`, response.status);
+            assert((response.headers.get('www-authenticate') || '').includes(metadataPath), `challenge metadata ${path}`, response.headers.get('www-authenticate'));
+          }
 
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          owner=json.loads(Path('/tmp/owner-meta.json').read_text())
-          family=json.loads(Path('/tmp/family-meta.json').read_text())
-          assert owner.get('resource') == 'http://127.0.0.1:8787/my-mcp', owner
-          assert owner.get('scopes_supported') == ['owner:full'], owner
-          assert family.get('resource') == 'http://127.0.0.1:8787/family-mcp', family
-          assert family.get('scopes_supported') == ['family:read'], family
-          print('OWNER_OAUTH_LOCAL_RUNTIME_SMOKE=PASS')
-          PY
+          // Path-scoped metadata remains role-specific; root has no implicit role.
+          {
+            const owner = await json(await fetch(`${base}/.well-known/oauth-protected-resource/my-mcp`));
+            const family = await json(await fetch(`${base}/.well-known/oauth-protected-resource/family-mcp`));
+            assert(owner.resource === `${base}/my-mcp`, 'Owner resource metadata', owner);
+            assert(JSON.stringify(owner.scopes_supported) === JSON.stringify(['owner:full']), 'Owner scopes metadata', owner);
+            assert(family.resource === `${base}/family-mcp`, 'Family resource metadata', family);
+            assert(JSON.stringify(family.scopes_supported) === JSON.stringify(['family:read']), 'Family scopes metadata', family);
+            const root = await fetch(`${base}/.well-known/oauth-protected-resource`);
+            assert(root.status === 404, 'root metadata must not infer a role', root.status);
+          }
+
+          // OWNER: DCR -> login -> code -> access token -> MCP -> refresh.
+          const ownerCallback = 'https://chatgpt.com/connector/oauth/LocalOwnerSmoke123';
+          const ownerVerifier = 'owner-local-code-verifier-that-is-at-least-43-characters';
+          const ownerClient = await register('Local Owner MCP Smoke', ownerCallback);
+          const ownerQuery = await authorizeStart({
+            clientId: ownerClient.client_id,
+            callback: ownerCallback,
+            verifier: ownerVerifier,
+            resource: `${base}/my-mcp`,
+            scope: 'owner:full offline_access',
+          });
+          const ownerCode = await authorizeFinish({ oauthQuery: ownerQuery, secret: 'owner-local-secret', expectedPage: 'Owner' });
+          const ownerExchange = await tokenRequest({
+            grant_type: 'authorization_code', code: ownerCode,
+            redirect_uri: ownerCallback, code_verifier: ownerVerifier,
+            client_id: ownerClient.client_id, resource: `${base}/my-mcp`,
+          });
+          assert(ownerExchange.response.status === 200, 'Owner code exchange', ownerExchange.body);
+          assert(ownerExchange.body.access_token, 'Owner access token missing', ownerExchange.body);
+          assert(ownerExchange.body.refresh_token, 'Owner refresh token missing', ownerExchange.body);
+          assert((ownerExchange.body.scope || '').split(/\s+/).filter(Boolean).includes('owner:full'), 'Owner token scope', ownerExchange.body);
+
+          const ownerGood = await protectedCall('/my-mcp', ownerExchange.body.access_token);
+          assert(ownerGood.status !== 401 && ownerGood.status !== 403, 'Owner token rejected by Owner MCP', { status: ownerGood.status, body: (await ownerGood.text()).slice(0, 500) });
+          const ownerIntoFamily = await protectedCall('/family-mcp', ownerExchange.body.access_token);
+          assert(ownerIntoFamily.status === 401 || ownerIntoFamily.status === 403, 'Owner token crossed into Family', ownerIntoFamily.status);
+
+          const ownerWrongRefresh = await tokenRequest({
+            grant_type: 'refresh_token', refresh_token: ownerExchange.body.refresh_token,
+            client_id: ownerClient.client_id, resource: `${base}/family-mcp`,
+          });
+          assert(ownerWrongRefresh.response.status === 400 && ownerWrongRefresh.body.error === 'invalid_target', 'Owner refresh resource drift not rejected', ownerWrongRefresh.body);
+          const ownerRefresh = await tokenRequest({
+            grant_type: 'refresh_token', refresh_token: ownerExchange.body.refresh_token,
+            client_id: ownerClient.client_id, resource: `${base}/my-mcp`,
+          });
+          assert(ownerRefresh.response.status === 200 && ownerRefresh.body.access_token, 'Owner refresh failed', ownerRefresh.body);
+          const ownerRefreshedCall = await protectedCall('/my-mcp', ownerRefresh.body.access_token);
+          assert(ownerRefreshedCall.status !== 401 && ownerRefreshedCall.status !== 403, 'Refreshed Owner token rejected', ownerRefreshedCall.status);
+
+          // FAMILY: same full flow, with its independent secret/scope/resource.
+          const familyCallback = 'https://chatgpt.com/connector/oauth/LocalFamilySmoke123';
+          const familyVerifier = 'family-local-code-verifier-that-is-at-least-43-characters';
+          const familyClient = await register('Local Family MCP Smoke', familyCallback);
+          const familyQuery = await authorizeStart({
+            clientId: familyClient.client_id,
+            callback: familyCallback,
+            verifier: familyVerifier,
+            resource: `${base}/family-mcp`,
+            scope: 'family:read offline_access',
+          });
+          const familyCode = await authorizeFinish({ oauthQuery: familyQuery, secret: 'family-local-secret', expectedPage: 'Family' });
+          const familyExchange = await tokenRequest({
+            grant_type: 'authorization_code', code: familyCode,
+            redirect_uri: familyCallback, code_verifier: familyVerifier,
+            client_id: familyClient.client_id, resource: `${base}/family-mcp`,
+          });
+          assert(familyExchange.response.status === 200, 'Family code exchange', familyExchange.body);
+          assert(familyExchange.body.access_token, 'Family access token missing', familyExchange.body);
+          assert(familyExchange.body.refresh_token, 'Family refresh token missing', familyExchange.body);
+          assert((familyExchange.body.scope || '').split(/\s+/).filter(Boolean).includes('family:read'), 'Family token scope', familyExchange.body);
+
+          const familyGood = await protectedCall('/family-mcp', familyExchange.body.access_token);
+          assert(familyGood.status !== 401 && familyGood.status !== 403, 'Family token rejected by Family MCP', { status: familyGood.status, body: (await familyGood.text()).slice(0, 500) });
+          const familyIntoOwner = await protectedCall('/my-mcp', familyExchange.body.access_token);
+          assert(familyIntoOwner.status === 401 || familyIntoOwner.status === 403, 'Family token crossed into Owner', familyIntoOwner.status);
+
+          const familyWrongRefresh = await tokenRequest({
+            grant_type: 'refresh_token', refresh_token: familyExchange.body.refresh_token,
+            client_id: familyClient.client_id, resource: `${base}/my-mcp`,
+          });
+          assert(familyWrongRefresh.response.status === 400 && familyWrongRefresh.body.error === 'invalid_target', 'Family refresh resource drift not rejected', familyWrongRefresh.body);
+          const familyRefresh = await tokenRequest({
+            grant_type: 'refresh_token', refresh_token: familyExchange.body.refresh_token,
+            client_id: familyClient.client_id, resource: `${base}/family-mcp`,
+          });
+          assert(familyRefresh.response.status === 200 && familyRefresh.body.access_token, 'Family refresh failed', familyRefresh.body);
+          const familyRefreshedCall = await protectedCall('/family-mcp', familyRefresh.body.access_token);
+          assert(familyRefreshedCall.status !== 401 && familyRefreshedCall.status !== 403, 'Refreshed Family token rejected', familyRefreshedCall.status);
+
+          console.log('OWNER_FAMILY_OAUTH_FULL_LOCAL_FLOW=PASS');
+          NODE
