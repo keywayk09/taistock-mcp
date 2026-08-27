@@ -8,13 +8,15 @@ const root = path.resolve(here, "..");
 const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
 
 const indexV6 = read("src/index-v6.ts");
+const familyOAuth = read("src/v6/family-oauth.ts");
 const familyCompat = read("src/v6/family-oauth-public-client-compat.ts");
 
 // PUBLIC_INGRESS_CONTRACT_V1
 // External MCP endpoints are public ABI. Internal runtimes may change, but the
 // paths and resource identities must not drift.
 assert.match(indexV6, /url\.pathname === "\/my-mcp"/);
-assert.match(indexV6, /FamilyMCP\.serve\("\/family-mcp"/);
+assert.match(indexV6, /endpoint: "\/family-mcp"/);
+assert.match(familyOAuth, /FamilyMCP\.serve\("\/family-mcp"/);
 
 // Owner and Family identities must stay distinct. A Family compatibility layer
 // must never rewrite a Worker-root/Owner resource to /family-mcp.
