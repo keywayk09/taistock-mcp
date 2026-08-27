@@ -199,7 +199,8 @@ function runtimeEnv(options: { existingClient?: boolean } = {}) {
 }
 
 // POST with the existing Owner secret creates/reuses only the public connector
-// registration and grants exactly owner:full to the explicit /my-mcp resource.
+// registration. owner:full remains mandatory, while known ChatGPT compatibility
+// scopes are round-tripped so the connector does not report partial permission.
 {
   const runtime = runtimeEnv();
   const original = authorizeUrl(`${ORIGIN}/my-mcp`);
@@ -213,9 +214,9 @@ function runtimeEnv(options: { existingClient?: boolean } = {}) {
   assert.equal(response.status, 302);
   const authorization = runtime.getAuthorization();
   assert.equal(authorization.userId, "owner");
-  assert.deepEqual(authorization.scope, ["owner:full"]);
+  assert.deepEqual(authorization.scope, ["owner:full", "offline_access", "mcp:tools"]);
   assert.equal(authorization.props.role, "owner");
-  assert.deepEqual(authorization.request.scope, ["owner:full"]);
+  assert.deepEqual(authorization.request.scope, ["owner:full", "offline_access", "mcp:tools"]);
   assert.equal(authorization.request.resource, `${ORIGIN}/my-mcp`);
   assert.equal(runtime.writes.some(([key]) => key === `client:${CLIENT_ID}`), true);
 }
