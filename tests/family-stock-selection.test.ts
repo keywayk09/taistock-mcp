@@ -36,8 +36,9 @@ assert.match(source, /technicalScanLimit/);
 assert.match(source, /revenueScanLimit/);
 
 const index = read("src/index-v6.ts");
-assert.match(index, /registerFamilyStockSelectionToolsV2\(this\.server, this\.env\)/);
-assert.doesNotMatch(index, /registerFamilyStockSelectionTools\(this\.server, this\.env\)/);
+const ownerContent = read("src/v6/owner-content-handler.ts");
+assert.match(ownerContent, /registerFamilyStockSelectionToolsV2\(this\.server, this\.env\)/);
+assert.doesNotMatch(ownerContent, /registerFamilyStockSelectionTools\(this\.server, this\.env\)/);
 assert.match(index, /handleFamilySmartRest/);
 assert.match(index, /family_mcp:/);
 assert.match(index, /endpoint: "\/family-mcp"/);
@@ -48,7 +49,7 @@ assert.match(index, /owner_private_context: "DENY_BY_DEFAULT_UNLESS_EXPLICITLY_S
 assert.match(index, /FUGLE_REST_READ_ONLY_WITH_FIVE_LEVEL_BOOK_AND_RECENT_TRADES/);
 assert.match(index, /cross_account_read: "FUGLE_REST_PLUS_GITHUB_CANONICAL_NO_SERVICE_BINDING"/);
 assert.match(index, /stock_trade_tape: "RECENT_3_MINUTES_MAX_300_NORMALIZED_PRINTS_NOT_PERSISTED"/);
-assert.match(index, /registerSharedCryptoMarketTools\(this\.server, this\.env\)/);
+assert.match(ownerContent, /registerSharedCryptoMarketTools\(this\.server, this\.env\)/);
 assert.match(index, /crypto_policy: "CENTRAL_TV_CRYPTO_ENGINE_READ_ONLY_NO_DUPLICATE_FAMILY_ENGINE"/);
 assert.match(index, /tools: 118/);
 
