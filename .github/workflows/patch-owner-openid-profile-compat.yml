@@ -1,0 +1,130 @@
+name: One-shot Owner OpenID profile compatibility patch
+
+on:
+  push:
+    branches:
+      - fix/owner-openid-profile-compat-20260827
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/owner-openid-profile-compat-20260827
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Patch Owner compatibility scopes only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/v6/owner-oauth.ts')
+          s=p.read_text()
+          old='''export const OWNER_SCOPE = "owner:full";\nexport const OWNER_MCP_TOOLS_COMPAT_SCOPE = "mcp:tools";\nexport const OWNER_OFFLINE_ACCESS_COMPAT_SCOPE = "offline_access";\nconst OWNER_REQUESTABLE_SCOPES = new Set([\n  OWNER_SCOPE,\n  OWNER_MCP_TOOLS_COMPAT_SCOPE,\n  OWNER_OFFLINE_ACCESS_COMPAT_SCOPE,\n]);'''
+          new='''export const OWNER_SCOPE = "owner:full";\nexport const OWNER_MCP_TOOLS_COMPAT_SCOPE = "mcp:tools";\nexport const OWNER_OFFLINE_ACCESS_COMPAT_SCOPE = "offline_access";\nexport const OWNER_OPENID_COMPAT_SCOPE = "openid";\nexport const OWNER_PROFILE_COMPAT_SCOPE = "profile";\nconst OWNER_REQUESTABLE_SCOPES = new Set([\n  OWNER_SCOPE,\n  OWNER_MCP_TOOLS_COMPAT_SCOPE,\n  OWNER_OFFLINE_ACCESS_COMPAT_SCOPE,\n  OWNER_OPENID_COMPAT_SCOPE,\n  OWNER_PROFILE_COMPAT_SCOPE,\n]);'''
+          if old not in s:
+              raise SystemExit('owner_scope_block_not_found')
+          p.write_text(s.replace(old,new,1))
+          PY
+          git diff --check
+      - run: npm install
+      - name: Static and full repository gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run type-check
+          node --experimental-strip-types tests/owner-oauth-scope-roundtrip.test.ts
+          npm run test:research
+          npx wrangler deploy --dry-run
+          npx wrangler deploy --dry-run --config wrangler.owner-oauth.jsonc
+      - name: Full local Owner plus Family OAuth matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx wrangler dev --local --ip 127.0.0.1 --port 8787 \
+            --var MCP_API_KEY:owner-local-secret \
+            --var MOM_GPT_API_KEY:family-local-secret \
+            >/tmp/owner-openid-local.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; tail -160 /tmp/owner-openid-local.log || true' EXIT
+          ready=false
+          for i in $(seq 1 45); do
+            if curl --silent --max-time 2 http://127.0.0.1:8787/health >/dev/null 2>&1; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto';
+          const base='http://127.0.0.1:8787';
+          const callback='https://chatgpt.com/connector/oauth/OpenIdProfileCompat123';
+          const assert=(c,m,d)=>{if(!c)throw new Error(`${m}${d===undefined?'':': '+JSON.stringify(d)}`)};
+          const pkce=v=>crypto.createHash('sha256').update(v).digest('base64url');
+          const parse=async r=>{const t=await r.text();try{return JSON.parse(t)}catch{return{raw:t}}};
+          async function reg(label,method){const b={client_name:label,redirect_uris:[callback],grant_types:['authorization_code','refresh_token'],response_types:['code']};if(method)b.token_endpoint_auth_method=method;const r=await fetch(`${base}/oauth/register`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});const j=await parse(r);assert(r.status===201,'DCR',{status:r.status,j});return j}
+          async function start(client,resource,scope,verifier){const u=new URL(`${base}/authorize`);for(const[k,v]of Object.entries({response_type:'code',client_id:client.client_id,redirect_uri:callback,resource,scope,state:'scope-compat-state'}))u.searchParams.set(k,v);if(verifier){u.searchParams.set('code_challenge',pkce(verifier));u.searchParams.set('code_challenge_method','S256')}const r=await fetch(u,{redirect:'manual'});const t=await r.text();return{r,t,u}}
+          async function finish(q,secret){const r=await fetch(`${base}/authorize`,{method:'POST',redirect:'manual',headers:{'content-type':'application/x-www-form-urlencoded'},body:new URLSearchParams({oauth_query:q,login_secret:secret})});const t=r.status===302?'':await r.text();assert(r.status===302,'authorize finish',{status:r.status,t:t.slice(0,400)});return new URL(r.headers.get('location')).searchParams.get('code')}
+          async function token(client,p){const headers={'content-type':'application/x-www-form-urlencoded'},b={...p};if(client.client_secret){headers.authorization=`Basic ${Buffer.from(`${client.client_id}:${client.client_secret}`).toString('base64')}`;delete b.client_id}else b.client_id=client.client_id;const r=await fetch(`${base}/oauth/token`,{method:'POST',headers,body:new URLSearchParams(b)});return{r,j:await parse(r)}}
+          async function mcp(path,t){const r=await fetch(`${base}${path}`,{method:'POST',headers:{authorization:`Bearer ${t}`,'content-type':'application/json',accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'scope-compat',version:'1'}}})});return r.status}
+
+          // Legacy confidential Owner path: no PKCE, historical ChatGPT scopes.
+          const owner=await reg('Owner Legacy Scope Compat');
+          assert(owner.token_endpoint_auth_method==='client_secret_basic'&&owner.client_secret,'Owner confidential shape',owner);
+          // Local-only legacy marker, equivalent to bounded Production migration.
+          // The worker's local KV is not directly exposed, so use strict PKCE once to create a grant/client,
+          // then legacy no-PKCE behavior is covered by the dedicated source regression on this branch.
+          const ov='owner-openid-profile-verifier-longer-than-forty-three-chars';
+          const os=await start(owner,`${base}/my-mcp`,'openid profile offline_access mcp:tools',ov);
+          assert(os.r.status===200&&os.t.includes('Owner / 鑽石引擎'),'Owner historical scope authorize',{status:os.r.status,t:os.t.slice(0,300)});
+          const oc=await finish(os.u.searchParams.toString(),'owner-local-secret');
+          const ox=await token(owner,{grant_type:'authorization_code',code:oc,redirect_uri:callback,code_verifier:ov,resource:`${base}/my-mcp`});
+          assert(ox.r.status===200&&ox.j.access_token&&ox.j.refresh_token,'Owner exchange',ox.j);
+          const oscope=new Set(String(ox.j.scope||'').split(/\s+/).filter(Boolean));
+          for(const s of ['owner:full','openid','profile','offline_access','mcp:tools']) assert(oscope.has(s),'Owner missing scope',{scope:ox.j.scope,missing:s});
+          assert((await mcp('/my-mcp',ox.j.access_token))===200,'Owner MCP');
+          assert([401,403].includes(await mcp('/family-mcp',ox.j.access_token)),'Owner crossed Family');
+          const ow=await token(owner,{grant_type:'refresh_token',refresh_token:ox.j.refresh_token,resource:`${base}/family-mcp`});
+          assert(ow.r.status===400&&ow.j.error==='invalid_target','Owner refresh cross target',ow.j);
+          const orf=await token(owner,{grant_type:'refresh_token',refresh_token:ox.j.refresh_token,resource:`${base}/my-mcp`});
+          assert(orf.r.status===200&&orf.j.access_token,'Owner refresh',orf.j);
+          const rscope=new Set(String(orf.j.scope||'').split(/\s+/).filter(Boolean));
+          for(const s of ['owner:full','openid','profile','offline_access','mcp:tools']) assert(rscope.has(s),'Owner refresh missing scope',{scope:orf.j.scope,missing:s});
+
+          // Family/Mom remains public PKCE family:read only.
+          const fv='family-scope-compat-verifier-longer-than-forty-three-chars';
+          const fam=await reg('Family Scope Isolation','none');
+          const fs=await start(fam,`${base}/family-mcp`,'family:read',fv);
+          assert(fs.r.status===200&&fs.t.includes('Family 授權')&&!fs.t.includes('Owner / 鑽石引擎'),'Family authorize',{status:fs.r.status,t:fs.t.slice(0,300)});
+          const fc=await finish(fs.u.searchParams.toString(),'family-local-secret');
+          const fx=await token(fam,{grant_type:'authorization_code',code:fc,redirect_uri:callback,code_verifier:fv,resource:`${base}/family-mcp`});
+          assert(fx.r.status===200&&fx.j.access_token&&String(fx.j.scope||'').split(/\s+/).includes('family:read'),'Family exchange',fx.j);
+          assert((await mcp('/family-mcp',fx.j.access_token))===200,'Family MCP');
+          assert([401,403].includes(await mcp('/my-mcp',fx.j.access_token)),'Family crossed Owner');
+          const fw=await token(fam,{grant_type:'refresh_token',refresh_token:fx.j.refresh_token,resource:`${base}/my-mcp`});
+          assert(fw.r.status===400&&fw.j.error==='invalid_target','Family refresh cross target',fw.j);
+
+          // Owner never accepts Family or arbitrary privilege scopes.
+          for(const badScope of ['family:read offline_access mcp:tools','openid profile email offline_access mcp:tools','unexpected:admin']){
+            const bad=await start(owner,`${base}/my-mcp`,badScope,ov);
+            assert(bad.r.status===400,'bad Owner scope was accepted',{badScope,status:bad.r.status});
+          }
+          console.log('OWNER_OPENID_PROFILE_FAMILY_MATRIX=PASS');
+          NODE
+      - name: Commit tested source and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/patch-owner-openid-profile-compat.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/v6/owner-oauth.ts .github/workflows/patch-owner-openid-profile-compat.yml
+          git commit -m 'fix: accept legacy ChatGPT OpenID profile Owner scopes'
+          git push origin HEAD:fix/owner-openid-profile-compat-20260827
