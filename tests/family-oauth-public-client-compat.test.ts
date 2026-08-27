@@ -117,8 +117,23 @@ for (const pathname of [
   assert.equal(new URL(seen).searchParams.get("resource"), `${ORIGIN}/family-mcp`);
 }
 
-// Root, missing and Owner targets are never guessed to be Family.
-for (const resource of [ORIGIN, undefined, `${ORIGIN}/my-mcp`, `${ORIGIN}/mcp`]) {
+// Retained Family connectors may omit resource during authorize; only at this
+// trusted Family authorization boundary is omission defaulted to /family-mcp.
+{
+  let seen = "";
+  const wrapper = createFamilyOAuthPublicClientCompatWrapper({
+    async fetch(request) {
+      seen = request.url;
+      return new Response("ok");
+    },
+  });
+  const response = await wrapper.fetch(new Request(authorizeUrl().toString()), env, ctx);
+  assert.equal(response.status, 200);
+  assert.equal(new URL(seen).searchParams.get("resource"), `${ORIGIN}/family-mcp`);
+}
+
+// Explicit Worker-root and Owner targets are never guessed to be Family.
+for (const resource of [ORIGIN, `${ORIGIN}/my-mcp`, `${ORIGIN}/mcp`]) {
   let called = false;
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
     async fetch() {
@@ -157,6 +172,29 @@ for (const resource of [ORIGIN, undefined, `${ORIGIN}/my-mcp`, `${ORIGIN}/mcp`])
   assert.equal(response.status, 200);
 }
 
+// Hidden authorize POST also preserves retained missing-resource compatibility.
+{
+  const original = authorizeUrl();
+  const form = new URLSearchParams({
+    oauth_query: original.searchParams.toString(),
+    login_secret: "do-not-log-or-change",
+  });
+  const wrapper = createFamilyOAuthPublicClientCompatWrapper({
+    async fetch(request) {
+      const forwarded = new URLSearchParams(await request.text());
+      const hidden = new URLSearchParams(String(forwarded.get("oauth_query") || ""));
+      assert.equal(hidden.get("resource"), `${ORIGIN}/family-mcp`);
+      return new Response("ok");
+    },
+  });
+  const response = await wrapper.fetch(new Request(`${ORIGIN}/authorize`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: form.toString(),
+  }), env, ctx);
+  assert.equal(response.status, 200);
+}
+
 function tokenRequest(options: { basicSecret?: string; resource?: string; redirect?: string } = {}) {
   const params = new URLSearchParams({
     grant_type: "authorization_code",
@@ -175,8 +213,7 @@ function tokenRequest(options: { basicSecret?: string; resource?: string; redire
   });
 }
 
-// Public-client Basic `<client_id>:` normalization remains, but only for the
-// explicit Family resource.
+// Public-client Basic `<client_id>:` normalization remains for explicit Family.
 {
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
     async fetch(request) {
@@ -192,8 +229,24 @@ function tokenRequest(options: { basicSecret?: string; resource?: string; redire
   assert.equal(response.status, 200);
 }
 
-// Owner/root/missing token targets fail closed before Family token recovery.
-for (const resource of [ORIGIN, undefined, `${ORIGIN}/my-mcp`, `${ORIGIN}/mcp`]) {
+// RFC 8707 resource is optional at token exchange. Missing resource must not be
+// guessed or rewritten here; the inner validated grant/provider owns that target.
+{
+  const wrapper = createFamilyOAuthPublicClientCompatWrapper({
+    async fetch(request) {
+      assert.equal(request.headers.has("authorization"), false);
+      const body = new URLSearchParams(await request.text());
+      assert.equal(body.get("client_id"), CLIENT_ID);
+      assert.equal(body.get("resource"), null);
+      return Response.json({ ok: true });
+    },
+  });
+  const response = await wrapper.fetch(tokenRequest(), env, ctx);
+  assert.equal(response.status, 200);
+}
+
+// Explicit Owner/root token targets fail closed before Family token recovery.
+for (const resource of [ORIGIN, `${ORIGIN}/my-mcp`, `${ORIGIN}/mcp`]) {
   let called = false;
   const wrapper = createFamilyOAuthPublicClientCompatWrapper({
     async fetch() {
