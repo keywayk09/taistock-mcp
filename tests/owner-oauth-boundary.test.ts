@@ -6,6 +6,7 @@ import { createFamilyOAuthPublicClientCompatWrapper } from "../src/v6/family-oau
 import { handleOwnerAuthorize } from "../src/v6/owner-oauth.ts";
 
 const ORIGIN = "https://taistock-mcp.keywayk09.workers.dev";
+const OWNER_AUTHORIZATION_SERVER = "https://taistock-owner-oauth.keywayk09.workers.dev";
 const CLIENT_ID = "owner-client-12345";
 const REDIRECT_URI = "https://chatgpt.com/connector/oauth/OwnerApp123";
 const CHALLENGE = "A".repeat(43);
@@ -43,7 +44,7 @@ function authorizeUrl(resource: string) {
   assert.equal(response.status, 200);
   const body = await response.json() as Record<string, unknown>;
   assert.equal(body.resource, `${ORIGIN}/my-mcp`);
-  assert.deepEqual(body.authorization_servers, [ORIGIN]);
+  assert.deepEqual(body.authorization_servers, [OWNER_AUTHORIZATION_SERVER]);
   assert.deepEqual(body.scopes_supported, ["owner:full"]);
 }
 
@@ -62,6 +63,7 @@ function authorizeUrl(resource: string) {
   assert.equal(response.status, 200);
   const body = await response.json() as Record<string, unknown>;
   assert.equal(body.resource, `${ORIGIN}/mcp`);
+  assert.deepEqual(body.authorization_servers, [OWNER_AUTHORIZATION_SERVER]);
   assert.deepEqual(body.scopes_supported, ["owner:full"]);
 }
 
