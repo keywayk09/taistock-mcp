@@ -1,0 +1,59 @@
+name: Address Owner safe diag P2 retry
+
+on:
+  push:
+    branches:
+      - fix/owner-safe-diag-20260827
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/owner-safe-diag-20260827
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply reachable-only diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('src/v6/owner-oauth.ts')
+          s=p.read_text()
+          s,n1=re.subn(r'^\s*\| "RESOURCE";?\n','',s,count=1,flags=re.M)
+          s,n2=re.subn(r'^\s*if \(!canonicalOwnerResource\(String\(url\.searchParams\.get\("resource"\).*?return "RESOURCE";\n','',s,count=1,flags=re.M)
+          if n1 != 1 or n2 != 1: raise SystemExit(f'source_resource_diag_not_removed:{n1}:{n2}')
+          p.write_text(s)
+          t=Path('tests/owner-oauth-safe-diag.test.ts')
+          x=t.read_text()
+          x,n3=re.subn(r'^\s*\[\x27RESOURCE\x27,\{resource:.*?\n','',x,count=1,flags=re.M)
+          if n3 != 1: raise SystemExit(f'test_resource_case_not_removed:{n3}')
+          t.write_text(x)
+          PY
+          git diff --check
+          npm install
+          npm run type-check
+          node --experimental-strip-types tests/owner-oauth-safe-diag.test.ts
+          npm run test:ops-contracts
+          npm run test:family-selection
+          npx wrangler deploy --dry-run
+          npx wrangler deploy --dry-run --config wrangler.owner-oauth.jsonc
+      - name: Commit and remove temporary workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/patch-owner-safe-diag-p2.yml .github/workflows/patch-owner-safe-diag-p2b.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/v6/owner-oauth.ts tests/owner-oauth-safe-diag.test.ts .github/workflows/patch-owner-safe-diag-p2.yml .github/workflows/patch-owner-safe-diag-p2b.yml
+          git commit -m 'diag: keep Owner rejection classes reachable'
+          git push origin HEAD:fix/owner-safe-diag-20260827
