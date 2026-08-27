@@ -9,7 +9,7 @@ const root = path.resolve(here, "..");
 const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
 
 const indexV6 = read("src/index-v6.ts");
-const familyOAuth = read("src/v6/family-oauth.ts");
+const familyContent = read("src/v6/family-content-handler.ts");
 const ORIGIN = "https://taistock-mcp.keywayk09.workers.dev";
 const ctx = {} as ExecutionContext;
 const env = {} as Env;
@@ -19,7 +19,7 @@ const env = {} as Env;
 // these public paths and their role identities may not drift.
 assert.match(indexV6, /url\.pathname === "\/my-mcp"/);
 assert.match(indexV6, /endpoint: "\/family-mcp"/);
-assert.match(familyOAuth, /FamilyMCP\.serve\("\/family-mcp"/);
+assert.match(familyContent, /FamilyMCP\.serve\("\/family-mcp"/);
 
 const wrapper = createFamilyOAuthPublicClientCompatWrapper({
   async fetch() {
