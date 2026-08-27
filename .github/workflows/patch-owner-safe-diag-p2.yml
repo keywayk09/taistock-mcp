@@ -1,0 +1,54 @@
+name: Address Owner safe diag P2
+
+on:
+  push:
+    branches:
+      - fix/owner-safe-diag-20260827
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/owner-safe-diag-20260827
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Remove unreachable RESOURCE diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/v6/owner-oauth.ts')
+          s=p.read_text()
+          s=s.replace('''  | "RESOURCE"\n''','',1)
+          s=s.replace('''  if (!canonicalOwnerResource(String(url.searchParams.get("resource") || "").trim(), url.origin)) return "RESOURCE";\n''','',1)
+          p.write_text(s)
+          t=Path('tests/owner-oauth-safe-diag.test.ts')
+          x=t.read_text()
+          x=x.replace("    ['RESOURCE',{resource:`${ORIGIN}/family-mcp`}],\n",'',1)
+          t.write_text(x)
+          PY
+          git diff --check
+          npm install
+          npm run type-check
+          node --experimental-strip-types tests/owner-oauth-safe-diag.test.ts
+          npm run test:ops-contracts
+          npm run test:family-selection
+      - name: Commit and self-delete
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/patch-owner-safe-diag-p2.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/v6/owner-oauth.ts tests/owner-oauth-safe-diag.test.ts .github/workflows/patch-owner-safe-diag-p2.yml
+          git commit -m 'diag: keep Owner rejection classes reachable'
+          git push origin HEAD:fix/owner-safe-diag-20260827
