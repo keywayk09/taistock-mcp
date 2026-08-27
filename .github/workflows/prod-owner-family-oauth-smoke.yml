@@ -1,0 +1,232 @@
+name: Production Owner Family OAuth Boundary Smoke
+
+on:
+  push:
+    branches:
+      - diag/owner-oauth-client-shape-20260827
+    paths:
+      - '.github/workflows/prod-owner-family-oauth-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MCP_BASE: https://taistock-mcp.keywayk09.workers.dev
+      OWNER_BASE: https://taistock-owner-oauth.keywayk09.workers.dev
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Verify Production Owner and Family OAuth boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import hashlib
+          import json
+          import os
+          import re
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          MCP=os.environ['MCP_BASE'].rstrip('/')
+          OWNER=os.environ['OWNER_BASE'].rstrip('/')
+          ACCOUNT=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          TOKEN=os.environ['CLOUDFLARE_API_TOKEN']
+          if not ACCOUNT or not TOKEN:
+              raise SystemExit('cloudflare_credentials_missing')
+
+          def http(url, method='GET', data=None, headers=None, timeout=20):
+              h={'User-Agent':'taistock-prod-oauth-smoke/1'}
+              if headers: h.update(headers)
+              req=urllib.request.Request(url, data=data, headers=h, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=timeout) as resp:
+                      return resp.status, {k.lower():v for k,v in resp.headers.items()}, resp.read()
+              except urllib.error.HTTPError as e:
+                  return e.code, {k.lower():v for k,v in e.headers.items()}, e.read()
+
+          def json_req(url, method='GET', obj=None, headers=None):
+              h=dict(headers or {})
+              data=None
+              if obj is not None:
+                  data=json.dumps(obj).encode()
+                  h['Content-Type']='application/json'
+              st, rh, raw=http(url, method, data, h)
+              try:
+                  body=json.loads(raw.decode('utf-8'))
+              except Exception:
+                  body=None
+              return st, rh, body, raw
+
+          def expect(cond, label):
+              if not cond:
+                  raise AssertionError(label)
+
+          # Resolve the shared OAuth KV without printing its id.
+          cf_headers={'Authorization':f'Bearer {TOKEN}','Content-Type':'application/json'}
+          st,_,body,_=json_req(f'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT}/storage/kv/namespaces?per_page=1000', headers=cf_headers)
+          expect(st==200 and isinstance(body,dict) and body.get('success') is True, 'oauth_kv_list_failed')
+          rows=body.get('result') or []
+          preferred=[x for x in rows if x.get('title')=='taistock-mcp-OAUTH_KV']
+          legacy=[x for x in rows if x.get('title')=='OAUTH_KV']
+          chosen=preferred[0] if len(preferred)==1 else (legacy[0] if len(legacy)==1 else None)
+          expect(chosen is not None, 'oauth_kv_not_resolved')
+          kv=chosen['id']
+
+          def kv_url(name):
+              return f'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT}/storage/kv/namespaces/{kv}/values/{urllib.parse.quote(name, safe="")}'
+
+          def kv_get(name):
+              st,_,raw=http(kv_url(name), headers={'Authorization':f'Bearer {TOKEN}'})
+              return (raw.decode('utf-8') if st==200 else None)
+
+          def kv_delete(name):
+              st,_,_=http(kv_url(name), method='DELETE', headers={'Authorization':f'Bearer {TOKEN}'})
+              if st not in (200,204,404):
+                  raise AssertionError('temporary_client_cleanup_failed')
+
+          marker_prefix='owner-oauth:legacy-confidential:'
+          q=urllib.parse.urlencode({'prefix':marker_prefix,'limit':'1000'})
+          st,_,keys_body,_=json_req(f'https://api.cloudflare.com/client/v4/accounts/{ACCOUNT}/storage/kv/namespaces/{kv}/keys?{q}', headers={'Authorization':f'Bearer {TOKEN}'})
+          expect(st==200 and keys_body.get('success') is True, 'legacy_marker_list_failed')
+          marker_names=[str(x.get('name') or '') for x in (keys_body.get('result') or []) if str(x.get('name') or '').startswith(marker_prefix)]
+          expect(len(marker_names)==3, 'legacy_marker_count_not_three')
+
+          def trusted_redirect(raw):
+              try:
+                  u=urllib.parse.urlparse(raw)
+              except Exception:
+                  return False
+              if u.scheme!='https' or u.username or u.password or u.query or u.fragment:
+                  return False
+              if u.hostname not in {'chatgpt.com','chat.openai.com'}:
+                  return False
+              return bool(re.fullmatch(r'/connector/oauth/[A-Za-z0-9_-]{8,256}',u.path) or u.path=='/connector_platform_oauth_redirect')
+
+          legacy_client=None
+          legacy_redirect=None
+          for marker in marker_names:
+              cid=marker[len(marker_prefix):]
+              raw=kv_get(f'client:{cid}')
+              if not raw:
+                  continue
+              try: rec=json.loads(raw)
+              except Exception: continue
+              method=rec.get('tokenEndpointAuthMethod') or rec.get('token_endpoint_auth_method')
+              redirects=rec.get('redirectUris') or rec.get('redirect_uris') or []
+              if method in {'client_secret_basic','client_secret_post'} and len(redirects)==1 and trusted_redirect(str(redirects[0])):
+                  legacy_client=cid
+                  legacy_redirect=str(redirects[0])
+                  break
+          expect(bool(legacy_client and legacy_redirect), 'marked_legacy_owner_client_not_found')
+          print('PROD_LEGACY_OWNER_MARKERS=3')
+          print('PROD_LEGACY_OWNER_SAMPLE_HASH='+hashlib.sha256(legacy_client.encode()).hexdigest()[:10])
+
+          # Public MCP/resource metadata boundaries.
+          st,_,health,_=json_req(f'{MCP}/health')
+          expect(st==200 and health.get('status')=='ok' and health.get('mcp_endpoint')=='/my-mcp', 'mcp_health_contract_failed')
+
+          st,_,om,_=json_req(f'{MCP}/.well-known/oauth-protected-resource/my-mcp')
+          expect(st==200 and om.get('resource')==f'{MCP}/my-mcp' and om.get('authorization_servers')==[OWNER] and om.get('scopes_supported')==['owner:full'], 'owner_resource_metadata_failed')
+          st,_,olm,_=json_req(f'{MCP}/.well-known/oauth-protected-resource/mcp')
+          expect(st==200 and olm.get('resource')==f'{MCP}/mcp' and olm.get('authorization_servers')==[OWNER] and olm.get('scopes_supported')==['owner:full'], 'legacy_owner_metadata_failed')
+          st,_,fm,_=json_req(f'{MCP}/.well-known/oauth-protected-resource/family-mcp')
+          expect(st==200 and fm.get('resource')==f'{MCP}/family-mcp' and fm.get('authorization_servers')==[MCP] and fm.get('scopes_supported')==['family:read'], 'family_resource_metadata_failed')
+          st,_,_=http(f'{MCP}/.well-known/oauth-protected-resource')
+          expect(st==404, 'root_resource_metadata_must_404')
+
+          st,_,oas,_=json_req(f'{OWNER}/.well-known/oauth-authorization-server')
+          expect(st==200 and oas.get('issuer')==OWNER and oas.get('authorization_endpoint')==f'{OWNER}/authorize' and oas.get('token_endpoint')==f'{OWNER}/oauth/token' and oas.get('registration_endpoint')==f'{OWNER}/oauth/register', 'owner_authorization_server_metadata_failed')
+          oscopes=set(oas.get('scopes_supported') or [])
+          expect({'owner:full','mcp:tools','offline_access'}.issubset(oscopes) and 'family:read' not in oscopes, 'owner_authorization_server_scope_failed')
+
+          init=json.dumps({'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2025-03-26','capabilities':{},'clientInfo':{'name':'prod-oauth-smoke','version':'1'}}}).encode()
+          for path in ['/my-mcp','/mcp','/family-mcp']:
+              st,h,_=http(f'{MCP}{path}', method='POST', data=init, headers={'Content-Type':'application/json','Accept':'application/json, text/event-stream'})
+              expect(st==401, f'unauthorized_boundary_{path}')
+              expect('bearer' in h.get('www-authenticate','').lower(), f'bearer_challenge_{path}')
+          print('PROD_PROTECTED_MCP_BOUNDARIES=PASS')
+
+          def authorize_url(base, client_id, redirect, resource, scope, state, challenge=None):
+              params={'response_type':'code','client_id':client_id,'redirect_uri':redirect,'resource':resource,'scope':scope,'state':state}
+              if challenge:
+                  params['code_challenge']=challenge
+                  params['code_challenge_method']='S256'
+              return f'{base}/authorize?'+urllib.parse.urlencode(params)
+
+          # The exact pre-fix confidential Owner client now reaches the login page without PKCE.
+          legacy_url=authorize_url(OWNER,legacy_client,legacy_redirect,f'{MCP}/my-mcp','offline_access mcp:tools','prod-legacy-owner')
+          st,_,raw=http(legacy_url)
+          text=raw.decode('utf-8','replace')
+          expect(st==200 and 'Owner / 鑽石引擎' in text and 'Family 授權' not in text, 'legacy_owner_no_pkce_production_failed')
+          bad_scope=authorize_url(OWNER,legacy_client,legacy_redirect,f'{MCP}/my-mcp','offline_access mcp:tools family:read','prod-owner-badscope')
+          st,_,_=http(bad_scope)
+          expect(st==400, 'legacy_owner_family_scope_injection_not_blocked')
+          print('PROD_LEGACY_OWNER_NO_PKCE=PASS')
+
+          temp_clients=[]
+          try:
+              callback='https://chatgpt.com/connector/oauth/ProdOAuthSmoke20260827'
+
+              # Fresh confidential Owner DCR must NOT inherit the legacy exemption.
+              st,_,owner_reg,_=json_req(f'{OWNER}/oauth/register', method='POST', obj={
+                  'client_name':'Production Owner Boundary Smoke',
+                  'redirect_uris':[callback],
+                  'grant_types':['authorization_code','refresh_token'],
+                  'response_types':['code'],
+              })
+              expect(st==201 and isinstance(owner_reg,dict), 'owner_dcr_failed')
+              fresh_owner=str(owner_reg.get('client_id') or '')
+              expect(bool(fresh_owner), 'owner_dcr_client_missing')
+              temp_clients.append(fresh_owner)
+              method=owner_reg.get('token_endpoint_auth_method')
+              expect(method in {'client_secret_basic','client_secret_post'} and bool(owner_reg.get('client_secret')), 'owner_dcr_not_confidential')
+              expect(kv_get(marker_prefix+fresh_owner) is None, 'fresh_owner_unexpected_legacy_marker')
+
+              u=authorize_url(OWNER,fresh_owner,callback,f'{MCP}/my-mcp','offline_access mcp:tools','prod-fresh-owner-no-pkce')
+              st,_,_=http(u)
+              expect(st==400, 'fresh_confidential_owner_no_pkce_not_blocked')
+
+              verifier='prod-owner-boundary-verifier-20260827-abcdefghijklmnopqrstuvwxyz'
+              challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip('=')
+              u=authorize_url(OWNER,fresh_owner,callback,f'{MCP}/my-mcp','offline_access mcp:tools','prod-fresh-owner-pkce',challenge)
+              st,_,raw=http(u)
+              text=raw.decode('utf-8','replace')
+              expect(st==200 and 'Owner / 鑽石引擎' in text, 'fresh_confidential_owner_pkce_failed')
+              print('PROD_FRESH_OWNER_MARKER_GATE=PASS')
+
+              # Family/Mom remains a distinct public-PKCE family:read plane.
+              st,_,family_reg,_=json_req(f'{MCP}/oauth/register', method='POST', obj={
+                  'client_name':'Production Family Boundary Smoke',
+                  'redirect_uris':[callback],
+                  'grant_types':['authorization_code','refresh_token'],
+                  'response_types':['code'],
+                  'token_endpoint_auth_method':'none',
+              })
+              expect(st==201 and isinstance(family_reg,dict), 'family_dcr_failed')
+              fresh_family=str(family_reg.get('client_id') or '')
+              expect(bool(fresh_family), 'family_dcr_client_missing')
+              temp_clients.append(fresh_family)
+              expect(family_reg.get('token_endpoint_auth_method')=='none' and not family_reg.get('client_secret'), 'family_dcr_not_public')
+
+              fver='prod-family-boundary-verifier-20260827-abcdefghijklmnopqrstuvwxyz'
+              fchallenge=base64.urlsafe_b64encode(hashlib.sha256(fver.encode()).digest()).decode().rstrip('=')
+              fu=authorize_url(MCP,fresh_family,callback,f'{MCP}/family-mcp','family:read','prod-family-pkce',fchallenge)
+              st,_,raw=http(fu)
+              text=raw.decode('utf-8','replace')
+              expect(st==200 and 'Family 授權' in text and 'Owner / 鑽石引擎' not in text, 'family_authorize_production_failed')
+              print('PROD_FAMILY_MOM_PKCE_READONLY=PASS')
+          finally:
+              for cid in temp_clients:
+                  kv_delete(f'client:{cid}')
+              print('PROD_TEMP_DCR_CLIENTS_CLEANED='+str(len(temp_clients)))
+
+          print('PRODUCTION_OWNER_AND_FAMILY_OAUTH_BOUNDARY_SMOKE=PASS')
+          PY
