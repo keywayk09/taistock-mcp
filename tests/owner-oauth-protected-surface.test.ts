@@ -40,6 +40,10 @@ assert.match(oauth, /scopesSupported\s*:\s*\[FAMILY_SCOPE, OWNER_SCOPE\]/);
 assert.match(oauth, /isOwnerAuthorizeRequest/);
 assert.match(oauth, /handleOwnerAuthorize/);
 
+// PATH_SCOPED_CHALLENGE_SCOPE_V1
+assert.match(oauth, /scopesSupported\s*:\s*\[FAMILY_SCOPE, OWNER_SCOPE\]/);
+assert.doesNotMatch(oauth, /scopes_supported\s*:\s*\[FAMILY_SCOPE, OWNER_SCOPE\]/);
+
 // OWNER_EFFECTIVE_SCOPE_V1
 assert.match(oauth, /OAUTH_PROVIDER\.unwrapToken\s*\(/);
 assert.match(oauth, /effectiveToken[^;]*\.scope[\s\S]*includes\s*\(\s*requiredScope\s*\)/);
