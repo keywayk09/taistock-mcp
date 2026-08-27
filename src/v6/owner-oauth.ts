@@ -196,6 +196,12 @@ function ownerClientMatches(raw: string | null, candidate: OwnerConnectorCandida
   if (!raw) return false;
   try {
     const stored = JSON.parse(raw) as StoredOwnerConnectorClient;
+    const authMethod = stored.tokenEndpointAuthMethod;
+    const authCompatible = authMethod === "none"
+      ? !stored.clientSecret
+      : (authMethod === "client_secret_basic" || authMethod === "client_secret_post")
+        && Boolean(stored.clientSecret);
+
     return stored.clientId === candidate.clientId
       && Array.isArray(stored.redirectUris)
       && stored.redirectUris.length === 1
@@ -204,8 +210,7 @@ function ownerClientMatches(raw: string | null, candidate: OwnerConnectorCandida
       && stored.grantTypes.includes("authorization_code")
       && Array.isArray(stored.responseTypes)
       && stored.responseTypes.includes("code")
-      && stored.tokenEndpointAuthMethod === "none"
-      && !stored.clientSecret;
+      && authCompatible;
   } catch {
     return false;
   }
