@@ -665,6 +665,11 @@ async function rollbackPreparedTokenBootstrap(prepared: PreparedTokenBootstrap, 
 export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
   const familyApiHandler: ConcreteFetchHandler = {
     async fetch(request, env, ctx) {
+      const props = (ctx as ExecutionContext & { props?: { userId?: string; role?: string } }).props;
+      const { userId, role } = props || {};
+      if (role !== "family" || userId !== "family") {
+        return Response.json({ error: "forbidden_family_role" }, { status: 403 });
+      }
       try {
         return await FamilyMCP.serve("/family-mcp", { binding: "FAMILY_MCP_OBJECT" }).fetch(request, env, ctx);
       } catch (error) {
@@ -680,6 +685,17 @@ export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
     },
   };
 
+  const ownerApiHandler: ConcreteFetchHandler = {
+    async fetch(request, env, ctx) {
+      const props = (ctx as ExecutionContext & { props?: { userId?: string; role?: string } }).props;
+      const { userId, role } = props || {};
+      if (role !== "owner" || userId !== "owner") {
+        return Response.json({ error: "forbidden_owner_role" }, { status: 403 });
+      }
+      return appHandler.fetch(request, env, ctx);
+    },
+  };
+
   const defaultHandler: ConcreteFetchHandler = {
     async fetch(request, env, ctx) {
       const url = new URL(request.url);
@@ -692,8 +708,11 @@ export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
   };
 
   const provider = new OAuthProvider<Env>({
-    apiRoute: "/family-mcp",
-    apiHandler: familyApiHandler,
+    apiHandlers: {
+      "/family-mcp": familyApiHandler,
+      "/my-mcp": ownerApiHandler,
+      "/mcp": ownerApiHandler,
+    },
     defaultHandler,
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/oauth/token",

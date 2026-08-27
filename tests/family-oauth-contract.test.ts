@@ -16,7 +16,10 @@ const pkg = JSON.parse(read("package.json"));
 
 assert.equal(pkg.dependencies["@cloudflare/workers-oauth-provider"], "0.10.3");
 assert.match(oauth, /new OAuthProvider<Env>/);
-assert.match(oauth, /apiRoute: "\/family-mcp"/);
+assert.match(oauth, /apiHandlers: \{/);
+assert.match(oauth, /"\/family-mcp": familyApiHandler/);
+assert.match(oauth, /"\/my-mcp": ownerApiHandler/);
+assert.match(oauth, /"\/mcp": ownerApiHandler/);
 assert.match(oauth, /authorizeEndpoint: "\/authorize"/);
 assert.match(oauth, /tokenEndpoint: "\/oauth\/token"/);
 assert.match(oauth, /clientRegistrationEndpoint: "\/oauth\/register"/);
