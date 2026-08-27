@@ -47,8 +47,12 @@ jobs:
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/all-keys.json
 
           python - <<'PY'
-          import collections, json, os
+          import collections, hashlib, json, os, re, urllib.parse, urllib.request
           from pathlib import Path
+
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          kv=os.environ['OAUTH_KV_ID']
           rows=(json.loads(Path('/tmp/all-keys.json').read_text()).get('result') or [])
           counts=collections.Counter()
           for row in rows:
@@ -56,47 +60,40 @@ jobs:
               prefix=name.split(':',1)[0] if ':' in name else name[:40]
               counts[prefix]+=1
           print(f'ALL_KEY_COUNT={len(rows)}')
-          for key,count in counts.most_common():
-              print(f'KEY_FAMILY {key}={count}')
-          PY
+          for key,count in counts.most_common(): print(f'KEY_FAMILY {key}={count}')
 
-          curl --fail --silent --show-error --max-time 30 \
-            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kv_id}/keys?prefix=client%3A&limit=1000" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/client-keys.json
-
-          python - <<'PY'
-          import hashlib, json, os, re, urllib.parse, urllib.request
-          from pathlib import Path
-          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
-          token=os.environ['CLOUDFLARE_API_TOKEN']
-          kv=os.environ['OAUTH_KV_ID']
-          rows=(json.loads(Path('/tmp/client-keys.json').read_text()).get('result') or [])
-          opaque=re.compile(r'^[A-Za-z0-9._~-]{8,256}$')
-          callback=re.compile(r'^/connector/oauth/[A-Za-z0-9_-]{8,256}$')
-          legacy='/connector_platform_oauth_redirect'
-          public_count=0
-          confidential_count=0
-          for i,row in enumerate(rows):
-              name=str(row.get('name') or '')
-              if not name.startswith('client:'): continue
-              cid=name[7:]
-              digest=hashlib.sha256(cid.encode()).hexdigest()[:10]
+          def read_value(name):
               key=urllib.parse.quote(name, safe='')
               url=f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{kv}/values/{key}'
               req=urllib.request.Request(url, headers={'Authorization':f'Bearer {token}'})
               with urllib.request.urlopen(req, timeout=20) as resp:
-                  rec=json.loads(resp.read().decode('utf-8'))
-              redirects=rec.get('redirectUris') or rec.get('redirect_uris') or []
+                  return json.loads(resp.read().decode('utf-8'))
+
+          client_modes={}
+          public_count=0
+          confidential_count=0
+          for row in rows:
+              name=str(row.get('name') or '')
+              if not name.startswith('client:'): continue
+              cid=name[7:]
+              rec=read_value(name)
               auth=rec.get('tokenEndpointAuthMethod') or rec.get('token_endpoint_auth_method')
+              client_modes[cid]=auth
               if auth=='none': public_count+=1
               if auth in {'client_secret_basic','client_secret_post'}: confidential_count+=1
-              for r in redirects:
-                  u=urllib.parse.urlsplit(str(r))
-                  host=u.hostname or ''
-                  path=u.path or ''
-                  trusted=host in {'chatgpt.com','chat.openai.com'} and (bool(callback.fullmatch(path)) or path==legacy) and u.scheme=='https' and not u.query and not u.fragment
-                  if host in {'chatgpt.com','chat.openai.com'}:
-                      print(f'CHATGPT_CLIENT id_hash={digest} opaque_ok={bool(opaque.fullmatch(cid))} redirect_ok={trusted} auth={auth}')
           print(f'CHATGPT_PUBLIC_CLIENTS={public_count}')
           print(f'CHATGPT_CONFIDENTIAL_CLIENTS={confidential_count}')
+
+          for row in rows:
+              name=str(row.get('name') or '')
+              if not name.startswith('grant:'): continue
+              rec=read_value(name)
+              cid=str(rec.get('clientId') or rec.get('client_id') or '')
+              scope=rec.get('scope') or []
+              if isinstance(scope,str): scope=scope.split()
+              props=rec.get('props') or {}
+              role=props.get('role') if isinstance(props,dict) else None
+              user_id=rec.get('userId') or rec.get('user_id') or props.get('userId') if isinstance(props,dict) else None
+              cid_hash=hashlib.sha256(cid.encode()).hexdigest()[:10] if cid else 'missing'
+              print(f'ACTIVE_GRANT client_hash={cid_hash} client_mode={client_modes.get(cid)} role={role} user_id={user_id} scopes={sorted(map(str,scope))}')
           PY
