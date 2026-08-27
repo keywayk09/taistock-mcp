@@ -42,7 +42,7 @@ jobs:
           fi
 
           node <<'NODE'
-          const crypto = require('node:crypto');
+          const crypto = await import('node:crypto');
           const base = 'http://127.0.0.1:8787';
 
           function assert(cond, message, detail) {
@@ -131,7 +131,6 @@ jobs:
             });
           }
 
-          // Public health remains public after MCP protection is enabled.
           {
             const response = await fetch(`${base}/health`);
             assert(response.status === 200, 'health must remain public', response.status);
@@ -140,7 +139,6 @@ jobs:
             assert(body.mcp_endpoint === '/my-mcp', 'frozen Owner endpoint', body);
           }
 
-          // Missing bearer tokens challenge the exact path-scoped metadata.
           for (const [path, metadataPath] of [
             ['/my-mcp', '/.well-known/oauth-protected-resource/my-mcp'],
             ['/mcp', '/.well-known/oauth-protected-resource/mcp'],
@@ -151,7 +149,6 @@ jobs:
             assert((response.headers.get('www-authenticate') || '').includes(metadataPath), `challenge metadata ${path}`, response.headers.get('www-authenticate'));
           }
 
-          // Path-scoped metadata remains role-specific; root has no implicit role.
           {
             const owner = await json(await fetch(`${base}/.well-known/oauth-protected-resource/my-mcp`));
             const family = await json(await fetch(`${base}/.well-known/oauth-protected-resource/family-mcp`));
@@ -163,7 +160,6 @@ jobs:
             assert(root.status === 404, 'root metadata must not infer a role', root.status);
           }
 
-          // OWNER: DCR -> login -> code -> access token -> MCP -> refresh.
           const ownerCallback = 'https://chatgpt.com/connector/oauth/LocalOwnerSmoke123';
           const ownerVerifier = 'owner-local-code-verifier-that-is-at-least-43-characters';
           const ownerClient = await register('Local Owner MCP Smoke', ownerCallback);
@@ -203,7 +199,6 @@ jobs:
           const ownerRefreshedCall = await protectedCall('/my-mcp', ownerRefresh.body.access_token);
           assert(ownerRefreshedCall.status !== 401 && ownerRefreshedCall.status !== 403, 'Refreshed Owner token rejected', ownerRefreshedCall.status);
 
-          // FAMILY: same full flow, with its independent secret/scope/resource.
           const familyCallback = 'https://chatgpt.com/connector/oauth/LocalFamilySmoke123';
           const familyVerifier = 'family-local-code-verifier-that-is-at-least-43-characters';
           const familyClient = await register('Local Family MCP Smoke', familyCallback);
