@@ -1,0 +1,22 @@
+{
+  "canonical_storage": "keywayk09/tv-papertrader main/data",
+  "capture_errors": {
+    "institutional": "RuntimeError: TPEX_INSTI_MODERN_exact_date_empty",
+    "margin": "RuntimeError: TPEX_MARGIN_MODERN_exact_date_empty",
+    "sbl_balance": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty",
+    "sbl_volume": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty"
+  },
+  "captured_at_utc": "2026-08-27T19:51:00.221630Z",
+  "datasets": {},
+  "missing_datasets": [
+    "institutional",
+    "margin",
+    "sbl_balance",
+    "sbl_volume"
+  ],
+  "schema": "TPEX_OFFICIAL_RELAY_V2",
+  "source_owner": "TPEx",
+  "status": "PARTIAL",
+  "trade_date": "2026-08-28",
+  "transport": "GitHub hosted runner exact-date modern official TPEx JSON API"
+}
