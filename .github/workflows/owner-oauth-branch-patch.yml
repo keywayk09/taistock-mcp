@@ -16,7 +16,7 @@ jobs:
         with:
           ref: fix/owner-oauth-boundary-20260827
           fetch-depth: 0
-      - name: Apply narrow role-aware provider patch
+      - name: Apply narrow role-aware provider and contract patch
         shell: bash
         run: |
           set -euo pipefail
@@ -51,16 +51,34 @@ jobs:
           text=text.replace('resource_name: "Taiwan Stock AI Family MCP",', 'resource_name: "Taiwan Stock AI OAuth Server",', 1)
           path.write_text(text)
 
-          test=Path('tests/family-oauth-contract.test.ts')
-          t=test.read_text()
-          t=t.replace(
+          contract=Path('tests/family-oauth-contract.test.ts')
+          c=contract.read_text()
+          c=c.replace(
               'assert.match(oauth, /scopesSupported: \\[FAMILY_SCOPE\\]/);',
               'assert.match(oauth, /scopesSupported: \\[FAMILY_SCOPE, OWNER_SCOPE\\]/);',
               1,
           )
-          if 'OWNER_SCOPE' not in t:
+          if 'scopesSupported: \\[FAMILY_SCOPE, OWNER_SCOPE\\]' not in c:
               raise SystemExit('family_contract_scope_patch_failed')
-          test.write_text(t)
+          contract.write_text(c)
+
+          compat=Path('tests/family-oauth-public-client-compat.test.ts')
+          t=compat.read_text()
+          t=t.replace(
+              '  "/.well-known/oauth-protected-resource",\n  "/.well-known/oauth-protected-resource/my-mcp",\n  "/.well-known/oauth-protected-resource/mcp",',
+              '  "/.well-known/oauth-protected-resource",',
+              1,
+          )
+          t=t.replace(
+              '["family:read", "offline_access"]',
+              '["family:read", "owner:full", "offline_access"]',
+          )
+          t=t.replace(
+              'for (const resource of [ORIGIN, `${ORIGIN}/my-mcp`, `${ORIGIN}/mcp`]) {',
+              'for (const resource of [ORIGIN]) {',
+          )
+          t=t.replace('"invalid_family_resource"', '"invalid_oauth_resource"')
+          compat.write_text(t)
           PY
 
           git diff --check
@@ -70,6 +88,6 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/v6/family-oauth.ts tests/family-oauth-contract.test.ts
-          git commit -m 'fix: route Owner authorization inside shared OAuth provider'
+          git add src/v6/family-oauth.ts tests/family-oauth-contract.test.ts tests/family-oauth-public-client-compat.test.ts
+          git commit -m 'test: align Family compatibility contract with Owner OAuth boundary'
           git push origin HEAD:fix/owner-oauth-boundary-20260827
