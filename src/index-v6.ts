@@ -2,10 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MyMCP as BaseMCP } from "./index";
 import { registerDailyReportFormatTool } from "./v6/daily-report-format";
 import { handleFamilyActionCompat } from "./v6/family-action-compat";
-import { createFamilyOAuthProvider } from "./v6/family-oauth";
-import { createFamilyOAuthLegacyEndpointWrapper } from "./v6/family-oauth-legacy-endpoints";
-import { createFamilyOAuthPublicClientCompatWrapper } from "./v6/family-oauth-public-client-compat";
-import { createFamilyOAuthTokenRecoveryWrapper } from "./v6/family-oauth-token-recovery";
+import { familyContentHandler } from "./v6/family-content-handler";
+import { createMcpAccessBroker } from "./v6/mcp-access-broker";
 import { FAMILY_MCP_TOOL_NAMES } from "./v6/family-mcp";
 import { githubDataStoreHealth } from "./v6/github-data-store";
 import { runExtendedScheduledMarketDataController } from "./v6/market-data-scheduled-dispatch";
@@ -245,15 +243,11 @@ const appHandler = {
   },
 };
 
-const familyOAuthProvider = createFamilyOAuthLegacyEndpointWrapper(
-  createFamilyOAuthPublicClientCompatWrapper(
-    createFamilyOAuthTokenRecoveryWrapper(createFamilyOAuthProvider(appHandler)),
-  ),
-);
+const mcpAccessBroker = createMcpAccessBroker(appHandler, familyContentHandler);
 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    return familyOAuthProvider.fetch(request, env, ctx);
+    return mcpAccessBroker.fetch(request, env, ctx);
   },
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext) {

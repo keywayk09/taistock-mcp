@@ -4,14 +4,12 @@ import {
   type AuthRequest,
   type OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
-import { FamilyMCP } from "./family-mcp";
 import { handleOwnerAuthorize, isOwnerAuthorizeRequest, OWNER_SCOPE } from "./owner-oauth";
 
 declare global {
   interface Env {
     OAUTH_KV: KVNamespace;
     OAUTH_PROVIDER: OAuthHelpers;
-    FAMILY_MCP_OBJECT: DurableObjectNamespace<FamilyMCP>;
     FAMILY_OAUTH_LOGIN_SECRET?: string;
     MOM_GPT_API_KEY?: string;
   }
@@ -676,7 +674,10 @@ async function requireEffectiveScope(request: Request, env: Env, requiredScope: 
   return Boolean(effectiveToken?.scope?.includes(requiredScope));
 }
 
-export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
+export function createFamilyOAuthProvider(
+  appHandler: ConcreteFetchHandler,
+  familyContentHandler: ConcreteFetchHandler,
+) {
   const familyApiHandler: ConcreteFetchHandler = {
     async fetch(request, env, ctx) {
       const props = (ctx as ExecutionContext & { props?: { userId?: string; role?: string } }).props;
@@ -687,18 +688,7 @@ export function createFamilyOAuthProvider(appHandler: ConcreteFetchHandler) {
     if (!await requireEffectiveScope(request, env, FAMILY_SCOPE)) {
       return Response.json({ error: "insufficient_family_scope" }, { status: 403 });
     }
-      try {
-        return await FamilyMCP.serve("/family-mcp", { binding: "FAMILY_MCP_OBJECT" }).fetch(request, env, ctx);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (message.includes("FAMILY_MCP_OBJECT") && message.includes("binding")) {
-          return Response.json({
-            error: "family_mcp_binding_missing",
-            message: "FAMILY_MCP_OBJECT is required; refusing to fall back to the full MCP_OBJECT namespace.",
-          }, { status: 503 });
-        }
-        throw error;
-      }
+      return familyContentHandler.fetch(request, env, ctx);
     },
   };
 

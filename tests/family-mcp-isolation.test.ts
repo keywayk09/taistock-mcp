@@ -9,6 +9,7 @@ const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
 
 const family = read("src/v6/family-mcp.ts");
 const oauth = read("src/v6/family-oauth.ts");
+const familyContent = read("src/v6/family-content-handler.ts");
 const index = read("src/index-v6.ts");
 const wrangler = read("wrangler.jsonc");
 
@@ -57,16 +58,16 @@ assert.doesNotMatch(wrangler, /"services"\s*:/);
 // Family must use the Agents SDK's explicit Durable Object binding option.
 // Missing/invalid FAMILY_MCP_OBJECT fails closed; no Proxy remap and no fallback
 // to the full MCP_OBJECT/MyMCP namespace is allowed.
-assert.match(oauth, /FamilyMCP\.serve\("\/family-mcp", \{ binding: "FAMILY_MCP_OBJECT" \}\)/);
-assert.match(oauth, /family_mcp_binding_missing/);
-assert.match(oauth, /refusing to fall back to the full MCP_OBJECT namespace/);
+assert.match(familyContent, /FamilyMCP\.serve\("\/family-mcp", \{ binding: "FAMILY_MCP_OBJECT" \}\)/);
+assert.match(familyContent, /family_mcp_binding_missing/);
+assert.match(familyContent, /refusing to fall back to the full MCP_OBJECT namespace/);
 assert.doesNotMatch(oauth, /new Proxy\(/);
 assert.doesNotMatch(oauth, /if \(property === "MCP_OBJECT"\)/);
 assert.doesNotMatch(oauth, /binding: "MCP_OBJECT"/);
 
 assert.match(index, /url\.pathname === "\/my-mcp" \|\| url\.pathname === "\/mcp"/);
 assert.match(index, /return MyMCP\.serve\(url\.pathname\)\.fetch/);
-assert.match(index, /createFamilyOAuthProvider\(appHandler\)/);
+assert.match(index, /createMcpAccessBroker\(appHandler, familyContentHandler\)/);
 assert.match(index, /family: "FamilyMCP_READ_ONLY_ISOLATED"/);
 
 console.log("Family MCP isolated read-only cross-account-safe surface contract passed");
