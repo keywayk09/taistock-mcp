@@ -1,0 +1,106 @@
+name: Mark legacy confidential Owner OAuth clients
+
+on:
+  push:
+    branches:
+      - diag/owner-oauth-client-shape-20260827
+    paths:
+      - '.github/workflows/mark-legacy-owner-confidential-clients.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Mark only preexisting confidential clients with Owner grants
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
+          curl --fail --silent --show-error --max-time 30 "${endpoint}?per_page=1000" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' > /tmp/oauth-kv-list.json
+
+          kv_id="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          body=json.loads(Path('/tmp/oauth-kv-list.json').read_text())
+          rows=body.get('result') or []
+          preferred=[x for x in rows if x.get('title')=='taistock-mcp-OAUTH_KV']
+          legacy=[x for x in rows if x.get('title')=='OAUTH_KV']
+          chosen=preferred[0] if len(preferred)==1 else (legacy[0] if len(legacy)==1 else None)
+          if not chosen: raise SystemExit('oauth_kv_not_resolved')
+          print(chosen['id'])
+          PY
+          )"
+          export OAUTH_KV_ID="$kv_id"
+
+          curl --fail --silent --show-error --max-time 30 \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${kv_id}/keys?limit=1000" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" > /tmp/all-keys.json
+
+          python - <<'PY'
+          import hashlib, json, os, urllib.parse, urllib.request
+          from pathlib import Path
+
+          account=os.environ['CLOUDFLARE_ACCOUNT_ID']
+          token=os.environ['CLOUDFLARE_API_TOKEN']
+          kv=os.environ['OAUTH_KV_ID']
+          rows=(json.loads(Path('/tmp/all-keys.json').read_text()).get('result') or [])
+          names=[str(row.get('name') or '') for row in rows]
+
+          def request(method, name, data=None):
+              key=urllib.parse.quote(name, safe='')
+              url=f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces/{kv}/values/{key}'
+              headers={'Authorization':f'Bearer {token}'}
+              req=urllib.request.Request(url, headers=headers, method=method, data=data)
+              with urllib.request.urlopen(req, timeout=20) as resp:
+                  return resp.read()
+
+          def read_json(name):
+              return json.loads(request('GET', name).decode('utf-8'))
+
+          clients={}
+          for name in names:
+              if not name.startswith('client:'): continue
+              cid=name[7:]
+              rec=read_json(name)
+              method=rec.get('tokenEndpointAuthMethod') or rec.get('token_endpoint_auth_method')
+              clients[cid]=(method, rec)
+
+          selected=set()
+          for name in names:
+              if not name.startswith('grant:'): continue
+              rec=read_json(name)
+              cid=str(rec.get('clientId') or rec.get('client_id') or '')
+              scope=rec.get('scope') or []
+              if isinstance(scope,str): scope=scope.split()
+              props=rec.get('props') or {}
+              user_id=rec.get('userId') or rec.get('user_id')
+              if not user_id and isinstance(props,dict): user_id=props.get('userId')
+              method=(clients.get(cid) or (None,None))[0]
+              if user_id=='owner' and 'owner:full' in set(map(str,scope)) and method in {'client_secret_basic','client_secret_post'}:
+                  selected.add(cid)
+
+          if not selected:
+              raise SystemExit('no_legacy_owner_confidential_clients_found')
+          if len(selected) > 10:
+              raise SystemExit(f'unexpected_legacy_owner_confidential_count:{len(selected)}')
+
+          for cid in sorted(selected):
+              marker=f'owner-oauth:legacy-confidential:{cid}'
+              request('PUT', marker, b'v1')
+              verify=request('GET', marker).decode('utf-8')
+              if verify != 'v1': raise SystemExit('marker_verify_failed')
+              digest=hashlib.sha256(cid.encode()).hexdigest()[:10]
+              print(f'LEGACY_OWNER_CONFIDENTIAL_MARKED client_hash={digest}')
+
+          print(f'LEGACY_OWNER_CONFIDENTIAL_MARKER_COUNT={len(selected)}')
+          PY
