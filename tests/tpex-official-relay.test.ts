@@ -77,6 +77,19 @@ assert.match(watchdogRelay, /group: tpex-official-relay-v2/);
 assert.doesNotMatch(watchdogRelay, /group: tpex-relay-watchdog-v1/);
 assert.doesNotMatch(watchdogRelay, /cron: '50 14 \* \* 1-5'/);
 assert.doesNotMatch(watchdogRelay, /cron: '0 15 \* \* 1-5'/);
+
+// Transient TPEx transport failures are retryable, but semantic/date validation remains
+// fail-closed. Production observed an initial HTTP 520 followed by a clean rerun, so the
+// watchdog must absorb only bounded transient transport failures and then give up.
+assert.match(watchdogRelay, /urllib\.error/);
+assert.match(watchdogRelay, /time\.sleep/);
+assert.match(watchdogRelay, /520/);
+assert.match(watchdogRelay, /429/);
+assert.match(watchdogRelay, /502/);
+assert.match(watchdogRelay, /503/);
+assert.match(watchdogRelay, /504/);
+assert.match(watchdogRelay, /2\s*,\s*5\s*,\s*10/);
+assert.match(watchdogRelay, /source_date_mismatch/);
 assertPythonCompiles("TPEx relay watchdog", watchdogRelay);
 
 // Historical exact-date capture may classify an old date as no-trading only when ALL
