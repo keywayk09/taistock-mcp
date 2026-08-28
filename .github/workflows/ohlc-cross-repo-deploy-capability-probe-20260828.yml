@@ -1,0 +1,42 @@
+name: OHLC Cross Repo Deploy Capability Probe 20260828
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ohlc-cross-repo-deploy-capability-probe-20260828.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check private source access and Cloudflare credential presence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS -o /tmp/tv-papertrader-probe.json -w '%{http_code}' \
+            'https://api.github.com/repos/keywayk09/tv-papertrader/contents/cloudflare/ohlc-tv-fugle-1d/package.json?ref=main' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28')"
+          cf_token=false; cf_account=false
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && cf_token=true
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] && cf_account=true
+          echo "cross_repo_http=${code} cloudflare_token=${cf_token} cloudflare_account=${cf_account}"
+          if [ "$code" != '200' ]; then
+            echo 'CROSS_REPO_SOURCE_ACCESS_UNAVAILABLE'
+            exit 42
+          fi
+          if [ "$cf_token" != true ] || [ "$cf_account" != true ]; then
+            echo 'CLOUDFLARE_DEPLOY_CREDENTIALS_UNAVAILABLE'
+            exit 43
+          fi
+          echo 'OHLC_CROSS_REPO_DEPLOY_CAPABILITY_PASS'
