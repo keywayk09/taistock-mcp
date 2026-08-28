@@ -1,0 +1,56 @@
+name: OHLC Live Bundle Inspect 20260828
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/ohlc-live-bundle-inspect-20260828.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Inspect deployed OHLC bundle anchors
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ]
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]
+          url="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/tv-fugle-1d/content"
+          curl --fail --silent --show-error --max-time 60 "$url" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -o /tmp/ohlc-bundle.bin
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          raw=Path('/tmp/ohlc-bundle.bin').read_bytes()
+          text=raw.decode('utf-8',errors='replace')
+          print('bundle_bytes=',len(raw))
+          markers={
+            'ohlcFamilyReadInternal':'ohlcFamilyReadInternal' in text,
+            'OAUTH_MCP_PATHS':'OAUTH_MCP_PATHS' in text,
+            'cleanHealth':'cleanHealth' in text,
+            'read_ohlc':'read_ohlc' in text,
+            'decision_time':'decision_time' in text,
+            'formal_blind_route':'/research/formal-blind-verification' in text,
+            'legacy_sidecar':'legacy-oauth-mcp-worker.js' in text,
+          }
+          print('markers=',markers)
+          names=[]
+          for m in re.finditer(r'filename="([^"]+)"',text):
+            name=m.group(1)
+            if name not in names: names.append(name)
+          print('module_names=',names[:80])
+          required=['ohlcFamilyReadInternal','OAUTH_MCP_PATHS','cleanHealth','read_ohlc','decision_time','legacy_sidecar']
+          missing=[k for k in required if not markers[k]]
+          if missing:
+            raise SystemExit('BUNDLE_REQUIRED_ANCHORS_MISSING:'+','.join(missing))
+          print('OHLC_LIVE_BUNDLE_PATCHABLE_PASS')
+          PY
