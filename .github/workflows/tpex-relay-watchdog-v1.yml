@@ -54,6 +54,7 @@ jobs:
           python - <<'PY'
           import datetime as dt
           import hashlib
+          import http.client
           import json
           import os
           import pathlib
@@ -112,7 +113,7 @@ jobs:
                 delay=RETRY_DELAYS[attempt]
                 print(f'{label} transient HTTP {exc.code}; retry {attempt+1}/{len(RETRY_DELAYS)} in {delay}s')
                 time.sleep(delay)
-              except (urllib.error.URLError,TimeoutError) as exc:
+              except (urllib.error.URLError,TimeoutError,http.client.IncompleteRead,ConnectionResetError) as exc:
                 if attempt>=len(RETRY_DELAYS):
                   raise
                 delay=RETRY_DELAYS[attempt]
