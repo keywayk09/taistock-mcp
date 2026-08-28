@@ -54,10 +54,13 @@ jobs:
           python - <<'PY'
           import datetime as dt
           import hashlib
+          import http.client
           import json
           import os
           import pathlib
           import re
+          import time
+          import urllib.error
           import urllib.parse
           import urllib.request
           from zoneinfo import ZoneInfo
@@ -65,6 +68,8 @@ jobs:
           ROOT=pathlib.Path('/tmp/tpex-watchdog/data/market-data/tpex-relay')
           TAIPEI=ZoneInfo('Asia/Taipei')
           REQUIRED=('institutional','margin','sbl_balance','sbl_volume')
+          RETRYABLE_HTTP={429,502,503,504,520}
+          RETRY_DELAYS=(2,5,10)
           HEADERS={
             'Accept':'application/json,text/plain,*/*',
             'Accept-Language':'zh-TW,zh;q=0.9,en;q=0.8',
@@ -92,12 +97,33 @@ jobs:
             try:return float(clean(v).replace(',',''))
             except:return 0.0
 
-          def exact_table(url,label,day):
+          def fetch_bytes_with_retry(url,label):
             req=urllib.request.Request(url,headers=HEADERS)
-            with urllib.request.urlopen(req,timeout=30) as response:
-              raw=response.read(); final=response.geturl()
-              if response.status!=200: raise RuntimeError(f'{label}_http_{response.status}')
-              if '/errors' in final: raise RuntimeError(f'{label}_redirected_to_errors:{final}')
+            for attempt in range(len(RETRY_DELAYS)+1):
+              try:
+                with urllib.request.urlopen(req,timeout=30) as response:
+                  raw=response.read(); final=response.geturl()
+                  if response.status!=200:
+                    raise RuntimeError(f'{label}_http_{response.status}')
+                  return raw,final
+              except urllib.error.HTTPError as exc:
+                retryable=exc.code in RETRYABLE_HTTP
+                if not retryable or attempt>=len(RETRY_DELAYS):
+                  raise
+                delay=RETRY_DELAYS[attempt]
+                print(f'{label} transient HTTP {exc.code}; retry {attempt+1}/{len(RETRY_DELAYS)} in {delay}s')
+                time.sleep(delay)
+              except (urllib.error.URLError,TimeoutError,http.client.IncompleteRead,ConnectionResetError) as exc:
+                if attempt>=len(RETRY_DELAYS):
+                  raise
+                delay=RETRY_DELAYS[attempt]
+                print(f'{label} transient network error {type(exc).__name__}; retry {attempt+1}/{len(RETRY_DELAYS)} in {delay}s')
+                time.sleep(delay)
+            raise RuntimeError(f'{label}_retry_exhausted')
+
+          def exact_table(url,label,day):
+            raw,final=fetch_bytes_with_retry(url,label)
+            if '/errors' in final: raise RuntimeError(f'{label}_redirected_to_errors:{final}')
             body=json.loads(raw.decode('utf-8-sig'))
             expected=day.strftime('%Y%m%d')
             if not isinstance(body,dict) or str(body.get('date') or '')!=expected:
