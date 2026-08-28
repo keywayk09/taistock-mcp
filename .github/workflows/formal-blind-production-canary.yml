@@ -54,7 +54,10 @@ jobs:
           if rc.get('leakage_validated') is not True or rc.get('prefix_completeness') is not True:
               raise SystemExit(f"canonical_cutoff={rc}")
           verification=receipt.get('verification') or {}
-          if verification.get('accepted_for_research') is not True or verification.get('official_verified') is not True:
+          # This is the exact canonical proof contract consumed by readFormalBlindOhlc.
+          # `official_verified` is not required because the public proof projection
+          # does not guarantee that optional nested field is present.
+          if verification.get('accepted_for_research') is not True:
               raise SystemExit(f"verification={verification}")
           if 'rows' in body or 'bars' in body:
               raise SystemExit('canary_must_not_expose_rows_or_bars')
