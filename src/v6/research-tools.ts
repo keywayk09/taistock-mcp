@@ -4,6 +4,7 @@ import { registerBatchBacktestTool } from "./batch-backtest-tool";
 import { registerDeterministicBacktestTool } from "./deterministic-backtest-tool";
 import { registerDiamondCapabilityTools } from "./diamond-capability-tools";
 import { registerExperimentLedgerTools } from "./experiment-ledger-tools";
+import { registerFormalBlindOhlcReaderTool } from "./formal-blind-ohlc-reader";
 import { registerGptJudgmentMemoryTools } from "./gpt-judgment-memory-tools";
 import { registerResearchBlindOhlcFallbackTool } from "./research-blind-ohlc-fallback";
 import { getResearchStatus, getStoredCandles } from "./research-pipeline";
@@ -53,6 +54,7 @@ export function registerResearchTools(server: McpServer, env: Env) {
   }, async ({ symbol, date, timeframe }) => ok(await getStoredCandles(env, date, symbol, timeframe)));
 
   registerResearchBlindOhlcFallbackTool(server, env);
+  registerFormalBlindOhlcReaderTool(server, env);
   registerDeterministicBacktestTool(server);
   registerBatchBacktestTool(server, env);
   registerSelective1mReplayTool(server);
