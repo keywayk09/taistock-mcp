@@ -6,6 +6,7 @@ import { getTwMarketDataDayStatus } from "./v6/market-data-day-status";
 import { createComposedMcpRuntime } from "./v6/mcp-runtime-composition";
 import { getResearchStatus, isAuthorizedResearchRequest } from "./v6/research-pipeline";
 import { TW_MARKET_DATA_VERSION } from "./v6/tw-market-data-github";
+import { FORMAL_BLIND_OHLC_READER_VERSION, readFormalBlindOhlc } from "./v6/formal-blind-ohlc-reader";
 
 export { FamilyMCP, MyMCP } from "./v6/mcp-runtime-composition";
 
@@ -19,6 +20,14 @@ const FAMILY_SMART_REST_PATHS = new Set([
   "/api/family/screen",
   "/api/family/status",
 ]);
+
+const FORMAL_BLIND_CANARY = Object.freeze({
+  symbol: "2426",
+  trade_date: "2026-08-27",
+  timeframe: "1m" as const,
+  decision_time: "10:00:00",
+  limit: 300,
+});
 
 function taipeiDateFromMs(ms: number) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -97,6 +106,7 @@ const publicAppHandler = {
           trading_day_policy: "OFFICIAL_CALENDAR_PLUS_WEEKEND_GATE; NO_DATA_NEVER_IMPLIES_HOLIDAY",
           status_endpoint: "/market-data/status?trade_date=YYYY-MM-DD",
           full_market_status_endpoint: "/health/full-market",
+          formal_blind_canary_endpoint: "/health/formal-blind",
           full_market_scan_contract: "tw-full-market-source-contract/v1.0.0",
           full_market_scan_policy: "FROZEN_TWSE_OPENAPI_PLUS_MOPSFIN_TWSE_MIS; NO_FUGLE_RANKING; NO_FINMIND_REQUIRED; NO_DIRECT_TPEX_QUOTES",
           swing_screen_policy: "FROZEN_FULL_MARKET_PREFILTER_PLUS_FUGLE_PER_SYMBOL_HISTORY; NO_FINMIND_REQUIRED",
@@ -156,6 +166,59 @@ const publicAppHandler = {
         },
         optional_metadata_errors: result.optional_metadata_errors,
       }, { status: result.usable ? 200 : 503 });
+    }
+
+    if (url.pathname === "/health/formal-blind" && request.method === "GET") {
+      const result = await readFormalBlindOhlc(env, FORMAL_BLIND_CANARY);
+      const record = result as Record<string, any>;
+      const receipt = record.canonical_verification_receipt as Record<string, any> | null;
+      const eligible = record.formal_blind_eligible === true
+        && record.formal_research_eligible === true
+        && record.scorecard_eligible === true
+        && record.leakage_validated === true
+        && record.cutoff?.prefix_completeness === true
+        && receipt?.formal_blind_eligible === true
+        && receipt?.cutoff?.leakage_validated === true
+        && receipt?.cutoff?.prefix_completeness === true
+        && receipt?.verification?.accepted_for_research === true;
+
+      return Response.json({
+        status: eligible ? "ok" : "blocked",
+        dry_run: true,
+        read_only: true,
+        canary: FORMAL_BLIND_CANARY,
+        formal_reader_version: record.formal_reader_version || FORMAL_BLIND_OHLC_READER_VERSION,
+        data_status: record.data_status || null,
+        formal_blind_eligible: record.formal_blind_eligible === true,
+        formal_research_eligible: record.formal_research_eligible === true,
+        scorecard_eligible: record.scorecard_eligible === true,
+        eligibility_reason: record.eligibility_reason || null,
+        row_count: Number(record.row_count || 0),
+        returned: Number(record.returned || 0),
+        cutoff: {
+          leakage_validated: record.cutoff?.leakage_validated === true,
+          prefix_completeness: record.cutoff?.prefix_completeness === true,
+          expected_bar_count: Number(record.cutoff?.expected_bar_count || 0),
+          actual_expected_bar_count: Number(record.cutoff?.actual_expected_bar_count || 0),
+          missing_slot_count: Number(record.cutoff?.missing_slot_count || 0),
+        },
+        canonical_verification: receipt ? {
+          verification_version: receipt.verification_version || null,
+          formal_blind_eligible: receipt.formal_blind_eligible === true,
+          eligibility_reason: receipt.eligibility_reason || null,
+          cutoff: {
+            leakage_validated: receipt.cutoff?.leakage_validated === true,
+            prefix_completeness: receipt.cutoff?.prefix_completeness === true,
+          },
+          verification: {
+            accepted_for_research: receipt.verification?.accepted_for_research === true,
+            official_verified: receipt.verification?.official_verified === true,
+            level: receipt.verification?.level || null,
+            verification_mode: receipt.verification?.verification_mode || null,
+          },
+        } : null,
+        policy: "NO_ROWS_NO_BARS_NO_POST_DECISION_VALUES",
+      }, { status: eligible ? 200 : 503 });
     }
 
     if (url.pathname === "/market-data/status" && request.method === "GET") {
