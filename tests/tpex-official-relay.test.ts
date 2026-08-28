@@ -82,6 +82,9 @@ assert.doesNotMatch(watchdogRelay, /cron: '0 15 \* \* 1-5'/);
 // fail-closed. Production observed an initial HTTP 520 followed by a clean rerun, so the
 // watchdog must absorb only bounded transient transport failures and then give up.
 assert.match(watchdogRelay, /urllib\.error/);
+assert.match(watchdogRelay, /http\.client/);
+assert.match(watchdogRelay, /IncompleteRead/);
+assert.match(watchdogRelay, /ConnectionResetError/);
 assert.match(watchdogRelay, /time\.sleep/);
 assert.match(watchdogRelay, /520/);
 assert.match(watchdogRelay, /429/);
