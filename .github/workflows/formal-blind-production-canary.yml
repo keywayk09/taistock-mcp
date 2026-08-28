@@ -1,0 +1,75 @@
+name: FORMAL Blind Production Canary
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/index-v6.ts'
+      - 'src/v6/formal-blind-ohlc-reader.ts'
+      - '.github/workflows/formal-blind-production-canary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: formal-blind-production-canary
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify live FORMAL Blind dry-run contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://taistock-mcp.keywayk09.workers.dev/health/formal-blind'
+          rm -f /tmp/formal-blind-canary.json
+          passed=false
+          for attempt in 1 2 3 4 5 6; do
+            echo "FORMAL Blind canary attempt ${attempt}/6"
+            if curl --fail --silent --show-error --max-time 45 "$url" > /tmp/formal-blind-canary.json \
+              && python - <<'PY'
+          import json
+          from pathlib import Path
+
+          body=json.loads(Path('/tmp/formal-blind-canary.json').read_text())
+          if body.get('status') != 'ok':
+              raise SystemExit(f"status={body.get('status')}")
+          if body.get('dry_run') is not True or body.get('read_only') is not True:
+              raise SystemExit('not_read_only_dry_run')
+          for key in ('formal_blind_eligible','formal_research_eligible','scorecard_eligible'):
+              if body.get(key) is not True:
+                  raise SystemExit(f"{key}={body.get(key)}")
+          cutoff=body.get('cutoff') or {}
+          if cutoff.get('leakage_validated') is not True or cutoff.get('prefix_completeness') is not True:
+              raise SystemExit(f"cutoff={cutoff}")
+          receipt=body.get('canonical_verification') or {}
+          if receipt.get('formal_blind_eligible') is not True:
+              raise SystemExit('canonical_formal_blind_eligible=false')
+          rc=receipt.get('cutoff') or {}
+          if rc.get('leakage_validated') is not True or rc.get('prefix_completeness') is not True:
+              raise SystemExit(f"canonical_cutoff={rc}")
+          verification=receipt.get('verification') or {}
+          if verification.get('accepted_for_research') is not True or verification.get('official_verified') is not True:
+              raise SystemExit(f"verification={verification}")
+          if 'rows' in body or 'bars' in body:
+              raise SystemExit('canary_must_not_expose_rows_or_bars')
+          if body.get('policy') != 'NO_ROWS_NO_BARS_NO_POST_DECISION_VALUES':
+              raise SystemExit(f"policy={body.get('policy')}")
+          print('FORMAL_BLIND_PRODUCTION_CANARY_PASS')
+          PY
+            then
+              passed=true
+              break
+            fi
+            sleep 10
+          done
+          if [ "$passed" != true ]; then
+            echo 'FORMAL_BLIND_PRODUCTION_CANARY_FAILED' >&2
+            cat /tmp/formal-blind-canary.json >&2 2>/dev/null || true
+            exit 1
+          fi
