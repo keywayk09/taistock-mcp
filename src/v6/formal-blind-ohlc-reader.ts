@@ -13,6 +13,8 @@ type FormalBlindArgs = {
   limit?: number;
 };
 
+type AnyRecord = Record<string, any>;
+
 function normalizeDecisionTime(value: string) {
   const raw = String(value || "").trim();
   return raw.length === 5 ? `${raw}:00` : raw;
@@ -30,7 +32,7 @@ function blocked(base: Record<string, unknown>, reason: string, receipt: unknown
   };
 }
 
-function receiptMatches(receipt: any, args: FormalBlindArgs) {
+function receiptMatches(receipt: AnyRecord | null, args: FormalBlindArgs) {
   return receipt?.ok === true
     && receipt?.formal_blind_eligible === true
     && String(receipt?.symbol || "") === String(args.symbol)
@@ -48,8 +50,11 @@ export async function readFormalBlindOhlc(
   fetchImpl: typeof fetch = fetch,
 ) {
   const fallback = await readResearchBlindOhlcFallback(env, input);
-  if (fallback?.ok !== true || fallback?.leakage_validated !== true || fallback?.cutoff?.prefix_completeness !== true) {
-    return blocked(fallback as Record<string, unknown>, "LOCAL_CANONICAL_CUTOFF_NOT_ELIGIBLE");
+  const fallbackRecord = fallback as AnyRecord;
+  if (fallbackRecord.ok !== true
+      || fallbackRecord.leakage_validated !== true
+      || fallbackRecord.cutoff?.prefix_completeness !== true) {
+    return blocked(fallbackRecord, "LOCAL_CANONICAL_CUTOFF_NOT_ELIGIBLE");
   }
 
   const baseUrl = String((env as any).OHLC_FORMAL_VERIFICATION_BASE_URL || DEFAULT_OHLC_BASE_URL).replace(/\/+$/, "");
@@ -71,19 +76,19 @@ export async function readFormalBlindOhlc(
       },
     });
   } catch (error) {
-    return blocked(fallback as Record<string, unknown>, `CANONICAL_VERIFICATION_HTTP_FAILED:${String((error as Error)?.message || error)}`);
+    return blocked(fallbackRecord, `CANONICAL_VERIFICATION_HTTP_FAILED:${String((error as Error)?.message || error)}`);
   }
 
-  const receipt = await response.json().catch(() => null);
+  const receipt = await response.json().catch(() => null) as AnyRecord | null;
   if (!response.ok) {
-    return blocked(fallback as Record<string, unknown>, `CANONICAL_VERIFICATION_HTTP_${response.status}`, receipt);
+    return blocked(fallbackRecord, `CANONICAL_VERIFICATION_HTTP_${response.status}`, receipt);
   }
   if (!receiptMatches(receipt, input)) {
-    return blocked(fallback as Record<string, unknown>, String(receipt?.eligibility_reason || receipt?.error || "CANONICAL_VERIFICATION_NOT_ELIGIBLE"), receipt);
+    return blocked(fallbackRecord, String(receipt?.eligibility_reason || receipt?.error || "CANONICAL_VERIFICATION_NOT_ELIGIBLE"), receipt);
   }
 
   return {
-    ...fallback,
+    ...fallbackRecord,
     mode: "formal_research_blind",
     source: "GITHUB_CANONICAL_SERVER_SIDE_CUTOFF_PLUS_OHLC_CANONICAL_VERIFICATION",
     formal_blind_eligible: true,
