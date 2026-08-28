@@ -212,7 +212,9 @@ const publicAppHandler = {
           },
           verification: {
             accepted_for_research: receipt.verification?.accepted_for_research === true,
-            official_verified: receipt.verification?.official_verified === true,
+            official_verified: typeof receipt.verification?.official_verified === "boolean"
+              ? receipt.verification.official_verified
+              : null,
             level: receipt.verification?.level || null,
             verification_mode: receipt.verification?.verification_mode || null,
           },
