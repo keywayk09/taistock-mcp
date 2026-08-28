@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { readResearchBlindOhlcFallback } from "./research-blind-ohlc-fallback";
+import { readResearchBlindOhlcFallback } from "./research-blind-ohlc-fallback.ts";
 
 export const FORMAL_BLIND_OHLC_READER_VERSION = "formal-blind-ohlc-reader/v1.0.0";
 const DEFAULT_OHLC_BASE_URL = "https://tv-fugle-1d.keikei99887.workers.dev";
