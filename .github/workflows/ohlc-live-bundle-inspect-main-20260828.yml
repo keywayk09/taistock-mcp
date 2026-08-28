@@ -23,7 +23,7 @@ jobs:
           set -euo pipefail
           [ -n "${CLOUDFLARE_API_TOKEN:-}" ]
           [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]
-          url="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/tv-fugle-1d/content"
+          url="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/tv-fugle-1d/content/v2"
           curl --fail --silent --show-error --max-time 60 "$url" -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -o /tmp/ohlc-bundle.bin
           python - <<'PY'
           from pathlib import Path
