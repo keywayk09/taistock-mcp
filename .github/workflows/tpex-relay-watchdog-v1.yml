@@ -12,18 +12,19 @@ on:
     paths:
       - '.github/workflows/tpex-relay-watchdog-v1.yml'
   schedule:
-    # Asia/Taipei 21:30 / 22:30 / 22:50 on weekdays. The final watchdog intentionally
-    # finishes before the canonical Cloudflare DAILY_RECOVERY window closes at 22:55,
-    # leaving the 22:55 five-minute wake able to consume a newly completed relay.
+    # Asia/Taipei 21:30 / 22:30 / 22:40 on weekdays. The final watchdog starts
+    # before the official 22:45 writer and shares its concurrency group, so the
+    # two branch writers are serialized and the 22:55 canonical recovery wake
+    # sees either a completed exact-date relay or a clean failure, never a race.
     - cron: '30 13 * * 1-5'
     - cron: '30 14 * * 1-5'
-    - cron: '50 14 * * 1-5'
+    - cron: '40 14 * * 1-5'
 
 permissions:
   contents: write
 
 concurrency:
-  group: tpex-relay-watchdog-v1
+  group: tpex-official-relay-v2
   cancel-in-progress: false
 
 jobs:
