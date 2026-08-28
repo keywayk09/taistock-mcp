@@ -204,12 +204,14 @@ async function stateFromPublishedGeneration(
     };
   }
 
-  let prefix = compactPrefix;
-  let read = await readGitHubJson<MarketReadShardReceipt>(env, marketReadPublishedShardPath(pointer.trade_date, pointer.generation, prefix));
-  if (!read.value) {
-    prefix = legacyPrefix;
-    read = await readGitHubJson<MarketReadShardReceipt>(env, marketReadPublishedShardPath(pointer.trade_date, pointer.generation, prefix));
-  }
+  // Legacy v3/v4 generation files were physically written with a two-digit
+  // prefix. Do not probe the compact one-digit v5 prefix through the legacy
+  // path helper because that helper intentionally rejects non-legacy paths.
+  const prefix = legacyPrefix;
+  const read = await readGitHubJson<MarketReadShardReceipt>(
+    env,
+    marketReadPublishedShardPath(pointer.trade_date, pointer.generation, prefix),
+  );
   if (!read.value) throw new Error(`published_shard_missing:${compactPrefix}|${legacyPrefix}`);
   assertPublishedShard(pointer, read.value);
 
