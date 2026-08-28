@@ -58,19 +58,21 @@ assert.match(dailyRelay, /existing_manifest/);
 assert.match(dailyRelay, /REQUIRED_DATASETS/);
 assert.match(dailyRelay, /21:15/);
 assert.match(dailyRelay, /22:15/);
-assert.match(dailyRelay, /22:45/);
+assert.doesNotMatch(dailyRelay, /22:45/);
+assert.doesNotMatch(dailyRelay, /cron: '15,45 14 \* \* 1-5'/);
 assert.doesNotMatch(dailyRelay, /grouped\.setdefault\(item\[0\]/);
 assertPythonCompiles("Daily relay", dailyRelay);
 
-// The final exact-date watchdog must finish before the canonical Cloudflare DAILY_RECOVERY
-// window closes at 22:55 Taipei. A 23:00 watchdog can repair the relay cache but is too late
-// for the same-day canonical 5-minute writer, leaving the Published pointer stale until the
-// next morning's final audit.
+// The final exact-date watchdog is the sole late writer and must start at 22:45 Taipei.
+// Keeping the official relay's 22:45 wake would create two independent writers to the same
+// market-data-relay branch. The watchdog gets the full ten-minute interval before the canonical
+// Cloudflare DAILY_RECOVERY wake at 22:55, while the earlier official relay still ends at 22:15.
 const watchdogRelay = read(".github/workflows/tpex-relay-watchdog-v1.yml");
 const marketSchedule = read("src/v6/market-data-schedule.ts");
 assert.match(marketSchedule, /inMinuteWindow\(hour, minute, 22, 15, 55\)/);
-assert.match(watchdogRelay, /22:50/);
-assert.match(watchdogRelay, /cron: '50 14 \* \* 1-5'/);
+assert.match(watchdogRelay, /22:45/);
+assert.match(watchdogRelay, /cron: '45 14 \* \* 1-5'/);
+assert.doesNotMatch(watchdogRelay, /cron: '50 14 \* \* 1-5'/);
 assert.doesNotMatch(watchdogRelay, /cron: '0 15 \* \* 1-5'/);
 assertPythonCompiles("TPEx relay watchdog", watchdogRelay);
 
