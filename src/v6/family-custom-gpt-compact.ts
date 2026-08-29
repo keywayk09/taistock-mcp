@@ -149,7 +149,7 @@ function buildCompact(result: any, aggressive = false) {
  * decision inputs and Jin10 diagnostics while dropping duplicated/raw payloads.
  */
 export function compactFamilyAnalysisForCustomGpt(result: any) {
-  let compact = buildCompact(result, false);
+  let compact: any = buildCompact(result, false);
   if (encodedBytes(compact) > CUSTOM_GPT_TARGET_BYTES) compact = buildCompact(result, true);
   const bytes = encodedBytes(compact);
   compact.response_meta = {
