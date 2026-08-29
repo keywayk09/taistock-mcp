@@ -18,6 +18,7 @@ const wrangler = read("wrangler.jsonc");
 
 for (const tool of [
   "family_engine_status",
+  "get_family_market_context",
   "get_family_stock_market_context",
   "screen_family_swing_candidates",
   "get_family_market_chip_summary",
@@ -34,6 +35,10 @@ assert.match(family, /GITHUB_CANONICAL_READ_ONLY/);
 assert.match(family, /FUGLE_REST_READ_ONLY_WITH_FIVE_LEVEL_BOOK_AND_RECENT_TRADES/);
 assert.match(family, /LOCAL_FUGLE_REST_QUOTE_TRADES/);
 assert.match(family, /FAIL_CLOSED_WHEN_CROSS_ACCOUNT_RPC_UNAVAILABLE/);
+assert.match(family, /TXF_GLOBAL_FUTURES_JIN10_ENRICHMENT_READ_ONLY/);
+assert.match(family, /INTERNAL_ENRICHMENT_ONLY_NO_DEDICATED_PUBLIC_JIN10_TOOL/);
+assert.match(family, /buildFamilyMarketQuestionContext/);
+assert.match(family, /金十數據/);
 assert.match(family, /production_writes: false/);
 assert.match(family, /github_writes: false/);
 assert.match(family, /diamond_judgment_writes: false/);
@@ -51,6 +56,18 @@ for (const forbidden of [
   "backfill_ohlc",
 ]) {
   assert.doesNotMatch(family, new RegExp(`registerTool\\(\\"${forbidden}\\"`));
+}
+
+// Jin10 remains an internal enrichment source. Family exposes one generic market
+// context tool, never a provider-specific Jin10 public ABI surface.
+for (const dedicatedJin10Tool of [
+  "get_jin10_flash",
+  "get_jin10_news",
+  "get_jin10_calendar",
+  "search_jin10",
+  "jin10_search",
+]) {
+  assert.doesNotMatch(family, new RegExp(`registerTool\\(\\"${dedicatedJin10Tool}\\"`));
 }
 
 // Cross-account Cloudflare Service Binding is intentionally absent. Family keeps
