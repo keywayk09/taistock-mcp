@@ -98,6 +98,30 @@ try {
   assert.equal(noTokenPayload.jin10_context.ok, false);
   assert.ok(noTokenPayload.jin10_context.partial_errors.includes("JIN10_MCP_TOKEN_NOT_CONFIGURED"));
 
+  // A base-provider failure must remain an MCP error, but it must not suppress
+  // independently fetched Jin10 evidence. This is the production regression
+  // caught when FinMind returned HTTP 400 / Token is illegal.
+  captured = null;
+  const finmindErrorText = "查詢失敗：FinMind HTTP 400: Token is illegal.";
+  registerToolThroughJin10Facade(
+    originalRegisterTool,
+    server,
+    { JIN10_MCP_TOKEN: "sk-test-never-return" } as any,
+    "get_stock_news",
+    [schema, async () => ({ isError: true, content: [{ type: "text", text: finmindErrorText }] })],
+  );
+  const baseFailed = await captured!.args[1]({ symbol: "2330", limit: 5 });
+  assert.equal(baseFailed.isError, true, "base provider error semantics must remain authoritative");
+  assert.equal(baseFailed.content[0].text, finmindErrorText, "original provider error text must be preserved exactly");
+  const baseFailedContext = JSON.parse(baseFailed.content[1].text).jin10_context;
+  assert.equal(baseFailedContext.provider, "jin10-mcp");
+  assert.equal(baseFailedContext.mode, "stock_events");
+  assert.equal(baseFailedContext.persistence, "NONE");
+  assert.equal(baseFailedContext.flash.length, 1);
+  assert.equal(baseFailedContext.news.length, 1);
+  assert.equal(baseFailed.structuredContent.jin10_context.provider, "jin10-mcp");
+  assert.doesNotMatch(JSON.stringify(baseFailed), /sk-test-never-return/);
+
   // Non-target tools must be registered with the exact original handler.
   captured = null;
   const quoteHandler = async () => ({ content: [] });
