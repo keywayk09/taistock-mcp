@@ -1,4 +1,5 @@
 import app from "./index-v6.ts";
+import { handleAutomationOhlc1dRoute } from "./v6/automation-ohlc-1d-route.ts";
 import { handleAutomationResearchRest } from "./v6/automation-research-rest.ts";
 
 // Preserve the exact Durable Object exports used by the current Production
@@ -10,6 +11,10 @@ export { FamilyMCP, MyMCP } from "./index-v6.ts";
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
+    if (url.pathname === "/research/automation/ohlc-1d") {
+      const response = await handleAutomationOhlc1dRoute(request, env, url);
+      if (response) return response;
+    }
     if (url.pathname.startsWith("/research/automation")) {
       const response = await handleAutomationResearchRest(request, env, url);
       if (response) return response;
