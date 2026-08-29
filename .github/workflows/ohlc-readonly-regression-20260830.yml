@@ -1,0 +1,53 @@
+name: OHLC Readonly Regression 20260830
+
+on:
+  push:
+    branches:
+      - ops/fugle-control-plane-public-runner-20260829
+    paths:
+      - .github/workflows/ohlc-readonly-regression-20260830.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify public production read surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const ohlc = 'https://tv-fugle-1d.keikei99887.workers.dev';
+          const global = 'https://tv-global-futures.keikei99887.workers.dev';
+
+          async function jsonGet(url) {
+            const r = await fetch(url, {
+              headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' },
+              signal: AbortSignal.timeout(15000),
+            });
+            let body = null;
+            try { body = await r.json(); } catch {}
+            return { r, body };
+          }
+
+          const h = await jsonGet(`${ohlc}/health`);
+          if (!h.r.ok || !h.body || typeof h.body !== 'object') throw new Error(`ohlc_health_${h.r.status}`);
+          if (Object.prototype.hasOwnProperty.call(h.body, 'jin10_retired_secret_present')) throw new Error('temporary_jin10_proof_present');
+          if (String(h.body.liveness_version || '') !== 'EDGE_DIRECT_RECOVERY_V3') throw new Error(`unexpected_liveness_version:${String(h.body.liveness_version || '')}`);
+          console.log(`[regression] OHLC_HEALTH=PASS liveness=${String(h.body.liveness_version)} phase=${String(h.body?.day?.phase || '<none>')} trade_date=${String(h.body?.day?.trade_date || '<none>')}`);
+
+          const guarded = await jsonGet(`${ohlc}/v4-pipeline-status?key=definitely-wrong-readonly-key`);
+          if (guarded.r.status !== 401 || String(guarded.body?.error || '') !== 'invalid_debug_key') {
+            throw new Error(`v4_status_guard_unexpected:${guarded.r.status}:${String(guarded.body?.error || '')}`);
+          }
+          console.log('[regression] V4_STATUS_ROUTE_GUARD=PASS');
+
+          const gh = await jsonGet(`${global}/health`);
+          if (!gh.r.ok || !gh.body || typeof gh.body !== 'object') throw new Error(`global_health_${gh.r.status}`);
+          console.log('[regression] GLOBAL_FUTURES_HEALTH=PASS');
+
+          console.log('[regression] PUBLIC_READ_SURFACES_PASS');
+          NODE
