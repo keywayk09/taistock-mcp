@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { finmind } from "../src/v6/common";
+import { finmind } from "../src/v6/common.ts";
 
 const originalFetch = globalThis.fetch;
 
