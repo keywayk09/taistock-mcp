@@ -1,0 +1,105 @@
+name: Retire Fugle Jin10 Control Plane
+
+on:
+  push:
+    branches:
+      - ops/retire-fugle-jin10-from-diamond-20260829
+
+permissions:
+  contents: read
+
+jobs:
+  retire-and-prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Require Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || { echo 'missing CLOUDFLARE_API_TOKEN'; exit 41; }
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || { echo 'missing CLOUDFLARE_ACCOUNT_ID'; exit 42; }
+
+      - name: Delete only retired Fugle Jin10 secret and verify control plane
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          import { spawnSync } from 'node:child_process';
+
+          const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+          const workerName = 'tv-fugle-1d';
+          const secretName = 'JIN10_MCP_TOKEN';
+          const wranglerVersion = '4.105.0';
+
+          function run(args, input) {
+            const r = spawnSync(npx, ['--yes', `wrangler@${wranglerVersion}`, ...args], {
+              encoding: 'utf8',
+              input,
+              env: process.env,
+              maxBuffer: 4 * 1024 * 1024,
+            });
+            if (r.error) throw r.error;
+            if (r.status !== 0) {
+              throw new Error(`wrangler command failed with status ${r.status}`);
+            }
+            return String(r.stdout || '').trim();
+          }
+
+          function listNames() {
+            const raw = run(['secret', 'list', '--name', workerName, '--format', 'json']);
+            const rows = JSON.parse(raw || '[]');
+            if (!Array.isArray(rows)) throw new Error('secret list was not an array');
+            return rows.map((row) => String(row?.name || ''));
+          }
+
+          const before = listNames();
+          if (before.includes(secretName)) {
+            run(['secret', 'bulk', '--name', workerName], JSON.stringify({ [secretName]: null }));
+            console.log('FUGLE_JIN10_SECRET_DELETE_REQUESTED');
+          } else {
+            console.log('FUGLE_JIN10_SECRET_ALREADY_ABSENT');
+          }
+
+          const after = listNames();
+          if (after.includes(secretName)) {
+            throw new Error('Fugle Jin10 secret still present after delete');
+          }
+          console.log('FUGLE_JIN10_CONTROL_PLANE_ABSENCE_PASS');
+          NODE
+
+      - name: Verify Production runtime reports absence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const url = 'https://tv-fugle-1d.keikei99887.workers.dev/health';
+          let last = 'no response';
+          for (let attempt = 1; attempt <= 8; attempt++) {
+            try {
+              const response = await fetch(url, {
+                headers: { 'cache-control': 'no-cache' },
+                signal: AbortSignal.timeout(20000),
+              });
+              if (!response.ok) throw new Error(`HTTP_${response.status}`);
+              const body = await response.json();
+              const present = body?.jin10_retired_secret_present;
+              last = `boolean=${String(present)}`;
+              if (present === false) {
+                console.log('FUGLE_JIN10_RUNTIME_ABSENCE_PASS');
+                process.exit(0);
+              }
+            } catch (error) {
+              last = String(error?.message || error);
+            }
+            if (attempt < 8) await new Promise((resolve) => setTimeout(resolve, 5000));
+          }
+          throw new Error(`runtime absence proof failed: ${last}`);
+          NODE
