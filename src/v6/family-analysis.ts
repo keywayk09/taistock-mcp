@@ -14,6 +14,7 @@ import {
 } from "./family-ohlc-read-bridge";
 import { familyResearchDirective } from "./family-research-policy";
 import { buildFamilyUnifiedEvidence } from "./family-unified-evidence";
+import { loadJin10StockEventContext } from "./jin10-facade-provider";
 
 type SmartFamilyInput = {
   symbols: string[];
@@ -32,6 +33,42 @@ async function safeFinmind(env: Env, dataset: string, params: Record<string, unk
     return { ok: true as const, data: await finmind(env, dataset, params), error: null };
   } catch (error) {
     return { ok: false as const, data: [] as any[], error: `${dataset}:${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+function familyJin10Keywords(analysis: any, symbol: string) {
+  const candidates = [
+    symbol,
+    analysis?.market_snapshot?.quote?.name,
+    analysis?.company?.stock_name,
+    analysis?.company?.name,
+  ];
+  return [...new Set(candidates.map((value) => String(value ?? "").trim()).filter(Boolean))];
+}
+
+function familyJin10Error(error: unknown) {
+  return (error instanceof Error ? error.message : String(error ?? "UNKNOWN"))
+    .replace(/Bearer\s+[^\s"']+/gi, "Bearer [REDACTED]")
+    .replace(/sk-[A-Za-z0-9_-]+/g, "[REDACTED]")
+    .slice(0, 240);
+}
+
+async function safeFamilyJin10Context(env: Env, analysis: any, symbol: string) {
+  try {
+    return await loadJin10StockEventContext(env, familyJin10Keywords(analysis, symbol), 5);
+  } catch (error) {
+    return {
+      ok: false,
+      provider: "jin10-mcp" as const,
+      mode: "stock_events" as const,
+      read_only: true as const,
+      persistence: "NONE" as const,
+      flash: [],
+      news: [],
+      calendar: [],
+      query_keywords: [],
+      partial_errors: [`JIN10_FAMILY_READ_FAILED:${familyJin10Error(error)}`],
+    };
   }
 }
 
@@ -95,7 +132,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
   const enriched = await Promise.all(base.stock_analyses.map(async (analysis: any) => {
     const symbol = String(analysis.symbol);
     const fundamentals = analysis?.fundamentals ?? {};
-    const [valuation, holdingDistribution, foreignShareholding, canonicalOhlc, stockLiveContext] = await Promise.all([
+    const [valuation, holdingDistribution, foreignShareholding, canonicalOhlc, stockLiveContext, jin10Context] = await Promise.all([
       fetchFamilyOfficialValuation(symbol),
       safeFinmind(env, "TaiwanStockHoldingSharesPer", {
         data_id: symbol,
@@ -118,6 +155,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
         books: true,
         wait_ms: 0,
       }),
+      safeFamilyJin10Context(env, analysis, symbol),
     ]);
     const monthlyRevenue = summarizeFamilyRevenue(Array.isArray(fundamentals.monthly_revenue) ? fundamentals.monthly_revenue : []);
     const accounting = summarizeFamilyAccounting(
@@ -130,6 +168,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       contract: "SHARED_READ_ONLY_JUDGMENT_INPUTS",
       canonical_ohlc: canonicalOhlc,
       stock_live_context: stockLiveContext,
+      jin10_context: jin10Context,
       txf_context: marketRegime.txf_context,
       global_futures_context: marketRegime.global_futures_context,
       monthly_revenue: monthlyRevenue,
@@ -152,6 +191,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
         "正式籌碼只採 Published generation；缺資料不可自行補值。",
         "正式 OHLC/K線只讀 tv-fugle-1d 已寫入 tv-papertrader 的既有 GitHub canonical；Family 只有讀取權限，不得寫入。",
         "股票盤中成交、五檔、逐筆與短窗主動買賣只作 ephemeral read-only context；不得寫入 canonical，也不得把即時快照冒充正式 OHLC。",
+        "Jin10 快訊/新聞只作 read-only 事件研究 context；不得冒充正式 OHLC、Published 籌碼或公司官方重大訊息。",
         "TXF 與 Global Futures context 若跨帳號讀取不可用就保持 UNAVAILABLE；不得自行補值。",
         "Fugle/FinMind價格可作即時與研究輔助，但不得冒充正式技術價位。",
         "Web 是開放研究層，可自主延伸任何有價值的新線索，不限固定網站或關鍵字。",
@@ -167,6 +207,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       ...analysis,
       canonical_ohlc: canonicalOhlc,
       stock_live_context: stockLiveContext,
+      jin10_context: jin10Context,
       txf_context: marketRegime.txf_context,
       global_futures_context: marketRegime.global_futures_context,
     };
@@ -175,6 +216,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       ...globalErrors,
       holdingDistribution.error,
       foreignShareholding.error,
+      ...(Array.isArray(jin10Context.partial_errors) ? jin10Context.partial_errors.map((error) => `jin10:${error}`) : []),
     ].filter((value): value is string => Boolean(value));
 
     const elevenPointRaw = buildFamilyElevenPointAnalysis({
@@ -210,6 +252,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
         realtime: evidenceBundle.evidence.realtime_market.status === "READY",
         stock_live_context: ["READY", "DEGRADED"].includes(stockLiveContext.status),
         stock_live_display_ready: stockLiveContext.display_ready === true,
+        jin10_context: jin10Context.ok === true,
         technical_research_fallback: evidenceBundle.evidence.technical_research_fallback.status === "READY",
         formal_ohlc: evidenceBundle.evidence.canonical_ohlc.formal_research_eligible,
         txf_context: ["READY", "DEGRADED"].includes(evidenceBundle.evidence.txf_context.status),
@@ -226,6 +269,13 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       enrichment_diagnostics: {
         errors: enrichmentErrors,
         fail_soft: true,
+        jin10_context: {
+          status: jin10Context.ok === true ? "READY" : "DEGRADED",
+          provider: jin10Context.provider,
+          read_only: true,
+          persistence: "NONE",
+          partial_errors: jin10Context.partial_errors,
+        },
         ohlc_read_bridge: {
           formal_ohlc: canonicalOhlc.status,
           stock_live_context: stockLiveContext.status,
@@ -239,7 +289,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
 
   return {
     ...base,
-    version: "family-smart-analysis/v4.2.0",
+    version: "family-smart-analysis/v4.2.1",
     route: symbols.length > 1 ? "adaptive_stock_compare" : adaptivePlan.intent === "FULL_STOCK_ANALYSIS" ? "adaptive_full_stock_analysis" : "adaptive_stock_question",
     question: userQuestion || null,
     adaptive_plan: adaptivePlan,
@@ -254,6 +304,8 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       ohlc_read_source: "TV_PAPERTRADER_DATA_OHLC_CANONICAL",
       stock_live_read_transport: "FUGLE_REST_QUOTE_TRADES_READ_ONLY",
       stock_live_persistence: "NONE",
+      jin10_events_read: "JIN10_MCP_READ_ONLY_FAIL_SOFT",
+      jin10_persistence: "NONE",
       cloudflare_cross_account_service_binding: false,
       production_writes: false,
       github_writes: false,
@@ -274,6 +326,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       evidence: "FORMAL_TRUTH_GOVERNED_CONTEXT_DISPLAY_FALLBACK_WEB_EVIDENCE_MUST_REMAIN_DISTINCT",
       web: "OPEN_WORLD_AUTONOMOUS_RESEARCH_NOT_FIXED_KEYWORDS_OR_SITES",
       realtime: "FUGLE_REST_TRADES_FIVE_LEVEL_BOOK_AND_SHORT_WINDOW_ORDER_FLOW_ALLOWED_BUT_NOT_FORMAL_OHLC",
+      events: "JIN10_MCP_EVENTS_ARE_READ_ONLY_RESEARCH_CONTEXT_NOT_FORMAL_TRUTH",
       evidence_labels: ["FACT", "INFERENCE", "JUDGMENT", "CONFLICT", "UNKNOWN"],
     },
   };
