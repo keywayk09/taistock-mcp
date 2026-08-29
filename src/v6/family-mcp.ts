@@ -7,9 +7,10 @@ import { familySharedReadManifest } from "./family-shared-read-plane";
 import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
 import { registerSharedCryptoMarketTools, SHARED_CRYPTO_TOOL_NAMES } from "./shared-crypto-market-tools";
 
-export const FAMILY_MCP_VERSION = "family-mcp/v3.4.0";
+export const FAMILY_MCP_VERSION = "family-mcp/v3.5.0";
 export const FAMILY_MCP_TOOL_NAMES = [
   "family_engine_status",
+  "get_family_market_context",
   "get_family_stock_market_context",
   "screen_family_swing_candidates",
   "get_family_market_chip_summary",
@@ -25,10 +26,19 @@ const out = (value: unknown) => ({
 const symbolSchema = z.string().trim().regex(/^\d{4,6}$/);
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+function taipeiToday() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 export class FamilyMCP extends McpAgent<Env> {
   server = new McpServer({
     name: "Taiwan Stock + Crypto AI Family",
-    version: "3.4.0",
+    version: "3.5.0",
   });
 
   async init() {
@@ -63,6 +73,8 @@ export class FamilyMCP extends McpAgent<Env> {
       },
       capability_notes: {
         natural_language_query: "REST_QUERY_ADAPTIVE_INTENT_PLANNER",
+        market_event_context: "TXF_GLOBAL_FUTURES_JIN10_ENRICHMENT_READ_ONLY",
+        jin10_policy: "INTERNAL_ENRICHMENT_ONLY_NO_DEDICATED_PUBLIC_JIN10_TOOL",
         stock_analysis: "INTENT_ADAPTIVE; FULL_ANALYSIS_HAS_FIXED_11_POINT_COMPLETENESS_CONTRACT",
         stock_compare: "COMMON_11_POINT_EVIDENCE_MODEL_ADAPTIVE_RENDERING",
         unified_evidence_bundle: "FAMILY_EVIDENCE_V1_READY",
@@ -86,6 +98,26 @@ export class FamilyMCP extends McpAgent<Env> {
       },
       research_policy: familyResearchDirective([]),
     }));
+
+    // Family MCP needs a no-symbol market-event entrypoint in addition to the
+    // stock-specific tools below. The public tool is deliberately generic: Jin10
+    // remains an internal enrichment source rather than a dedicated public tool.
+    this.server.registerTool("get_family_market_context", {
+      description: "家人版唯讀市場背景入口。使用者詢問金十數據、昨晚美盤、台指期、Fed、利率、全球期貨或『為什麼大盤漲跌』等不一定包含股票代號的問題時使用。內部整合既有TXF、Global Futures與Jin10 MCP enrichment；Jin10只作事件補強，不新增獨立Jin10公開工具，不寫入資料、不下單。",
+      inputSchema: {
+        question: z.string().trim().min(1).max(2000),
+        as_of_date: dateSchema.optional(),
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    }, async ({ question, as_of_date }) => {
+      const { buildFamilyMarketQuestionContext } = await import("./family-market-question");
+      const result = await buildFamilyMarketQuestionContext(this.env, {
+        question,
+        as_of_date: as_of_date || taipeiToday(),
+        intent: "MARKET_CONTEXT",
+      });
+      return out({ ...result, requested_tool: "get_family_market_context" });
+    });
 
     this.server.registerTool("get_family_stock_market_context", {
       description: "家人版單股盤中即時入口。直接唯讀Fugle REST quote+trades取得最新成交、最近逐筆、買一到買五、賣一到賣五、深度不平衡與短窗主動買賣；不使用跨Cloudflare帳號Service Binding，不寫GitHub/OHLC/KV/R2/D1，也不下單。",
