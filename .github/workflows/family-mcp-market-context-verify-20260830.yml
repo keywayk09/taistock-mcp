@@ -1,0 +1,33 @@
+name: Family MCP Market Context Verify 20260830
+
+on:
+  push:
+    branches:
+      - fix/family-mcp-market-context-jin10-20260830
+    paths:
+      - .github/workflows/family-mcp-market-context-verify-20260830.yml
+      - src/v6/family-mcp.ts
+      - tests/family-mcp-isolation.test.ts
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript
+        run: npm run type-check
+      - name: Family regression suite
+        run: npm run test:family-selection
+      - name: Jin10 regression suite
+        run: npm run test:jin10
+      - name: Wrangler dry run
+        run: npx wrangler deploy --dry-run --outdir /tmp/taistock-family-mcp-market-context-dry-run
