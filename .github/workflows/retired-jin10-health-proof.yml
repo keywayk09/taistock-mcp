@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Assert Fugle retired Jin10 secret is absent at runtime
+      - name: Diagnose Fugle runtime proof route
         shell: bash
         run: |
           set -euo pipefail
@@ -22,6 +22,8 @@ jobs:
           const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
           if (!response.ok) throw new Error(`tv-fugle-1d: HTTP_${response.status}`);
           const body = await response.json();
+          console.log(`keys=${Object.keys(body || {}).sort().join(',')}`);
+          console.log(`ok=${String(body?.ok)} error=${String(body?.error)} status=${String(body?.status)}`);
           const present = body?.jin10_retired_secret_present;
           if (present !== false) {
             throw new Error(`tv-fugle-1d: runtime absence proof failed; boolean=${String(present)}`);
