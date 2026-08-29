@@ -86,7 +86,7 @@ jobs:
               `/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}/secrets-bulk`,
               {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/merge-patch+json' },
                 body: JSON.stringify({ secrets: { [secretName]: null } }),
               },
             );
@@ -106,9 +106,7 @@ jobs:
           try {
             const accountId = await discoverAccountId();
             console.log(`[retire-fugle-jin10] CONTROL_PLANE_REACHABLE worker=${workerName}`);
-
             if (await secretPresent(accountId)) await retireSecret(accountId);
-
             if (await secretPresent(accountId)) throw new Error('secret_cleanup_not_effective');
             console.log(`[retire-fugle-jin10] CONTROL_PLANE_PASS worker=${workerName} ${secretName}=absent`);
 
