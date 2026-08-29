@@ -5,7 +5,8 @@ import { getTwMarketCrossSection } from "../src/v6/market-data-cross-section.ts"
 // This is a pre-implementation contract test. It deliberately exercises only
 // the existing canonical readers so the future Automation HTTP bridge cannot
 // weaken Blind cutoff, official verification, immutable market-data gates, or
-// fail-closed behavior.
+// fail-closed behavior. This file also serves as the branch push trigger for
+// the corrected no-lockfile preflight workflow.
 
 const HEADER = "symbol,bar_time_tw,ts_ms,open,high,low,close,volume,source,updated_at_ms,trade_date,updated_at,ingest_id,export_batch,export_status";
 
