@@ -60,8 +60,6 @@ export class MyMCP extends BaseMCP {
       registerDailyReportFormatTool(this.server);
       registerResearchTools(this.server, this.env);
 
-      // Keep the legacy module available for its non-frozen internals, but its
-      // screen_family_swing_candidates registration is suppressed above.
       const { registerFamilyStockSelectionToolsV2 } = await import("./family-stock-selection-v2");
       registerFamilyStockSelectionToolsV2(this.server, this.env);
       registerTwMarketDataTools(this.server, this.env);
@@ -81,8 +79,6 @@ export class MyMCP extends BaseMCP {
 
 export const ownerContentHandler: McpContentHandler = {
   fetch(request, env, ctx) {
-    // Preserve the already-authorized public path so McpAgent keeps the exact
-    // existing transport/session identity for both canonical and legacy Owner ABI.
     const pathname = new URL(request.url).pathname;
     return MyMCP.serve(pathname).fetch(request, env, ctx);
   },
