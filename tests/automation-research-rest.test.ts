@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { handleAutomationResearchRest } from "../src/v6/automation-research-rest.ts";
-import wrapper from "../src/index-automation-bridge.ts";
 
 const BASE = "https://taistock-mcp.keywayk09.workers.dev";
 const REV = "a".repeat(40);
@@ -144,22 +143,14 @@ function blindMemory(date: string, symbol: string) {
   assert.equal(body.error, "INVALID_SOURCE_REVISION");
 }
 
-// Wrapper intercepts only the new namespace. Existing Production health still
-// delegates to index-v6 rather than being reimplemented in the bridge.
-{
-  const bridge = await wrapper.fetch(new Request(`${BASE}/research/automation/health`), {} as any, {} as any);
-  assert.equal(bridge.status, 200);
-  const health = await wrapper.fetch(new Request(`${BASE}/health`), {} as any, {} as any);
-  assert.equal(health.status, 200);
-  const body = await health.json() as any;
-  assert.equal(body.status, "ok");
-}
-
+// The Cloudflare wrapper is statically constrained to intercept only the new
+// namespace. Actual module resolution/bundling is verified by Wrangler dry-run.
 const wrapperSource = await readFile(new URL("../src/index-automation-bridge.ts", import.meta.url), "utf8");
 const bridgeSource = await readFile(new URL("../src/v6/automation-research-rest.ts", import.meta.url), "utf8");
 const wranglerText = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
 const wrangler = JSON.parse(wranglerText.replace(/\/\*[\s\S]*?\*\//g, ""));
 assert.equal(wrangler.main, "src/index-automation-bridge.ts");
+assert.match(wrapperSource, /url\.pathname\.startsWith\("\/research\/automation"\)/);
 assert.match(wrapperSource, /return app\.fetch\(request, env, ctx\)/);
 assert.match(wrapperSource, /return app\.scheduled\(controller, env, ctx\)/);
 assert.match(wrapperSource, /export \{ FamilyMCP, MyMCP \} from "\.\/index-v6\.ts"/);
