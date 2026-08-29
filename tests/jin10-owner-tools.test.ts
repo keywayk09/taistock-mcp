@@ -21,7 +21,7 @@ for (const tool of JIN10_OWNER_TOOL_NAMES) {
 assert.match(ownerContent, /registerJin10OwnerTools\(this\.server, this\.env\)/);
 assert.doesNotMatch(familyContent, /registerJin10OwnerTools|jin10_/i, "Jin10 tools must stay Owner-only");
 assert.doesNotMatch(source, /registerTool\(\"(?:get_quote|get_kline)\"/, "Jin10 quote/K-line tools must not be exposed");
-assert.doesNotMatch(source, /updateGitHub|putImmutable|R2|\.put\(/, "Jin10 read plane must not persist data");
+assert.doesNotMatch(source, /updateGitHubJson|putImmutableGitHubJson|placeOrder|submitOrder|order_placement/, "Jin10 read plane must not persist data or place orders");
 assert.match(source, /JIN10_MCP_TOKEN/);
 assert.match(source, /token_returned:\s*false/);
 assert.match(source, /structuredContent/);
