@@ -1,4 +1,4 @@
-name: Fugle Deployment Readonly Audit 20260829
+name: Fugle Clean Deploy Wait 20260829
 
 on:
   push:
@@ -11,13 +11,13 @@ permissions:
   contents: read
 
 jobs:
-  audit:
+  wait-and-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.FUGLE_CF_API_TOKEN }}
     steps:
-      - name: Inspect current Production and latest version
+      - name: Wait for clean Production version and smoke
         shell: bash
         run: |
           set -euo pipefail
@@ -25,7 +25,11 @@ jobs:
           const token = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
           const worker = 'tv-fugle-1d';
           const expectedSubdomain = 'keikei99887';
+          const cleanupMergeTime = Date.parse('2026-08-29T14:22:15Z');
           const base = 'https://api.cloudflare.com/client/v4';
+          const healthUrl = `https://${worker}.${expectedSubdomain}.workers.dev/health`;
+          const globalHealthUrl = 'https://tv-global-futures.keikei99887.workers.dev/health';
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
           if (!token) throw new Error('isolated_token_missing');
 
           async function cf(path) {
@@ -53,23 +57,58 @@ jobs:
           }
           if (matches.length !== 1) throw new Error(`account_match_${matches.length}`);
           const accountId = matches[0];
-          console.log(`[audit] ACCOUNT_IDENTITY_VERIFIED subdomain=${expectedSubdomain}`);
+          console.log(`[wait] ACCOUNT_IDENTITY_VERIFIED subdomain=${expectedSubdomain}`);
 
-          const deploymentResult = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(worker)}/deployments`);
-          const deployments = Array.isArray(deploymentResult?.deployments) ? deploymentResult.deployments : (Array.isArray(deploymentResult) ? deploymentResult : []);
-          if (!deployments.length) throw new Error('no_deployments');
-          const active = deployments[0];
-          const activeVersions = Array.isArray(active?.versions) ? active.versions : [];
-          const production = activeVersions.find(v => Number(v?.percentage) === 100) || (activeVersions.length === 1 ? activeVersions[0] : null);
-          if (!production?.version_id) throw new Error('production_version_not_single_100');
+          let cleanVersion = null;
+          for (let attempt = 1; attempt <= 40; attempt += 1) {
+            const versionsResult = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(worker)}/versions?per_page=5`);
+            const versions = Array.isArray(versionsResult) ? versionsResult : (Array.isArray(versionsResult?.items) ? versionsResult.items : []);
+            const latest = versions[0] || null;
+            const created = Date.parse(String(latest?.metadata?.created_on || latest?.created_on || ''));
+            if (latest?.id && Number.isFinite(created) && created > cleanupMergeTime) {
+              cleanVersion = String(latest.id);
+              console.log(`[wait] CLEAN_VERSION_OBSERVED version=${cleanVersion}`);
+              break;
+            }
+            if (attempt < 40) await sleep(15000);
+          }
+          if (!cleanVersion) throw new Error('cleanup_build_version_not_observed');
 
-          const versionsResult = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(worker)}/versions?per_page=5`);
-          const versions = Array.isArray(versionsResult) ? versionsResult : (Array.isArray(versionsResult?.items) ? versionsResult.items : []);
-          if (!versions.length) throw new Error('no_versions');
+          let productionReady = false;
+          for (let attempt = 1; attempt <= 20; attempt += 1) {
+            const deploymentResult = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(worker)}/deployments`);
+            const deployments = Array.isArray(deploymentResult?.deployments) ? deploymentResult.deployments : (Array.isArray(deploymentResult) ? deploymentResult : []);
+            const active = deployments[0] || null;
+            const activeVersions = Array.isArray(active?.versions) ? active.versions : [];
+            const production = activeVersions.find(v => Number(v?.percentage) === 100) || (activeVersions.length === 1 ? activeVersions[0] : null);
+            if (String(production?.version_id || '') === cleanVersion) {
+              productionReady = true;
+              console.log(`[wait] CLEAN_VERSION_PRODUCTION version=${cleanVersion}`);
+              break;
+            }
+            if (attempt < 20) await sleep(15000);
+          }
+          if (!productionReady) throw new Error('cleanup_version_not_production');
 
-          console.log(`[audit] PRODUCTION_VERSION=${String(production.version_id)}`);
-          console.log(`[audit] LATEST_VERSION=${String(versions[0]?.id || '')}`);
-          console.log(`[audit] LATEST_CREATED_ON=${String(versions[0]?.metadata?.created_on || versions[0]?.created_on || 'unknown')}`);
-          console.log(`[audit] PRODUCTION_IS_LATEST=${String(production.version_id) === String(versions[0]?.id || '') ? 'true' : 'false'}`);
-          console.log('[audit] READ_ONLY_DEPLOYMENT_AUDIT_PASS');
+          const health = await fetch(healthUrl, {
+            headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' },
+            signal: AbortSignal.timeout(15000),
+          });
+          if (!health.ok) throw new Error(`ohlc_health_http_${health.status}`);
+          const healthBody = await health.json();
+          if (!healthBody || typeof healthBody !== 'object') throw new Error('ohlc_health_shape_invalid');
+          if (Object.prototype.hasOwnProperty.call(healthBody, 'jin10_retired_secret_present')) {
+            throw new Error('temporary_jin10_health_proof_still_present');
+          }
+          console.log('[smoke] OHLC=PASS');
+
+          const globalHealth = await fetch(globalHealthUrl, {
+            headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' },
+            signal: AbortSignal.timeout(15000),
+          });
+          if (!globalHealth.ok) throw new Error(`global_futures_health_http_${globalHealth.status}`);
+          const globalBody = await globalHealth.json();
+          if (!globalBody || typeof globalBody !== 'object') throw new Error('global_futures_health_shape_invalid');
+          console.log('[smoke] GLOBAL_FUTURES=PASS');
+          console.log('[smoke] FINAL_CLEAN_DEPLOY_PASS');
           NODE
