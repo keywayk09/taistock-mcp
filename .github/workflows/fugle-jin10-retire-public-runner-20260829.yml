@@ -15,12 +15,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  retire-and-verify:
+  discover-and-verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.FUGLE_CF_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.FUGLE_CF_ACCOUNT_ID }}
     steps:
       - name: Runner proof
         shell: bash
@@ -28,147 +27,76 @@ jobs:
           set -euo pipefail
           echo 'PUBLIC_RUNNER_PASS'
 
-      - name: Require isolated Fugle credentials
+      - name: Require isolated Fugle token
         shell: bash
         run: |
           set -euo pipefail
           [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || { echo 'FUGLE_CF_API_TOKEN_MISSING'; exit 64; }
-          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || { echo 'FUGLE_CF_ACCOUNT_ID_MISSING'; exit 65; }
-          echo 'FUGLE_CF_CREDENTIALS_PRESENT'
+          echo 'FUGLE_CF_API_TOKEN_PRESENT'
 
-      - name: Retire only tv-fugle-1d JIN10_MCP_TOKEN and verify
+      - name: Read-only discover correct Cloudflare account
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
-          import { spawnSync } from 'node:child_process';
-
+          const apiToken = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
           const workerName = 'tv-fugle-1d';
           const secretName = 'JIN10_MCP_TOKEN';
-          const wranglerVersion = '4.105.0';
-          const expectedWorkersSubdomain = 'keikei99887';
-          const productionHealthUrl = `https://${workerName}.${expectedWorkersSubdomain}.workers.dev/health`;
-          const isolatedCwd = String(process.env.RUNNER_TEMP || '/tmp');
+          const expectedSubdomain = 'keikei99887';
+          const base = 'https://api.cloudflare.com/client/v4';
 
-          const apiToken = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
-          const accountId = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
-
-          if (!apiToken || !accountId) {
-            console.error('[retire-fugle-jin10] missing isolated Fugle Cloudflare credentials');
-            process.exit(64);
-          }
-
-          const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-          async function assertCloudflareAccountIdentity() {
-            const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/subdomain`;
-            let response;
-            try {
-              response = await fetch(endpoint, {
-                headers: { Authorization: `Bearer ${apiToken}`, Accept: 'application/json' },
-                signal: AbortSignal.timeout(15000),
-              });
-            } catch {
-              throw new Error('cloudflare_account_identity_unreachable');
-            }
-
-            let body;
-            try { body = await response.json(); }
-            catch { throw new Error('cloudflare_account_identity_invalid_json'); }
-
-            if (!response.ok || body?.success !== true) {
-              throw new Error('cloudflare_account_identity_not_authorized');
-            }
-            if (String(body?.result?.subdomain || '').trim() !== expectedWorkersSubdomain) {
-              throw new Error('cloudflare_account_identity_mismatch');
-            }
-            console.log(`[retire-fugle-jin10] ACCOUNT_IDENTITY_VERIFIED subdomain=${expectedWorkersSubdomain}`);
-          }
-
-          function runWrangler(args, input = undefined) {
-            const result = spawnSync(npx, ['--yes', `wrangler@${wranglerVersion}`, ...args], {
-              encoding: 'utf8',
-              input,
-              cwd: isolatedCwd,
-              env: { ...process.env, WRANGLER_SEND_METRICS: 'false', NO_COLOR: '1' },
-              maxBuffer: 4 * 1024 * 1024,
+          async function cf(path) {
+            const response = await fetch(`${base}${path}`, {
+              headers: {
+                Authorization: `Bearer ${apiToken}`,
+                Accept: 'application/json',
+              },
+              signal: AbortSignal.timeout(15000),
             });
-            if (result.error) throw new Error('wrangler_spawn_failed');
-            if (result.status !== 0) {
-              const diagnostic = `${result.stdout || ''}\n${result.stderr || ''}`.toLowerCase();
-              if (diagnostic.includes('not found') || diagnostic.includes('could not find')) {
-                throw new Error(`worker_not_found_or_wrong_account:${workerName}`);
-              }
-              throw new Error(`wrangler_failed:${result.status}`);
-            }
-            return String(result.stdout || '').trim();
-          }
-
-          function listSecretNames() {
-            const stdout = runWrangler(['secret', 'list', '--name', workerName, '--format', 'json']);
-            let parsed;
-            try { parsed = JSON.parse(stdout || '[]'); }
-            catch { throw new Error('secret_list_json_invalid'); }
-            if (!Array.isArray(parsed)) throw new Error('secret_list_shape_invalid');
-            return parsed.map((item) => String(item?.name || '')).filter(Boolean);
-          }
-
-          async function readProductionHealthPresence() {
-            let response;
-            try {
-              response = await fetch(productionHealthUrl, {
-                headers: { Accept: 'application/json', 'Cache-Control': 'no-cache', 'User-Agent': 'fugle-jin10-public-runner-retire' },
-                signal: AbortSignal.timeout(15000),
-              });
-            } catch { throw new Error('production_health_unreachable'); }
-            if (!response.ok) throw new Error(`production_health_http_${response.status}`);
             let body;
             try { body = await response.json(); }
-            catch { throw new Error('production_health_invalid_json'); }
-            if (typeof body?.jin10_retired_secret_present !== 'boolean') {
-              throw new Error('production_health_proof_missing');
+            catch { throw new Error('cloudflare_invalid_json'); }
+            if (!response.ok || body?.success !== true) {
+              throw new Error(`cloudflare_api_failed_${response.status}`);
             }
-            return body.jin10_retired_secret_present;
-          }
-
-          async function assertProductionHealthFalse() {
-            let lastState = 'unverified';
-            for (let attempt = 1; attempt <= 10; attempt += 1) {
-              try {
-                const present = await readProductionHealthPresence();
-                lastState = present ? 'true' : 'false';
-                if (present === false) {
-                  console.log('[retire-fugle-jin10] PRODUCTION_HEALTH_PASS jin10_retired_secret_present=false');
-                  return;
-                }
-              } catch (error) {
-                lastState = error instanceof Error ? error.message : 'health_check_failed';
-              }
-              if (attempt < 10) await sleep(3000);
-            }
-            throw new Error(`production_health_not_false:${lastState}`);
+            return body;
           }
 
           try {
-            await assertCloudflareAccountIdentity();
-            const before = listSecretNames();
-            console.log(`[retire-fugle-jin10] CONTROL_PLANE_REACHABLE worker=${workerName}`);
+            const accounts = await cf('/accounts?per_page=50');
+            const candidates = Array.isArray(accounts?.result) ? accounts.result : [];
+            if (!candidates.length) throw new Error('no_accessible_accounts');
 
-            if (before.includes(secretName)) {
-              runWrangler(['secret', 'bulk', '--name', workerName], JSON.stringify({ [secretName]: null }));
+            const matches = [];
+            for (const account of candidates) {
+              const accountId = String(account?.id || '').trim();
+              if (!accountId) continue;
+              try {
+                const subdomain = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/subdomain`);
+                if (String(subdomain?.result?.subdomain || '').trim() === expectedSubdomain) {
+                  matches.push(accountId);
+                }
+              } catch {
+                // Ignore accounts that the isolated token cannot inspect for Workers.
+              }
             }
 
-            const after = listSecretNames();
-            if (after.includes(secretName)) {
-              throw new Error(`secret_cleanup_not_effective:${workerName}:${secretName}`);
+            if (matches.length !== 1) {
+              throw new Error(`account_identity_match_count_${matches.length}`);
             }
 
-            console.log(`[retire-fugle-jin10] CONTROL_PLANE_PASS worker=${workerName} ${secretName}=absent`);
-            await assertProductionHealthFalse();
-            console.log('[retire-fugle-jin10] PASS control-plane-and-runtime-verified');
+            const accountId = matches[0];
+            console.log(`[fugle-discovery] ACCOUNT_IDENTITY_VERIFIED subdomain=${expectedSubdomain}`);
+
+            const secrets = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}/secrets`);
+            const rows = Array.isArray(secrets?.result) ? secrets.result : [];
+            const present = rows.some((item) => String(item?.name || '') === secretName);
+
+            console.log(`[fugle-discovery] CONTROL_PLANE_REACHABLE worker=${workerName}`);
+            console.log(`[fugle-discovery] JIN10_MCP_TOKEN_PRESENT=${present ? 'true' : 'false'}`);
+            console.log('[fugle-discovery] READ_ONLY_DISCOVERY_PASS');
           } catch (error) {
-            console.error(`[retire-fugle-jin10] FAIL ${error instanceof Error ? error.message : 'unknown_error'}`);
+            console.error(`[fugle-discovery] FAIL ${error instanceof Error ? error.message : 'unknown_error'}`);
             process.exit(1);
           }
           NODE
