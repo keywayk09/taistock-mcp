@@ -1,0 +1,169 @@
+name: Fugle Jin10 Retire Public Runner 20260829
+
+on:
+  push:
+    branches:
+      - ops/fugle-control-plane-public-runner-20260829
+    paths:
+      - .github/workflows/fugle-jin10-retire-public-runner-20260829.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fugle-jin10-retire-public-runner-20260829
+  cancel-in-progress: false
+
+jobs:
+  retire-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.FUGLE_CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.FUGLE_CF_ACCOUNT_ID }}
+    steps:
+      - name: Runner proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'PUBLIC_RUNNER_PASS'
+
+      - name: Require isolated Fugle credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || { echo 'FUGLE_CF_API_TOKEN_MISSING'; exit 64; }
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || { echo 'FUGLE_CF_ACCOUNT_ID_MISSING'; exit 65; }
+          echo 'FUGLE_CF_CREDENTIALS_PRESENT'
+
+      - name: Retire only tv-fugle-1d JIN10_MCP_TOKEN and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          import { spawnSync } from 'node:child_process';
+
+          const workerName = 'tv-fugle-1d';
+          const secretName = 'JIN10_MCP_TOKEN';
+          const wranglerVersion = '4.105.0';
+          const expectedWorkersSubdomain = 'keikei99887';
+          const productionHealthUrl = `https://${workerName}.${expectedWorkersSubdomain}.workers.dev/health`;
+
+          const apiToken = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
+          const accountId = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+
+          if (!apiToken || !accountId) {
+            console.error('[retire-fugle-jin10] missing isolated Fugle Cloudflare credentials');
+            process.exit(64);
+          }
+
+          const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+          async function assertCloudflareAccountIdentity() {
+            const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/subdomain`;
+            let response;
+            try {
+              response = await fetch(endpoint, {
+                headers: { Authorization: `Bearer ${apiToken}`, Accept: 'application/json' },
+                signal: AbortSignal.timeout(15000),
+              });
+            } catch {
+              throw new Error('cloudflare_account_identity_unreachable');
+            }
+
+            let body;
+            try { body = await response.json(); }
+            catch { throw new Error('cloudflare_account_identity_invalid_json'); }
+
+            if (!response.ok || body?.success !== true) {
+              throw new Error('cloudflare_account_identity_not_authorized');
+            }
+            if (String(body?.result?.subdomain || '').trim() !== expectedWorkersSubdomain) {
+              throw new Error('cloudflare_account_identity_mismatch');
+            }
+            console.log(`[retire-fugle-jin10] ACCOUNT_IDENTITY_VERIFIED subdomain=${expectedWorkersSubdomain}`);
+          }
+
+          function runWrangler(args, input = undefined) {
+            const result = spawnSync(npx, ['--yes', `wrangler@${wranglerVersion}`, ...args], {
+              encoding: 'utf8', input, env: process.env, maxBuffer: 4 * 1024 * 1024,
+            });
+            if (result.error) throw new Error('wrangler_spawn_failed');
+            if (result.status !== 0) {
+              const diagnostic = `${result.stdout || ''}\n${result.stderr || ''}`.toLowerCase();
+              if (diagnostic.includes('not found') || diagnostic.includes('could not find')) {
+                throw new Error(`worker_not_found_or_wrong_account:${workerName}`);
+              }
+              throw new Error(`wrangler_failed:${result.status}`);
+            }
+            return String(result.stdout || '').trim();
+          }
+
+          function listSecretNames() {
+            const stdout = runWrangler(['secret', 'list', '--name', workerName, '--format', 'json']);
+            let parsed;
+            try { parsed = JSON.parse(stdout || '[]'); }
+            catch { throw new Error('secret_list_json_invalid'); }
+            if (!Array.isArray(parsed)) throw new Error('secret_list_shape_invalid');
+            return parsed.map((item) => String(item?.name || '')).filter(Boolean);
+          }
+
+          async function readProductionHealthPresence() {
+            let response;
+            try {
+              response = await fetch(productionHealthUrl, {
+                headers: { Accept: 'application/json', 'Cache-Control': 'no-cache', 'User-Agent': 'fugle-jin10-public-runner-retire' },
+                signal: AbortSignal.timeout(15000),
+              });
+            } catch { throw new Error('production_health_unreachable'); }
+            if (!response.ok) throw new Error(`production_health_http_${response.status}`);
+            let body;
+            try { body = await response.json(); }
+            catch { throw new Error('production_health_invalid_json'); }
+            if (typeof body?.jin10_retired_secret_present !== 'boolean') {
+              throw new Error('production_health_proof_missing');
+            }
+            return body.jin10_retired_secret_present;
+          }
+
+          async function assertProductionHealthFalse() {
+            let lastState = 'unverified';
+            for (let attempt = 1; attempt <= 10; attempt += 1) {
+              try {
+                const present = await readProductionHealthPresence();
+                lastState = present ? 'true' : 'false';
+                if (present === false) {
+                  console.log('[retire-fugle-jin10] PRODUCTION_HEALTH_PASS jin10_retired_secret_present=false');
+                  return;
+                }
+              } catch (error) {
+                lastState = error instanceof Error ? error.message : 'health_check_failed';
+              }
+              if (attempt < 10) await sleep(3000);
+            }
+            throw new Error(`production_health_not_false:${lastState}`);
+          }
+
+          try {
+            await assertCloudflareAccountIdentity();
+            const before = listSecretNames();
+            console.log(`[retire-fugle-jin10] CONTROL_PLANE_REACHABLE worker=${workerName}`);
+
+            if (before.includes(secretName)) {
+              runWrangler(['secret', 'bulk', '--name', workerName], JSON.stringify({ [secretName]: null }));
+            }
+
+            const after = listSecretNames();
+            if (after.includes(secretName)) {
+              throw new Error(`secret_cleanup_not_effective:${workerName}:${secretName}`);
+            }
+
+            console.log(`[retire-fugle-jin10] CONTROL_PLANE_PASS worker=${workerName} ${secretName}=absent`);
+            await assertProductionHealthFalse();
+            console.log('[retire-fugle-jin10] PASS control-plane-and-runtime-verified');
+          } catch (error) {
+            console.error(`[retire-fugle-jin10] FAIL ${error instanceof Error ? error.message : 'unknown_error'}`);
+            process.exit(1);
+          }
+          NODE
