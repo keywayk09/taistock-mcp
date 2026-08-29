@@ -39,6 +39,16 @@ jobs:
           const secretName = 'JIN10_MCP_TOKEN';
           const wranglerVersion = '4.105.0';
 
+          function safeDiagnostic(text) {
+            let out = String(text || '');
+            const token = String(process.env.CLOUDFLARE_API_TOKEN || '');
+            const account = String(process.env.CLOUDFLARE_ACCOUNT_ID || '');
+            if (token) out = out.split(token).join('[REDACTED_TOKEN]');
+            if (account) out = out.split(account).join('[REDACTED_ACCOUNT]');
+            out = out.replace(/(Authorization:\s*Bearer\s+)\S+/gi, '$1[REDACTED]');
+            return out.slice(-1800);
+          }
+
           function run(args, input) {
             const r = spawnSync(npx, ['--yes', `wrangler@${wranglerVersion}`, ...args], {
               encoding: 'utf8',
@@ -48,6 +58,9 @@ jobs:
             });
             if (r.error) throw r.error;
             if (r.status !== 0) {
+              console.error('WRANGLER_SAFE_DIAGNOSTIC_START');
+              console.error(safeDiagnostic(`${r.stdout || ''}\n${r.stderr || ''}`));
+              console.error('WRANGLER_SAFE_DIAGNOSTIC_END');
               throw new Error(`wrangler command failed with status ${r.status}`);
             }
             return String(r.stdout || '').trim();
