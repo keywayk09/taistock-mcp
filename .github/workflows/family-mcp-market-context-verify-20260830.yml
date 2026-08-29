@@ -8,6 +8,7 @@ on:
       - .github/workflows/family-mcp-market-context-verify-20260830.yml
       - src/v6/family-mcp.ts
       - tests/family-mcp-isolation.test.ts
+      - tests/family-stock-selection.test.ts
 
 permissions:
   contents: read
