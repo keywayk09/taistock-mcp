@@ -53,7 +53,10 @@ jobs:
             try { body = await response.json(); }
             catch { throw new Error('cloudflare_invalid_json'); }
             if (!response.ok || body?.success !== true) {
-              throw new Error(`cloudflare_api_failed_${response.status}`);
+              const code = Array.isArray(body?.errors) && body.errors[0]?.code != null
+                ? String(body.errors[0].code).replace(/[^0-9A-Za-z_-]/g, '')
+                : 'unknown';
+              throw new Error(`cloudflare_api_failed_${response.status}_code_${code}`);
             }
             return body;
           }
