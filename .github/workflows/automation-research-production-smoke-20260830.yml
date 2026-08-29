@@ -54,9 +54,12 @@ jobs:
           console.log('MARKET_PREFIX_PASS');
           NODE
 
-          ohlc="$(curl --fail --silent --show-error --max-time 45 "$base/research/automation/ohlc-1d?symbol=2330&as_of=2026-08-28&source_revision=$revision")"
-          OHLC="$ohlc" node - <<'NODE'
-          const body = JSON.parse(process.env.OHLC || '{}');
+          curl --fail --silent --show-error --max-time 45 \
+            "$base/research/automation/ohlc-1d?symbol=2330&as_of=2026-08-28&source_revision=$revision" \
+            -o /tmp/ohlc.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/ohlc.json', 'utf8'));
           if (body.ok !== true || body.formal_research_eligible !== true) throw new Error(`OHLC bridge blocked: ${body.error || body.reader_error}`);
           if (!(Number(body.returned) > 20)) throw new Error(`default 1d limit appears truncated: returned=${body.returned}`);
           for (const row of body.rows || []) {
