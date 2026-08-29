@@ -1,0 +1,137 @@
+name: Global Futures External Smoke Cleanup 2026-08-29
+
+on:
+  push:
+    branches:
+      - ops/global-futures-external-smoke-cleanup-20260829
+      - main
+    paths:
+      - .github/workflows/global-futures-external-smoke-cleanup-20260829.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: global-futures-external-smoke-cleanup-20260829
+  cancel-in-progress: false
+
+jobs:
+  production-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify Global Futures Production contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const base = 'https://tv-global-futures.keikei99887.workers.dev';
+          const readJson = async (path) => {
+            const response = await fetch(base + path, {
+              headers: { 'cache-control': 'no-cache', 'user-agent': 'taistock-global-futures-smoke/1' },
+              signal: AbortSignal.timeout(30000),
+            });
+            const text = await response.text();
+            let body = null;
+            try { body = text ? JSON.parse(text) : null; } catch {}
+            return { response, body, text };
+          };
+
+          const health = await readJson('/health');
+          if (!(health.response.ok && health.body?.service === 'tv-global-futures')) {
+            throw new Error(`health_contract_failed:${health.response.status}:${health.text.slice(0,300)}`);
+          }
+          if ('jin10_mcp_configured' in health.body || 'jin10_event_persistence' in health.body) {
+            throw new Error('jin10_health_fields_still_present');
+          }
+
+          const catalog = await readJson('/catalog');
+          if (!(catalog.response.ok && catalog.body?.live_sources?.market)) {
+            throw new Error(`catalog_market_contract_failed:${catalog.response.status}`);
+          }
+          if (catalog.body?.live_sources?.events) throw new Error('jin10_catalog_route_still_present');
+
+          const retired = await readJson('/live/events?type=flash&limit=1');
+          if (retired.response.ok && String(retired.body?.provider || '').toLowerCase().includes('jin10')) {
+            throw new Error('jin10_live_events_still_active');
+          }
+
+          const unauthorized = await readJson('/live/market?symbol=NVDA');
+          if (unauthorized.response.status !== 401) {
+            throw new Error(`live_market_expected_401_got_${unauthorized.response.status}`);
+          }
+          if (unauthorized.body?.auth?.configured !== true || unauthorized.body?.auth?.candidate_present !== false) {
+            throw new Error(`admin_auth_diagnostic_contract_failed:${JSON.stringify(unauthorized.body?.auth || null)}`);
+          }
+
+          console.log('GLOBAL_FUTURES_EXTERNAL_PRODUCTION_SMOKE_PASS');
+          NODE
+
+  cleanup-retired-jin10-secrets:
+    if: github.ref == 'refs/heads/main'
+    needs: production-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Require Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || { echo 'missing CLOUDFLARE_API_TOKEN'; exit 41; }
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || { echo 'missing CLOUDFLARE_ACCOUNT_ID'; exit 42; }
+      - name: Remove retired Jin10 secrets from old Workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const account = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+          const token = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
+          if (!account || !token) throw new Error('missing_cloudflare_credentials');
+          const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+          const workers = ['tv-global-futures', 'tv-fugle-1d'];
+          const secretName = 'JIN10_MCP_TOKEN';
+
+          async function request(method, url) {
+            const response = await fetch(url, { method, headers, signal: AbortSignal.timeout(30000) });
+            const text = await response.text();
+            let body = null;
+            try { body = text ? JSON.parse(text) : null; } catch {}
+            return { response, body, text };
+          }
+
+          for (const worker of workers) {
+            const root = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(account)}/workers/scripts/${encodeURIComponent(worker)}/secrets`;
+            const before = await request('GET', root);
+            if (!before.response.ok || before.body?.success !== true) {
+              throw new Error(`secret_list_failed:${worker}:http_${before.response.status}`);
+            }
+            const names = Array.isArray(before.body?.result) ? before.body.result.map(x => String(x?.name || '')) : [];
+            if (names.includes(secretName)) {
+              const deleted = await request('DELETE', `${root}/${encodeURIComponent(secretName)}`);
+              if (!deleted.response.ok || deleted.body?.success !== true) {
+                throw new Error(`secret_delete_failed:${worker}:http_${deleted.response.status}`);
+              }
+              console.log(`removed ${secretName} from ${worker}`);
+            } else {
+              console.log(`${secretName} already absent from ${worker}`);
+            }
+
+            const after = await request('GET', root);
+            if (!after.response.ok || after.body?.success !== true) {
+              throw new Error(`secret_recheck_failed:${worker}:http_${after.response.status}`);
+            }
+            const remaining = Array.isArray(after.body?.result) ? after.body.result.map(x => String(x?.name || '')) : [];
+            if (remaining.includes(secretName)) throw new Error(`secret_cleanup_not_effective:${worker}`);
+          }
+          console.log('JIN10_OLD_SECRET_CLEANUP_PASS');
+          NODE
