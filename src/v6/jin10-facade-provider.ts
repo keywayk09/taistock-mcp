@@ -1,4 +1,4 @@
-import { fetchJin10OwnerData } from "./jin10-owner-tools";
+import { fetchJin10OwnerData } from "./jin10-owner-tools.ts";
 
 type Jin10FacadeResult = {
   ok: boolean;
