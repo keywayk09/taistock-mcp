@@ -86,17 +86,21 @@ assert.equal(result.contract, "FAMILY_MARKET_CONTEXT_READ_ONLY");
 assert.equal(result.txf_context.status, "READY");
 assert.equal(result.global_futures_context.status, "READY");
 assert.equal(result.jin10_context.ok, true);
-assert.equal(result.txf_context.data?.rows.length, 60, "TXF payload must be bounded for Custom GPT transport");
+assert.equal(result.txf_context.data?.rows.length, 32, "TXF timeline must be bounded for Custom GPT transport");
+assert.equal(result.txf_context.data?.timeline.source_row_count, 100);
+assert.equal(result.txf_context.data?.rows[0]?.ts_ms, bars[0].ts_ms, "timeline must retain first bar");
+assert.equal(result.txf_context.data?.rows.at(-1)?.ts_ms, bars.at(-1)?.ts_ms, "timeline must retain last bar");
 assert.equal(result.global_futures_context.data?.products.length, 4);
-assert.ok(result.global_futures_context.data?.products.every((product: any) => product.rows.length === 36));
-assert.equal(result.jin10_context.flash.length, 8);
-assert.equal(result.jin10_context.calendar.length, 8);
+assert.ok(result.global_futures_context.data?.products.every((product: any) => product.rows.length === 16));
+assert.ok(result.global_futures_context.data?.products.every((product: any) => product.timeline.source_row_count === 100));
+assert.equal(result.jin10_context.flash.length, 6);
+assert.equal(result.jin10_context.calendar.length, 6);
 assert.equal(result.decision_readiness.txf_context, true);
 assert.equal(result.decision_readiness.global_futures_context, true);
 assert.equal(result.decision_readiness.jin10_context, true);
 const serialized = JSON.stringify(result);
 assert.doesNotMatch(serialized, /giant_unused_payload/);
-assert.ok(Buffer.byteLength(serialized, "utf8") < 48_000, `market context response unexpectedly large: ${Buffer.byteLength(serialized, "utf8")}`);
+assert.ok(Buffer.byteLength(serialized, "utf8") < 36_000, `market context response unexpectedly large: ${Buffer.byteLength(serialized, "utf8")}`);
 
 const degraded = await buildFamilyMarketQuestionContext({} as any, {
   as_of_date: "2026-08-30",
@@ -116,4 +120,4 @@ assert.equal(degraded.decision_readiness.jin10_context, false);
 assert.doesNotMatch(JSON.stringify(degraded), /test-secret/);
 assert.match(JSON.stringify(degraded), /REDACTED/);
 
-console.log("PASS Family market-event query routes to bounded TXF + Global Futures + Jin10 context");
+console.log("PASS Family market-event query routes to compact full-session TXF + Global Futures + Jin10 context");
