@@ -76,16 +76,34 @@ async function fugle(env: Env, path: string, query: Obj = {}) {
   }, "富果");
 }
 
-async function finmind(env: Env, dataset: string, params: Obj) {
-  if (!env.FINMIND_TOKEN) throw new Error("FINMIND_TOKEN 尚未設定");
+export async function finmind(env: Env, dataset: string, params: Obj) {
   const url = new URL(FINMIND);
   url.searchParams.set("dataset", dataset);
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== "") url.searchParams.set(key, String(value));
   });
-  const body = await json(url, {
-    headers: { Accept: "application/json", Authorization: `Bearer ${env.FINMIND_TOKEN}` },
-  }, "FinMind");
+
+  const token = String(env.FINMIND_TOKEN ?? "").trim();
+  const request = async (authenticated: boolean) => {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (authenticated && token) headers.Authorization = `Bearer ${token}`;
+    return json(url, { headers }, "FinMind");
+  };
+  const tokenIsInvalid = (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    return /FinMind HTTP (?:400|401|403):/i.test(message)
+      && /token/i.test(message)
+      && /(illegal|invalid|expired|unauthori[sz]ed|not valid)/i.test(message);
+  };
+
+  let body: any;
+  try {
+    body = await request(Boolean(token));
+  } catch (error) {
+    if (!token || !tokenIsInvalid(error)) throw error;
+    console.warn(`FINMIND_AUTH_FALLBACK dataset=${dataset} reason=TOKEN_INVALID`);
+    body = await request(false);
+  }
   if (!Array.isArray(body.data)) {
     throw new Error(`FinMind 回傳缺少 data：${String(body.msg ?? body.message ?? "unknown")}`);
   }

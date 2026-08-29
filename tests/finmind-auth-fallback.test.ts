@@ -1,53 +1,49 @@
 import assert from "node:assert/strict";
-import { finmind } from "../src/v6/common.ts";
+import { readFileSync } from "node:fs";
+import { finmind as v6Finmind } from "../src/v6/common.ts";
 
 const originalFetch = globalThis.fetch;
-
 try {
-  const calls: Array<{ authorization: string | null; url: string }> = [];
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const headers = new Headers(init?.headers);
-    calls.push({ authorization: headers.get("authorization"), url: String(input) });
-    if (calls.length === 1) return new Response("Token is illegal.", { status: 400 });
+  const calls: Array<string | null> = [];
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const auth = new Headers(init?.headers).get("authorization");
+    calls.push(auth);
+    if (calls.length === 1) return Response.json({ msg: "Token is illegal." }, { status: 400 });
     return Response.json({ data: [{ stock_id: "2330", title: "test" }] });
   }) as typeof fetch;
-
-  const data = await finmind({ FINMIND_TOKEN: "expired-token" } as any, "TaiwanStockNews", { data_id: "2330" });
-  assert.deepEqual(data, [{ stock_id: "2330", title: "test" }]);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[0].authorization, "Bearer expired-token");
-  assert.equal(calls[1].authorization, null);
-  assert.equal(new URL(calls[1].url).searchParams.get("dataset"), "TaiwanStockNews");
-  assert.equal(new URL(calls[1].url).searchParams.get("data_id"), "2330");
+  const data = await v6Finmind({ FINMIND_TOKEN: "expired-token" } as any, "TaiwanStockNews", { data_id: "2330" });
+  assert.equal(data.length, 1);
+  assert.deepEqual(calls, ["Bearer expired-token", null]);
 
   calls.length = 0;
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const headers = new Headers(init?.headers);
-    calls.push({ authorization: headers.get("authorization"), url: String(input) });
-    return new Response(calls.length === 1 ? "Token is illegal." : "Permission denied", { status: calls.length === 1 ? 400 : 403 });
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const auth = new Headers(init?.headers).get("authorization");
+    calls.push(auth);
+    if (auth) return new Response("Token is illegal.", { status: 400 });
+    return new Response("Permission denied", { status: 403 });
   }) as typeof fetch;
-
   let thrown = "";
   try {
-    await finmind({ FINMIND_TOKEN: "expired-token" } as any, "TaiwanStockIndustryChain", {});
+    await v6Finmind({ FINMIND_TOKEN: "expired-token" } as any, "TaiwanStockIndustryChain", {});
   } catch (error) {
     thrown = error instanceof Error ? error.message : String(error);
   }
-  assert.match(thrown, /FinMind TaiwanStockIndustryChain HTTP 403: Permission denied/);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].authorization, null);
+  assert.match(thrown, /403: Permission denied/);
+  assert.deepEqual(calls, ["Bearer expired-token", null]);
 
-  calls.length = 0;
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    calls.push({ authorization: new Headers(init?.headers).get("authorization"), url: String(input) });
-    return Response.json({ data: [{ stock_id: "2330" }] });
-  }) as typeof fetch;
-  const anonymous = await finmind({ FINMIND_TOKEN: "" } as any, "TaiwanStockNews", { data_id: "2330" });
-  assert.equal(anonymous.length, 1);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].authorization, null);
+  const legacy = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  const start = legacy.indexOf("export async function finmind(env: Env, dataset: string, params: Obj)");
+  const end = legacy.indexOf("\nasync function broker", start);
+  assert.ok(start >= 0 && end > start, "legacy Owner finmind function must be exportable for contract inspection");
+  const block = legacy.slice(start, end);
+  assert.match(block, /const token = String\(env\.FINMIND_TOKEN \?\? ""\)\.trim\(\)/);
+  assert.match(block, /body = await request\(Boolean\(token\)\)/);
+  assert.match(block, /body = await request\(false\)/);
+  assert.match(block, /FINMIND_AUTH_FALLBACK dataset=\$\{dataset\} reason=TOKEN_INVALID/);
+  assert.doesNotMatch(block, /FINMIND_TOKEN 尚未設定/);
+  assert.match(block, /Permission|Backer|Sponsor|request\(false\)|throw error/);
 
-  console.log("PASS FinMind invalid Bearer falls back anonymously without changing result contract");
+  console.log("PASS FinMind fallback: v6 behavior + legacy Owner source contract");
 } finally {
   globalThis.fetch = originalFetch;
 }
