@@ -1,0 +1,78 @@
+name: OHLC Volume Repair Audit 20260830
+
+on:
+  push:
+    branches:
+      - ops/ohlc-volume-repair-audit-20260830
+    paths:
+      - .github/workflows/ohlc-volume-repair-audit-20260830.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout public OHLC canonical repo
+        uses: actions/checkout@v4
+        with:
+          repository: keywayk09/tv-papertrader
+          ref: main
+          path: tv-papertrader
+          persist-credentials: false
+
+      - name: Audit exact legacy Daily rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const root = 'tv-papertrader/data/OHLC/tw/1d';
+          const files = [];
+          const walk = d => {
+            for (const e of fs.readdirSync(d, {withFileTypes:true})) {
+              const p = path.join(d,e.name);
+              if (e.isDirectory()) walk(p);
+              else if (e.isFile() && p.endsWith('.csv')) files.push(p);
+            }
+          };
+          walk(root);
+          let rows = 0, affectedFiles = 0, totalAffectedBytes = 0;
+          const byYear = new Map();
+          const samples = [];
+          for (const p of files.sort()) {
+            const text = fs.readFileSync(p,'utf8');
+            const lines = text.trimEnd().split(/\r?\n/);
+            if (!lines.length) continue;
+            const h = lines[0].split(',');
+            const sourceIdx = h.indexOf('source');
+            const volumeIdx = h.indexOf('volume');
+            const dateIdx = h.indexOf('date');
+            if (sourceIdx < 0 || volumeIdx < 0 || dateIdx < 0) continue;
+            let n = 0;
+            for (let i=1;i<lines.length;i++) {
+              const f = lines[i].split(',');
+              if (f[sourceIdx] !== 'derived_from_1m') continue;
+              if (!/^\d+$/.test(f[volumeIdx])) throw new Error(`ambiguous:${p}:${i+1}:${f[volumeIdx]}`);
+              n++; rows++;
+              if (samples.length < 12) samples.push(`${p.replace('tv-papertrader/','')}:${f[dateIdx]}:${f[volumeIdx]}`);
+            }
+            if (n) {
+              affectedFiles++;
+              totalAffectedBytes += Buffer.byteLength(text);
+              const m = p.match(/\/1d\/(\d{4})\//);
+              const y = m ? m[1] : 'unknown';
+              byYear.set(y, (byYear.get(y)||0)+n);
+            }
+          }
+          console.log(`FILES_SCANNED=${files.length}`);
+          console.log(`AFFECTED_FILES=${affectedFiles}`);
+          console.log(`LEGACY_ROWS=${rows}`);
+          console.log(`AFFECTED_FILE_BYTES=${totalAffectedBytes}`);
+          console.log(`BY_YEAR=${JSON.stringify(Object.fromEntries([...byYear].sort()))}`);
+          console.log(`SAMPLES=${JSON.stringify(samples)}`);
+          if (!rows) throw new Error('no_legacy_rows_found_unexpected');
+          NODE
