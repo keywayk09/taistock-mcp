@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           body="$(curl --fail --silent --show-error --max-time 30 \
-            'https://taistock-mcp.keikei99887.workers.dev/health/formal-blind')"
+            'https://taistock-mcp.keywayk09.workers.dev/health/formal-blind')"
           BODY="$body" node - <<'NODE'
           const body = JSON.parse(process.env.BODY || '{}');
           if (body.status !== 'ok') throw new Error(`formal blind canary status=${body.status}`);
@@ -59,7 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           body="$(curl --fail --silent --show-error --max-time 30 \
-            'https://taistock-mcp.keikei99887.workers.dev/health')"
+            'https://taistock-mcp.keywayk09.workers.dev/health')"
           BODY="$body" node - <<'NODE'
           const body = JSON.parse(process.env.BODY || '{}');
           if (body.status !== 'ok') throw new Error(`service status=${body.status}`);
