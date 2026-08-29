@@ -54,8 +54,9 @@ assert.match(index, /crypto_policy: "CENTRAL_TV_CRYPTO_ENGINE_READ_ONLY_NO_DUPLI
 assert.match(index, /tools: 118/);
 
 const familyMcp = read("src/v6/family-mcp.ts");
-assert.match(familyMcp, /FAMILY_MCP_VERSION = "family-mcp\/v3\.4\.0"/);
+assert.match(familyMcp, /FAMILY_MCP_VERSION = "family-mcp\/v3\.5\.0"/);
 assert.match(familyMcp, /registerFamilyStockSelectionToolsV2/);
+assert.match(familyMcp, /get_family_market_context/);
 assert.match(familyMcp, /get_family_stock_market_context/);
 assert.match(familyMcp, /registerSharedCryptoMarketTools\(this\.server, this\.env\)/);
 assert.match(familyMcp, /SHARED_CRYPTO_TOOL_NAMES/);
