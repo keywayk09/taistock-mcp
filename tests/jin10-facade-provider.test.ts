@@ -5,6 +5,7 @@ import { loadJin10MarketBriefContext, loadJin10StockEventContext } from "../src/
 const legacySource = fs.readFileSync("src/index.ts", "utf8");
 const advancedSource = fs.readFileSync("src/v6/register.ts", "utf8");
 const providerSource = fs.readFileSync("src/v6/jin10-facade-provider.ts", "utf8");
+const ownerContent = fs.readFileSync("src/v6/owner-content-handler.ts", "utf8");
 
 // Public ABI stays on already-existing tool names and input schemas.
 assert.match(legacySource, /registerTool\(\"get_stock_news\"/);
@@ -14,35 +15,31 @@ assert.match(legacySource, /inputSchema:\s*\{\s*symbol:\s*stockSymbol,\s*date:\s
 assert.match(advancedSource, /registerTool\(\"get_daily_market_brief\"/);
 assert.match(advancedSource, /phase:\s*z\.enum\(\[\"pre_market\",\s*\"intraday\",\s*\"post_market\"\]\)/s);
 
-// Internal provider must not register a new MCP action or own the secret directly.
+// Internal provider must not register a new MCP action, and Owner must not
+// expose the old standalone Jin10 action set.
 assert.doesNotMatch(providerSource, /registerTool\(/);
 assert.doesNotMatch(providerSource, /JIN10_MCP_TOKEN/);
+assert.doesNotMatch(ownerContent, /registerJin10OwnerTools\(this\.server, this\.env\)/);
+assert.match(ownerContent, /registerToolThroughJin10Facade/);
 
 const originalFetch = globalThis.fetch;
-let sessionSeq = 0;
 const calledTools: string[] = [];
+let session = 0;
 
 globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
   const body = init?.body ? JSON.parse(String(init.body)) : null;
-  const method = String(body?.method || "");
 
-  if (method === "initialize") {
-    sessionSeq += 1;
-    return new Response(JSON.stringify({
-      jsonrpc: "2.0",
-      id: body?.id ?? 1,
-      result: { protocolVersion: "2025-11-25", capabilities: {} },
-    }), {
+  if (body?.method === "initialize") {
+    session += 1;
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { protocolVersion: "2025-11-25", capabilities: {} } }), {
       status: 200,
-      headers: { "content-type": "application/json", "mcp-session-id": `session-${sessionSeq}` },
+      headers: { "content-type": "application/json", "mcp-session-id": `session-${session}` },
     });
   }
 
-  if (method === "notifications/initialized") {
-    return new Response("", { status: 202 });
-  }
+  if (body?.method === "notifications/initialized") return new Response("", { status: 202 });
 
-  if (method === "tools/call") {
+  if (body?.method === "tools/call") {
     const tool = String(body?.params?.name || "");
     calledTools.push(tool);
     const items = tool === "list_calendar"
@@ -50,17 +47,13 @@ globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
       : tool.includes("news")
         ? [{ id: "n1", time: "2026-08-29T09:01:00+08:00", title: "台積電測試新聞" }]
         : [{ id: "f1", time: "2026-08-29T09:00:00+08:00", content: "台積電測試快訊" }];
-    return new Response(JSON.stringify({
-      jsonrpc: "2.0",
-      id: body?.id ?? 2,
-      result: { structuredContent: { data: { items } } },
-    }), { status: 200, headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { structuredContent: { data: { items } } } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
   }
 
-  return new Response(JSON.stringify({ jsonrpc: "2.0", error: { code: -32601, message: "method not found" } }), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-  });
+  return new Response(JSON.stringify({ error: "unexpected request" }), { status: 500 });
 };
 
 try {
