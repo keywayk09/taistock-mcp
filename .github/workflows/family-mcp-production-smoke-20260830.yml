@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Verify Family MCP tool on public health
+      - name: Verify effective Family MCP production surface
         shell: bash
         run: |
           set -euo pipefail
@@ -30,7 +30,10 @@ jobs:
           try { body = JSON.parse(text); } catch { throw new Error(`health_not_json_http_${r.status}`); }
           if (!r.ok || body?.status !== 'ok') throw new Error(`health_http_${r.status}_status_${String(body?.status)}`);
           const serialized = JSON.stringify(body);
+          if (!serialized.includes('/family-mcp')) throw new Error('family_mcp_endpoint_missing');
           if (!serialized.includes('get_family_market_context')) throw new Error('family_market_context_tool_missing');
-          if (!serialized.includes('family-mcp/v3.5.0')) throw new Error('family_mcp_v3_5_missing');
-          console.log('[smoke] FAMILY_MCP_PRODUCTION_PASS version=family-mcp/v3.5.0 tool=get_family_market_context');
+          for (const forbidden of ['get_jin10_flash','get_jin10_news','get_jin10_calendar','search_jin10','jin10_search']) {
+            if (serialized.includes(forbidden)) throw new Error(`dedicated_jin10_tool_exposed:${forbidden}`);
+          }
+          console.log('[smoke] FAMILY_MCP_PRODUCTION_PASS endpoint=/family-mcp tool=get_family_market_context dedicated_jin10_tools=absent');
           NODE
