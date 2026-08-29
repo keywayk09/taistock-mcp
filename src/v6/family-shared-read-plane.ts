@@ -1,4 +1,4 @@
-export const FAMILY_SHARED_READ_PLANE_VERSION = "family-shared-read-plane/v1.4.0";
+export const FAMILY_SHARED_READ_PLANE_VERSION = "family-shared-read-plane/v1.4.1";
 
 export type FamilySharedReadCapability = {
   id: string;
@@ -46,6 +46,15 @@ export const FAMILY_SHARED_READ_CAPABILITIES = [
     access: "READ_ONLY",
     family_share: "SHARED_BY_DEFAULT",
     notes: "缺資料維持 UNKNOWN/null；重大數字衝突需追官方或第二來源。",
+  },
+  {
+    id: "jin10_events",
+    label: "金十即時快訊與新聞事件",
+    sources: ["JIN10_MCP_EVENTS_READ_ONLY"],
+    identity: "READ_ONLY_EVENT_RESEARCH_CONTEXT",
+    access: "READ_ONLY",
+    family_share: "SHARED_WHEN_AVAILABLE",
+    notes: "透過taistock-mcp內部Jin10 MCP provider唯讀取得快訊/新聞；不持久化、不提供獨立Family tool，且不得升格為正式OHLC、Published籌碼或公司官方重大訊息。",
   },
   {
     id: "industry_supply_chain",
@@ -131,14 +140,16 @@ export function familySharedReadManifest() {
       cloudflare_service_binding: false,
       stock_realtime: "FUGLE_REST_QUOTE_TRADES",
       stock_formal_ohlc: "TV_PAPERTRADER_GITHUB_CANONICAL_READ_ONLY",
-      capabilities: ["CANONICAL_OHLC_READ", "STOCK_REALTIME_READ", "STOCK_FIVE_LEVEL_BOOK", "STOCK_RECENT_TRADES", "STOCK_SHORT_WINDOW_ORDER_FLOW"],
+      event_research: "JIN10_MCP_EVENTS_READ_ONLY",
+      capabilities: ["CANONICAL_OHLC_READ", "STOCK_REALTIME_READ", "STOCK_FIVE_LEVEL_BOOK", "STOCK_RECENT_TRADES", "STOCK_SHORT_WINDOW_ORDER_FLOW", "JIN10_EVENT_READ"],
       stock_live_persistence: "NONE",
+      event_research_persistence: "NONE",
       public_bypass_route: false,
       mutation_methods: false,
     },
     evidence_hierarchy: {
       FORMAL_TRUTH: ["OHLC_MCP_GITHUB_CANONICAL_READ", "PUBLISHED_GENERATION"],
-      GOVERNED_CONTEXT: ["STRUCTURED_FUNDAMENTALS", "HOLDER_STRUCTURE", "TXF_CONTEXT", "GLOBAL_MARKET_CONTEXT", "GLOBAL_FUTURES_CONTEXT"],
+      GOVERNED_CONTEXT: ["STRUCTURED_FUNDAMENTALS", "HOLDER_STRUCTURE", "TXF_CONTEXT", "GLOBAL_MARKET_CONTEXT", "GLOBAL_FUTURES_CONTEXT", "JIN10_MCP_EVENTS_READ_ONLY"],
       DISPLAY_FALLBACK: ["FUGLE_REST_QUOTE_TRADES", "FINMIND_PRICE_FALLBACK"],
       WEB_EVIDENCE: ["OPEN_WORLD_WEB_WITH_SOURCE_AND_TIME"],
     },
@@ -153,6 +164,7 @@ export function familySharedReadManifest() {
     evidence_rules: [
       "能力共享不代表資料身份可互換：正式OHLC只認既有tv-fugle-1d canonical的GitHub唯讀資料。",
       "Fugle REST成交、五檔、逐筆與短窗主動買賣只屬即時context，不持久化、不得升級成正式OHLC。",
+      "Jin10 MCP快訊/新聞只屬事件研究context，不持久化、不得升級成正式OHLC、Published籌碼或公司官方重大訊息。",
       "正式籌碼仍只認 Published generation。",
       "TXF/Global Futures不可用時必須fail-closed，不得用股票資料或Web價格補成正式context。",
       "GOVERNED_CONTEXT、DISPLAY_FALLBACK、WEB_EVIDENCE 不能自行升級成 FORMAL_TRUTH。",
