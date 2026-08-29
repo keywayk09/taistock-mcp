@@ -1,7 +1,7 @@
 import { readFamilyMarketRegimeContext } from "./family-ohlc-read-bridge.ts";
 import { loadJin10MarketBriefContext } from "./jin10-facade-provider.ts";
 
-export const FAMILY_MARKET_QUESTION_VERSION = "family-market-question/v1.0.0";
+export const FAMILY_MARKET_QUESTION_VERSION = "family-market-question/v1.0.1";
 
 type MarketQuestionInput = {
   as_of_date: string;
@@ -41,13 +41,43 @@ function projectBar(row: any) {
   };
 }
 
-function recentBars(value: any, limit: number) {
-  const rows = Array.isArray(value?.rows)
+function sourceRows(value: any) {
+  return Array.isArray(value?.rows)
     ? value.rows
     : Array.isArray(value?.bars)
       ? value.bars
       : [];
-  return rows.slice(-limit).map(projectBar);
+}
+
+/**
+ * Preserve the whole observed session without transporting every raw bar. The
+ * first/last bars are always retained and the interior is sampled evenly. This
+ * is enough for event-to-price timeline reasoning while keeping Custom GPT Action
+ * responses safely below transport limits.
+ */
+function timelineBars(value: any, limit: number) {
+  const rows = sourceRows(value);
+  if (rows.length <= limit) return rows.map(projectBar);
+  if (limit <= 1) return [projectBar(rows.at(-1))];
+  const selected: any[] = [];
+  const seen = new Set<number>();
+  for (let i = 0; i < limit; i++) {
+    const index = Math.round((i * (rows.length - 1)) / (limit - 1));
+    if (seen.has(index)) continue;
+    seen.add(index);
+    selected.push(projectBar(rows[index]));
+  }
+  return selected;
+}
+
+function timelineMeta(value: any) {
+  const rows = sourceRows(value);
+  if (!rows.length) return { source_row_count: 0, first: null, last: null };
+  return {
+    source_row_count: rows.length,
+    first: projectBar(rows[0]),
+    last: projectBar(rows.at(-1)),
+  };
 }
 
 function compactTxfContext(context: any) {
@@ -66,7 +96,8 @@ function compactTxfContext(context: any) {
       trade_date: data.trade_date ?? data.resolved_date ?? null,
       timeframe: data.timeframe ?? "5m",
       returned: data.returned ?? data.count ?? null,
-      rows: recentBars(data, 60),
+      timeline: timelineMeta(data),
+      rows: timelineBars(data, 32),
     } : null,
   };
 }
@@ -94,7 +125,8 @@ function compactGlobalFuturesContext(context: any) {
         status: item?.status ?? item?.data_status ?? null,
         verification_level: item?.verification_level ?? null,
         dataset_version: item?.dataset_version ?? null,
-        rows: recentBars(item, 36),
+        timeline: timelineMeta(item),
+        rows: timelineBars(item, 16),
       })),
     } : null,
   };
@@ -104,13 +136,13 @@ function compactJin10(context: any) {
   const projectEvent = (item: any) => ({
     id: item?.id ?? null,
     time: item?.time ?? item?.pub_time ?? null,
-    title: text(item?.title, 300),
-    summary: text(item?.summary ?? item?.content ?? item?.introduction, 700),
+    title: text(item?.title, 260),
+    summary: text(item?.summary ?? item?.content ?? item?.introduction, 420),
     important: item?.important ?? item?.star ?? null,
     previous: item?.previous ?? null,
     consensus: item?.consensus ?? null,
     actual: item?.actual ?? null,
-    affect_txt: text(item?.affect_txt, 500),
+    affect_txt: text(item?.affect_txt, 320),
   });
   return {
     ok: context?.ok === true,
@@ -118,10 +150,10 @@ function compactJin10(context: any) {
     mode: context?.mode ?? "market_brief",
     read_only: true,
     persistence: "NONE",
-    flash: Array.isArray(context?.flash) ? context.flash.slice(0, 8).map(projectEvent) : [],
-    news: Array.isArray(context?.news) ? context.news.slice(0, 5).map(projectEvent) : [],
-    calendar: Array.isArray(context?.calendar) ? context.calendar.slice(0, 8).map(projectEvent) : [],
-    partial_errors: Array.isArray(context?.partial_errors) ? context.partial_errors.slice(0, 6).map((error: unknown) => text(error, 300)) : [],
+    flash: Array.isArray(context?.flash) ? context.flash.slice(0, 6).map(projectEvent) : [],
+    news: Array.isArray(context?.news) ? context.news.slice(0, 4).map(projectEvent) : [],
+    calendar: Array.isArray(context?.calendar) ? context.calendar.slice(0, 6).map(projectEvent) : [],
+    partial_errors: Array.isArray(context?.partial_errors) ? context.partial_errors.slice(0, 4).map((error: unknown) => text(error, 240)) : [],
   };
 }
 
