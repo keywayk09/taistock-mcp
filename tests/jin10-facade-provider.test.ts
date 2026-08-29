@@ -23,6 +23,7 @@ assert.doesNotMatch(ownerContent, /registerJin10OwnerTools\(this\.server, this\.
 assert.match(ownerContent, /registerToolThroughJin10Facade/);
 assert.match(providerSource, /numeric_symbol_suppressed/);
 assert.match(providerSource, /fugle\(/);
+assert.match(providerSource, /JIN10_SIMPLIFIED_CHAR_MAP/);
 
 const originalFetch = globalThis.fetch;
 const calledTools: string[] = [];
@@ -69,10 +70,10 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const items = tool === "list_calendar"
       ? [{ pub_time: "2026-08-29T10:00:00+08:00", title: "測試財經日曆", star: 3 }]
       : tool.includes("news")
-        ? [{ id: "n1", time: "2026-08-29T09:01:00+08:00", title: "台積電測試新聞" }]
+        ? [{ id: "n1", time: "2026-08-29T09:01:00+08:00", title: "台积电测试新闻" }]
         : [
-            { id: "f-old", time: "2026-08-29T08:00:00+08:00", content: "台積電較舊快訊" },
-            { id: "f-new", time: "2026-08-29T09:00:00+08:00", content: "台積電較新快訊" },
+            { id: "f-old", time: "2026-08-29T08:00:00+08:00", content: "台积电较旧快讯" },
+            { id: "f-new", time: "2026-08-29T09:00:00+08:00", content: "台积电较新快讯" },
           ];
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { structuredContent: { data: { items } } } }), {
       status: 200,
@@ -95,18 +96,21 @@ try {
 
   // A pure numeric Taiwan stock code must be resolved to the company name
   // before Jin10 search. The raw number 2330 must never be used as a keyword.
+  // Jin10 indexes Simplified Chinese, so provider-local search normalization
+  // converts 台積電 -> 台积电 while preserving the canonical company_name.
   const stock = await loadJin10StockEventContext(env, ["2330"], 5);
   assert.equal(stock.ok, true);
   assert.equal(stock.mode, "stock_events");
   assert.ok(stock.flash.length >= 1);
   assert.ok(stock.news.length >= 1);
   assert.equal(stock.persistence, "NONE");
-  assert.deepEqual(stock.query_keywords, ["台積電"]);
+  assert.deepEqual(stock.query_keywords, ["台积电"]);
   assert.equal(stock.entity_resolution?.source, "fugle-quote");
   assert.equal(stock.entity_resolution?.symbol, "2330");
   assert.equal(stock.entity_resolution?.company_name, "台積電");
   assert.equal(stock.entity_resolution?.numeric_symbol_suppressed, true);
-  assert.ok(calledKeywords.includes("台積電"));
+  assert.ok(calledKeywords.includes("台积电"));
+  assert.ok(!calledKeywords.includes("台積電"), "Traditional Taiwan name should be normalized for Jin10 search");
   assert.ok(!calledKeywords.includes("2330"), "numeric stock code must never be sent to Jin10 search");
   assert.equal((stock.flash[0] as any)?.id, "f-new", "stock flash must be sorted newest first");
   assert.doesNotMatch(JSON.stringify({ market, stock }), /sk-test-never-return/);

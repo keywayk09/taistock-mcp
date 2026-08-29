@@ -23,6 +23,35 @@ type Jin10FacadeResult = {
   entity_resolution?: Jin10EntityResolution;
 };
 
+// Jin10's search corpus is Simplified Chinese. Taiwan provider names are
+// commonly Traditional Chinese, so a literal query such as 台積電 can return
+// zero rows even when the corpus contains 台积电. Keep this conversion local to
+// the Jin10 provider facade: it does not alter the public Diamond ABI or the
+// canonical Taiwan company name returned to callers.
+const JIN10_SIMPLIFIED_CHAR_MAP: Record<string, string> = {
+  "積": "积", "電": "电", "聯": "联", "發": "发", "鴻": "鸿", "國": "国",
+  "華": "华", "廣": "广", "長": "长", "榮": "荣", "寶": "宝", "統": "统",
+  "達": "达", "創": "创", "緯": "纬", "穎": "颖", "碩": "硕", "啟": "启",
+  "亞": "亚", "麗": "丽", "漢": "汉", "勝": "胜", "豐": "丰", "遠": "远",
+  "興": "兴", "業": "业", "環": "环", "應": "应", "製": "制", "藥": "药",
+  "學": "学", "鋼": "钢", "鐵": "铁", "銀": "银", "證": "证", "資": "资",
+  "訊": "讯", "網": "网", "圓": "圆", "氣": "气", "綠": "绿", "機": "机",
+  "車": "车", "運": "运", "輸": "输", "設": "设", "營": "营", "壽": "寿",
+  "險": "险", "儲": "储", "記": "记", "憶": "忆", "體": "体", "導": "导",
+  "臺": "台", "灣": "湾", "實": "实", "際": "际", "開": "开", "關": "关",
+  "貿": "贸", "易": "易", "農": "农", "產": "产", "礦": "矿", "紡": "纺",
+  "織": "织", "紙": "纸", "膠": "胶", "塑": "塑", "樹": "树", "橡": "橡",
+  "醫": "医", "療": "疗", "衛": "卫", "生": "生", "飛": "飞", "龍": "龙",
+  "鳳": "凤", "馬": "马", "萬": "万", "億": "亿", "強": "强", "傑": "杰",
+  "東": "东", "陽": "阳", "陰": "阴", "燁": "烨", "煒": "炜", "燦": "灿",
+  "燈": "灯", "聲": "声", "樂": "乐", "時": "时", "維": "维", "誠": "诚",
+  "義": "义", "順": "顺", "益": "益", "泰": "泰", "儀": "仪", "廠": "厂",
+};
+
+function toJin10SearchKeyword(value: string) {
+  return [...String(value || "").trim()].map((char) => JIN10_SIMPLIFIED_CHAR_MAP[char] ?? char).join("");
+}
+
 function safeItems(result: any) {
   return result?.ok === true && Array.isArray(result?.items) ? result.items : [];
 }
@@ -71,7 +100,7 @@ async function resolveStockEntityKeywords(env: Env, keywords: string[]) {
 
   if (textual.length) {
     return {
-      queryKeywords: textual.slice(0, 2),
+      queryKeywords: [...new Set(textual.map(toJin10SearchKeyword).filter(Boolean))].slice(0, 2),
       resolution: {
         source: "caller" as const,
         symbol: numeric,
@@ -83,7 +112,7 @@ async function resolveStockEntityKeywords(env: Env, keywords: string[]) {
 
   if (!numeric) {
     return {
-      queryKeywords: cleaned.slice(0, 2),
+      queryKeywords: [...new Set(cleaned.map(toJin10SearchKeyword).filter(Boolean))].slice(0, 2),
       resolution: {
         source: "caller" as const,
         symbol: cleaned[0] ?? null,
@@ -112,7 +141,7 @@ async function resolveStockEntityKeywords(env: Env, keywords: string[]) {
       };
     }
     return {
-      queryKeywords: [name],
+      queryKeywords: [toJin10SearchKeyword(name)],
       resolution: {
         source: "fugle-quote" as const,
         symbol: numeric,

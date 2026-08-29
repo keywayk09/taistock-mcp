@@ -37,8 +37,8 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     calledTools.push(tool);
     if (keyword) calledKeywords.push(keyword);
     const items = tool === "search_news"
-      ? [{ id: "n1", time: "2026-08-29T09:01:00+08:00", title: "台積電測試新聞" }]
-      : [{ id: "f1", time: "2026-08-29T09:00:00+08:00", content: "台積電測試快訊" }];
+      ? [{ id: "n1", time: "2026-08-29T09:01:00+08:00", title: "台积电测试新闻" }]
+      : [{ id: "f1", time: "2026-08-29T09:00:00+08:00", content: "台积电测试快讯" }];
     return new Response(JSON.stringify({
       jsonrpc: "2.0",
       id: body.id,
@@ -88,11 +88,12 @@ try {
   assert.equal(payload.jin10_context.persistence, "NONE");
   assert.equal(payload.jin10_context.flash.length, 1);
   assert.equal(payload.jin10_context.news.length, 1);
-  assert.deepEqual(payload.jin10_context.query_keywords, ["台積電"]);
+  assert.deepEqual(payload.jin10_context.query_keywords, ["台积电"]);
   assert.equal(payload.jin10_context.entity_resolution.company_name, "台積電");
   assert.ok(calledTools.includes("search_flash"));
   assert.ok(calledTools.includes("search_news"));
-  assert.ok(calledKeywords.includes("台積電"));
+  assert.ok(calledKeywords.includes("台积电"));
+  assert.ok(!calledKeywords.includes("台積電"));
   assert.ok(!calledKeywords.includes("2330"));
   assert.doesNotMatch(JSON.stringify(payload), /sk-test-never-return/);
 
@@ -133,7 +134,8 @@ try {
   assert.equal(baseFailedContext.persistence, "NONE");
   assert.equal(baseFailedContext.flash.length, 1);
   assert.equal(baseFailedContext.news.length, 1);
-  assert.deepEqual(baseFailedContext.query_keywords, ["台積電"]);
+  assert.deepEqual(baseFailedContext.query_keywords, ["台积电"]);
+  assert.equal(baseFailedContext.entity_resolution.company_name, "台積電");
   assert.equal(baseFailed.structuredContent.jin10_context.provider, "jin10-mcp");
   assert.doesNotMatch(JSON.stringify(baseFailed), /sk-test-never-return/);
 
