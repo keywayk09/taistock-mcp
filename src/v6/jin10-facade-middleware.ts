@@ -69,9 +69,23 @@ async function loadFacadeContext(env: Env, toolName: string, input: any) {
 }
 
 function attachContext(baseResult: any, jin10Context: any) {
-  // Existing tool errors remain authoritative. Jin10 must never turn a failed
-  // legacy/provider call into a synthetic success response.
-  if (!baseResult || baseResult.isError === true) return baseResult;
+  if (!baseResult) return baseResult;
+
+  // Preserve the base provider's error semantics, but never discard evidence
+  // already fetched from Jin10. This makes the facade fail-open in both
+  // directions: Jin10 cannot break the base tool, and a base-provider failure
+  // cannot suppress Jin10 context.
+  if (baseResult.isError === true) {
+    const content = Array.isArray(baseResult.content) ? [...baseResult.content] : [];
+    content.push({
+      type: "text",
+      text: JSON.stringify({ jin10_context: jin10Context }, null, 2),
+    });
+    const structuredContent = baseResult.structuredContent && typeof baseResult.structuredContent === "object" && !Array.isArray(baseResult.structuredContent)
+      ? { ...baseResult.structuredContent, jin10_context: jin10Context }
+      : { jin10_context: jin10Context };
+    return { ...baseResult, content, structuredContent };
+  }
 
   let changed = false;
   let content = baseResult.content;
