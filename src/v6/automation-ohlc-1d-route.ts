@@ -9,6 +9,7 @@ function validDate(value: string) { return /^\d{4}-\d{2}-\d{2}$/.test(value); }
 function validRevision(value: string) { return /^[0-9a-f]{40}$/i.test(value); }
 function validSymbol(value: string) { return /^\d{4,6}$/.test(value); }
 function clampInt(value: string | null, fallback: number, min: number, max: number) {
+  if (value === null || value.trim() === "") return fallback;
   const n = Math.trunc(Number(value));
   return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
 }
@@ -45,7 +46,13 @@ function pinnedEnv(env: Env, revision: string): Env {
  * consistent share-valued `volume` to research. No GitHub file is rewritten.
  */
 export function presentAutomationDailyVolume(row: AnyRecord) {
-  const raw = Number(row?.volume);
+  // Missing canonical volume must stay missing. Number(null) and Number("") are
+  // zero in JavaScript, which would otherwise manufacture a false zero-volume
+  // observation and contaminate formal research features.
+  if (row?.volume === null || row?.volume === undefined || String(row.volume).trim() === "") {
+    return { ...row };
+  }
+  const raw = Number(row.volume);
   if (!Number.isFinite(raw)) return { ...row };
   const legacyLots = String(row?.source ?? "") === "derived_from_1m";
   const shares = legacyLots ? raw * 1000 : raw;

@@ -11,6 +11,16 @@ export { FamilyMCP, MyMCP } from "./index-v6.ts";
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
+
+    // URLSearchParams.get() returns null when an optional parameter is omitted.
+    // The legacy clamp helper inside the compatibility handler treats
+    // Number(null) as zero, so normalize the documented formal-Blind default at
+    // the ingress boundary instead of silently truncating a 300-bar request to
+    // one bar. Explicit caller-provided limits remain untouched.
+    if (url.pathname === "/research/automation/formal-blind" && !url.searchParams.has("limit")) {
+      url.searchParams.set("limit", "300");
+    }
+
     if (url.pathname === "/research/automation/ohlc-1d") {
       const response = await handleAutomationOhlc1dRoute(request, env, url);
       if (response) return response;
