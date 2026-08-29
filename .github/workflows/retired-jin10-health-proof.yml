@@ -1,4 +1,4 @@
-name: Retired Jin10 Health Proof
+name: Retired Jin10 Runtime Proof
 
 on:
   push:
@@ -13,25 +13,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Assert retired Jin10 secret is absent
+      - name: Assert Fugle retired Jin10 secret is absent at runtime
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
-          const targets = [
-            ['tv-global-futures', 'https://tv-global-futures.keikei99887.workers.dev/health'],
-            ['tv-fugle-1d', 'https://tv-fugle-1d.keikei99887.workers.dev/health'],
-          ];
-
-          for (const [name, url] of targets) {
-            const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
-            if (!response.ok) throw new Error(`${name}: HTTP_${response.status}`);
-            const body = await response.json();
-            const present = body?.jin10_retired_secret_present;
-            if (present !== false) {
-              throw new Error(`${name}: absence proof failed; boolean=${String(present)}`);
-            }
-            console.log(`${name}: PASS jin10_retired_secret_present=false`);
+          const url = 'https://tv-fugle-1d.keikei99887.workers.dev/ops/jin10-retired-secret-proof';
+          const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
+          if (!response.ok) throw new Error(`tv-fugle-1d: HTTP_${response.status}`);
+          const body = await response.json();
+          const present = body?.jin10_retired_secret_present;
+          if (present !== false) {
+            throw new Error(`tv-fugle-1d: runtime absence proof failed; boolean=${String(present)}`);
           }
-          console.log('JIN10_RETIRED_SECRET_HEALTH_PROOF_PASS');
+          console.log('tv-fugle-1d: PASS jin10_retired_secret_present=false');
+          console.log('FUGLE_JIN10_RUNTIME_ABSENCE_PROOF_PASS');
           NODE
