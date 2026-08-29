@@ -6,6 +6,11 @@ on:
       - fix/family-market-context-jin10-txf-20260830
     paths:
       - .github/workflows/family-market-context-verify-20260830.yml
+      - src/v6/family-market-question.ts
+      - src/v6/family-adaptive-planner.ts
+      - src/v6/family-smart-rest.ts
+      - tests/family-market-context-query.test.ts
+      - package.json
 
 permissions:
   contents: read
