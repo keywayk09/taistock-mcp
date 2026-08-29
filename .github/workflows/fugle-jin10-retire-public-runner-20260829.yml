@@ -1,4 +1,4 @@
-name: Fugle Jin10 Retire Public Runner 20260829
+name: Fugle Version Equivalence Audit 20260829
 
 on:
   push:
@@ -10,127 +10,123 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: fugle-jin10-retire-public-runner-20260829
-  cancel-in-progress: false
-
 jobs:
-  retire-and-verify:
+  audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.FUGLE_CF_API_TOKEN }}
     steps:
-      - name: Retire only tv-fugle-1d JIN10_MCP_TOKEN and verify
+      - name: Compare Production deployment with latest Worker version
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
-          const apiToken = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
-          const workerName = 'tv-fugle-1d';
-          const secretName = 'JIN10_MCP_TOKEN';
+          import { createHash } from 'node:crypto';
+
+          const token = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
+          const worker = 'tv-fugle-1d';
           const expectedSubdomain = 'keikei99887';
-          const healthUrl = `https://${workerName}.${expectedSubdomain}.workers.dev/health`;
           const base = 'https://api.cloudflare.com/client/v4';
-          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          if (!token) process.exit(64);
 
-          if (!apiToken) {
-            console.error('[retire-fugle-jin10] FAIL isolated_token_missing');
-            process.exit(64);
-          }
-
-          async function cf(path, options = {}) {
-            const response = await fetch(`${base}${path}`, {
-              ...options,
-              headers: {
-                Authorization: `Bearer ${apiToken}`,
-                Accept: 'application/json',
-                ...(options.headers || {}),
-              },
+          async function cf(path) {
+            const r = await fetch(`${base}${path}`, {
+              headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
               signal: AbortSignal.timeout(15000),
             });
-            let body;
-            try { body = await response.json(); }
-            catch { throw new Error('cloudflare_invalid_json'); }
-            if (!response.ok || body?.success !== true) {
-              const code = Array.isArray(body?.errors) && body.errors[0]?.code != null
-                ? String(body.errors[0].code).replace(/[^0-9A-Za-z_-]/g, '')
-                : 'unknown';
-              throw new Error(`cloudflare_api_failed_${response.status}_code_${code}`);
+            const b = await r.json();
+            if (!r.ok || b?.success !== true) {
+              const code = Array.isArray(b?.errors) && b.errors[0]?.code != null ? b.errors[0].code : 'unknown';
+              throw new Error(`cf_${r.status}_${code}`);
             }
-            return body;
+            return b.result;
           }
 
-          async function discoverAccountId() {
-            const accounts = await cf('/accounts?per_page=50');
-            const candidates = Array.isArray(accounts?.result) ? accounts.result : [];
-            const matches = [];
-            for (const account of candidates) {
-              const accountId = String(account?.id || '').trim();
-              if (!accountId) continue;
-              try {
-                const subdomain = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/subdomain`);
-                if (String(subdomain?.result?.subdomain || '').trim() === expectedSubdomain) matches.push(accountId);
-              } catch {}
+          function stable(value) {
+            if (Array.isArray(value)) return value.map(stable);
+            if (value && typeof value === 'object') {
+              return Object.fromEntries(Object.keys(value).sort().map(k => [k, stable(value[k])]));
             }
-            if (matches.length !== 1) throw new Error(`account_identity_match_count_${matches.length}`);
-            console.log(`[retire-fugle-jin10] ACCOUNT_IDENTITY_VERIFIED subdomain=${expectedSubdomain}`);
-            return matches[0];
+            return value;
           }
 
-          async function secretPresent(accountId) {
-            const secrets = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}/secrets`);
-            const rows = Array.isArray(secrets?.result) ? secrets.result : [];
-            return rows.some((item) => String(item?.name || '') === secretName);
+          function bindingShape(bindings) {
+            return (Array.isArray(bindings) ? bindings : [])
+              .map(b => ({ name: String(b?.name || ''), type: String(b?.type || '') }))
+              .filter(b => b.name)
+              .sort((a,b) => `${a.name}:${a.type}`.localeCompare(`${b.name}:${b.type}`));
           }
 
-          async function retireSecret(accountId) {
-            await cf(
-              `/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}/secrets-bulk`,
-              {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/merge-patch+json' },
-                body: JSON.stringify({ secrets: { [secretName]: null } }),
-              },
-            );
+          function digest(value) {
+            return createHash('sha256').update(JSON.stringify(stable(value))).digest('hex');
           }
 
-          async function readHealthPresence() {
-            const response = await fetch(healthUrl, {
-              headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' },
-              signal: AbortSignal.timeout(15000),
-            });
-            if (!response.ok) throw new Error(`production_health_http_${response.status}`);
-            const body = await response.json();
-            if (typeof body?.jin10_retired_secret_present !== 'boolean') throw new Error('production_health_proof_missing');
-            return body.jin10_retired_secret_present;
+          const accounts = await cf('/accounts?per_page=50');
+          const matches = [];
+          for (const a of Array.isArray(accounts) ? accounts : []) {
+            const id = String(a?.id || '');
+            if (!id) continue;
+            try {
+              const sd = await cf(`/accounts/${encodeURIComponent(id)}/workers/subdomain`);
+              if (String(sd?.subdomain || '') === expectedSubdomain) matches.push(id);
+            } catch {}
+          }
+          if (matches.length !== 1) throw new Error(`account_match_${matches.length}`);
+          const accountId = matches[0];
+          console.log(`[audit] ACCOUNT_IDENTITY_VERIFIED subdomain=${expectedSubdomain}`);
+
+          const deploymentResult = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(worker)}/deployments`);
+          const deployments = Array.isArray(deploymentResult?.deployments) ? deploymentResult.deployments : (Array.isArray(deploymentResult) ? deploymentResult : []);
+          if (!deployments.length) throw new Error('no_deployments');
+          const active = deployments[0];
+          const activeVersions = Array.isArray(active?.versions) ? active.versions : [];
+          const production = activeVersions.find(v => Number(v?.percentage) === 100) || (activeVersions.length === 1 ? activeVersions[0] : null);
+          if (!production?.version_id) throw new Error('production_version_not_single_100');
+          const productionId = String(production.version_id);
+
+          const versionsResult = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(worker)}/versions?per_page=20`);
+          const versions = Array.isArray(versionsResult) ? versionsResult : (Array.isArray(versionsResult?.items) ? versionsResult.items : []);
+          if (!versions.length || !versions[0]?.id) throw new Error('no_versions');
+          const latestId = String(versions[0].id);
+
+          console.log(`[audit] PRODUCTION_AND_LATEST_SAME=${productionId === latestId ? 'true' : 'false'}`);
+
+          const prod = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(worker)}/versions/${encodeURIComponent(productionId)}`);
+          const latest = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(worker)}/versions/${encodeURIComponent(latestId)}`);
+
+          const prodCodeEtag = String(prod?.resources?.script?.etag || '');
+          const latestCodeEtag = String(latest?.resources?.script?.etag || '');
+          const codeSame = Boolean(prodCodeEtag) && prodCodeEtag === latestCodeEtag;
+
+          const prodBindings = bindingShape(prod?.resources?.bindings);
+          const latestBindings = bindingShape(latest?.resources?.bindings);
+          const bindingsSame = digest(prodBindings) === digest(latestBindings);
+
+          const prodRuntime = prod?.resources?.script_runtime || {};
+          const latestRuntime = latest?.resources?.script_runtime || {};
+          const runtimeSame = digest(prodRuntime) === digest(latestRuntime);
+
+          const prodScriptShape = {
+            handlers: prod?.resources?.script?.handlers || [],
+            placement_mode: prod?.resources?.script?.placement_mode ?? null,
+            placement: prod?.resources?.script?.placement ?? null,
+          };
+          const latestScriptShape = {
+            handlers: latest?.resources?.script?.handlers || [],
+            placement_mode: latest?.resources?.script?.placement_mode ?? null,
+            placement: latest?.resources?.script?.placement ?? null,
+          };
+          const scriptShapeSame = digest(prodScriptShape) === digest(latestScriptShape);
+
+          console.log(`[audit] CODE_ETAG_SAME=${codeSame ? 'true' : 'false'}`);
+          console.log(`[audit] BINDING_SHAPE_SAME=${bindingsSame ? 'true' : 'false'}`);
+          console.log(`[audit] RUNTIME_SETTINGS_SAME=${runtimeSame ? 'true' : 'false'}`);
+          console.log(`[audit] SCRIPT_SHAPE_SAME=${scriptShapeSame ? 'true' : 'false'}`);
+
+          if (!codeSame || !bindingsSame || !runtimeSame || !scriptShapeSame) {
+            throw new Error('latest_not_runtime_equivalent_to_production');
           }
 
-          try {
-            const accountId = await discoverAccountId();
-            console.log(`[retire-fugle-jin10] CONTROL_PLANE_REACHABLE worker=${workerName}`);
-            if (await secretPresent(accountId)) await retireSecret(accountId);
-            if (await secretPresent(accountId)) throw new Error('secret_cleanup_not_effective');
-            console.log(`[retire-fugle-jin10] CONTROL_PLANE_PASS worker=${workerName} ${secretName}=absent`);
-
-            let last = 'unverified';
-            for (let attempt = 1; attempt <= 12; attempt += 1) {
-              try {
-                const present = await readHealthPresence();
-                last = present ? 'true' : 'false';
-                if (present === false) {
-                  console.log('[retire-fugle-jin10] PRODUCTION_HEALTH_PASS jin10_retired_secret_present=false');
-                  console.log('[retire-fugle-jin10] PASS control-plane-and-runtime-verified');
-                  process.exit(0);
-                }
-              } catch (error) {
-                last = error instanceof Error ? error.message : 'health_check_failed';
-              }
-              if (attempt < 12) await sleep(3000);
-            }
-            throw new Error(`production_health_not_false:${last}`);
-          } catch (error) {
-            console.error(`[retire-fugle-jin10] FAIL ${error instanceof Error ? error.message : 'unknown_error'}`);
-            process.exit(1);
-          }
+          console.log('[audit] RUNTIME_EQUIVALENCE_PASS');
           NODE
