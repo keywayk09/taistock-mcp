@@ -1,4 +1,4 @@
-name: Fugle Version Equivalence Audit 20260829
+name: Final Worker Smoke 20260829
 
 on:
   push:
@@ -11,122 +11,45 @@ permissions:
   contents: read
 
 jobs:
-  audit:
+  smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.FUGLE_CF_API_TOKEN }}
     steps:
-      - name: Compare Production deployment with latest Worker version
+      - name: Verify OHLC and Global Futures health
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
-          import { createHash } from 'node:crypto';
+          const checks = [
+            {
+              name: 'OHLC',
+              url: 'https://tv-fugle-1d.keikei99887.workers.dev/health',
+              validate(body) {
+                if (!body || typeof body !== 'object') throw new Error('ohlc_health_shape_invalid');
+                if (Object.prototype.hasOwnProperty.call(body, 'jin10_retired_secret_present')) {
+                  throw new Error('temporary_jin10_health_proof_still_present');
+                }
+              },
+            },
+            {
+              name: 'GLOBAL_FUTURES',
+              url: 'https://tv-global-futures.keikei99887.workers.dev/health',
+              validate(body) {
+                if (!body || typeof body !== 'object') throw new Error('global_futures_health_shape_invalid');
+              },
+            },
+          ];
 
-          const token = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
-          const worker = 'tv-fugle-1d';
-          const expectedSubdomain = 'keikei99887';
-          const base = 'https://api.cloudflare.com/client/v4';
-          if (!token) process.exit(64);
-
-          async function cf(path) {
-            const r = await fetch(`${base}${path}`, {
-              headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+          for (const check of checks) {
+            const response = await fetch(check.url, {
+              headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' },
               signal: AbortSignal.timeout(15000),
             });
-            const b = await r.json();
-            if (!r.ok || b?.success !== true) {
-              const code = Array.isArray(b?.errors) && b.errors[0]?.code != null ? b.errors[0].code : 'unknown';
-              throw new Error(`cf_${r.status}_${code}`);
-            }
-            return b.result;
+            if (!response.ok) throw new Error(`${check.name.toLowerCase()}_health_http_${response.status}`);
+            const body = await response.json();
+            check.validate(body);
+            console.log(`[smoke] ${check.name}=PASS`);
           }
 
-          function stable(value) {
-            if (Array.isArray(value)) return value.map(stable);
-            if (value && typeof value === 'object') {
-              return Object.fromEntries(Object.keys(value).sort().map(k => [k, stable(value[k])]));
-            }
-            return value;
-          }
-
-          function bindingShape(bindings) {
-            return (Array.isArray(bindings) ? bindings : [])
-              .map(b => ({ name: String(b?.name || ''), type: String(b?.type || '') }))
-              .filter(b => b.name)
-              .sort((a,b) => `${a.name}:${a.type}`.localeCompare(`${b.name}:${b.type}`));
-          }
-
-          function digest(value) {
-            return createHash('sha256').update(JSON.stringify(stable(value))).digest('hex');
-          }
-
-          const accounts = await cf('/accounts?per_page=50');
-          const matches = [];
-          for (const a of Array.isArray(accounts) ? accounts : []) {
-            const id = String(a?.id || '');
-            if (!id) continue;
-            try {
-              const sd = await cf(`/accounts/${encodeURIComponent(id)}/workers/subdomain`);
-              if (String(sd?.subdomain || '') === expectedSubdomain) matches.push(id);
-            } catch {}
-          }
-          if (matches.length !== 1) throw new Error(`account_match_${matches.length}`);
-          const accountId = matches[0];
-          console.log(`[audit] ACCOUNT_IDENTITY_VERIFIED subdomain=${expectedSubdomain}`);
-
-          const deploymentResult = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(worker)}/deployments`);
-          const deployments = Array.isArray(deploymentResult?.deployments) ? deploymentResult.deployments : (Array.isArray(deploymentResult) ? deploymentResult : []);
-          if (!deployments.length) throw new Error('no_deployments');
-          const active = deployments[0];
-          const activeVersions = Array.isArray(active?.versions) ? active.versions : [];
-          const production = activeVersions.find(v => Number(v?.percentage) === 100) || (activeVersions.length === 1 ? activeVersions[0] : null);
-          if (!production?.version_id) throw new Error('production_version_not_single_100');
-          const productionId = String(production.version_id);
-
-          const versionsResult = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(worker)}/versions?per_page=20`);
-          const versions = Array.isArray(versionsResult) ? versionsResult : (Array.isArray(versionsResult?.items) ? versionsResult.items : []);
-          if (!versions.length || !versions[0]?.id) throw new Error('no_versions');
-          const latestId = String(versions[0].id);
-
-          console.log(`[audit] PRODUCTION_AND_LATEST_SAME=${productionId === latestId ? 'true' : 'false'}`);
-
-          const prod = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(worker)}/versions/${encodeURIComponent(productionId)}`);
-          const latest = await cf(`/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(worker)}/versions/${encodeURIComponent(latestId)}`);
-
-          const prodCodeEtag = String(prod?.resources?.script?.etag || '');
-          const latestCodeEtag = String(latest?.resources?.script?.etag || '');
-          const codeSame = Boolean(prodCodeEtag) && prodCodeEtag === latestCodeEtag;
-
-          const prodBindings = bindingShape(prod?.resources?.bindings);
-          const latestBindings = bindingShape(latest?.resources?.bindings);
-          const bindingsSame = digest(prodBindings) === digest(latestBindings);
-
-          const prodRuntime = prod?.resources?.script_runtime || {};
-          const latestRuntime = latest?.resources?.script_runtime || {};
-          const runtimeSame = digest(prodRuntime) === digest(latestRuntime);
-
-          const prodScriptShape = {
-            handlers: prod?.resources?.script?.handlers || [],
-            placement_mode: prod?.resources?.script?.placement_mode ?? null,
-            placement: prod?.resources?.script?.placement ?? null,
-          };
-          const latestScriptShape = {
-            handlers: latest?.resources?.script?.handlers || [],
-            placement_mode: latest?.resources?.script?.placement_mode ?? null,
-            placement: latest?.resources?.script?.placement ?? null,
-          };
-          const scriptShapeSame = digest(prodScriptShape) === digest(latestScriptShape);
-
-          console.log(`[audit] CODE_ETAG_SAME=${codeSame ? 'true' : 'false'}`);
-          console.log(`[audit] BINDING_SHAPE_SAME=${bindingsSame ? 'true' : 'false'}`);
-          console.log(`[audit] RUNTIME_SETTINGS_SAME=${runtimeSame ? 'true' : 'false'}`);
-          console.log(`[audit] SCRIPT_SHAPE_SAME=${scriptShapeSame ? 'true' : 'false'}`);
-
-          if (!codeSame || !bindingsSame || !runtimeSame || !scriptShapeSame) {
-            throw new Error('latest_not_runtime_equivalent_to_production');
-          }
-
-          console.log('[audit] RUNTIME_EQUIVALENCE_PASS');
+          console.log('[smoke] FINAL_WORKER_SMOKE_PASS');
           NODE
