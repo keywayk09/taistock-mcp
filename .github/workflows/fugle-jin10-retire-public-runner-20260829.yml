@@ -48,6 +48,7 @@ jobs:
           const wranglerVersion = '4.105.0';
           const expectedWorkersSubdomain = 'keikei99887';
           const productionHealthUrl = `https://${workerName}.${expectedWorkersSubdomain}.workers.dev/health`;
+          const isolatedCwd = String(process.env.RUNNER_TEMP || '/tmp');
 
           const apiToken = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
           const accountId = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
@@ -87,7 +88,11 @@ jobs:
 
           function runWrangler(args, input = undefined) {
             const result = spawnSync(npx, ['--yes', `wrangler@${wranglerVersion}`, ...args], {
-              encoding: 'utf8', input, env: process.env, maxBuffer: 4 * 1024 * 1024,
+              encoding: 'utf8',
+              input,
+              cwd: isolatedCwd,
+              env: { ...process.env, WRANGLER_SEND_METRICS: 'false', NO_COLOR: '1' },
+              maxBuffer: 4 * 1024 * 1024,
             });
             if (result.error) throw new Error('wrangler_spawn_failed');
             if (result.status !== 0) {
