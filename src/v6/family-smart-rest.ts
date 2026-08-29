@@ -1,6 +1,7 @@
 import { runSmartFamilyAnalysis } from "./family-analysis";
 import { extractFamilyQuerySymbols, planFamilyQuery } from "./family-adaptive-planner";
 import { compactFamilyAnalysisForCustomGpt } from "./family-custom-gpt-compact";
+import { buildFamilyMarketQuestionContext } from "./family-market-question";
 import { readFamilyStockMarketContext } from "./family-ohlc-read-bridge";
 import { familyOpenApiV2 } from "./family-openapi-v2";
 import { familyResearchDirective } from "./family-research-policy";
@@ -65,6 +66,15 @@ function validDate(value: unknown) {
   return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
 }
 
+function taipeiDate() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 function optionalPositiveNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : undefined;
@@ -104,7 +114,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
     return json({
       ok: true,
       service: "Taiwan Stock AI Family Read-Only API",
-      version: "family-rest/v3.1.0",
+      version: "family-rest/v3.1.1",
       intelligence_model: "SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS",
       capabilities: {
         natural_language_query: "ADAPTIVE_INTENT_PLANNER",
@@ -112,6 +122,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
         compare_2_to_5: "SAME_EVIDENCE_MODEL_ADAPTIVE_RENDERING",
         swing_screen: "V2_FULL_SNAPSHOT_PREFILTER_BOUNDED_DEEP_SCAN",
         realtime: "FUGLE_PRIMARY_DIRECT_ACTION_AND_ANALYSIS",
+        market_event_context: "TXF_GLOBAL_FUTURES_JIN10_READ_ONLY",
         web_research: "OPEN_WORLD_AUTONOMOUS_NOT_FIXED_SITES_OR_KEYWORDS",
         formal_chip: "PUBLISHED_GENERATION_DIRECT_ACTION_AND_ANALYSIS",
         formal_ohlc: "OHLC_MCP_ONLY",
@@ -199,6 +210,36 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
         }, 200, cors());
       }
 
+      if (adaptivePlan.intent === "MARKET_CONTEXT") {
+        const resolvedAsOf = asOfDate ?? taipeiDate();
+        const engineResult = await buildFamilyMarketQuestionContext(env, {
+          as_of_date: resolvedAsOf,
+          question: query,
+          intent: adaptivePlan.intent,
+        });
+        return compactJson({
+          ok: true,
+          service: "Taiwan Stock AI Family Read-Only API",
+          version: "family-rest/v3.1.1",
+          route: "adaptive_market_context",
+          query,
+          as_of_date: resolvedAsOf,
+          resolved_symbols: [],
+          requested_via: "queryTaiwanStockSystem",
+          adaptive_plan: adaptivePlan,
+          shared_read_plane: familySharedReadManifest(),
+          engine_result: engineResult,
+          open_world_research: familyResearchDirective([]),
+          response_instructions: [
+            "先用engine_result中的TXF、Global Futures與Jin10事件建立時間線，再回答市場為什麼漲跌。",
+            "Jin10快訊/財經日曆屬事件研究context；不得冒充正式OHLC、Published籌碼或官方公司公告。",
+            "TXF/Global Futures不可用時必須明示UNAVAILABLE，不得假裝已抓到；Web可補充與交叉驗證。",
+            "若事件時間與價格轉折不能對上，必須標示推論不成立或證據不足。",
+            "Family永遠唯讀；不得修改GitHub、策略、Production、OHLC canonical或Diamond Judgment。",
+          ],
+        }, 200, cors());
+      }
+
       if (symbols.length) {
         const result = await runSmartFamilyAnalysis(env, { symbols, as_of_date: asOfDate, question: query });
         const compact = compactFamilyAnalysisForCustomGpt(result);
@@ -212,7 +253,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
       return json({
         ok: true,
         service: "Taiwan Stock AI Family Read-Only API",
-        version: "family-rest/v3.1.0",
+        version: "family-rest/v3.1.1",
         route: "adaptive_open_research",
         query,
         resolved_symbols: [],
