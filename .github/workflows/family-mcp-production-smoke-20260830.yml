@@ -1,0 +1,36 @@
+name: Family MCP Production Smoke 20260830
+
+on:
+  push:
+    branches:
+      - ops/family-mcp-production-smoke-20260830
+    paths:
+      - .github/workflows/family-mcp-production-smoke-20260830.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify Family MCP tool on public health
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const url = 'https://taistock-mcp.keywayk09.workers.dev/health';
+          const r = await fetch(url, {
+            headers: { accept: 'application/json', 'cache-control': 'no-cache' },
+            signal: AbortSignal.timeout(15000),
+          });
+          const text = await r.text();
+          let body;
+          try { body = JSON.parse(text); } catch { throw new Error(`health_not_json_http_${r.status}`); }
+          if (!r.ok || body?.status !== 'ok') throw new Error(`health_http_${r.status}_status_${String(body?.status)}`);
+          const serialized = JSON.stringify(body);
+          if (!serialized.includes('get_family_market_context')) throw new Error('family_market_context_tool_missing');
+          if (!serialized.includes('family-mcp/v3.5.0')) throw new Error('family_mcp_v3_5_missing');
+          console.log('[smoke] FAMILY_MCP_PRODUCTION_PASS version=family-mcp/v3.5.0 tool=get_family_market_context');
+          NODE
