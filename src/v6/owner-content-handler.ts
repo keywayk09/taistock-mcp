@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MyMCP as BaseMCP } from "../index";
 import { registerDailyReportFormatTool } from "./daily-report-format";
+import { registerJin10OwnerTools } from "./jin10-owner-tools";
 import { registerResearchTools } from "./research-tools";
 import { registerAdvancedTools } from "./register";
 import { registerSharedCryptoMarketTools } from "./shared-crypto-market-tools";
@@ -66,6 +67,10 @@ export class MyMCP extends BaseMCP {
     registerStableSwingScreenTool(this.server, this.env);
     registerSharedStockMarketContextTools(this.server, this.env);
     registerSharedCryptoMarketTools(this.server, this.env);
+
+    // Owner-only external event/news plane. The Jin10 token remains a Worker
+    // secret and only read-only MCP tools are surfaced to Diamond/Owner.
+    registerJin10OwnerTools(this.server, this.env);
   }
 }
 
