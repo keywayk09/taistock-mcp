@@ -1,5 +1,5 @@
-import { readFamilyMarketRegimeContext } from "./family-ohlc-read-bridge";
-import { loadJin10MarketBriefContext } from "./jin10-facade-provider";
+import { readFamilyMarketRegimeContext } from "./family-ohlc-read-bridge.ts";
+import { loadJin10MarketBriefContext } from "./jin10-facade-provider.ts";
 
 export const FAMILY_MARKET_QUESTION_VERSION = "family-market-question/v1.0.0";
 
