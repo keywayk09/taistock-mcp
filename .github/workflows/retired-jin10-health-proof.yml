@@ -1,0 +1,37 @@
+name: Retired Jin10 Health Proof
+
+on:
+  push:
+    branches:
+      - ops/prove-retired-jin10-health-20260829
+
+permissions:
+  contents: read
+
+jobs:
+  prove-absence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Assert retired Jin10 secret is absent
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const targets = [
+            ['tv-global-futures', 'https://tv-global-futures.keikei99887.workers.dev/health'],
+            ['tv-fugle-1d', 'https://tv-fugle-1d.keikei99887.workers.dev/health'],
+          ];
+
+          for (const [name, url] of targets) {
+            const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
+            if (!response.ok) throw new Error(`${name}: HTTP_${response.status}`);
+            const body = await response.json();
+            const present = body?.jin10_retired_secret_present;
+            if (present !== false) {
+              throw new Error(`${name}: absence proof failed; boolean=${String(present)}`);
+            }
+            console.log(`${name}: PASS jin10_retired_secret_present=false`);
+          }
+          console.log('JIN10_RETIRED_SECRET_HEALTH_PROOF_PASS');
+          NODE
