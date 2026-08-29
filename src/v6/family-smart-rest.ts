@@ -1,5 +1,6 @@
 import { runSmartFamilyAnalysis } from "./family-analysis";
 import { extractFamilyQuerySymbols, planFamilyQuery } from "./family-adaptive-planner";
+import { compactFamilyAnalysisForCustomGpt } from "./family-custom-gpt-compact";
 import { readFamilyStockMarketContext } from "./family-ohlc-read-bridge";
 import { familyOpenApiV2 } from "./family-openapi-v2";
 import { familyResearchDirective } from "./family-research-policy";
@@ -11,6 +12,13 @@ type RuntimeFamilyEnv = Env & { MOM_GPT_API_KEY?: string };
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body, null, 2), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers },
+  });
+}
+
+function compactJson(body: unknown, status = 200, headers: HeadersInit = {}) {
+  return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...headers },
   });
@@ -193,10 +201,11 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
 
       if (symbols.length) {
         const result = await runSmartFamilyAnalysis(env, { symbols, as_of_date: asOfDate, question: query });
-        return json({
-          ...result,
+        const compact = compactFamilyAnalysisForCustomGpt(result);
+        return compactJson({
+          ...compact,
           requested_via: "queryTaiwanStockSystem",
-          compatibility: "LEGACY_QUERY_NOW_ADAPTIVE_FAMILY_V3",
+          compatibility: "LEGACY_QUERY_NOW_ADAPTIVE_FAMILY_V3_COMPACT",
         }, 200, cors());
       }
 
