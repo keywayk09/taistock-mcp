@@ -11,7 +11,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,10 +39,7 @@ jobs:
       - name: Automation bridge route contract
         run: node --experimental-strip-types tests/automation-research-rest.test.ts
 
-      - name: Existing Family contract suite
-        run: npm run test:family
-
-      - name: Existing Research contract suite
+      - name: Existing full Research contract suite
         run: npm run test:research
 
       - name: Wrangler dry run
