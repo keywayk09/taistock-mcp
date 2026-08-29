@@ -5,6 +5,7 @@ import { fetchJin10OwnerData, JIN10_OWNER_TOOL_NAMES } from "../src/v6/jin10-own
 const source = fs.readFileSync("src/v6/jin10-owner-tools.ts", "utf8");
 const ownerContent = fs.readFileSync("src/v6/owner-content-handler.ts", "utf8");
 const familyContent = fs.readFileSync("src/v6/family-content-handler.ts", "utf8");
+const facadeMiddleware = fs.readFileSync("src/v6/jin10-facade-middleware.ts", "utf8");
 
 assert.deepEqual([...JIN10_OWNER_TOOL_NAMES], [
   "jin10_latest_flash",
@@ -14,12 +15,16 @@ assert.deepEqual([...JIN10_OWNER_TOOL_NAMES], [
   "jin10_calendar",
 ]);
 
-for (const tool of JIN10_OWNER_TOOL_NAMES) {
-  assert.match(source, new RegExp(`registerTool\\(\\"${tool}\\"`), `${tool} must be registered`);
-}
+// The Jin10 client implementation remains available internally, but its five
+// standalone MCP actions must no longer be registered on the Owner runtime.
+assert.doesNotMatch(ownerContent, /registerJin10OwnerTools\(this\.server, this\.env\)/);
+assert.match(ownerContent, /registerToolThroughJin10Facade/);
+assert.doesNotMatch(familyContent, /registerJin10OwnerTools|jin10_/i, "Jin10 must stay out of Family MCP");
+assert.match(facadeMiddleware, /get_stock_news/);
+assert.match(facadeMiddleware, /explain_price_move/);
+assert.match(facadeMiddleware, /get_daily_market_brief/);
+assert.doesNotMatch(facadeMiddleware, /server\.registerTool\(/, "facade middleware must not create a new MCP action");
 
-assert.match(ownerContent, /registerJin10OwnerTools\(this\.server, this\.env\)/);
-assert.doesNotMatch(familyContent, /registerJin10OwnerTools|jin10_/i, "Jin10 tools must stay Owner-only");
 assert.doesNotMatch(source, /registerTool\(\"(?:get_quote|get_kline)\"/, "Jin10 quote/K-line tools must not be exposed");
 assert.doesNotMatch(source, /updateGitHubJson|putImmutableGitHubJson|placeOrder|submitOrder|order_placement/, "Jin10 read plane must not persist data or place orders");
 assert.match(source, /JIN10_MCP_TOKEN/);
