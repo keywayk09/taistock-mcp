@@ -1,0 +1,155 @@
+name: Apply Legacy Owner FinMind Resilience Patch V3
+
+on:
+  push:
+    branches:
+      - fix/legacy-owner-finmind-resilience-20260829
+    paths:
+      - .github/workflows/apply-legacy-finmind-resilience-patch-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/legacy-owner-finmind-resilience-20260829
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply exact fallback and Cloudflare-safe regression wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json, textwrap
+
+          index = Path('src/index.ts')
+          source = index.read_text()
+          start = source.index('async function finmind(env: Env, dataset: string, params: Obj) {')
+          end = source.index('\nasync function broker', start)
+          replacement = textwrap.dedent(r'''
+          export async function finmind(env: Env, dataset: string, params: Obj) {
+            const url = new URL(FINMIND);
+            url.searchParams.set("dataset", dataset);
+            Object.entries(params).forEach(([key, value]) => {
+              if (value !== undefined && value !== "") url.searchParams.set(key, String(value));
+            });
+
+            const token = String(env.FINMIND_TOKEN ?? "").trim();
+            const request = async (authenticated: boolean) => {
+              const headers: Record<string, string> = { Accept: "application/json" };
+              if (authenticated && token) headers.Authorization = `Bearer ${token}`;
+              return json(url, { headers }, "FinMind");
+            };
+            const tokenIsInvalid = (error: unknown) => {
+              const message = error instanceof Error ? error.message : String(error ?? "");
+              return /FinMind HTTP (?:400|401|403):/i.test(message)
+                && /token/i.test(message)
+                && /(illegal|invalid|expired|unauthori[sz]ed|not valid)/i.test(message);
+            };
+
+            let body: any;
+            try {
+              body = await request(Boolean(token));
+            } catch (error) {
+              if (!token || !tokenIsInvalid(error)) throw error;
+              console.warn(`FINMIND_AUTH_FALLBACK dataset=${dataset} reason=TOKEN_INVALID`);
+              body = await request(false);
+            }
+            if (!Array.isArray(body.data)) {
+              throw new Error(`FinMind 回傳缺少 data：${String(body.msg ?? body.message ?? "unknown")}`);
+            }
+            return body;
+          }
+          ''').lstrip('\n')
+          index.write_text(source[:start] + replacement + source[end:])
+
+          test_source = textwrap.dedent(r'''
+          import assert from "node:assert/strict";
+          import { readFileSync } from "node:fs";
+          import { finmind as v6Finmind } from "../src/v6/common.ts";
+
+          const originalFetch = globalThis.fetch;
+          try {
+            const calls: Array<string | null> = [];
+            globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+              const auth = new Headers(init?.headers).get("authorization");
+              calls.push(auth);
+              if (calls.length === 1) return Response.json({ msg: "Token is illegal." }, { status: 400 });
+              return Response.json({ data: [{ stock_id: "2330", title: "test" }] });
+            }) as typeof fetch;
+            const data = await v6Finmind({ FINMIND_TOKEN: "expired-token" } as any, "TaiwanStockNews", { data_id: "2330" });
+            assert.equal(data.length, 1);
+            assert.deepEqual(calls, ["Bearer expired-token", null]);
+
+            calls.length = 0;
+            globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+              const auth = new Headers(init?.headers).get("authorization");
+              calls.push(auth);
+              if (auth) return new Response("Token is illegal.", { status: 400 });
+              return new Response("Permission denied", { status: 403 });
+            }) as typeof fetch;
+            let thrown = "";
+            try {
+              await v6Finmind({ FINMIND_TOKEN: "expired-token" } as any, "TaiwanStockIndustryChain", {});
+            } catch (error) {
+              thrown = error instanceof Error ? error.message : String(error);
+            }
+            assert.match(thrown, /403: Permission denied/);
+            assert.deepEqual(calls, ["Bearer expired-token", null]);
+
+            const legacy = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+            const start = legacy.indexOf("export async function finmind(env: Env, dataset: string, params: Obj)");
+            const end = legacy.indexOf("\nasync function broker", start);
+            assert.ok(start >= 0 && end > start, "legacy Owner finmind function must be exportable for contract inspection");
+            const block = legacy.slice(start, end);
+            assert.match(block, /const token = String\(env\.FINMIND_TOKEN \?\? ""\)\.trim\(\)/);
+            assert.match(block, /body = await request\(Boolean\(token\)\)/);
+            assert.match(block, /body = await request\(false\)/);
+            assert.match(block, /FINMIND_AUTH_FALLBACK dataset=\$\{dataset\} reason=TOKEN_INVALID/);
+            assert.doesNotMatch(block, /FINMIND_TOKEN 尚未設定/);
+            assert.match(block, /Permission|Backer|Sponsor|request\(false\)|throw error/);
+
+            console.log("PASS FinMind fallback: v6 behavior + legacy Owner source contract");
+          } finally {
+            globalThis.fetch = originalFetch;
+          }
+          ''').lstrip('\n')
+          Path('tests/finmind-auth-fallback.test.ts').write_text(test_source)
+
+          package = Path('package.json')
+          data = json.loads(package.read_text())
+          scripts = data['scripts']
+          scripts['test:finmind-auth'] = 'node --experimental-strip-types tests/finmind-auth-fallback.test.ts'
+          ops = scripts['test:ops-contracts']
+          if 'npm run test:finmind-auth' not in ops:
+            anchor = ' && npm run test:jin10'
+            if anchor not in ops: raise SystemExit('test:ops-contracts anchor missing')
+            ops = ops.replace(anchor, ' && npm run test:finmind-auth' + anchor)
+          scripts['test:ops-contracts'] = ops
+          package.write_text(json.dumps(data, ensure_ascii=False, indent='\t') + '\n')
+
+          for path in Path('.github/workflows').glob('apply-legacy-finmind-resilience-patch*.yml'):
+            path.unlink()
+          PY
+      - name: Targeted gate
+        run: |
+          npm install
+          npm run test:finmind-auth
+          npm run type-check
+          npx wrangler deploy --dry-run --outdir /tmp/finmind-legacy-dry-run
+      - name: Commit final tested patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m "Fix legacy Owner FinMind invalid-token fallback"
+          git push origin HEAD:fix/legacy-owner-finmind-resilience-20260829
