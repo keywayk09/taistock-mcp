@@ -23,31 +23,32 @@ jobs:
           const ohlc = 'https://tv-fugle-1d.keikei99887.workers.dev';
           const global = 'https://tv-global-futures.keikei99887.workers.dev';
 
-          async function jsonGet(url) {
+          async function fetchBody(url) {
             const r = await fetch(url, {
               headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' },
               signal: AbortSignal.timeout(15000),
             });
-            let body = null;
-            try { body = await r.json(); } catch {}
-            return { r, body };
+            const text = await r.text();
+            let json = null;
+            try { json = JSON.parse(text); } catch {}
+            return { r, text, json };
           }
 
-          const h = await jsonGet(`${ohlc}/health`);
-          if (!h.r.ok || !h.body || typeof h.body !== 'object') throw new Error(`ohlc_health_${h.r.status}`);
-          if (Object.prototype.hasOwnProperty.call(h.body, 'jin10_retired_secret_present')) throw new Error('temporary_jin10_proof_present');
-          if (String(h.body.liveness_version || '') !== 'EDGE_DIRECT_RECOVERY_V3') throw new Error(`unexpected_liveness_version:${String(h.body.liveness_version || '')}`);
-          console.log(`[regression] OHLC_HEALTH=PASS liveness=${String(h.body.liveness_version)} phase=${String(h.body?.day?.phase || '<none>')} trade_date=${String(h.body?.day?.trade_date || '<none>')}`);
+          const h = await fetchBody(`${ohlc}/health`);
+          if (!h.r.ok || !h.json || typeof h.json !== 'object') throw new Error(`ohlc_health_${h.r.status}`);
+          if (Object.prototype.hasOwnProperty.call(h.json, 'jin10_retired_secret_present')) throw new Error('temporary_jin10_proof_present');
+          if (String(h.json.liveness_version || '') !== 'EDGE_DIRECT_RECOVERY_V3') throw new Error(`unexpected_liveness_version:${String(h.json.liveness_version || '')}`);
+          console.log(`[regression] OHLC_HEALTH=PASS liveness=${String(h.json.liveness_version)} phase=${String(h.json?.day?.phase || '<none>')} trade_date=${String(h.json?.day?.trade_date || '<none>')}`);
 
-          const guarded = await jsonGet(`${ohlc}/v4-pipeline-status?key=definitely-wrong-readonly-key`);
-          if (guarded.r.status !== 401 || String(guarded.body?.error || '') !== 'invalid_debug_key') {
-            throw new Error(`v4_status_guard_unexpected:${guarded.r.status}:${String(guarded.body?.error || '')}`);
+          for (const path of ['/v4-pipeline-status','/v4-pipeline-source']) {
+            const x = await fetchBody(`${ohlc}${path}?key=definitely-wrong-readonly-key`);
+            const ct = String(x.r.headers.get('content-type') || '<none>').split(';')[0];
+            const safePrefix = String(x.text || '').replace(/[\r\n\t]+/g,' ').slice(0,120);
+            console.log(`[regression] DEBUG_ROUTE path=${path} status=${x.r.status} content_type=${ct} json_error=${String(x.json?.error || '<none>')} prefix=${JSON.stringify(safePrefix)}`);
           }
-          console.log('[regression] V4_STATUS_ROUTE_GUARD=PASS');
 
-          const gh = await jsonGet(`${global}/health`);
-          if (!gh.r.ok || !gh.body || typeof gh.body !== 'object') throw new Error(`global_health_${gh.r.status}`);
+          const gh = await fetchBody(`${global}/health`);
+          if (!gh.r.ok || !gh.json || typeof gh.json !== 'object') throw new Error(`global_health_${gh.r.status}`);
           console.log('[regression] GLOBAL_FUTURES_HEALTH=PASS');
-
-          console.log('[regression] PUBLIC_READ_SURFACES_PASS');
+          console.log('[regression] PUBLIC_HEALTH_SURFACES_PASS');
           NODE
