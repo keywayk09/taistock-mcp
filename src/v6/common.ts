@@ -71,16 +71,39 @@ export async function fetchJson(url: string | URL, init: RequestInit, source: st
   return { body, latency_ms: Date.now() - started };
 }
 
+function finmindTokenIsInvalid(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /FinMind .* HTTP (?:400|401|403):/i.test(message)
+    && /token/i.test(message)
+    && /(illegal|invalid|expired|unauthori[sz]ed|not valid)/i.test(message);
+}
+
 export async function finmind(env: Env, dataset: string, params: Obj): Promise<any[]> {
-  if (!env.FINMIND_TOKEN) throw new Error("FINMIND_TOKEN 尚未設定");
   const url = new URL("https://api.finmindtrade.com/api/v4/data");
   url.searchParams.set("dataset", dataset);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== "") url.searchParams.set(key, String(value));
   }
-  const { body } = await fetchJson(url, {
-    headers: { Accept: "application/json", Authorization: `Bearer ${env.FINMIND_TOKEN}` },
-  }, `FinMind ${dataset}`);
+
+  const token = String(env.FINMIND_TOKEN ?? "").trim();
+  const request = async (authenticated: boolean) => {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (authenticated && token) headers.Authorization = `Bearer ${token}`;
+    return fetchJson(url, { headers }, `FinMind ${dataset}`);
+  };
+
+  let body: any;
+  try {
+    ({ body } = await request(Boolean(token)));
+  } catch (error) {
+    if (!token || !finmindTokenIsInvalid(error)) throw error;
+    // Free FinMind datasets remain usable anonymously. Keep the result contract
+    // unchanged while making an invalid/expired secret non-fatal for those
+    // datasets. Paid datasets will still fail explicitly on the anonymous retry.
+    console.warn(`FINMIND_AUTH_FALLBACK dataset=${dataset} reason=TOKEN_INVALID`);
+    ({ body } = await request(false));
+  }
+
   if (!Array.isArray(body?.data)) throw new Error(`FinMind ${dataset} 回傳缺少 data`);
   return body.data;
 }
