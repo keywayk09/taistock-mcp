@@ -18,3 +18,4 @@ jobs:
       - run: npm run type-check
       - run: node --experimental-strip-types tests/jin10-owner-tools.test.ts
       - run: node --experimental-strip-types tests/jin10-facade-provider.test.ts
+      - run: node --experimental-strip-types tests/jin10-facade-middleware.test.ts
