@@ -1,0 +1,49 @@
+name: Automation Research Bridge Verify 20260830
+
+on:
+  push:
+    branches:
+      - fix/automation-research-rest-bridge-20260830
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Existing Formal Blind contract
+        run: npm run test:formal-blind-ohlc
+
+      - name: Existing Market Cross Section contract
+        run: node --experimental-strip-types tests/market-data-cross-section.test.ts
+
+      - name: Weekday and weekend preflight contract
+        run: node --experimental-strip-types tests/automation-research-bridge-preflight.test.ts
+
+      - name: Automation bridge route contract
+        run: node --experimental-strip-types tests/automation-research-rest.test.ts
+
+      - name: Existing Family contract suite
+        run: npm run test:family
+
+      - name: Existing Research contract suite
+        run: npm run test:research
+
+      - name: Wrangler dry run
+        run: npx wrangler deploy --dry-run --outdir /tmp/automation-research-bridge-dry-run
