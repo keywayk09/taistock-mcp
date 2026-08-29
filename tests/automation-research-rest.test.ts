@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { handleAutomationOhlc1dRoute } from "../src/v6/automation-ohlc-1d-route.ts";
 import { handleAutomationResearchRest } from "../src/v6/automation-research-rest.ts";
 
 const BASE = "https://taistock-mcp.keywayk09.workers.dev";
@@ -115,29 +116,37 @@ function blindMemory(date: string, symbol: string) {
   }
 }
 
-// Revision-pinned 1D route reads only the requested immutable GitHub ref.
+// Revision-pinned 1D route reads only the requested immutable GitHub ref and
+// presents historical `derived_from_1m` volume in canonical shares.
 {
   const path = "data/OHLC/tw/1d/2026/2330.csv";
   const csv = [
     "date,symbol,open,high,low,close,volume,source",
-    "2026-08-27,2330,100,110,99,108,1000000,fugle_clean_v2",
-    "2026-08-28,2330,108,112,107,111,1200000,fugle_clean_v2",
+    "2026-08-27,2330,100,110,99,108,13471,derived_from_1m",
+    "2026-08-28,2330,108,112,107,111,1200000,derived_from_1m_volume_shares_v2",
     "",
   ].join("\n");
   const env = { __GITHUB_DATA_MEMORY: new Map([[path, { sha: "ohlc-blob-sha", text: csv }]]) } as any;
-  const response = await handleAutomationResearchRest(new Request(`${BASE}/research/automation/ohlc-1d?symbol=2330&as_of=2026-08-28&source_revision=${REV}&limit=220`), env)!;
+  const response = await handleAutomationOhlc1dRoute(new Request(`${BASE}/research/automation/ohlc-1d?symbol=2330&as_of=2026-08-28&source_revision=${REV}&limit=220`), env)!;
   assert.equal(response.status, 200);
   const body = await response.json() as any;
   assert.equal(body.ok, true);
   assert.equal(body.formal_research_eligible, true);
   assert.equal(body.source_revision, REV);
   assert.equal(body.provenance.branch, REV);
+  assert.equal(body.rows[0].volume_raw, 13471);
+  assert.equal(body.rows[0].volume_raw_unit, "lot");
+  assert.equal(body.rows[0].volume, 13471000);
+  assert.equal(body.rows[0].volume_shares, 13471000);
+  assert.equal(body.rows[0].volume_lots, 13471);
+  assert.equal(body.rows[1].volume, 1200000);
+  assert.equal(body.rows[1].volume_raw_unit, "share");
   assert.equal(body.rows.at(-1).date, "2026-08-28");
 }
 
 // Invalid revisions cannot fall back to moving main.
 {
-  const response = await handleAutomationResearchRest(new Request(`${BASE}/research/automation/ohlc-1d?symbol=2330&as_of=2026-08-28&source_revision=main`), {} as any)!;
+  const response = await handleAutomationOhlc1dRoute(new Request(`${BASE}/research/automation/ohlc-1d?symbol=2330&as_of=2026-08-28&source_revision=main`), {} as any)!;
   const body = await response.json() as any;
   assert.equal(body.blocked, true);
   assert.equal(body.error, "INVALID_SOURCE_REVISION");
@@ -147,14 +156,17 @@ function blindMemory(date: string, symbol: string) {
 // namespace. Actual module resolution/bundling is verified by Wrangler dry-run.
 const wrapperSource = await readFile(new URL("../src/index-automation-bridge.ts", import.meta.url), "utf8");
 const bridgeSource = await readFile(new URL("../src/v6/automation-research-rest.ts", import.meta.url), "utf8");
+const ohlcRouteSource = await readFile(new URL("../src/v6/automation-ohlc-1d-route.ts", import.meta.url), "utf8");
 const wranglerText = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
 const wrangler = JSON.parse(wranglerText.replace(/\/\*[\s\S]*?\*\//g, ""));
 assert.equal(wrangler.main, "src/index-automation-bridge.ts");
+assert.match(wrapperSource, /url\.pathname === "\/research\/automation\/ohlc-1d"/);
 assert.match(wrapperSource, /url\.pathname\.startsWith\("\/research\/automation"\)/);
 assert.match(wrapperSource, /return app\.fetch\(request, env, ctx\)/);
 assert.match(wrapperSource, /return app\.scheduled\(controller, env, ctx\)/);
 assert.match(wrapperSource, /export \{ FamilyMCP, MyMCP \} from "\.\/index-v6\.ts"/);
-assert.doesNotMatch(bridgeSource, /putImmutableGitHubJson|updateGitHubJson|fetch\([^\n]*url\.searchParams\.get\("url"/);
-assert.doesNotMatch(bridgeSource, /GITHUB_DATA_TOKEN\s*[:=]|FUGLE_API_KEY\s*[:=]/);
+assert.match(ohlcRouteSource, /LEGACY_DERIVED_1M_LOTS_TO_SHARES/);
+assert.doesNotMatch(bridgeSource + ohlcRouteSource, /putImmutableGitHubJson|updateGitHubJson|fetch\([^\n]*url\.searchParams\.get\("url"/);
+assert.doesNotMatch(bridgeSource + ohlcRouteSource, /GITHUB_DATA_TOKEN\s*[:=]|FUGLE_API_KEY\s*[:=]/);
 
 console.log("automation-research-rest: PASS");
