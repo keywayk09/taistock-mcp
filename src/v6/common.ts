@@ -223,7 +223,7 @@ export async function concurrencyMap<T, R>(items: T[], limit: number, fn: (item:
     while (true) {
       const index = cursor++;
       if (index >= items.length) return;
-      try { results[index] = { status: "fulfilled", value: await fn(items[index], index) };
+      try { results[index] = { status: "fulfilled", value: await fn(items[index], index) }; }
       catch (reason) { results[index] = { status: "rejected", reason }; }
     }
   });
