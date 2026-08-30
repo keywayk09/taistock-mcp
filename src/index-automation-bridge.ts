@@ -1,4 +1,5 @@
 import app from "./index-v6.ts";
+import { handleAutomationMarketExportRoute } from "./v6/automation-market-export-route.ts";
 import { handleAutomationOhlc1dRoute } from "./v6/automation-ohlc-1d-route.ts";
 import { handleAutomationResearchRest } from "./v6/automation-research-rest.ts";
 
@@ -21,6 +22,10 @@ export default {
       url.searchParams.set("limit", "300");
     }
 
+    if (url.pathname === "/research/automation/market-export") {
+      const response = await handleAutomationMarketExportRoute(request, env, url);
+      if (response) return response;
+    }
     if (url.pathname === "/research/automation/ohlc-1d") {
       const response = await handleAutomationOhlc1dRoute(request, env, url);
       if (response) return response;
