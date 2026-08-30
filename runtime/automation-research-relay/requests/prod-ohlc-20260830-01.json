@@ -1,0 +1,9 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "prod-ohlc-20260830-01",
+  "kind": "ohlc_1d_batch",
+  "as_of": "2026-08-28",
+  "source_revision": "b04fad781e28c8437bb289803626af5cb731624b",
+  "limit": 220,
+  "symbols": ["2330", "1314", "6209"]
+}
