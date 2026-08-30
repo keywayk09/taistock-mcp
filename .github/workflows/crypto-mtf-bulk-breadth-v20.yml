@@ -1,0 +1,27 @@
+name: Crypto MTF Bulk Breadth V20
+
+on:
+  push:
+    branches: [research/crypto-mtf-rr-20260830]
+    paths:
+      - '.github/workflows/crypto-mtf-bulk-breadth-v20.yml'
+      - 'research/crypto_mtf_bulk_breadth_v20.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run 90d zero-extra-request bulk breadth screen
+        run: python research/crypto_mtf_bulk_breadth_v20.py
+      - name: Upload V20 report
+        uses: actions/upload-artifact@v4
+        with:
+          name: crypto-mtf-bulk-breadth-v20
+          path: /tmp/crypto_mtf_bulk_breadth_v20.json
+          retention-days: 3
