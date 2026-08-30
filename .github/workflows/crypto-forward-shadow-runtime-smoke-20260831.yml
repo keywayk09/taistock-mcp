@@ -15,68 +15,85 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      PREVIEW_BASE: https://20cf87be-tv-crypto-engine.keikei99887.workers.dev
+      BASELINE_BASE: https://20cf87be-tv-crypto-engine.keikei99887.workers.dev
+      PHASE_B_BASE: https://4685d338-tv-crypto-engine.keikei99887.workers.dev
     steps:
       - uses: actions/checkout@v4
-      - name: Verify runtime safety and volatile fail-closed
+      - name: Validate Phase B full-universe aggregate
         shell: bash
         run: |
           python - <<'PY'
           import json, os, time, urllib.error, urllib.request
-          base = os.environ['PREVIEW_BASE'].rstrip('/')
 
-          def call(path, timeout=150):
+          baseline = os.environ['BASELINE_BASE'].rstrip('/')
+          phase_b = os.environ['PHASE_B_BASE'].rstrip('/')
+
+          def call(base, path, timeout=120):
               started = time.time()
-              req = urllib.request.Request(base + path, headers={'Accept':'application/json','User-Agent':'taistock-mcp-forward-shadow-verify/1'})
+              req = urllib.request.Request(base + path, headers={'Accept':'application/json','User-Agent':'taistock-mcp-forward-shadow-phase-b/1'})
               try:
                   with urllib.request.urlopen(req, timeout=timeout) as r:
                       body = r.read().decode('utf-8'); status = r.status; ctype = r.headers.get('content-type','')
               except urllib.error.HTTPError as e:
                   body = e.read().decode('utf-8', errors='replace'); status = e.code; ctype = e.headers.get('content-type','')
               elapsed = round((time.time()-started)*1000)
-              assert 'application/json' in ctype.lower(), (path, status, ctype, body[:200])
+              assert 'application/json' in ctype.lower(), (base, path, status, ctype, body[:200])
               return status, json.loads(body), elapsed
 
-          report = {'preview': base, 'checks': {}}
+          path = '/market/light-scan?min_exchanges=2&limit=10'
+          b_status, b, b_ms = call(baseline, path)
+          n_status, n, n_ms = call(phase_b, path)
+          assert b_status in (200, 502), (b_status, b)
+          assert n_status in (200, 502), (n_status, n)
 
-          status, p, ms = call('/research/forward-shadow-selftest', 30)
-          assert status == 200 and p.get('ok') is True, p
-          inv = p.get('invariants') or {}
-          assert inv and all(inv.values()), inv
-          report['checks']['selftest'] = {'ok': True, 'latency_ms': ms, 'invariants': inv}
+          tele = n.get('market_participation_shadow') or {}
+          assert tele.get('mode') == 'forward_shadow_observation_only', tele
+          assert tele.get('source') == 'existing_stable_light_bulk_tickers', tele
+          assert tele.get('universe_scope') == 'full_eligible_stable_quality_light_universe', tele
+          assert tele.get('added_market_requests') == 0, tele
+          assert tele.get('persistence') == 'none', tele
+          assert tele.get('raw_rows_exposed') is False, tele
+          assert tele.get('threshold') is None, tele
+          assert tele.get('decision_effect') == 'none', tele
 
-          status, p, ms = call('/health', 30)
-          assert status == 200 and p.get('version') == '1.2.0-shadow', p
-          policy = p.get('forward_shadow_policy') or {}
-          assert policy.get('candidate_promotion') == 'forbidden'
-          assert policy.get('candidate_stage_changes') is False
-          assert policy.get('added_market_requests') == 0
-          report['checks']['health'] = {'ok': True, 'latency_ms': ms, 'version': p.get('version')}
+          universe = tele.get('universe') or {}
+          assert universe.get('eligible_count') == n.get('scanned_crypto_candidates'), (universe, n.get('scanned_crypto_candidates'))
+          assert (universe.get('positive') or 0) + (universe.get('negative') or 0) + (universe.get('flat') or 0) == universe.get('eligible_count'), universe
 
-          status, p, ms = call('/market/candidate-scan?per_side=1&light_limit=10')
-          assert status in (200, 502), (status, p)
-          assert p.get('version') == '1.2.0-shadow', p
-          if isinstance(p.get('candidates'), list):
-              tele = p.get('forward_shadow_telemetry') or {}
-              scope = tele.get('scope') or {}; gate = tele.get('forward_gate') or {}
-              assert scope.get('added_market_requests') == 0, scope
-              assert scope.get('market_participation_scope') == 'selected_candidate_cohort_not_full_market', scope
-              assert gate.get('threshold') is None and gate.get('decision_effect') == 'none', gate
-              assert all((c.get('forward_shadow') or {}).get('can_promote') is False for c in p['candidates'])
-              assert all((c.get('forward_shadow') or {}).get('changes_core_stage') is False for c in p['candidates'])
-          report['checks']['stable'] = {'ok': True, 'http_status': status, 'latency_ms': ms, 'candidate_count': len(p.get('candidates')) if isinstance(p.get('candidates'), list) else None, 'error': p.get('error')}
+          turnover = tele.get('turnover_participation') or {}
+          assert turnover.get('reporting') == universe.get('eligible_count'), (turnover, universe)
+          if turnover.get('turnover_quote_total', 0) > 0:
+              pos = turnover.get('turnover_weighted_positive_ratio') or 0
+              neg = turnover.get('turnover_weighted_negative_ratio') or 0
+              assert 0 <= pos <= 1 and 0 <= neg <= 1 and pos + neg <= 1.0001, turnover
 
-          status, p, ms = call('/market/volatile-scan?per_side=1&setup=all')
-          # The upstream may legitimately fail closed with 502 (currently one source returns 403).
-          # The regression target is specifically: never turn that controlled JSON 502 into a Worker 500.
-          assert status in (200, 502), (status, p)
-          assert p.get('version') == '1.2.0-shadow', p
-          policy = p.get('forward_shadow_policy') or {}
-          assert policy.get('candidate_promotion') == 'forbidden', policy
-          assert policy.get('candidate_stage_changes') is False, policy
-          assert policy.get('added_market_requests') == 0, policy
-          report['checks']['volatile'] = {'ok': True, 'http_status': status, 'latency_ms': ms, 'error': p.get('error'), 'candidate_count': len(p.get('candidates')) if isinstance(p.get('candidates'), list) else None, 'fail_closed_json': True}
+          funding = tele.get('funding_crowding') or {}
+          assert 0 <= (funding.get('reporting') or 0) <= universe.get('eligible_count'), funding
+          cross = tele.get('cross_exchange_direction') or {}
+          assert 0 <= (cross.get('strict_agreement_count') or 0) <= (cross.get('strict_reporting') or 0) <= universe.get('eligible_count'), cross
 
-          print('FORWARD_SHADOW_V12_POSTFIX_SMOKE')
+          # The change is local aggregation only. Source roles/status must not add a new exchange/request leg.
+          baseline_sources = [(x.get('exchange'), x.get('role')) for x in (b.get('ticker_status') or [])]
+          phase_b_sources = [(x.get('exchange'), x.get('role')) for x in (n.get('ticker_status') or [])]
+          assert phase_b_sources == baseline_sources, (baseline_sources, phase_b_sources)
+          assert phase_b_sources == [('bybit','required'), ('gate','required'), ('okx','optional_confirmation')], phase_b_sources
+
+          # No raw full-universe row array is exposed by the new telemetry object.
+          forbidden_keys = {'rows', 'candles', 'tickers', 'raw', 'raw_rows'}
+          assert not (forbidden_keys & set(tele.keys())), tele.keys()
+
+          report = {
+              'baseline': {'http_status': b_status, 'latency_ms': b_ms, 'scanned': b.get('scanned_crypto_candidates'), 'ticker_status': baseline_sources},
+              'phase_b': {
+                  'http_status': n_status,
+                  'latency_ms': n_ms,
+                  'scanned': n.get('scanned_crypto_candidates'),
+                  'ticker_status': phase_b_sources,
+                  'market_participation_shadow': tele,
+              },
+              'local_aggregation_latency_delta_ms_single_sample': n_ms - b_ms,
+              'note': 'latency delta is a single live-network sample, not a benchmark; request topology is the invariant.',
+          }
+          print('FORWARD_SHADOW_PHASE_B_LIGHT_SCAN')
           print(json.dumps(report, ensure_ascii=False, indent=2))
           PY
