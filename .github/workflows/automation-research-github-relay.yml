@@ -28,8 +28,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The operational relay branch may not yet contain any response files.
-          # Initialize only the fixed relay workspace; no arbitrary path is accepted.
           mkdir -p runtime/automation-research-relay/responses
 
           mapfile -t requests < <(
@@ -43,7 +41,7 @@ jobs:
           fi
 
           for request in "${requests[@]}"; do
-            node scripts/automation-research-github-relay.mjs "$request"
+            node scripts/automation-research-github-relay-v2.mjs "$request"
           done
 
       - name: Commit relay responses to relay branch only
