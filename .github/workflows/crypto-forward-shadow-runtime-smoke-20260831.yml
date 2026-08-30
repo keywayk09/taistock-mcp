@@ -15,53 +15,123 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      PREVIEW_BASE: https://9a924d56-tv-crypto-engine.keikei99887.workers.dev
+      PREVIEW_BASE: https://0a7039af-tv-crypto-engine.keikei99887.workers.dev
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compare volatile ranking with and without KuCoin funding bulk call
+      - name: Accept actual volatile KuCoin Gate source repair
         shell: bash
         run: |
           python - <<'PY'
-          # This is a decision test, not a scanner change. It determines whether
-          # the extra KuCoin contracts/funding request materially changes ranking.
-          import json, os, urllib.request
+          # Validate the real volatile route after the test-first source decision.
+          # Production is not contacted or promoted by this workflow.
+          import json, os, time, urllib.error, urllib.request
 
           base = os.environ['PREVIEW_BASE'].rstrip('/')
+          started = time.time()
           req = urllib.request.Request(
-              base + '/research/volatile-funding-sensitivity-smoke',
-              headers={'Accept':'application/json','User-Agent':'volatile-funding-sensitivity/1'},
+              base + '/market/candidate-scan?profile=volatile&per_side=1&setup=all',
+              headers={
+                  'Accept': 'application/json',
+                  'User-Agent': 'taistock-mcp-volatile-v128-acceptance/1',
+              },
           )
-          with urllib.request.urlopen(req, timeout=120) as r:
-              p = json.loads(r.read().decode('utf-8'))
-              status = r.status
+          try:
+              with urllib.request.urlopen(req, timeout=180) as r:
+                  body = r.read().decode('utf-8')
+                  status = r.status
+                  ctype = r.headers.get('content-type', '')
+          except urllib.error.HTTPError as e:
+              body = e.read().decode('utf-8', errors='replace')
+              status = e.code
+              ctype = e.headers.get('content-type', '')
+          latency_ms = round((time.time() - started) * 1000)
 
-          assert status == 200 and p.get('ok') is True, p
-          assert p.get('normal_routes_changed') is False, p
-          assert p.get('raw_rows_exposed') is False and p.get('persistence') == 'none', p
-          comp = p.get('comparison') or {}
-          rule = p.get('decision_rule') or {}
+          assert 'application/json' in ctype.lower(), (status, ctype, body[:300])
+          p = json.loads(body)
+          assert status == 200, (status, p)
+          assert p.get('ok') is True, p
+          assert p.get('profile') == 'volatile', p
+          assert p.get('production_promotion') is False, p
+          assert p.get('storage_policy') == 'live_compute_no_raw_or_timeseries_persistence', p
 
-          top30 = (comp.get('top30_overlap') or {}).get('ratio')
-          spearman = comp.get('full_rank_spearman')
-          median_move = comp.get('median_abs_rank_move')
-          use_two = (
-              isinstance(top30, (int, float)) and top30 >= rule.get('two_call_preferred_if_top30_overlap_gte', 0.90)
-              and isinstance(spearman, (int, float)) and spearman >= rule.get('two_call_preferred_if_spearman_gte', 0.95)
-              and isinstance(median_move, (int, float)) and median_move <= rule.get('two_call_preferred_if_median_abs_rank_move_lte', 2)
-          )
-          decision = 'KEEP_TWO_CALL_GATE_FUNDING_ONLY' if use_two else 'USE_THREE_CALL_KUCOIN_GATE_FUNDING_REFERENCE'
+          repair = p.get('source_repair') or {}
+          assert repair.get('replaced') == 'bybit', repair
+          assert repair.get('replacement') == 'kucoin', repair
+          assert repair.get('ranking_test_decision') == 'three_call_cross_exchange_funding_reference', repair
 
-          print('VOLATILE_FUNDING_RANKING_SENSITIVITY')
+          sources = p.get('source_status') or []
+          by_source = {x.get('exchange'): x for x in sources}
+          assert set(by_source) == {'kucoin_contracts', 'kucoin', 'gate'}, sources
+          assert all(x.get('ok') is True for x in sources), sources
+          assert all((x.get('records') or 0) > 0 for x in sources), sources
+
+          selected = p.get('selected_symbols') or []
+          selected_kucoin = p.get('selected_kucoin_symbols') or []
+          candidates = p.get('candidates') or []
+          assert selected and len(selected) == len(selected_kucoin), (selected, selected_kucoin)
+          assert p.get('selected_count') == len(selected), p
+          assert p.get('kucoin_symbol_hints_applied') == len(selected), p
+          assert candidates, p
+
+          # Exact exchange symbols selected by bulk discovery must survive into
+          # the repaired deep layer instead of being reconstructed from BASE.
+          selected_symbol_by_base = dict(zip(selected, selected_kucoin))
+          candidate_summary = []
+          for candidate in candidates:
+              base_symbol = candidate.get('base')
+              deep = candidate.get('deep') or {}
+              mtf = candidate.get('multi_timeframe') or {}
+              assert deep.get('complete') is True, candidate
+              assert deep.get('requests_passed') == deep.get('requests_total') == 4, candidate
+              assert deep.get('kucoin_symbol') == selected_symbol_by_base.get(base_symbol), (base_symbol, deep, selected_symbol_by_base)
+              assert mtf.get('mandatory') is True, candidate
+              assert mtf.get('higher_timeframes_available') is True, candidate
+              higher = mtf.get('higher_context') or {}
+              assert higher.get('requests_total') == 2, higher
+              ids = {x.get('id') for x in (higher.get('request_status') or [])}
+              assert ids == {'kucoin_1h', 'gate_1h'}, (base_symbol, ids)
+              assert all(x.get('ok') is True for x in (higher.get('request_status') or [])), higher
+              if candidate.get('side') == 'short':
+                  assert candidate.get('research_actionability') == 'observation_only', candidate
+              candidate_summary.append({
+                  'base': base_symbol,
+                  'side': candidate.get('side'),
+                  'setup': candidate.get('setup'),
+                  'kucoin_symbol': deep.get('kucoin_symbol'),
+                  'mtf_alignment': mtf.get('alignment'),
+                  'research_actionability': candidate.get('research_actionability'),
+              })
+
+          policy = p.get('policy') or {}
+          assert policy.get('required_exchanges') == ['kucoin', 'gate'], policy
+          assert policy.get('higher_timeframes_mandatory') is True, policy
+          assert policy.get('higher_tf_can_promote_weak_core') is False, policy
+          assert policy.get('symmetric_short_actionable') is False, policy
+
+          budget = p.get('subrequest_budget') or {}
+          n = len(selected)
+          assert budget.get('volatile_bulk_worst_case') == 3, budget
+          assert budget.get('previous_volatile_bulk') == 2, budget
+          assert budget.get('added_volatile_bulk_worst_case') == 1, budget
+          assert budget.get('deep') == n * 4, (n, budget)
+          assert budget.get('higher_timeframes') == n * 2, (n, budget)
+          assert budget.get('reported_total_worst_case') == 3 + n * 4 + n * 2, (n, budget)
+          assert budget.get('reported_total_live_this_request') in (2 + n * 6, 3 + n * 6), (n, budget)
+
+          serialized = json.dumps(p, ensure_ascii=False).lower()
+          for forbidden in ['api.bybit.com', 'api.bytick.com', 'bybit_kline_5m', 'bybit_oi_5m', 'bybit_1h']:
+              assert forbidden not in serialized, f'legacy source leaked: {forbidden}'
+
+          print('VOLATILE_V128_KUCOIN_GATE_ACCEPTANCE')
           print(json.dumps({
-              'source_status': p.get('source_status'),
-              'matched_rows': p.get('matched_rows'),
-              'eligible_rows': p.get('eligible_rows'),
-              'kucoin_funding_reporting': p.get('kucoin_funding_reporting'),
-              'gate_funding_reporting': p.get('gate_funding_reporting'),
-              'comparison': comp,
-              'decision_rule': rule,
-              'target_comparison': p.get('target_comparison'),
-              'decision': decision,
+              'http_status': status,
+              'latency_ms': latency_ms,
+              'selected_symbols': selected,
+              'selected_kucoin_symbols': selected_kucoin,
+              'source_status': sources,
+              'budget': budget,
+              'candidate_summary': candidate_summary,
+              'result': 'PASS_VOLATILE_V128_KUCOIN_GATE_SHADOW',
           }, ensure_ascii=False, indent=2))
           PY
