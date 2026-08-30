@@ -1,0 +1,58 @@
+name: Automation Research GitHub Relay
+
+on:
+  push:
+    branches:
+      - 'automation-research-relay*'
+    paths:
+      - 'runtime/automation-research-relay/requests/**.json'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: automation-research-relay-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout relay branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Process create-only relay requests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t requests < <(
+            git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" \
+              | grep '^runtime/automation-research-relay/requests/.*\.json$' || true
+          )
+
+          if [ "${#requests[@]}" -eq 0 ]; then
+            echo 'No relay request in this commit.'
+            exit 0
+          fi
+
+          for request in "${requests[@]}"; do
+            node scripts/automation-research-github-relay.mjs "$request"
+          done
+
+      - name: Commit relay responses to relay branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add runtime/automation-research-relay/responses
+          if git diff --cached --quiet; then
+            echo 'No new relay response to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'relay: write automation research response'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
