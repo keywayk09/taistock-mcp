@@ -145,3 +145,5 @@ def main():
     Path('/tmp/crypto_mtf_rr_regime_v16.json').write_text(json.dumps({"research_only":True,"venue":"OKX","method":"gate_before_gate_specific_entry_cooldown","coverage":coverage,"summary":summary},indent=2),encoding='utf-8')
 
 if __name__=='__main__':main()
+
+# Trigger marker: V16 validation should run only after V14/V15 completed.
