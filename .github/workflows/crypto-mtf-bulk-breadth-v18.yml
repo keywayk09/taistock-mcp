@@ -1,0 +1,27 @@
+name: Crypto MTF Bulk Breadth V18
+
+on:
+  push:
+    branches: [research/crypto-mtf-rr-20260830]
+    paths:
+      - '.github/workflows/crypto-mtf-bulk-breadth-v18.yml'
+      - 'research/crypto_mtf_bulk_breadth_v18.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run bulk-compatible 24h breadth validation
+        run: python research/crypto_mtf_bulk_breadth_v18.py
+      - name: Upload V18 report
+        uses: actions/upload-artifact@v4
+        with:
+          name: crypto-mtf-bulk-breadth-v18
+          path: /tmp/crypto_mtf_bulk_breadth_v18.json
+          retention-days: 3
