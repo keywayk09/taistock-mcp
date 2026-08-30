@@ -1,0 +1,40 @@
+name: Crypto OI Funding Probe
+
+on:
+  push:
+    branches: [research/crypto-mtf-rr-20260830]
+    paths:
+      - '.github/workflows/crypto-oi-funding-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe Gate public derivatives history
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, urllib.parse, urllib.request, time
+          base='https://api.gateio.ws/api/v4/futures/usdt'
+          tests={
+            'stats_5m': (base+'/contract_stats?'+urllib.parse.urlencode({'contract':'BTC_USDT','interval':'5m','limit':20})),
+            'stats_1h': (base+'/contract_stats?'+urllib.parse.urlencode({'contract':'BTC_USDT','interval':'1h','limit':20})),
+            'funding': (base+'/funding_rate?'+urllib.parse.urlencode({'contract':'BTC_USDT','limit':20})),
+          }
+          for name,url in tests.items():
+            try:
+              req=urllib.request.Request(url,headers={'Accept':'application/json','User-Agent':'crypto-oi-funding-research'})
+              with urllib.request.urlopen(req,timeout=25) as r:
+                body=json.loads(r.read().decode('utf-8'))
+              sample=body[-1] if isinstance(body,list) and body else body
+              print(name,'PASS','count=',len(body) if isinstance(body,list) else None,'sample=',json.dumps(sample,ensure_ascii=False)[:700])
+            except Exception as e:
+              print(name,'FAIL',repr(e))
+          PY
