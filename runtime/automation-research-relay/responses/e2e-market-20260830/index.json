@@ -1,0 +1,14 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_RESPONSE_V1",
+  "relay_version": "automation-research-github-relay/v1.0.0",
+  "request_schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "e2e-market-20260830",
+  "request_kind": "market_snapshot",
+  "request_sha256": "72a8c22ae68bb10a75f0c8ead2403415ec72997b4d6d942ff460b0989920b42b",
+  "generated_at_utc": "2026-08-30T07:00:24.014Z",
+  "bridge_base_id": "taistock-mcp-production-automation-research",
+  "read_only": true,
+  "writer_routes": false,
+  "status": "ERROR",
+  "error": "BRIDGE_HTTP_503"
+}
