@@ -15,24 +15,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      PREVIEW_BASE: https://7f6a40e8-tv-crypto-engine.keikei99887.workers.dev
+      PREVIEW_BASE: https://da61a902-tv-crypto-engine.keikei99887.workers.dev
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compare official Bybit mainnet hosts from Cloudflare egress
+      - name: Test replacement price and OI sources from Cloudflare egress
         shell: bash
         run: |
           python - <<'PY'
-          # This test calls only the Shadow diagnostic route. The Worker itself
-          # probes Bybit's two official mainnet REST hosts from identical egress.
+          # Calls only the Shadow diagnostic endpoint. No scanner configuration is
+          # changed by this workflow.
           import json, os, urllib.error, urllib.request
 
           base = os.environ['PREVIEW_BASE'].rstrip('/')
           req = urllib.request.Request(
-              base + '/research/bybit-host-smoke',
+              base + '/research/replacement-source-smoke',
               headers={
                   'Accept': 'application/json',
-                  'User-Agent': 'taistock-mcp-bybit-host-smoke/1',
+                  'User-Agent': 'taistock-mcp-replacement-source-smoke/1',
               },
           )
           try:
@@ -46,28 +46,26 @@ jobs:
               ctype = e.headers.get('content-type', '')
 
           assert 'application/json' in ctype.lower(), (status, ctype, body[:300])
-          payload = json.loads(body)
-          results = payload.get('results') or []
-          assert len(results) == 2, payload
+          p = json.loads(body)
+          summary = p.get('capability_summary') or {}
+          probes = p.get('probes') or []
 
-          by_host = {x.get('host'): x for x in results}
-          primary = by_host.get('https://api.bybit.com') or {}
-          alternate = by_host.get('https://api.bytick.com') or {}
+          if summary.get('binance_price_5m_and_1h') and summary.get('binance_oi_history_5m'):
+              recommendation = 'GATE_PLUS_BINANCE_CAN_REPLACE_BYBIT_WITH_SAME_DEEP_REQUEST_TOPOLOGY'
+          elif summary.get('okx_price_5m_and_1h') and summary.get('binance_oi_history_5m'):
+              recommendation = 'USE_OKX_PRICE_AND_BINANCE_OI_REQUIRES_MIXED_SOURCE_DESIGN'
+          elif summary.get('okx_price_5m_and_1h'):
+              recommendation = 'OKX_PRICE_ONLY_OI_SECOND_SOURCE_STILL_MISSING'
+          else:
+              recommendation = 'NO_COMPLETE_REPLACEMENT_FOUND'
 
-          print('BYBIT_OFFICIAL_HOST_SMOKE')
+          print('REPLACEMENT_SOURCE_CAPABILITY_SMOKE')
           print(json.dumps({
               'http_status': status,
-              'primary': primary,
-              'alternate': alternate,
-              'recommended_action': (
-                  'SUBSTITUTE_API_BYTICK_COM_NO_EXTRA_REQUESTS'
-                  if alternate.get('ok') and not primary.get('ok')
-                  else 'KEEP_PRIMARY' if primary.get('ok')
-                  else 'BOTH_BLOCKED_REDESIGN_SOURCE_PAIR'
-              ),
+              'capability_summary': summary,
+              'probes': probes,
+              'recommendation': recommendation,
           }, ensure_ascii=False, indent=2))
 
-          # The diagnostic workflow succeeds as long as the Worker returns a
-          # controlled JSON result; the printed recommendation drives next step.
-          assert status in (200, 502), (status, payload)
+          assert status in (200, 502), (status, p)
           PY
