@@ -1,0 +1,23 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "e2e-blind-20260830",
+  "kind": "formal_blind_batch",
+  "items": [
+    {
+      "id": "2426-1000",
+      "symbol": "2426",
+      "trade_date": "2026-08-27",
+      "timeframe": "1m",
+      "decision_time": "10:00:00",
+      "limit": 300
+    },
+    {
+      "id": "2426-1015",
+      "symbol": "2426",
+      "trade_date": "2026-08-27",
+      "timeframe": "1m",
+      "decision_time": "10:15:00",
+      "limit": 300
+    }
+  ]
+}
