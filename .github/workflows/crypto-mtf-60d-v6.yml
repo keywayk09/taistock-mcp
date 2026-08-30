@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/crypto-mtf-60d-v6.yml'
       - 'research/crypto_mtf_60d_windows_v6.py'
+      - 'research/gate_history.py'
   workflow_dispatch:
 
 permissions:
