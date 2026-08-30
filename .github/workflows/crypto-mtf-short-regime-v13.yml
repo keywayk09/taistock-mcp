@@ -1,0 +1,27 @@
+name: Crypto MTF Short Regime V13
+
+on:
+  push:
+    branches: [research/crypto-mtf-rr-20260830]
+    paths:
+      - '.github/workflows/crypto-mtf-short-regime-v13.yml'
+      - 'research/crypto_mtf_short_regime_v13.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run 60d short regime holdout
+        run: python research/crypto_mtf_short_regime_v13.py
+      - name: Upload short regime report
+        uses: actions/upload-artifact@v4
+        with:
+          name: crypto-mtf-short-regime-v13
+          path: /tmp/crypto_mtf_short_regime_v13.json
+          retention-days: 3
