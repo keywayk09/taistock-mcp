@@ -1,0 +1,5 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "e2e-health-20260830",
+  "kind": "health"
+}
