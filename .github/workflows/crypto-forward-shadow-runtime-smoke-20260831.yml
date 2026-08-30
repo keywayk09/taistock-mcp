@@ -13,125 +13,317 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     env:
       PREVIEW_BASE: https://0a7039af-tv-crypto-engine.keikei99887.workers.dev
     steps:
       - uses: actions/checkout@v4
 
-      - name: Accept actual volatile KuCoin Gate source repair
+      - name: Verify V1.2.8 Shadow identity and safety envelope
         shell: bash
         run: |
           python - <<'PY'
-          # Validate the real volatile route after the test-first source decision.
-          # Production is not contacted or promoted by this workflow.
+          # Top-level identity only. This confirms the Preview is the intended
+          # Shadow entrypoint before any lane-specific acceptance is attempted.
+          import json, os, urllib.request
+
+          base = os.environ['PREVIEW_BASE'].rstrip('/')
+
+          def get(path):
+              req = urllib.request.Request(
+                  base + path,
+                  headers={'Accept':'application/json','User-Agent':'crypto-v128-identity-smoke/1'},
+              )
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return r.status, json.loads(r.read().decode('utf-8'))
+
+          hs, health = get('/health')
+          vs, version = get('/version')
+          assert hs == 200 and vs == 200, (hs, vs)
+          assert health.get('ok') is True and version.get('ok') is True, (health, version)
+          assert health.get('version') == '1.2.8-shadow', health
+          assert version.get('version') == '1.2.8-shadow', version
+          assert health.get('production_promotion') is False, health
+          assert version.get('production_promotion') is False, version
+          repair = health.get('volatile_source_repair') or {}
+          assert repair.get('required_bulk') == ['kucoin_contracts', 'kucoin_ticker', 'gate_ticker'], repair
+          assert repair.get('worst_case_bulk_requests') == 3, repair
+
+          print('V128_SHADOW_IDENTITY')
+          print(json.dumps({
+              'health_version': health.get('version'),
+              'version_version': version.get('version'),
+              'production_promotion': health.get('production_promotion'),
+              'volatile_source_repair': repair,
+              'result': 'PASS_V128_SHADOW_IDENTITY',
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Accept stable lane end-to-end invariants
+        shell: bash
+        run: |
+          python - <<'PY'
+          # Stable acceptance covers bulk participation telemetry, 4-request deep,
+          # mandatory 2-request HTF context, research demotion-only invariants, and
+          # corrected request accounting. It does not alter candidate decisions.
           import json, os, time, urllib.error, urllib.request
 
           base = os.environ['PREVIEW_BASE'].rstrip('/')
           started = time.time()
           req = urllib.request.Request(
-              base + '/market/candidate-scan?profile=volatile&per_side=1&setup=all',
-              headers={
-                  'Accept': 'application/json',
-                  'User-Agent': 'taistock-mcp-volatile-v128-acceptance/1',
-              },
+              base + '/market/candidate-scan?profile=stable_quality&per_side=1&light_limit=12',
+              headers={'Accept':'application/json','User-Agent':'crypto-v128-stable-invariant-smoke/1'},
           )
           try:
               with urllib.request.urlopen(req, timeout=180) as r:
                   body = r.read().decode('utf-8')
                   status = r.status
-                  ctype = r.headers.get('content-type', '')
           except urllib.error.HTTPError as e:
               body = e.read().decode('utf-8', errors='replace')
               status = e.code
-              ctype = e.headers.get('content-type', '')
           latency_ms = round((time.time() - started) * 1000)
-
-          assert 'application/json' in ctype.lower(), (status, ctype, body[:300])
           p = json.loads(body)
-          assert status == 200, (status, p)
-          assert p.get('ok') is True, p
-          assert p.get('profile') == 'volatile', p
-          assert p.get('production_promotion') is False, p
-          assert p.get('storage_policy') == 'live_compute_no_raw_or_timeseries_persistence', p
 
-          repair = p.get('source_repair') or {}
-          assert repair.get('replaced') == 'bybit', repair
-          assert repair.get('replacement') == 'kucoin', repair
-          assert repair.get('ranking_test_decision') == 'three_call_cross_exchange_funding_reference', repair
-
-          sources = p.get('source_status') or []
-          by_source = {x.get('exchange'): x for x in sources}
-          assert set(by_source) == {'kucoin_contracts', 'kucoin', 'gate'}, sources
-          assert all(x.get('ok') is True for x in sources), sources
-          assert all((x.get('records') or 0) > 0 for x in sources), sources
-
-          selected = p.get('selected_symbols') or []
-          selected_kucoin = p.get('selected_kucoin_symbols') or []
+          assert status == 200 and p.get('ok') is True, (status, p)
+          assert p.get('core_pipeline_ok') is True, p
           candidates = p.get('candidates') or []
-          assert selected and len(selected) == len(selected_kucoin), (selected, selected_kucoin)
-          assert p.get('selected_count') == len(selected), p
-          assert p.get('kucoin_symbol_hints_applied') == len(selected), p
           assert candidates, p
+          n = len(candidates)
 
-          # Exact exchange symbols selected by bulk discovery must survive into
-          # the repaired deep layer instead of being reconstructed from BASE.
-          selected_symbol_by_base = dict(zip(selected, selected_kucoin))
+          # Forward Market Participation must remain observation-only and free.
+          tele = p.get('market_participation_shadow') or {}
+          assert tele.get('mode') == 'forward_shadow_observation_only', tele
+          assert tele.get('added_market_requests') == 0, tele
+          assert tele.get('threshold') is None, tele
+          assert tele.get('decision_effect') == 'none', tele
+          assert (tele.get('source_health') or {}).get('required_pair_ok') is True, tele
+          assert (tele.get('universe') or {}).get('eligible_count', 0) > 0, tele
+
+          # Mandatory higher-timeframe source repair and request budget.
+          mtf_policy = p.get('multi_timeframe_policy') or {}
+          assert mtf_policy.get('mandatory') is True, mtf_policy
+          assert mtf_policy.get('higher_tf_source') == 'kucoin_gate_1h_cross_exchange', mtf_policy
+          assert mtf_policy.get('higher_tf_requests_per_symbol') == 2, mtf_policy
+          assert mtf_policy.get('added_higher_tf_requests_per_symbol') == 0, mtf_policy
+          assert mtf_policy.get('higher_tf_requested_subrequest_budget') == n * 2, (n, mtf_policy)
+          assert mtf_policy.get('no_higher_tf_promotion') is True, mtf_policy
+
+          preferred = 0
           candidate_summary = []
-          for candidate in candidates:
-              base_symbol = candidate.get('base')
-              deep = candidate.get('deep') or {}
-              mtf = candidate.get('multi_timeframe') or {}
-              assert deep.get('complete') is True, candidate
-              assert deep.get('requests_passed') == deep.get('requests_total') == 4, candidate
-              assert deep.get('kucoin_symbol') == selected_symbol_by_base.get(base_symbol), (base_symbol, deep, selected_symbol_by_base)
-              assert mtf.get('mandatory') is True, candidate
-              assert mtf.get('higher_timeframes_available') is True, candidate
+          for c in candidates:
+              mtf = c.get('multi_timeframe') or {}
               higher = mtf.get('higher_context') or {}
+              assert mtf.get('mandatory') is True, c
+              assert mtf.get('higher_timeframes_available') is True, c
               assert higher.get('requests_total') == 2, higher
               ids = {x.get('id') for x in (higher.get('request_status') or [])}
-              assert ids == {'kucoin_1h', 'gate_1h'}, (base_symbol, ids)
+              assert ids == {'kucoin_1h', 'gate_1h'}, (c.get('base'), ids)
               assert all(x.get('ok') is True for x in (higher.get('request_status') or [])), higher
-              if candidate.get('side') == 'short':
-                  assert candidate.get('research_actionability') == 'observation_only', candidate
+              assert set((higher.get('timeframes') or {}).keys()) == {'1d','4h','1h'}, higher
+
+              action = str(c.get('research_actionability') or '')
+              if action.startswith('shadow_preferred_long'):
+                  preferred += 1
+                  assert c.get('selected_side') == 'long', c
+                  assert c.get('final_stage') in ('watch','strong_watch'), c
+                  assert mtf.get('alignment') in ('full_aligned','swing_aligned'), c
+              if c.get('selected_side') == 'short':
+                  assert action == 'observation_only', c
+
               candidate_summary.append({
-                  'base': base_symbol,
-                  'side': candidate.get('side'),
-                  'setup': candidate.get('setup'),
-                  'kucoin_symbol': deep.get('kucoin_symbol'),
+                  'base': c.get('base'),
+                  'side': c.get('selected_side'),
+                  'core_stage': c.get('core_diagnostic_stage'),
+                  'final_stage': c.get('final_stage'),
                   'mtf_alignment': mtf.get('alignment'),
-                  'research_actionability': candidate.get('research_actionability'),
+                  'research_actionability': c.get('research_actionability'),
               })
 
-          policy = p.get('policy') or {}
-          assert policy.get('required_exchanges') == ['kucoin', 'gate'], policy
-          assert policy.get('higher_timeframes_mandatory') is True, policy
-          assert policy.get('higher_tf_can_promote_weak_core') is False, policy
-          assert policy.get('symmetric_short_actionable') is False, policy
+          assert p.get('research_preferred_count') == preferred, (preferred, p.get('research_preferred_count'))
 
+          # Top-level budget must include mandatory HTF requests discovered in the
+          # prior accounting smoke. Selective OI is variable by candidate stage.
           budget = p.get('subrequest_budget') or {}
-          n = len(selected)
-          assert budget.get('volatile_bulk_worst_case') == 3, budget
-          assert budget.get('previous_volatile_bulk') == 2, budget
-          assert budget.get('added_volatile_bulk_worst_case') == 1, budget
           assert budget.get('deep') == n * 4, (n, budget)
           assert budget.get('higher_timeframes') == n * 2, (n, budget)
-          assert budget.get('reported_total_worst_case') == 3 + n * 4 + n * 2, (n, budget)
-          assert budget.get('reported_total_live_this_request') in (2 + n * 6, 3 + n * 6), (n, budget)
+          base_total = (budget.get('deep') or 0) + (budget.get('selective_oi') or 0) + (budget.get('market_context') or 0)
+          assert budget.get('reported_total') == base_total + n * 2, (base_total, n, budget)
+          assert budget.get('accounting_version') == 'v1.2.6_include_mandatory_higher_tf', budget
 
+          # No blocked Bybit data-plane route or request ID may survive.
           serialized = json.dumps(p, ensure_ascii=False).lower()
-          for forbidden in ['api.bybit.com', 'api.bytick.com', 'bybit_kline_5m', 'bybit_oi_5m', 'bybit_1h']:
+          for forbidden in ['api.bybit.com','api.bytick.com','bybit_kline_5m','bybit_oi_5m','bybit_1h']:
               assert forbidden not in serialized, f'legacy source leaked: {forbidden}'
 
-          print('VOLATILE_V128_KUCOIN_GATE_ACCEPTANCE')
+          print('V128_STABLE_INVARIANTS')
           print(json.dumps({
-              'http_status': status,
               'latency_ms': latency_ms,
-              'selected_symbols': selected,
-              'selected_kucoin_symbols': selected_kucoin,
-              'source_status': sources,
+              'candidate_count': n,
+              'preferred_count': preferred,
+              'market_participation_universe': (tele.get('universe') or {}).get('eligible_count'),
               'budget': budget,
               'candidate_summary': candidate_summary,
-              'result': 'PASS_VOLATILE_V128_KUCOIN_GATE_SHADOW',
+              'result': 'PASS_V128_STABLE_INVARIANTS',
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Accept volatile lane and cache-aware budget invariants
+        shell: bash
+        run: |
+          python - <<'PY'
+          # Two sequential real volatile scans validate the 3-call worst-case source
+          # contract and the optional 60s contracts cache accounting. Cache reuse is
+          # opportunistic across Cloudflare isolates, so both live=2 and live=3 are valid.
+          import json, os, time, urllib.request
+
+          base = os.environ['PREVIEW_BASE'].rstrip('/')
+
+          def scan(tag):
+              started = time.time()
+              req = urllib.request.Request(
+                  base + '/market/candidate-scan?profile=volatile&per_side=1&setup=all',
+                  headers={'Accept':'application/json','User-Agent':f'crypto-v128-volatile-invariant-{tag}/1'},
+              )
+              with urllib.request.urlopen(req, timeout=180) as r:
+                  p = json.loads(r.read().decode('utf-8'))
+                  status = r.status
+              return status, p, round((time.time() - started) * 1000)
+
+          summaries = []
+          for tag in ('first','second'):
+              status, p, latency_ms = scan(tag)
+              assert status == 200 and p.get('ok') is True, (status, p)
+              assert p.get('profile') == 'volatile', p
+              assert p.get('production_promotion') is False, p
+              assert p.get('storage_policy') == 'live_compute_no_raw_or_timeseries_persistence', p
+
+              sources = p.get('source_status') or []
+              by_source = {x.get('exchange'): x for x in sources}
+              assert set(by_source) == {'kucoin_contracts','kucoin','gate'}, sources
+              assert all(x.get('ok') is True for x in sources), sources
+              assert all((x.get('records') or 0) > 0 for x in sources), sources
+
+              selected = p.get('selected_symbols') or []
+              selected_kucoin = p.get('selected_kucoin_symbols') or []
+              candidates = p.get('candidates') or []
+              assert selected and len(selected) == len(selected_kucoin), (selected, selected_kucoin)
+              assert p.get('selected_count') == len(selected), p
+              assert p.get('kucoin_symbol_hints_applied') == len(selected), p
+              assert candidates, p
+              exact = dict(zip(selected, selected_kucoin))
+
+              for c in candidates:
+                  deep = c.get('deep') or {}
+                  mtf = c.get('multi_timeframe') or {}
+                  assert deep.get('complete') is True, c
+                  assert deep.get('requests_passed') == deep.get('requests_total') == 4, c
+                  assert deep.get('kucoin_symbol') == exact.get(c.get('base')), (c.get('base'), deep, exact)
+                  assert mtf.get('mandatory') is True, c
+                  assert mtf.get('higher_timeframes_available') is True, c
+                  higher = mtf.get('higher_context') or {}
+                  assert higher.get('requests_total') == 2, higher
+                  ids = {x.get('id') for x in (higher.get('request_status') or [])}
+                  assert ids == {'kucoin_1h','gate_1h'}, (c.get('base'), ids)
+                  if c.get('side') == 'short':
+                      assert c.get('research_actionability') == 'observation_only', c
+
+              policy = p.get('policy') or {}
+              assert policy.get('required_exchanges') == ['kucoin','gate'], policy
+              assert policy.get('higher_timeframes_mandatory') is True, policy
+              assert policy.get('higher_tf_can_promote_weak_core') is False, policy
+              assert policy.get('symmetric_short_actionable') is False, policy
+
+              n = len(selected)
+              budget = p.get('subrequest_budget') or {}
+              assert budget.get('volatile_bulk_worst_case') == 3, budget
+              assert budget.get('previous_volatile_bulk') == 2, budget
+              assert budget.get('added_volatile_bulk_worst_case') == 1, budget
+              assert budget.get('deep') == n * 4, (n, budget)
+              assert budget.get('higher_timeframes') == n * 2, (n, budget)
+              assert budget.get('reported_total_worst_case') == 3 + n * 6, (n, budget)
+              live_bulk = budget.get('volatile_bulk_live_this_request')
+              assert live_bulk in (2,3), budget
+              assert budget.get('reported_total_live_this_request') == live_bulk + n * 6, (n, budget)
+              contract_mode = by_source['kucoin_contracts'].get('mode')
+              if contract_mode == 'memory_cache':
+                  assert live_bulk == 2, (contract_mode, budget)
+              elif contract_mode == 'live':
+                  assert live_bulk == 3, (contract_mode, budget)
+              else:
+                  raise AssertionError((contract_mode, sources))
+
+              serialized = json.dumps(p, ensure_ascii=False).lower()
+              for forbidden in ['api.bybit.com','api.bytick.com','bybit_kline_5m','bybit_oi_5m','bybit_1h']:
+                  assert forbidden not in serialized, f'legacy source leaked: {forbidden}'
+
+              summaries.append({
+                  'tag': tag,
+                  'latency_ms': latency_ms,
+                  'selected_symbols': selected,
+                  'selected_kucoin_symbols': selected_kucoin,
+                  'contract_mode': contract_mode,
+                  'budget': budget,
+                  'short_observation_only_count': sum(1 for c in candidates if c.get('side') == 'short' and c.get('research_actionability') == 'observation_only'),
+              })
+
+          print('V128_VOLATILE_INVARIANTS')
+          print(json.dumps({
+              'scans': summaries,
+              'result': 'PASS_V128_VOLATILE_INVARIANTS',
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Accept BONK multiplier symbol through deep and MTF
+        shell: bash
+        run: |
+          python - <<'PY'
+          # Explicit multiplier-contract acceptance prevents a future regression
+          # where BONK could be reconstructed incorrectly as BONKUSDTM.
+          import json, os, urllib.request
+
+          base = os.environ['PREVIEW_BASE'].rstrip('/')
+          req = urllib.request.Request(
+              base + '/market/deep-probe?symbols=BONK&kucoin_symbols=1000BONKUSDTM',
+              headers={'Accept':'application/json','User-Agent':'crypto-v128-bonk-symbol-smoke/1'},
+          )
+          with urllib.request.urlopen(req, timeout=150) as r:
+              p = json.loads(r.read().decode('utf-8'))
+              status = r.status
+
+          assert status == 200 and p.get('ok') is True, p
+          assert p.get('kucoin_symbol_hints_applied') == 1, p
+          assert p.get('requested_subrequest_budget') == 4, p
+          results = p.get('results') or []
+          assert len(results) == 1, results
+          row = results[0]
+          assert row.get('base') == 'BONK', row
+          assert row.get('kucoin_symbol') == '1000BONKUSDTM', row
+          assert row.get('complete') is True, row
+          assert row.get('requests_passed') == row.get('requests_total') == 4, row
+          ids = {x.get('id') for x in (row.get('request_status') or [])}
+          assert ids == {'kucoin_kline_5m','gate_kline_5m','kucoin_oi_5m','gate_oi_5m'}, ids
+
+          mtf = row.get('multi_timeframe') or {}
+          assert mtf.get('mandatory') is True, row
+          assert mtf.get('higher_timeframes_available') is True, row
+          higher = mtf.get('higher_context') or {}
+          assert higher.get('kucoin_symbol') == '1000BONKUSDTM', higher
+          assert higher.get('requests_total') == 2, higher
+          higher_ids = {x.get('id') for x in (higher.get('request_status') or [])}
+          assert higher_ids == {'kucoin_1h','gate_1h'}, higher_ids
+          assert all(x.get('ok') is True for x in (higher.get('request_status') or [])), higher
+
+          serialized = json.dumps(p, ensure_ascii=False).lower()
+          for forbidden in ['api.bybit.com','api.bytick.com','bybit_kline_5m','bybit_oi_5m','bybit_1h']:
+              assert forbidden not in serialized, f'legacy source leaked: {forbidden}'
+
+          print('V128_BONK_MULTIPLIER_DEEP_MTF')
+          print(json.dumps({
+              'base': row.get('base'),
+              'kucoin_symbol': row.get('kucoin_symbol'),
+              'deep_request_ids': sorted(ids),
+              'mtf_alignment': mtf.get('alignment'),
+              'higher_request_ids': sorted(higher_ids),
+              'result': 'PASS_V128_BONK_MULTIPLIER_DEEP_MTF',
           }, ensure_ascii=False, indent=2))
           PY
