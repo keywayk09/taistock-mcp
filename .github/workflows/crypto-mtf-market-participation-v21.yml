@@ -1,0 +1,29 @@
+name: Crypto MTF Market Participation V21
+
+on:
+  push:
+    branches: [research/crypto-mtf-rr-20260830]
+    paths:
+      - '.github/workflows/crypto-mtf-market-participation-v21.yml'
+      - 'research/crypto_mtf_market_participation_v21.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: python -m py_compile research/crypto_mtf_market_participation_v21.py
+      - name: Run 90d market participation teacher-student study
+        run: python research/crypto_mtf_market_participation_v21.py
+      - name: Upload V21 report
+        uses: actions/upload-artifact@v4
+        with:
+          name: crypto-mtf-market-participation-v21
+          path: /tmp/crypto_mtf_market_participation_v21.json
+          retention-days: 3
