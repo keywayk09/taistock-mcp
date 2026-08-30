@@ -1,0 +1,39 @@
+name: Gate History Diagnostic V11
+
+on:
+  push:
+    branches: [research/crypto-mtf-rr-20260830]
+    paths:
+      - '.github/workflows/gate-history-diag-v11.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe Gate candle parameter variants
+        shell: bash
+        run: |
+          set -u
+          BASE='https://api.gateio.ws/api/v4/futures/usdt/candlesticks'
+          NOW=$(date +%s)
+          END=$((NOW - NOW%300 - 1))
+          FROM100=$((END - 99*300))
+          FROM900=$((END - 899*300))
+          probe() {
+            label="$1"; url="$2"
+            echo "=== ${label} ==="
+            code=$(curl -sS -o /tmp/gate-body.txt -w '%{http_code}' "$url" || true)
+            echo "HTTP ${code}"
+            head -c 800 /tmp/gate-body.txt || true
+            echo
+          }
+          probe 'limit100' "${BASE}?contract=BTC_USDT&interval=5m&limit=100"
+          probe 'to_only' "${BASE}?contract=BTC_USDT&interval=5m&to=${END}"
+          probe 'from_to_100' "${BASE}?contract=BTC_USDT&interval=5m&from=${FROM100}&to=${END}"
+          probe 'from_to_900' "${BASE}?contract=BTC_USDT&interval=5m&from=${FROM900}&to=${END}"
+          probe 'from_only' "${BASE}?contract=BTC_USDT&interval=5m&from=${FROM100}"
