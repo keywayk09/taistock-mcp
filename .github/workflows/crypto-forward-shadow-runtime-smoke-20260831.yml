@@ -15,24 +15,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      PREVIEW_BASE: https://5cc3d72e-tv-crypto-engine.keikei99887.workers.dev
+      PREVIEW_BASE: https://a86e021d-tv-crypto-engine.keikei99887.workers.dev
     steps:
       - uses: actions/checkout@v4
 
-      - name: Test KuCoin Futures price and historical OI from Cloudflare egress
+      - name: Test KuCoin Classic Futures 5m and 1H Klines from Cloudflare egress
         shell: bash
         run: |
           python - <<'PY'
-          # Calls only the Shadow KuCoin diagnostic endpoint. It does not modify
-          # scanner source configuration or candidate decisions.
+          # Calls only the Shadow diagnostic route. No scanner source is changed.
           import json, os, urllib.error, urllib.request
 
           base = os.environ['PREVIEW_BASE'].rstrip('/')
           req = urllib.request.Request(
-              base + '/research/kucoin-source-smoke',
+              base + '/research/kucoin-classic-kline-smoke',
               headers={
                   'Accept': 'application/json',
-                  'User-Agent': 'taistock-mcp-kucoin-source-smoke/1',
+                  'User-Agent': 'taistock-mcp-kucoin-classic-kline-smoke/1',
               },
           )
           try:
@@ -51,12 +50,12 @@ jobs:
           probes = p.get('probes') or []
 
           recommendation = (
-              'GATE_PLUS_KUCOIN_COMPLETE_PAIR_CANDIDATE'
+              'GATE_PLUS_KUCOIN_PRICE_OI_CAPABILITY_COMPLETE'
               if summary.get('gate_plus_kucoin_complete_pair_candidate')
-              else 'KUCOIN_NOT_COMPLETE_DO_NOT_SUBSTITUTE'
+              else 'KUCOIN_CLASSIC_KLINE_FAILED_DO_NOT_SUBSTITUTE'
           )
 
-          print('KUCOIN_FUTURES_SOURCE_CAPABILITY_SMOKE')
+          print('KUCOIN_CLASSIC_FUTURES_KLINE_SMOKE')
           print(json.dumps({
               'http_status': status,
               'capability_summary': summary,
