@@ -1,0 +1,27 @@
+name: Crypto MTF Multiway V3
+
+on:
+  push:
+    branches: [research/crypto-mtf-rr-20260830]
+    paths:
+      - '.github/workflows/crypto-mtf-multiway-v3.yml'
+      - 'research/crypto_mtf_multiway_v3.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run multi-method MTF RR research
+        run: python research/crypto_mtf_multiway_v3.py
+      - name: Upload multiway report
+        uses: actions/upload-artifact@v4
+        with:
+          name: crypto-mtf-multiway-v3
+          path: /tmp/crypto_mtf_multiway_v3.json
+          retention-days: 3
