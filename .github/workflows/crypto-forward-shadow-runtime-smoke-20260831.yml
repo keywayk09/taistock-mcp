@@ -15,24 +15,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      PREVIEW_BASE: https://da61a902-tv-crypto-engine.keikei99887.workers.dev
+      PREVIEW_BASE: https://5cc3d72e-tv-crypto-engine.keikei99887.workers.dev
     steps:
       - uses: actions/checkout@v4
 
-      - name: Test replacement price and OI sources from Cloudflare egress
+      - name: Test KuCoin Futures price and historical OI from Cloudflare egress
         shell: bash
         run: |
           python - <<'PY'
-          # Calls only the Shadow diagnostic endpoint. No scanner configuration is
-          # changed by this workflow.
+          # Calls only the Shadow KuCoin diagnostic endpoint. It does not modify
+          # scanner source configuration or candidate decisions.
           import json, os, urllib.error, urllib.request
 
           base = os.environ['PREVIEW_BASE'].rstrip('/')
           req = urllib.request.Request(
-              base + '/research/replacement-source-smoke',
+              base + '/research/kucoin-source-smoke',
               headers={
                   'Accept': 'application/json',
-                  'User-Agent': 'taistock-mcp-replacement-source-smoke/1',
+                  'User-Agent': 'taistock-mcp-kucoin-source-smoke/1',
               },
           )
           try:
@@ -50,16 +50,13 @@ jobs:
           summary = p.get('capability_summary') or {}
           probes = p.get('probes') or []
 
-          if summary.get('binance_price_5m_and_1h') and summary.get('binance_oi_history_5m'):
-              recommendation = 'GATE_PLUS_BINANCE_CAN_REPLACE_BYBIT_WITH_SAME_DEEP_REQUEST_TOPOLOGY'
-          elif summary.get('okx_price_5m_and_1h') and summary.get('binance_oi_history_5m'):
-              recommendation = 'USE_OKX_PRICE_AND_BINANCE_OI_REQUIRES_MIXED_SOURCE_DESIGN'
-          elif summary.get('okx_price_5m_and_1h'):
-              recommendation = 'OKX_PRICE_ONLY_OI_SECOND_SOURCE_STILL_MISSING'
-          else:
-              recommendation = 'NO_COMPLETE_REPLACEMENT_FOUND'
+          recommendation = (
+              'GATE_PLUS_KUCOIN_COMPLETE_PAIR_CANDIDATE'
+              if summary.get('gate_plus_kucoin_complete_pair_candidate')
+              else 'KUCOIN_NOT_COMPLETE_DO_NOT_SUBSTITUTE'
+          )
 
-          print('REPLACEMENT_SOURCE_CAPABILITY_SMOKE')
+          print('KUCOIN_FUTURES_SOURCE_CAPABILITY_SMOKE')
           print(json.dumps({
               'http_status': status,
               'capability_summary': summary,
