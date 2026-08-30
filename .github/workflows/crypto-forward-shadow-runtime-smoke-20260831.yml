@@ -15,28 +15,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      PREVIEW_BASE: https://1bc81234-tv-crypto-engine.keikei99887.workers.dev
+      PREVIEW_BASE: https://d2d3b09d-tv-crypto-engine.keikei99887.workers.dev
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate KuCoin research-symbol coverage and one-call bulk ticker
+      - name: Accept KuCoin plus Gate required bulk source repair
         shell: bash
         run: |
           python - <<'PY'
-          # Calls only the V1.2.5 Shadow diagnostic endpoint. The endpoint returns
-          # aggregate counts plus the ten target mappings, never the raw universe.
-          import json, os, urllib.error, urllib.request
+          # This acceptance checks the real light-scan route after the Shadow
+          # source substitution. It does not permit any production deployment.
+          import json, os, time, urllib.error, urllib.request
 
           base = os.environ['PREVIEW_BASE'].rstrip('/')
+          started = time.time()
           req = urllib.request.Request(
-              base + '/research/kucoin-coverage-smoke',
+              base + '/market/light-scan?min_exchanges=2&limit=10',
               headers={
                   'Accept': 'application/json',
-                  'User-Agent': 'taistock-mcp-kucoin-coverage-smoke/1',
+                  'User-Agent': 'taistock-mcp-kucoin-gate-bulk-acceptance/1',
               },
           )
           try:
-              with urllib.request.urlopen(req, timeout=60) as r:
+              with urllib.request.urlopen(req, timeout=90) as r:
                   body = r.read().decode('utf-8')
                   status = r.status
                   ctype = r.headers.get('content-type', '')
@@ -44,32 +45,56 @@ jobs:
               body = e.read().decode('utf-8', errors='replace')
               status = e.code
               ctype = e.headers.get('content-type', '')
+          latency_ms = round((time.time() - started) * 1000)
 
           assert 'application/json' in ctype.lower(), (status, ctype, body[:300])
           p = json.loads(body)
-          summary = p.get('summary') or {}
-          mappings = p.get('mappings') or {}
-          source = p.get('source_status') or {}
+          assert status == 200, (status, p.get('ticker_status'), p.get('degraded'))
+          assert p.get('ok') is True, p
 
-          assert p.get('raw_full_universe_exposed') is False, p
-          assert p.get('persistence') == 'none', p
-          assert source.get('contracts', {}).get('ok') is True, source
-          assert source.get('bulk_ticker', {}).get('ok') is True, source
+          roles = p.get('source_roles') or {}
+          assert roles.get('required') == ['kucoin', 'gate'], roles
+          assert roles.get('optional_confirmation') == ['okx'], roles
 
-          recommendation = 'COVERAGE_COMPLETE_READY_FOR_SHADOW_SUBSTITUTION'
-          if summary.get('contract_covered_count') != summary.get('target_count'):
-              recommendation = 'PARTIAL_CONTRACT_COVERAGE_REQUIRES_FAIL_CLOSED_MAPPING'
-          elif not summary.get('bulk_ticker_viable_for_covered_contracts'):
-              recommendation = 'CONTRACTS_COVERED_BUT_BULK_FIELDS_INCOMPLETE'
+          source_repair = p.get('source_repair') or {}
+          assert source_repair.get('replaced') == 'bybit', source_repair
+          assert source_repair.get('replacement') == 'kucoin', source_repair
+          assert source_repair.get('added_required_bulk_requests') == 0, source_repair
 
-          print('KUCOIN_TARGET_COVERAGE_AND_BULK_SMOKE')
+          statuses = p.get('ticker_status') or []
+          by_exchange = {x.get('exchange'): x for x in statuses}
+          assert by_exchange.get('kucoin', {}).get('ok') is True, statuses
+          assert by_exchange.get('gate', {}).get('ok') is True, statuses
+          assert by_exchange.get('kucoin', {}).get('tickers', 0) > 0, statuses
+          assert by_exchange.get('gate', {}).get('tickers', 0) > 0, statuses
+
+          # OKX is optional. Its health may vary on shared Cloudflare egress and
+          # must never determine required-pair success.
+          tele = p.get('market_participation_shadow') or {}
+          assert tele.get('added_market_requests') == 0, tele
+          assert tele.get('threshold') is None and tele.get('decision_effect') == 'none', tele
+          health = tele.get('source_health') or {}
+          assert health.get('required_pair_ok') is True, health
+          assert (tele.get('funding_crowding') or {}).get('reporting', 0) > 0, tele
+          assert (tele.get('kucoin_open_interest_observation') or {}).get('reporting', 0) > 0, tele
+          assert (tele.get('universe') or {}).get('eligible_count', 0) > 0, tele
+
+          print('KUCOIN_GATE_BULK_SOURCE_ACCEPTANCE')
           print(json.dumps({
               'http_status': status,
-              'source_status': source,
-              'summary': summary,
-              'mappings': mappings,
-              'recommendation': recommendation,
+              'latency_ms': latency_ms,
+              'ok': p.get('ok'),
+              'degraded': p.get('degraded'),
+              'scanned_crypto_candidates': p.get('scanned_crypto_candidates'),
+              'source_roles': roles,
+              'ticker_status': statuses,
+              'source_repair': source_repair,
+              'market_participation_summary': {
+                  'universe': tele.get('universe'),
+                  'funding_crowding': tele.get('funding_crowding'),
+                  'kucoin_open_interest_observation': tele.get('kucoin_open_interest_observation'),
+                  'source_health': health,
+              },
+              'result': 'PASS_KUCOIN_GATE_REQUIRED_BULK_PAIR',
           }, ensure_ascii=False, indent=2))
-
-          assert status in (200, 502), (status, p)
           PY
