@@ -15,23 +15,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      PREVIEW_BASE: https://a86e021d-tv-crypto-engine.keikei99887.workers.dev
+      PREVIEW_BASE: https://1bc81234-tv-crypto-engine.keikei99887.workers.dev
     steps:
       - uses: actions/checkout@v4
 
-      - name: Test KuCoin Classic Futures 5m and 1H Klines from Cloudflare egress
+      - name: Validate KuCoin research-symbol coverage and one-call bulk ticker
         shell: bash
         run: |
           python - <<'PY'
-          # Calls only the Shadow diagnostic route. No scanner source is changed.
+          # Calls only the V1.2.5 Shadow diagnostic endpoint. The endpoint returns
+          # aggregate counts plus the ten target mappings, never the raw universe.
           import json, os, urllib.error, urllib.request
 
           base = os.environ['PREVIEW_BASE'].rstrip('/')
           req = urllib.request.Request(
-              base + '/research/kucoin-classic-kline-smoke',
+              base + '/research/kucoin-coverage-smoke',
               headers={
                   'Accept': 'application/json',
-                  'User-Agent': 'taistock-mcp-kucoin-classic-kline-smoke/1',
+                  'User-Agent': 'taistock-mcp-kucoin-coverage-smoke/1',
               },
           )
           try:
@@ -46,20 +47,27 @@ jobs:
 
           assert 'application/json' in ctype.lower(), (status, ctype, body[:300])
           p = json.loads(body)
-          summary = p.get('capability_summary') or {}
-          probes = p.get('probes') or []
+          summary = p.get('summary') or {}
+          mappings = p.get('mappings') or {}
+          source = p.get('source_status') or {}
 
-          recommendation = (
-              'GATE_PLUS_KUCOIN_PRICE_OI_CAPABILITY_COMPLETE'
-              if summary.get('gate_plus_kucoin_complete_pair_candidate')
-              else 'KUCOIN_CLASSIC_KLINE_FAILED_DO_NOT_SUBSTITUTE'
-          )
+          assert p.get('raw_full_universe_exposed') is False, p
+          assert p.get('persistence') == 'none', p
+          assert source.get('contracts', {}).get('ok') is True, source
+          assert source.get('bulk_ticker', {}).get('ok') is True, source
 
-          print('KUCOIN_CLASSIC_FUTURES_KLINE_SMOKE')
+          recommendation = 'COVERAGE_COMPLETE_READY_FOR_SHADOW_SUBSTITUTION'
+          if summary.get('contract_covered_count') != summary.get('target_count'):
+              recommendation = 'PARTIAL_CONTRACT_COVERAGE_REQUIRES_FAIL_CLOSED_MAPPING'
+          elif not summary.get('bulk_ticker_viable_for_covered_contracts'):
+              recommendation = 'CONTRACTS_COVERED_BUT_BULK_FIELDS_INCOMPLETE'
+
+          print('KUCOIN_TARGET_COVERAGE_AND_BULK_SMOKE')
           print(json.dumps({
               'http_status': status,
-              'capability_summary': summary,
-              'probes': probes,
+              'source_status': source,
+              'summary': summary,
+              'mappings': mappings,
               'recommendation': recommendation,
           }, ensure_ascii=False, indent=2))
 
