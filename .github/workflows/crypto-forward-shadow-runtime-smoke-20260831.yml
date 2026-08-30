@@ -45,12 +45,10 @@ jobs:
               assert 'application/json' in ctype.lower(), (path, status, ctype, body[:300])
               return status, json.loads(body), elapsed
 
-          # Self-test proves V1.2 cannot promote or mutate candidate stages.
           status, selftest, self_ms = call('/research/forward-shadow-selftest', 30)
           assert status == 200 and selftest.get('ok') is True, selftest
           assert all((selftest.get('invariants') or {}).values()), selftest
 
-          # Stable candidate scan must carry BOTH full-market and selected-cohort telemetry.
           status, p, scan_ms = call('/market/candidate-scan?per_side=1&light_limit=10')
           assert status in (200, 502), (status, p)
           assert p.get('version') == '1.2.0-shadow', p
@@ -78,7 +76,6 @@ jobs:
           assert gate.get('threshold') is None and gate.get('decision_effect') == 'none', gate
           assert cohort.get('subrequest_budget_passthrough') == p.get('subrequest_budget'), (cohort.get('subrequest_budget_passthrough'), p.get('subrequest_budget'))
 
-          # Per-candidate observation must preserve the already-produced stage/actionability.
           for c in candidates:
               fs = c.get('forward_shadow') or {}
               live_stage = c.get('final_stage') or c.get('diagnostic_stage') or c.get('action_state') or 'unknown'
@@ -90,11 +87,11 @@ jobs:
               fg = fs.get('forward_gate') or {}
               assert fg.get('state') == 'unscored_collecting' and fg.get('decision') == 'preserve', (c.get('base'), fg)
 
-          # No raw full-universe rows may leak through the aggregate object.
           forbidden = {'rows', 'candles', 'tickers', 'raw', 'raw_rows'}
           assert not (forbidden & set(full.keys())), full.keys()
 
-          report = {
+          print('FORWARD_SHADOW_V12_PROPAGATION_SMOKE')
+          print(json.dumps({
               'preview': base,
               'http_status': status,
               'selftest_latency_ms': self_ms,
@@ -102,13 +99,46 @@ jobs:
               'candidate_count': len(candidates),
               'eligible_universe_count': universe.get('eligible_count'),
               'source_health': full.get('source_health'),
-              'turnover_participation': full.get('turnover_participation'),
-              'funding_crowding': full.get('funding_crowding'),
-              'cross_exchange_direction': full.get('cross_exchange_direction'),
-              'bybit_open_interest_observation': full.get('bybit_open_interest_observation'),
               'subrequest_budget': p.get('subrequest_budget'),
               'result': 'PASS_FULL_UNIVERSE_AND_SELECTED_COHORT_PROPAGATION',
-          }
-          print('FORWARD_SHADOW_V12_PROPAGATION_SMOKE')
-          print(json.dumps(report, ensure_ascii=False, indent=2))
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Diagnose required ticker source health
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, urllib.error, urllib.request
+          base = os.environ['PREVIEW_BASE'].rstrip('/')
+          req = urllib.request.Request(
+              base + '/market/light-scan?min_exchanges=2&limit=5',
+              headers={'Accept':'application/json','User-Agent':'taistock-mcp-source-health/1'},
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  body = r.read().decode('utf-8'); status = r.status
+          except urllib.error.HTTPError as e:
+              body = e.read().decode('utf-8', errors='replace'); status = e.code
+          p = json.loads(body)
+          rows = []
+          for x in p.get('ticker_status') or []:
+              rows.append({
+                  'exchange': x.get('exchange'),
+                  'role': x.get('role'),
+                  'ok': x.get('ok'),
+                  'tickers': x.get('tickers'),
+                  'mode': x.get('mode') or x.get('metadata_mode'),
+                  'upstream_status': x.get('upstream_status'),
+                  'error': x.get('error'),
+              })
+          print('FORWARD_SHADOW_SOURCE_HEALTH')
+          print(json.dumps({
+              'http_status': status,
+              'ok': p.get('ok'),
+              'degraded': p.get('degraded'),
+              'scanned_crypto_candidates': p.get('scanned_crypto_candidates'),
+              'ticker_status': rows,
+          }, ensure_ascii=False, indent=2))
+          # Diagnostic step itself passes for controlled 200/502 responses.
+          assert status in (200, 502), (status, p)
           PY
