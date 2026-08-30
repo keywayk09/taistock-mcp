@@ -12,6 +12,8 @@ import {
 async function tempRepo() {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'automation-research-relay-'));
   await fs.mkdir(path.join(cwd, 'runtime/automation-research-relay/requests'), { recursive: true });
+  // The production workflow initializes this fixed workspace before invoking the processor.
+  await fs.mkdir(path.join(cwd, 'runtime/automation-research-relay/responses'), { recursive: true });
   return cwd;
 }
 
