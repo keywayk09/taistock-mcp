@@ -15,29 +15,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      PREVIEW_BASE: https://d2d3b09d-tv-crypto-engine.keikei99887.workers.dev
+      PREVIEW_BASE: https://64941ef1-tv-crypto-engine.keikei99887.workers.dev
     steps:
       - uses: actions/checkout@v4
 
-      - name: Accept KuCoin plus Gate required bulk source repair
+      - name: Accept KuCoin plus Gate deep replacement before HTF work
         shell: bash
         run: |
           python - <<'PY'
-          # This acceptance checks the real light-scan route after the Shadow
-          # source substitution. It does not permit any production deployment.
+          # Test only the real deep-probe route. This validates the second source
+          # replacement in isolation before any 1H/4H/1D code is changed.
           import json, os, time, urllib.error, urllib.request
 
           base = os.environ['PREVIEW_BASE'].rstrip('/')
           started = time.time()
           req = urllib.request.Request(
-              base + '/market/light-scan?min_exchanges=2&limit=10',
+              base + '/market/deep-probe?symbols=BTC,ETH',
               headers={
                   'Accept': 'application/json',
-                  'User-Agent': 'taistock-mcp-kucoin-gate-bulk-acceptance/1',
+                  'User-Agent': 'taistock-mcp-kucoin-gate-deep-acceptance/1',
               },
           )
           try:
-              with urllib.request.urlopen(req, timeout=90) as r:
+              with urllib.request.urlopen(req, timeout=120) as r:
                   body = r.read().decode('utf-8')
                   status = r.status
                   ctype = r.headers.get('content-type', '')
@@ -49,52 +49,62 @@ jobs:
 
           assert 'application/json' in ctype.lower(), (status, ctype, body[:300])
           p = json.loads(body)
-          assert status == 200, (status, p.get('ticker_status'), p.get('degraded'))
+          assert status == 200, (status, p)
           assert p.get('ok') is True, p
+          assert p.get('requests_per_symbol') == 4, p
+          assert p.get('requested_subrequest_budget') == 8, p
+          assert p.get('usable_symbols') == 2, p
+          assert p.get('complete_symbols') == 2, p
 
-          roles = p.get('source_roles') or {}
-          assert roles.get('required') == ['kucoin', 'gate'], roles
-          assert roles.get('optional_confirmation') == ['okx'], roles
+          results = p.get('results') or []
+          assert len(results) == 2, results
+          allowed_ids = {
+              'kucoin_kline_5m', 'gate_kline_5m',
+              'kucoin_oi_5m', 'gate_oi_5m',
+          }
+          summary = []
+          for row in results:
+              assert row.get('ok') is True, row
+              assert row.get('complete') is True, row
+              assert row.get('requests_total') == 4, row
+              assert row.get('requests_passed') == 4, row
+              ids = {x.get('id') for x in (row.get('request_status') or [])}
+              assert ids == allowed_ids, (row.get('base'), ids)
+              assert not any('bybit' in str(x).lower() for x in ids), ids
+              assert (row.get('kucoin') or {}).get('kline_5m', {}).get('ok') is True, row
+              assert (row.get('gate') or {}).get('kline_5m', {}).get('ok') is True, row
+              assert (row.get('kucoin') or {}).get('oi_5m', {}).get('ok') is True, row
+              assert (row.get('gate') or {}).get('oi_5m', {}).get('ok') is True, row
 
-          source_repair = p.get('source_repair') or {}
-          assert source_repair.get('replaced') == 'bybit', source_repair
-          assert source_repair.get('replacement') == 'kucoin', source_repair
-          assert source_repair.get('added_required_bulk_requests') == 0, source_repair
+              alignment = row.get('oi_alignment') or {}
+              assert alignment.get('ok') is True, alignment
+              sources = alignment.get('sources') or {}
+              assert 'kucoin' in sources and 'gate' in sources, sources
 
-          statuses = p.get('ticker_status') or []
-          by_exchange = {x.get('exchange'): x for x in statuses}
-          assert by_exchange.get('kucoin', {}).get('ok') is True, statuses
-          assert by_exchange.get('gate', {}).get('ok') is True, statuses
-          assert by_exchange.get('kucoin', {}).get('tickers', 0) > 0, statuses
-          assert by_exchange.get('gate', {}).get('tickers', 0) > 0, statuses
+              summary.append({
+                  'base': row.get('base'),
+                  'requests_passed': row.get('requests_passed'),
+                  'regime_5m': row.get('regime_5m'),
+                  'regime_15m': row.get('regime_15m'),
+                  'oi_alignment': alignment,
+                  'request_status': row.get('request_status'),
+              })
 
-          # OKX is optional. Its health may vary on shared Cloudflare egress and
-          # must never determine required-pair success.
-          tele = p.get('market_participation_shadow') or {}
-          assert tele.get('added_market_requests') == 0, tele
-          assert tele.get('threshold') is None and tele.get('decision_effect') == 'none', tele
-          health = tele.get('source_health') or {}
-          assert health.get('required_pair_ok') is True, health
-          assert (tele.get('funding_crowding') or {}).get('reporting', 0) > 0, tele
-          assert (tele.get('kucoin_open_interest_observation') or {}).get('reporting', 0) > 0, tele
-          assert (tele.get('universe') or {}).get('eligible_count', 0) > 0, tele
+          # Fail if the response still exposes a Bybit deep leg anywhere.
+          serialized = json.dumps(p, ensure_ascii=False).lower()
+          assert 'bybit_kline_5m' not in serialized, 'legacy Bybit K-line deep request still present'
+          assert 'bybit_oi_5m' not in serialized, 'legacy Bybit OI deep request still present'
 
-          print('KUCOIN_GATE_BULK_SOURCE_ACCEPTANCE')
+          print('KUCOIN_GATE_DEEP_REPLACEMENT_ACCEPTANCE')
           print(json.dumps({
               'http_status': status,
               'latency_ms': latency_ms,
               'ok': p.get('ok'),
               'degraded': p.get('degraded'),
-              'scanned_crypto_candidates': p.get('scanned_crypto_candidates'),
-              'source_roles': roles,
-              'ticker_status': statuses,
-              'source_repair': source_repair,
-              'market_participation_summary': {
-                  'universe': tele.get('universe'),
-                  'funding_crowding': tele.get('funding_crowding'),
-                  'kucoin_open_interest_observation': tele.get('kucoin_open_interest_observation'),
-                  'source_health': health,
-              },
-              'result': 'PASS_KUCOIN_GATE_REQUIRED_BULK_PAIR',
+              'requested_subrequest_budget': p.get('requested_subrequest_budget'),
+              'usable_symbols': p.get('usable_symbols'),
+              'complete_symbols': p.get('complete_symbols'),
+              'results': summary,
+              'result': 'PASS_KUCOIN_GATE_DEEP_4REQ_PAIR',
           }, ensure_ascii=False, indent=2))
           PY
