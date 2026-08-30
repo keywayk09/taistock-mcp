@@ -1,0 +1,14 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_RESPONSE_V1",
+  "relay_version": "automation-research-github-relay/v1.0.0",
+  "request_schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "e2e-health-20260830",
+  "request_kind": "health",
+  "request_sha256": "753469a8c431b0ae1ab04ab333072ae60280248715014802b1f6317865c25e6a",
+  "generated_at_utc": "2026-08-30T06:58:48.276Z",
+  "bridge_base_id": "taistock-mcp-production-automation-research",
+  "read_only": true,
+  "writer_routes": false,
+  "status": "PASS",
+  "file": "health.json"
+}
