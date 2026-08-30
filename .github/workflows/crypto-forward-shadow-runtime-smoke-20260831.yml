@@ -15,95 +15,84 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      PREVIEW_BASE: https://c479b316-tv-crypto-engine.keikei99887.workers.dev
+      PREVIEW_BASE: https://dcfca6fa-tv-crypto-engine.keikei99887.workers.dev
     steps:
       - uses: actions/checkout@v4
 
-      - name: Accept stable full pipeline with KuCoin Gate MTF
+      - name: Verify stable higher-TF budget accounting repair
         shell: bash
         run: |
           python - <<'PY'
-          # Full stable-lane acceptance after the isolated deep test passed.
-          # This validates source repair and invariants without touching Production.
-          import json, os, time, urllib.error, urllib.request
+          # Re-run the stable path after the accounting-only wrapper. The market
+          # requests and candidate decisions must be unchanged; only totals differ.
+          import json, os, urllib.request
 
           base = os.environ['PREVIEW_BASE'].rstrip('/')
-          started = time.time()
           req = urllib.request.Request(
               base + '/market/candidate-scan?profile=stable_quality&per_side=1&light_limit=12',
-              headers={
-                  'Accept': 'application/json',
-                  'User-Agent': 'taistock-mcp-stable-full-mtf-acceptance/1',
-              },
+              headers={'Accept':'application/json','User-Agent':'stable-budget-accounting-smoke/1'},
           )
-          try:
-              with urllib.request.urlopen(req, timeout=180) as r:
-                  body = r.read().decode('utf-8')
-                  status = r.status
-                  ctype = r.headers.get('content-type', '')
-          except urllib.error.HTTPError as e:
-              body = e.read().decode('utf-8', errors='replace')
-              status = e.code
-              ctype = e.headers.get('content-type', '')
-          latency_ms = round((time.time() - started) * 1000)
+          with urllib.request.urlopen(req, timeout=180) as r:
+              p = json.loads(r.read().decode('utf-8'))
+              status = r.status
 
-          assert 'application/json' in ctype.lower(), (status, ctype, body[:300])
-          p = json.loads(body)
-          assert status == 200, (status, p)
-          assert p.get('ok') is True, p
-          assert p.get('core_pipeline_ok') is True, p
-
+          assert status == 200 and p.get('ok') is True, p
           candidates = p.get('candidates') or []
-          assert candidates, p
-          mtf_policy = p.get('multi_timeframe_policy') or {}
-          assert mtf_policy.get('mandatory') is True, mtf_policy
-          assert mtf_policy.get('higher_tf_source') == 'kucoin_gate_1h_cross_exchange', mtf_policy
-          assert mtf_policy.get('higher_tf_requests_per_symbol') == 2, mtf_policy
-          assert mtf_policy.get('added_higher_tf_requests_per_symbol') == 0, mtf_policy
-          assert mtf_policy.get('higher_tf_requested_subrequest_budget') == len(candidates) * 2, (mtf_policy, len(candidates))
+          policy = p.get('multi_timeframe_policy') or {}
+          budget = p.get('subrequest_budget') or {}
+          higher = policy.get('higher_tf_requested_subrequest_budget')
+          assert higher == len(candidates) * 2, (higher, len(candidates))
+          assert budget.get('higher_timeframes') == higher, budget
+          base_total = (budget.get('deep') or 0) + (budget.get('selective_oi') or 0) + (budget.get('market_context') or 0)
+          assert budget.get('reported_total') == base_total + higher, (base_total, higher, budget)
+          assert budget.get('accounting_version') == 'v1.2.6_include_mandatory_higher_tf', budget
 
-          higher_summary = []
-          for candidate in candidates:
-              mtf = candidate.get('multi_timeframe') or {}
-              higher = mtf.get('higher_context') or {}
-              assert mtf.get('mandatory') is True, candidate
-              assert mtf.get('higher_timeframes_available') is True, candidate
-              assert set((higher.get('timeframes') or {}).keys()) == {'1d', '4h', '1h'}, higher
-              assert higher.get('requests_total') == 2, higher
-              ids = {x.get('id') for x in (higher.get('request_status') or [])}
-              assert ids == {'kucoin_1h', 'gate_1h'}, (candidate.get('base'), ids)
-              assert all(x.get('ok') is True for x in (higher.get('request_status') or [])), higher
-              assert (higher.get('aggregation') or {}).get('source') == 'kucoin_gate_1h', higher
-              higher_summary.append({
-                  'base': candidate.get('base'),
-                  'final_stage': candidate.get('final_stage'),
-                  'mtf_alignment': mtf.get('alignment'),
-                  'directions': mtf.get('directions'),
-                  'higher_request_status': higher.get('request_status'),
-                  'research_actionability': candidate.get('research_actionability'),
-              })
-
-          tele = p.get('market_participation_shadow') or {}
-          assert tele.get('added_market_requests') == 0, tele
-          assert tele.get('decision_effect') == 'none', tele
-
-          # No legacy Bybit deep or HTF request may survive in the stable response.
-          serialized = json.dumps(p, ensure_ascii=False).lower()
-          for forbidden in ['bybit_kline_5m', 'bybit_oi_5m', 'bybit_1h', 'api.bybit.com']:
-              assert forbidden not in serialized, f'legacy source leaked: {forbidden}'
-
-          print('STABLE_FULL_PIPELINE_KUCOIN_GATE_MTF_ACCEPTANCE')
+          print('STABLE_BUDGET_ACCOUNTING_REPAIR')
           print(json.dumps({
-              'http_status': status,
-              'latency_ms': latency_ms,
-              'ok': p.get('ok'),
-              'degraded': p.get('degraded'),
-              'selected_count': p.get('selected_count'),
               'candidate_count': len(candidates),
-              'research_preferred_count': p.get('research_preferred_count'),
-              'multi_timeframe_policy': mtf_policy,
-              'subrequest_budget': p.get('subrequest_budget'),
-              'candidates': higher_summary,
-              'result': 'PASS_STABLE_FULL_KUCOIN_GATE_MTF',
+              'base_total': base_total,
+              'higher_timeframes': higher,
+              'reported_total': budget.get('reported_total'),
+              'result': 'PASS_STABLE_BUDGET_ACCOUNTING',
+          }, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Test two-call KuCoin Gate volatile capability before replacement
+        shell: bash
+        run: |
+          python - <<'PY'
+          # Diagnostic only: no volatile selection has been changed in V1.2.6.
+          # Decide whether a replacement can preserve the old two-call bulk budget.
+          import json, os, urllib.request
+
+          base = os.environ['PREVIEW_BASE'].rstrip('/')
+          req = urllib.request.Request(
+              base + '/research/volatile-two-call-smoke',
+              headers={'Accept':'application/json','User-Agent':'volatile-two-call-capability-smoke/1'},
+          )
+          with urllib.request.urlopen(req, timeout=90) as r:
+              p = json.loads(r.read().decode('utf-8'))
+              status = r.status
+
+          assert status == 200 and p.get('ok') is True, p
+          assert p.get('changes_volatile_selection') is False, p
+          requests = p.get('requests') or {}
+          coverage = p.get('coverage') or {}
+          interpretation = p.get('interpretation') or {}
+          assert requests.get('total') == 2, requests
+          assert requests.get('added_requests_if_used') == 0, requests
+          assert coverage.get('target_covered_count') == coverage.get('target_count') == 10, coverage
+          assert interpretation.get('can_preserve_two_call_bulk_topology') is True, interpretation
+          assert p.get('raw_universe_exposed') is False and p.get('persistence') == 'none', p
+
+          print('VOLATILE_TWO_CALL_CAPABILITY')
+          print(json.dumps({
+              'source_status': p.get('source_status'),
+              'coverage': coverage,
+              'kucoin_optional_field_reporting': p.get('kucoin_optional_field_reporting'),
+              'gate_field_reporting': p.get('gate_field_reporting'),
+              'interpretation': interpretation,
+              'target_mappings': p.get('target_mappings'),
+              'result': 'PASS_VOLATILE_TWO_CALL_CAPABILITY',
           }, ensure_ascii=False, indent=2))
           PY
