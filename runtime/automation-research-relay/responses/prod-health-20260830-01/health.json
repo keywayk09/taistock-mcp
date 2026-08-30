@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "read_only": true,
+  "version": "automation-research-rest/v1.0.0",
+  "formal_blind_reader": "formal-blind-ohlc-reader/v1.0.0",
+  "market_cross_section_reader": "diamond-market-data-cross-section/v1",
+  "stock_ohlc_reader": "cross-account-read-service/v1.0.1",
+  "persistence": "NONE",
+  "arbitrary_path_access": false,
+  "arbitrary_url_access": false,
+  "writer_routes": false
+}
