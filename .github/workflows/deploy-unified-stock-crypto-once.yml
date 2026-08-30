@@ -48,18 +48,42 @@ jobs:
           npm run type-check
           npm run test:family-selection
 
-      - name: Verify central crypto engine is live
+      - name: Verify central crypto dual lanes are live
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --silent --show-error --max-time 25 "${CRYPTO_BASE_URL}/health" > /tmp/crypto-health.json
-          node - <<'NODE'
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --show-error --max-time 25 "${CRYPTO_BASE_URL}/health" > /tmp/crypto-health.json; then
+              if node - <<'NODE'
           const fs = require('fs');
           const x = JSON.parse(fs.readFileSync('/tmp/crypto-health.json','utf8'));
-          if (x.ok !== true) throw new Error('crypto engine not ok');
-          const version = String(x.version || '');
-          if (!/^0\.(7\.2|8\.0)/.test(version)) throw new Error(`unexpected crypto version ${version}`);
-          console.log(`crypto engine ok version=${version}`);
+          if (x.ok !== true) process.exit(2);
+          if (String(x.version || '') !== '0.9.0') process.exit(3);
+          const profiles = x.crypto_profiles || [];
+          if (!profiles.includes('stable_quality') || !profiles.includes('volatile')) process.exit(4);
+          console.log(`crypto dual lanes health ok version=${x.version}`);
+          NODE
+              then break; fi
+            fi
+            if [ "$attempt" = 5 ]; then
+              echo 'crypto V0.9.0 health not live after retries'; cat /tmp/crypto-health.json 2>/dev/null || true; exit 1
+            fi
+            sleep 8
+          done
+
+          curl --fail --silent --show-error --max-time 45 \
+            "${CRYPTO_BASE_URL}/market/volatile-scan?per_side=1&setup=all" > /tmp/crypto-volatile.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const x = JSON.parse(fs.readFileSync('/tmp/crypto-volatile.json','utf8'));
+          if (x.profile !== 'volatile') throw new Error(`profile=${x.profile}`);
+          if (x.profile_label !== '妖幣/高波動') throw new Error(`profile_label=${x.profile_label}`);
+          if (!x.policy?.separate_from_stable_quality_lane) throw new Error('volatile lane not isolated');
+          if (x.policy?.no_24h_overheat_hard_exclusion !== true) throw new Error('overheat policy wrong');
+          const allowed = new Set(['trend_follow','pullback_contraction','consolidation','squeeze','unclassified']);
+          for (const c of x.candidates || []) if (!allowed.has(c.setup)) throw new Error(`bad setup ${c.setup}`);
+          if ((x?.subrequest_budget?.reported_total || 0) > 10) throw new Error(`volatile smoke request budget ${x.subrequest_budget.reported_total}`);
+          console.log(`CRYPTO_VOLATILE_LANE_PASS selected=${x.selected_count} candidates=${(x.candidates||[]).length}`);
           NODE
 
       - name: Resolve OAuth KV
