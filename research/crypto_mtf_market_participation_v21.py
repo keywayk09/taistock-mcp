@@ -8,7 +8,9 @@ can a compact combination of fields already present in Production bulk tickers
 
 Guardrails:
 - Exact V14 gate_snapshot/accepts is the teacher; no reconstructed substitute.
-- 90d OKX 5m history, frozen 10-symbol universe, same V17 fetcher.
+- 97d OKX 5m history = 7d warm-up + a full 90d analysis window.
+- Frozen 10-symbol universe, same OKX pagination/parser semantics as V17.
+- Samples with unavailable 1H/4H/1D teacher state are explicitly excluded.
 - Oldest 30d is the ONLY fitting window.
 - Middle and recent 30d are untouched teacher-imitation holdouts.
 - Fit objective is teacher classification quality, never trading P&L.
@@ -23,7 +25,8 @@ from __future__ import annotations
 import bisect
 import json
 import math
-from collections import defaultdict
+import time
+import urllib.parse
 from pathlib import Path
 from statistics import mean, median, pstdev
 
@@ -31,8 +34,10 @@ import crypto_mtf_okx_90d_v17 as v17
 import crypto_mtf_regime_quality_v14 as v14
 
 SYMBOLS = list(dict.fromkeys(v14.BASKETS["stable_quality"] + v14.BASKETS["volatile"]))
-TARGET = 90 * 24 * 12
-SAMPLE_STEP = 12  # hourly observations only; teacher changes on closed HTF bars.
+ANALYSIS_NEED = 90 * 24 * 12
+WARMUP_NEED = 7 * 24 * 12
+FETCH_NEED = ANALYSIS_NEED + WARMUP_NEED
+SAMPLE_STEP = 12  # hourly observations; teacher only uses fully closed HTF bars.
 
 FEATURES = [
     "btc24",
@@ -47,6 +52,50 @@ FEATURES = [
     "turnover_weighted_strength",
     "dispersion24",
 ]
+
+
+def fetch97(symbol):
+    """V17-equivalent OKX fetcher extended only by the preregistered 7d warm-up."""
+    inst = f"{symbol}-USDT-SWAP"
+    out = {}
+    after = None
+    oldest_seen = None
+    pages = 0
+    while len(out) < FETCH_NEED and pages < 340:
+        params = {"instId": inst, "bar": "5m", "limit": "100"}
+        if after is not None:
+            params["after"] = str(after)
+        payload = v17.request_json(f"{v17.URL}?{urllib.parse.urlencode(params)}")
+        if not isinstance(payload, dict) or payload.get("code") != "0":
+            raise RuntimeError(f"okx_code={payload.get('code') if isinstance(payload, dict) else 'non_dict'}")
+        data = payload.get("data") or []
+        if not data:
+            break
+        page_oldest = None
+        for item in data:
+            if not isinstance(item, list) or len(item) < 9 or str(item[8]) != "1":
+                continue
+            ts = int(v17.num(item[0]) or 0)
+            o, h, l, c = map(v17.num, item[1:5])
+            if not ts or any(x is None for x in (o, h, l, c)):
+                continue
+            out[ts // 1000] = {
+                "t": ts // 1000,
+                "o": o,
+                "h": h,
+                "l": l,
+                "c": c,
+                "qv": v17.num(item[7]),
+                "v": v17.num(item[5]),
+            }
+            page_oldest = ts if page_oldest is None else min(page_oldest, ts)
+        if page_oldest is None or (oldest_seen is not None and page_oldest >= oldest_seen):
+            break
+        oldest_seen = page_oldest
+        after = page_oldest - 1
+        pages += 1
+        time.sleep(0.10)
+    return [out[k] for k in sorted(out)][-FETCH_NEED:]
 
 
 def qtile(values, q):
@@ -122,6 +171,17 @@ def student_features(bulk_market, cutoff):
         "turnover_weighted_strength": tws,
         "dispersion24": pstdev(vals),
     }
+
+
+def teacher_ready(snap):
+    states = snap.get("states") or {}
+    if len(states) != len(SYMBOLS):
+        return False
+    for s in SYMBOLS:
+        state = states.get(s) or {}
+        if state.get("1h") == "unavailable" or state.get("4h") == "unavailable" or state.get("1d") == "unavailable":
+            return False
+    return True
 
 
 def zstats(rows):
@@ -214,26 +274,24 @@ def heuristic_metrics(rows):
     }
     out = {}
     for name, fn in rules.items():
-        proxy = []
+        tp = tn = fp = fn = 0
         for r in rows:
-            x = dict(r)
-            x["proxy_pred"] = int(fn(r))
-            proxy.append(x)
-        tp = sum(x["teacher"] == 1 and x["proxy_pred"] == 1 for x in proxy)
-        tn = sum(x["teacher"] == 0 and x["proxy_pred"] == 0 for x in proxy)
-        fp = sum(x["teacher"] == 0 and x["proxy_pred"] == 1 for x in proxy)
-        fnn = sum(x["teacher"] == 1 and x["proxy_pred"] == 0 for x in proxy)
-        n = len(proxy)
+            pred = bool(fn(r)); y = bool(r["teacher"])
+            if pred and y: tp += 1
+            elif pred and not y: fp += 1
+            elif not pred and y: fn += 1
+            else: tn += 1
+        n = tp + tn + fp + fn
         precision = tp / (tp + fp) if tp + fp else 0.0
-        recall = tp / (tp + fnn) if tp + fnn else 0.0
+        recall = tp / (tp + fn) if tp + fn else 0.0
         specificity = tn / (tn + fp) if tn + fp else 0.0
-        den = math.sqrt((tp + fp) * (tp + fnn) * (tn + fp) * (tn + fnn))
+        den = math.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
         out[name] = {
             "n": n,
             "balanced_accuracy": (recall + specificity) / 2,
             "precision": precision,
             "recall": recall,
-            "mcc": (tp * tn - fp * fnn) / den if den else 0.0,
+            "mcc": (tp * tn - fp * fn) / den if den else 0.0,
         }
     return out
 
@@ -262,7 +320,7 @@ def main():
     cache = {}; coverage = []
     for s in SYMBOLS:
         try:
-            rows = v17.fetch90(s)
+            rows = fetch97(s)
             cache[s] = rows
             coverage.append({"symbol": s, "bars": len(rows)})
             print("FETCH_OK", s, len(rows))
@@ -271,19 +329,20 @@ def main():
             coverage.append({"symbol": s, "bars": 0, "error": str(exc)})
             print("FETCH_FAIL", s, repr(exc))
 
-    if any(len(cache.get(s, [])) < 25000 for s in SYMBOLS):
-        raise RuntimeError("full 90d frozen-universe coverage required")
+    if any(len(cache.get(s, [])) < FETCH_NEED for s in SYMBOLS):
+        raise RuntimeError("full 97d frozen-universe coverage required")
 
     teacher_market = {s: v14.prep(cache[s]) for s in SYMBOLS}
     bulk_market = {s: prep_bulk(cache[s]) for s in SYMBOLS}
 
-    # Use BTC timestamps as canonical alignment. Sample on hourly boundaries only.
+    # Use BTC timestamps as canonical alignment. Warm-up observations are discarded.
     btc = cache["BTC"]
     observations = []
-    for i in range(288 + 200, len(btc), SAMPLE_STEP):
+    for i in range(288, len(btc), SAMPLE_STEP):
         cutoff = btc[i]["t"] + 300
-        # Exact teacher from V14.
         snap = v14.gate_snapshot(teacher_market, cutoff)
+        if not teacher_ready(snap):
+            continue
         feat = student_features(bulk_market, cutoff)
         if feat is None:
             continue
@@ -295,10 +354,9 @@ def main():
             **feat,
         })
 
-    # Exactly 90d worth of hourly samples from the most recent valid span.
     observations = observations[-90 * 24:]
-    if len(observations) < 90 * 24:
-        raise RuntimeError(f"insufficient aligned observations: {len(observations)}")
+    if len(observations) != 90 * 24:
+        raise RuntimeError(f"insufficient post-warmup aligned observations: {len(observations)}")
 
     n30 = 30 * 24
     windows = {
@@ -322,7 +380,6 @@ def main():
         for excluded in FEATURES
     }
 
-    # Predeclared screening gate. Both untouched 30d windows must pass.
     def window_pass(m):
         return (
             m["mcc"] >= 0.35
@@ -345,6 +402,8 @@ def main():
         "version": "V21",
         "purpose": "zero-extra-request teacher-student market participation proxy",
         "teacher": "exact V14 breadth60 = btc_swing AND higher-TF breadth>=0.60",
+        "history": "97d fetched = 7d warmup + exact 90d analysis",
+        "teacher_readiness": "all 10 symbols require available 1h/4h/1d state before sample eligibility",
         "student_live_fields": ["24h return", "24h turnover"],
         "added_live_market_requests_if_implemented": 0,
         "fit_uses_trade_pnl": False,
