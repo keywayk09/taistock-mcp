@@ -1,0 +1,27 @@
+name: Crypto OKX 90D Coverage Probe
+
+on:
+  push:
+    branches: [research/crypto-mtf-rr-20260830]
+    paths:
+      - '.github/workflows/crypto-okx-90d-coverage-probe.yml'
+      - 'research/crypto_okx_90d_coverage_probe.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe OKX 90-day BTC 5m history
+        run: python research/crypto_okx_90d_coverage_probe.py
+      - name: Upload coverage result
+        uses: actions/upload-artifact@v4
+        with:
+          name: crypto-okx-90d-coverage-probe
+          path: /tmp/crypto_okx_90d_coverage_probe.json
+          retention-days: 3
