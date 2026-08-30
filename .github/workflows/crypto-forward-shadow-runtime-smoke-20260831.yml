@@ -13,44 +13,70 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      PREVIEW_BASE: https://20cf87be-tv-crypto-engine.keikei99887.workers.dev
     steps:
       - uses: actions/checkout@v4
-      - name: Isolate V0.9 volatile boundary
+      - name: Verify runtime safety and volatile fail-closed
         shell: bash
         run: |
           python - <<'PY'
-          import json, re, time, urllib.error, urllib.request
+          import json, os, time, urllib.error, urllib.request
+          base = os.environ['PREVIEW_BASE'].rstrip('/')
 
-          targets = {
-              'v0_9': 'https://b0ce769f-tv-crypto-engine.keikei99887.workers.dev',
-              'v1_1': 'https://8c6f60c4-tv-crypto-engine.keikei99887.workers.dev',
-              'v1_2': 'https://b894178a-tv-crypto-engine.keikei99887.workers.dev',
-          }
-
-          def call(base, path):
+          def call(path, timeout=150):
               started = time.time()
-              req = urllib.request.Request(base + path, headers={'Accept':'application/json','User-Agent':'taistock-mcp-volatile-isolate/1'})
+              req = urllib.request.Request(base + path, headers={'Accept':'application/json','User-Agent':'taistock-mcp-forward-shadow-verify/1'})
               try:
-                  with urllib.request.urlopen(req, timeout=120) as r:
-                      body = r.read().decode('utf-8', errors='replace'); status = r.status; ctype = r.headers.get('content-type','')
+                  with urllib.request.urlopen(req, timeout=timeout) as r:
+                      body = r.read().decode('utf-8'); status = r.status; ctype = r.headers.get('content-type','')
               except urllib.error.HTTPError as e:
                   body = e.read().decode('utf-8', errors='replace'); status = e.code; ctype = e.headers.get('content-type','')
-              out = {'http_status': status, 'latency_ms': round((time.time()-started)*1000), 'content_type': ctype}
-              try:
-                  p = json.loads(body)
-                  out.update({'json': True, 'version': p.get('version'), 'stage': p.get('stage'), 'error': p.get('error'), 'candidate_count': len(p.get('candidates')) if isinstance(p.get('candidates'), list) else None})
-              except Exception:
-                  title = re.search(r'<title>(.*?)</title>', body, re.I|re.S)
-                  out.update({'json': False, 'html_title': re.sub(r'\s+',' ',title.group(1)).strip() if title else None})
-              return out
+              elapsed = round((time.time()-started)*1000)
+              assert 'application/json' in ctype.lower(), (path, status, ctype, body[:200])
+              return status, json.loads(body), elapsed
 
-          report = {}
-          for name, base in targets.items():
-              report[name] = {
-                  'health': call(base, '/health'),
-                  'volatile': call(base, '/market/volatile-scan?per_side=1&setup=all'),
-              }
-          print('V0_9_VOLATILE_BOUNDARY')
+          report = {'preview': base, 'checks': {}}
+
+          status, p, ms = call('/research/forward-shadow-selftest', 30)
+          assert status == 200 and p.get('ok') is True, p
+          inv = p.get('invariants') or {}
+          assert inv and all(inv.values()), inv
+          report['checks']['selftest'] = {'ok': True, 'latency_ms': ms, 'invariants': inv}
+
+          status, p, ms = call('/health', 30)
+          assert status == 200 and p.get('version') == '1.2.0-shadow', p
+          policy = p.get('forward_shadow_policy') or {}
+          assert policy.get('candidate_promotion') == 'forbidden'
+          assert policy.get('candidate_stage_changes') is False
+          assert policy.get('added_market_requests') == 0
+          report['checks']['health'] = {'ok': True, 'latency_ms': ms, 'version': p.get('version')}
+
+          status, p, ms = call('/market/candidate-scan?per_side=1&light_limit=10')
+          assert status in (200, 502), (status, p)
+          assert p.get('version') == '1.2.0-shadow', p
+          if isinstance(p.get('candidates'), list):
+              tele = p.get('forward_shadow_telemetry') or {}
+              scope = tele.get('scope') or {}; gate = tele.get('forward_gate') or {}
+              assert scope.get('added_market_requests') == 0, scope
+              assert scope.get('market_participation_scope') == 'selected_candidate_cohort_not_full_market', scope
+              assert gate.get('threshold') is None and gate.get('decision_effect') == 'none', gate
+              assert all((c.get('forward_shadow') or {}).get('can_promote') is False for c in p['candidates'])
+              assert all((c.get('forward_shadow') or {}).get('changes_core_stage') is False for c in p['candidates'])
+          report['checks']['stable'] = {'ok': True, 'http_status': status, 'latency_ms': ms, 'candidate_count': len(p.get('candidates')) if isinstance(p.get('candidates'), list) else None, 'error': p.get('error')}
+
+          status, p, ms = call('/market/volatile-scan?per_side=1&setup=all')
+          # The upstream may legitimately fail closed with 502 (currently one source returns 403).
+          # The regression target is specifically: never turn that controlled JSON 502 into a Worker 500.
+          assert status in (200, 502), (status, p)
+          assert p.get('version') == '1.2.0-shadow', p
+          policy = p.get('forward_shadow_policy') or {}
+          assert policy.get('candidate_promotion') == 'forbidden', policy
+          assert policy.get('candidate_stage_changes') is False, policy
+          assert policy.get('added_market_requests') == 0, policy
+          report['checks']['volatile'] = {'ok': True, 'http_status': status, 'latency_ms': ms, 'error': p.get('error'), 'candidate_count': len(p.get('candidates')) if isinstance(p.get('candidates'), list) else None, 'fail_closed_json': True}
+
+          print('FORWARD_SHADOW_V12_POSTFIX_SMOKE')
           print(json.dumps(report, ensure_ascii=False, indent=2))
           PY
