@@ -1,0 +1,28 @@
+name: Verify Automation Research GitHub Relay 20260830
+
+on:
+  push:
+    branches:
+      - fix/automation-research-github-relay-20260830
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install
+      - name: Relay unit contracts
+        run: node --test tests/automation-research-github-relay.test.mjs
+      - name: TypeScript
+        run: npm run type-check
+      - name: Existing research regression
+        run: npm run test:research
+      - name: Wrangler dry run
+        run: npx wrangler deploy --dry-run --outdir dist
