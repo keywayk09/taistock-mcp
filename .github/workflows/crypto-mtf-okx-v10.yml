@@ -1,0 +1,27 @@
+name: Crypto MTF OKX V10
+
+on:
+  push:
+    branches: [research/crypto-mtf-rr-20260830]
+    paths:
+      - '.github/workflows/crypto-mtf-okx-v10.yml'
+      - 'research/crypto_mtf_okx_holdout_v10.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run independent OKX holdout
+        run: python research/crypto_mtf_okx_holdout_v10.py
+      - name: Upload OKX holdout report
+        uses: actions/upload-artifact@v4
+        with:
+          name: crypto-mtf-okx-v10
+          path: /tmp/crypto_mtf_okx_holdout_v10.json
+          retention-days: 3
