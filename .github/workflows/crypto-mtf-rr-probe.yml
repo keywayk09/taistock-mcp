@@ -1,41 +1,27 @@
-name: Crypto MTF RR Probe
+name: Crypto MTF RR Research
 
 on:
   push:
     branches: [research/crypto-mtf-rr-20260830]
     paths:
       - '.github/workflows/crypto-mtf-rr-probe.yml'
+      - 'research/crypto_mtf_rr_backtest.py'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  probe:
+  research:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Probe exchange history APIs
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json, urllib.request
-          urls = {
-            'gate_5m': 'https://api.gateio.ws/api/v4/futures/usdt/candlesticks?contract=BTC_USDT&interval=5m&limit=20',
-            'bybit_5m': 'https://api.bybit.com/v5/market/kline?category=linear&symbol=BTCUSDT&interval=5&limit=20',
-          }
-          ok=[]
-          for name,url in urls.items():
-            try:
-              req=urllib.request.Request(url,headers={'User-Agent':'taistock-crypto-rr-research','Accept':'application/json'})
-              with urllib.request.urlopen(req,timeout=20) as r:
-                body=json.loads(r.read().decode('utf-8'))
-              print(name, 'PASS', type(body).__name__)
-              ok.append(name)
-            except Exception as e:
-              print(name, 'FAIL', repr(e))
-          if not ok:
-            raise SystemExit(2)
-          PY
+      - name: Run Gate historical MTF risk-reward backtest
+        run: python research/crypto_mtf_rr_backtest.py
+      - name: Upload research report
+        uses: actions/upload-artifact@v4
+        with:
+          name: crypto-mtf-rr-report
+          path: /tmp/crypto_mtf_rr_report.json
+          retention-days: 3
