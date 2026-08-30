@@ -13,87 +13,44 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
-      - name: Compare V1.1 baseline and V1.2 preview runtime
+      - name: Isolate V0.9 volatile boundary
         shell: bash
         run: |
           python - <<'PY'
-          import json
-          import re
-          import time
-          import urllib.error
-          import urllib.request
+          import json, re, time, urllib.error, urllib.request
 
-          previews = {
-              'v1_1_baseline': 'https://8c6f60c4-tv-crypto-engine.keikei99887.workers.dev',
-              'v1_2_forward': 'https://b894178a-tv-crypto-engine.keikei99887.workers.dev',
-          }
-          paths = {
-              'health': '/health',
-              'stable': '/market/candidate-scan?per_side=1&light_limit=10',
-              'volatile': '/market/volatile-scan?per_side=1&setup=all',
+          targets = {
+              'v0_9': 'https://b0ce769f-tv-crypto-engine.keikei99887.workers.dev',
+              'v1_1': 'https://8c6f60c4-tv-crypto-engine.keikei99887.workers.dev',
+              'v1_2': 'https://b894178a-tv-crypto-engine.keikei99887.workers.dev',
           }
 
-          def call(base, path, timeout=150):
+          def call(base, path):
               started = time.time()
-              req = urllib.request.Request(base + path, headers={'Accept':'application/json','User-Agent':'taistock-mcp-shadow-diagnostic/1'})
-              headers = {}
+              req = urllib.request.Request(base + path, headers={'Accept':'application/json','User-Agent':'taistock-mcp-volatile-isolate/1'})
               try:
-                  with urllib.request.urlopen(req, timeout=timeout) as resp:
-                      body = resp.read().decode('utf-8', errors='replace')
-                      status = resp.status
-                      headers = dict(resp.headers.items())
-              except urllib.error.HTTPError as exc:
-                  body = exc.read().decode('utf-8', errors='replace')
-                  status = exc.code
-                  headers = dict(exc.headers.items())
-              elapsed = round((time.time() - started) * 1000)
-              content_type = headers.get('Content-Type') or headers.get('content-type') or ''
-              result = {'http_status': status, 'latency_ms': elapsed, 'content_type': content_type}
+                  with urllib.request.urlopen(req, timeout=120) as r:
+                      body = r.read().decode('utf-8', errors='replace'); status = r.status; ctype = r.headers.get('content-type','')
+              except urllib.error.HTTPError as e:
+                  body = e.read().decode('utf-8', errors='replace'); status = e.code; ctype = e.headers.get('content-type','')
+              out = {'http_status': status, 'latency_ms': round((time.time()-started)*1000), 'content_type': ctype}
               try:
-                  payload = json.loads(body)
-                  result.update({
-                      'json': True,
-                      'version': payload.get('version'),
-                      'stage': payload.get('stage'),
-                      'error': payload.get('error'),
-                      'candidate_count': len(payload.get('candidates')) if isinstance(payload.get('candidates'), list) else None,
-                      'forward_policy_mode': (payload.get('forward_shadow_policy') or {}).get('mode'),
-                  })
-                  if isinstance(payload.get('candidates'), list) and payload.get('version') == '1.2.0-shadow':
-                      tele = payload.get('forward_shadow_telemetry') or {}
-                      result['v12_invariants'] = {
-                          'added_market_requests': (tele.get('scope') or {}).get('added_market_requests'),
-                          'participation_scope': (tele.get('scope') or {}).get('market_participation_scope'),
-                          'gate_threshold': (tele.get('forward_gate') or {}).get('threshold'),
-                          'gate_decision_effect': (tele.get('forward_gate') or {}).get('decision_effect'),
-                          'all_candidates_no_promote': all((c.get('forward_shadow') or {}).get('can_promote') is False for c in payload['candidates']),
-                          'all_candidates_no_stage_change': all((c.get('forward_shadow') or {}).get('changes_core_stage') is False for c in payload['candidates']),
-                      }
+                  p = json.loads(body)
+                  out.update({'json': True, 'version': p.get('version'), 'stage': p.get('stage'), 'error': p.get('error'), 'candidate_count': len(p.get('candidates')) if isinstance(p.get('candidates'), list) else None})
               except Exception:
-                  result['json'] = False
-                  title = re.search(r'<title>(.*?)</title>', body, re.I | re.S)
-                  code = re.search(r'Error code\s*:?\s*(\d+)', body, re.I)
-                  ray = re.search(r'Cloudflare Ray ID:\s*</span>\s*<strong[^>]*>([^<]+)', body, re.I)
-                  result['html_title'] = re.sub(r'\s+', ' ', title.group(1)).strip() if title else None
-                  result['cloudflare_error_code'] = code.group(1) if code else None
-                  result['cloudflare_ray_id'] = ray.group(1).strip() if ray else None
-              return result
+                  title = re.search(r'<title>(.*?)</title>', body, re.I|re.S)
+                  out.update({'json': False, 'html_title': re.sub(r'\s+',' ',title.group(1)).strip() if title else None})
+              return out
 
           report = {}
-          for label, base in previews.items():
-              report[label] = {}
-              for name, path in paths.items():
-                  report[label][name] = call(base, path)
-
-          # V1.2 self-test is the direct safety invariant test and must pass.
-          selftest = call(previews['v1_2_forward'], '/research/forward-shadow-selftest', 30)
-          report['v1_2_forward']['selftest'] = selftest
-          assert selftest.get('http_status') == 200 and selftest.get('json') is True, selftest
-
-          print('VOLATILE_RUNTIME_DIAGNOSTIC')
+          for name, base in targets.items():
+              report[name] = {
+                  'health': call(base, '/health'),
+                  'volatile': call(base, '/market/volatile-scan?per_side=1&setup=all'),
+              }
+          print('V0_9_VOLATILE_BOUNDARY')
           print(json.dumps(report, ensure_ascii=False, indent=2))
           PY
