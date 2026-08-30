@@ -15,84 +15,53 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      PREVIEW_BASE: https://dcfca6fa-tv-crypto-engine.keikei99887.workers.dev
+      PREVIEW_BASE: https://9a924d56-tv-crypto-engine.keikei99887.workers.dev
     steps:
       - uses: actions/checkout@v4
 
-      - name: Verify stable higher-TF budget accounting repair
+      - name: Compare volatile ranking with and without KuCoin funding bulk call
         shell: bash
         run: |
           python - <<'PY'
-          # Re-run the stable path after the accounting-only wrapper. The market
-          # requests and candidate decisions must be unchanged; only totals differ.
+          # This is a decision test, not a scanner change. It determines whether
+          # the extra KuCoin contracts/funding request materially changes ranking.
           import json, os, urllib.request
 
           base = os.environ['PREVIEW_BASE'].rstrip('/')
           req = urllib.request.Request(
-              base + '/market/candidate-scan?profile=stable_quality&per_side=1&light_limit=12',
-              headers={'Accept':'application/json','User-Agent':'stable-budget-accounting-smoke/1'},
+              base + '/research/volatile-funding-sensitivity-smoke',
+              headers={'Accept':'application/json','User-Agent':'volatile-funding-sensitivity/1'},
           )
-          with urllib.request.urlopen(req, timeout=180) as r:
+          with urllib.request.urlopen(req, timeout=120) as r:
               p = json.loads(r.read().decode('utf-8'))
               status = r.status
 
           assert status == 200 and p.get('ok') is True, p
-          candidates = p.get('candidates') or []
-          policy = p.get('multi_timeframe_policy') or {}
-          budget = p.get('subrequest_budget') or {}
-          higher = policy.get('higher_tf_requested_subrequest_budget')
-          assert higher == len(candidates) * 2, (higher, len(candidates))
-          assert budget.get('higher_timeframes') == higher, budget
-          base_total = (budget.get('deep') or 0) + (budget.get('selective_oi') or 0) + (budget.get('market_context') or 0)
-          assert budget.get('reported_total') == base_total + higher, (base_total, higher, budget)
-          assert budget.get('accounting_version') == 'v1.2.6_include_mandatory_higher_tf', budget
+          assert p.get('normal_routes_changed') is False, p
+          assert p.get('raw_rows_exposed') is False and p.get('persistence') == 'none', p
+          comp = p.get('comparison') or {}
+          rule = p.get('decision_rule') or {}
 
-          print('STABLE_BUDGET_ACCOUNTING_REPAIR')
-          print(json.dumps({
-              'candidate_count': len(candidates),
-              'base_total': base_total,
-              'higher_timeframes': higher,
-              'reported_total': budget.get('reported_total'),
-              'result': 'PASS_STABLE_BUDGET_ACCOUNTING',
-          }, ensure_ascii=False, indent=2))
-          PY
-
-      - name: Test two-call KuCoin Gate volatile capability before replacement
-        shell: bash
-        run: |
-          python - <<'PY'
-          # Diagnostic only: no volatile selection has been changed in V1.2.6.
-          # Decide whether a replacement can preserve the old two-call bulk budget.
-          import json, os, urllib.request
-
-          base = os.environ['PREVIEW_BASE'].rstrip('/')
-          req = urllib.request.Request(
-              base + '/research/volatile-two-call-smoke',
-              headers={'Accept':'application/json','User-Agent':'volatile-two-call-capability-smoke/1'},
+          top30 = (comp.get('top30_overlap') or {}).get('ratio')
+          spearman = comp.get('full_rank_spearman')
+          median_move = comp.get('median_abs_rank_move')
+          use_two = (
+              isinstance(top30, (int, float)) and top30 >= rule.get('two_call_preferred_if_top30_overlap_gte', 0.90)
+              and isinstance(spearman, (int, float)) and spearman >= rule.get('two_call_preferred_if_spearman_gte', 0.95)
+              and isinstance(median_move, (int, float)) and median_move <= rule.get('two_call_preferred_if_median_abs_rank_move_lte', 2)
           )
-          with urllib.request.urlopen(req, timeout=90) as r:
-              p = json.loads(r.read().decode('utf-8'))
-              status = r.status
+          decision = 'KEEP_TWO_CALL_GATE_FUNDING_ONLY' if use_two else 'USE_THREE_CALL_KUCOIN_GATE_FUNDING_REFERENCE'
 
-          assert status == 200 and p.get('ok') is True, p
-          assert p.get('changes_volatile_selection') is False, p
-          requests = p.get('requests') or {}
-          coverage = p.get('coverage') or {}
-          interpretation = p.get('interpretation') or {}
-          assert requests.get('total') == 2, requests
-          assert requests.get('added_requests_if_used') == 0, requests
-          assert coverage.get('target_covered_count') == coverage.get('target_count') == 10, coverage
-          assert interpretation.get('can_preserve_two_call_bulk_topology') is True, interpretation
-          assert p.get('raw_universe_exposed') is False and p.get('persistence') == 'none', p
-
-          print('VOLATILE_TWO_CALL_CAPABILITY')
+          print('VOLATILE_FUNDING_RANKING_SENSITIVITY')
           print(json.dumps({
               'source_status': p.get('source_status'),
-              'coverage': coverage,
-              'kucoin_optional_field_reporting': p.get('kucoin_optional_field_reporting'),
-              'gate_field_reporting': p.get('gate_field_reporting'),
-              'interpretation': interpretation,
-              'target_mappings': p.get('target_mappings'),
-              'result': 'PASS_VOLATILE_TWO_CALL_CAPABILITY',
+              'matched_rows': p.get('matched_rows'),
+              'eligible_rows': p.get('eligible_rows'),
+              'kucoin_funding_reporting': p.get('kucoin_funding_reporting'),
+              'gate_funding_reporting': p.get('gate_funding_reporting'),
+              'comparison': comp,
+              'decision_rule': rule,
+              'target_comparison': p.get('target_comparison'),
+              'decision': decision,
           }, ensure_ascii=False, indent=2))
           PY
