@@ -28,6 +28,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The operational relay branch may not yet contain any response files.
+          # Initialize only the fixed relay workspace; no arbitrary path is accepted.
+          mkdir -p runtime/automation-research-relay/responses
 
           mapfile -t requests < <(
             git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA" \
