@@ -1,4 +1,4 @@
-name: Crypto MTF RR Holdout
+name: Crypto MTF RR Split Stability
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
     paths:
       - '.github/workflows/crypto-mtf-rr-probe.yml'
       - 'research/crypto_mtf_rr_backtest.py'
-      - 'research/crypto_mtf_rr_holdout_v2.py'
+      - 'research/crypto_mtf_rr_splitcheck.py'
   workflow_dispatch:
 
 permissions:
@@ -18,11 +18,11 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Run previous-30d holdout validation
-        run: python research/crypto_mtf_rr_holdout_v2.py
-      - name: Upload holdout report
+      - name: Run 30d two-half stability check
+        run: python research/crypto_mtf_rr_splitcheck.py
+      - name: Upload split report
         uses: actions/upload-artifact@v4
         with:
-          name: crypto-mtf-rr-holdout-v2
-          path: /tmp/crypto_mtf_rr_report.json
+          name: crypto-mtf-rr-splitcheck
+          path: /tmp/crypto_mtf_rr_splitcheck.json
           retention-days: 3
