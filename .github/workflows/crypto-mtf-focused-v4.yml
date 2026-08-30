@@ -7,6 +7,7 @@ on:
       - '.github/workflows/crypto-mtf-focused-v4.yml'
       - 'research/crypto_mtf_focused_v4.py'
       - 'research/crypto_mtf_robustness_v8.py'
+      - 'research/crypto_mtf_sensitivity_v9.py'
       - 'research/gate_history.py'
   workflow_dispatch:
 
@@ -16,13 +17,15 @@ permissions:
 jobs:
   research:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Run focused MTF execution research
         run: python research/crypto_mtf_focused_v4.py
       - name: Run robustness and cost-stress research
         run: python research/crypto_mtf_robustness_v8.py
+      - name: Run threshold and BTC-regime sensitivity research
+        run: python research/crypto_mtf_sensitivity_v9.py
       - name: Upload focused report
         uses: actions/upload-artifact@v4
         with:
@@ -30,4 +33,5 @@ jobs:
           path: |
             /tmp/crypto_mtf_focused_v4.json
             /tmp/crypto_mtf_robustness_v8.json
+            /tmp/crypto_mtf_sensitivity_v9.json
           retention-days: 3
