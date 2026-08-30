@@ -1,0 +1,5 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "prod-market-20260830-01",
+  "kind": "market_snapshot"
+}
