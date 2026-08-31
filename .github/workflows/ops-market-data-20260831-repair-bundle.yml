@@ -33,11 +33,14 @@ jobs:
           import path from 'node:path';
           import crypto from 'node:crypto';
           import zlib from 'node:zlib';
-          import {
+          import { pathToFileURL } from 'node:url';
+
+          const normalizerModule = await import(pathToFileURL(path.join(process.cwd(), 'src/src/v6/tw-market-data.ts')).href);
+          const {
             normalizeTpexInstitutional,
             normalizeTpexMargin,
             normalizeTpexSblShortSale,
-          } from `${process.cwd()}/src/src/v6/tw-market-data.ts`;
+          } = normalizerModule;
 
           const tradeDate = '2026-08-31';
           const version = 'diamond-tw-market-data/v2.3.1-cloudflare-one-layer-resumable';
