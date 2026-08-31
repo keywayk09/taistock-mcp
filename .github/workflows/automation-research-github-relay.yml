@@ -24,6 +24,9 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Test V3 bounded semantic retry
+        run: node scripts/test-automation-research-github-relay-v3.mjs
+
       - name: Process create-only relay requests
         shell: bash
         run: |
@@ -41,7 +44,7 @@ jobs:
           fi
 
           for request in "${requests[@]}"; do
-            node scripts/automation-research-github-relay-v2.mjs "$request"
+            node scripts/automation-research-github-relay-v3.mjs "$request"
           done
 
       - name: Commit relay responses to relay branch only
