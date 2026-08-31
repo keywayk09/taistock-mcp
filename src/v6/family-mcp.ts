@@ -89,7 +89,7 @@ export class FamilyMCP extends McpAgent<Env> {
         canonical_ohlc_bridge: "GITHUB_CANONICAL_READ_ONLY",
         stock_live_context_bridge: "LOCAL_FUGLE_REST_QUOTE_TRADES",
         crypto_candidate_bridge: "TV_CRYPTO_ENGINE_LIGHT_DEEP_OI_MARKET_CONTEXT_READ_ONLY",
-        crypto_deep_probe_bridge: "TV_CRYPTO_ENGINE_BYBIT_GATE_5M_LOCAL15M_OI_READ_ONLY",
+        crypto_deep_probe_bridge: "TV_CRYPTO_ENGINE_KUCOIN_GATE_5M_LOCAL15M_OI_READ_ONLY",
         txf_context_bridge: "FAIL_CLOSED_WHEN_CROSS_ACCOUNT_RPC_UNAVAILABLE",
         global_context_bridge: "FAIL_CLOSED_WHEN_CROSS_ACCOUNT_RPC_UNAVAILABLE",
         web_research: "OPEN_WORLD_AUTONOMOUS_NO_FIXED_SITE_OR_KEYWORD_LIMIT",
