@@ -1,0 +1,5 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "nextday-market-20260831-v3",
+  "kind": "market_snapshot"
+}
