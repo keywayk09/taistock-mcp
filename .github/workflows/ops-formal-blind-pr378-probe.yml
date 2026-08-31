@@ -1,0 +1,91 @@
+name: Probe tv-fugle-1d PR378 preview
+
+on:
+  push:
+    branches:
+      - ops/formal-blind-pr378-probe-20260901
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Probe 60 frozen symbols sequentially
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import time
+          import urllib.parse
+          import urllib.request
+          import urllib.error
+
+          base = "https://9b169a45-tv-fugle-1d.keikei99887.workers.dev/research/formal-blind-verification"
+          symbols = [
+              "3624","2481","5309","1815","6202","6205","8110","4906","8043","2406",
+              "6456","8028","1605","2332","5425","2492","6207","3028","4566","4919",
+              "5475","6182","3149","3006","4123","2301","3189","4939","3441","8150",
+              "3231","2367","5340","4540","1303","2399","6770","1717","6127","2363",
+              "3707","8088","3645","2455","3055","5351","6155","6285","6244","3605",
+              "4989","3706","2413","2329","2426","2006","2409","8064","2484","2354",
+          ]
+
+          counts = {}
+          failures = []
+          formal_true = 0
+          for i, symbol in enumerate(symbols, 1):
+              query = urllib.parse.urlencode({
+                  "symbol": symbol,
+                  "timeframe": "5m",
+                  "trade_date": "2026-08-31",
+                  "decision_time": "09:35",
+              })
+              request = urllib.request.Request(
+                  f"{base}?{query}",
+                  headers={
+                      "Accept": "application/json",
+                      "Cache-Control": "no-cache",
+                      "User-Agent": "taistock-pr378-resource-probe/1",
+                  },
+              )
+              status = None
+              text = ""
+              try:
+                  with urllib.request.urlopen(request, timeout=35) as response:
+                      status = int(response.status)
+                      text = response.read().decode("utf-8", "replace")
+              except urllib.error.HTTPError as error:
+                  status = int(error.code)
+                  text = error.read().decode("utf-8", "replace")
+              except Exception as error:
+                  status = "EXCEPTION"
+                  text = f"{type(error).__name__}:{error}"
+
+              counts[str(status)] = counts.get(str(status), 0) + 1
+              try:
+                  body = json.loads(text)
+              except Exception:
+                  body = None
+              eligible = bool(isinstance(body, dict) and body.get("formal_blind_eligible") is True)
+              formal_true += int(eligible)
+              error1102 = "1102" in text or "worker_exceeded_resources" in text
+              print(f"{i:02d}/60 symbol={symbol} http={status} formal={eligible} error1102={error1102}")
+              if status != 200 or error1102:
+                  failures.append({
+                      "symbol": symbol,
+                      "http": status,
+                      "error1102": error1102,
+                      "prefix": text[:180].replace("\n", " "),
+                  })
+              time.sleep(0.15)
+
+          print("status_counts=" + json.dumps(counts, sort_keys=True))
+          print(f"formal_true={formal_true}/60")
+          if failures:
+              print("failures=" + json.dumps(failures, ensure_ascii=False))
+              raise SystemExit(1)
+          print("PASS: 60/60 HTTP 200; no Cloudflare Error 1102")
+          PY
