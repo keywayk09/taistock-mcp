@@ -1,0 +1,15 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "diag-formal-blind-20260831-prod-v3",
+  "kind": "formal_blind_batch",
+  "items": [
+    {
+      "id": "diag-3624",
+      "symbol": "3624",
+      "trade_date": "2026-08-31",
+      "timeframe": "5m",
+      "decision_time": "09:35",
+      "limit": 300
+    }
+  ]
+}
