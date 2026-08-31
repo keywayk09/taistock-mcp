@@ -1,0 +1,37 @@
+name: Test one-shot 2026-08-31 market-data repair
+
+on:
+  push:
+    branches:
+      - ops/repair-market-data-20260831-canonical
+    paths:
+      - src/v6/market-data-one-shot-repair-20260831.ts
+      - src/v6/market-data-scheduled-dispatch.ts
+      - tests/market-data-one-shot-repair-20260831.test.ts
+      - .github/workflows/test-market-data-repair-20260831.yml
+  pull_request:
+    paths:
+      - src/v6/market-data-one-shot-repair-20260831.ts
+      - src/v6/market-data-scheduled-dispatch.ts
+      - tests/market-data-one-shot-repair-20260831.test.ts
+      - .github/workflows/test-market-data-repair-20260831.yml
+
+permissions:
+  contents: read
+
+jobs:
+  repair-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: One-shot repair contract tests
+        run: node --experimental-strip-types tests/market-data-one-shot-repair-20260831.test.ts
+      - name: Type check
+        run: npm run type-check
+      - name: Worker dry-run build
+        run: npx wrangler deploy --dry-run --outdir dist
