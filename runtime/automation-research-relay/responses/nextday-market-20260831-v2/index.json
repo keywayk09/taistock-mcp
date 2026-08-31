@@ -1,0 +1,14 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_RESPONSE_V1",
+  "relay_version": "automation-research-github-relay/v2.0.0",
+  "request_schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "nextday-market-20260831-v2",
+  "request_kind": "market_snapshot",
+  "request_sha256": "80e78db7c63d39b09b227f209116bed1491dca470aec99ec400dba890ee2cade",
+  "generated_at_utc": "2026-08-31T15:22:52.571Z",
+  "bridge_base_id": "taistock-mcp-production-automation-research",
+  "read_only": true,
+  "writer_routes": false,
+  "status": "ERROR",
+  "error": "MARKET_REVISION_INVALID"
+}
