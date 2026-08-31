@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { readGitHubText, sha256Hex } from "./github-data-store.ts";
 
-export const RESEARCH_BLIND_OHLC_FALLBACK_VERSION = "research-blind-ohlc-fallback/v1.0.0";
+export const RESEARCH_BLIND_OHLC_FALLBACK_VERSION = "research-blind-ohlc-fallback/v1.0.1";
 
 type Row = Record<string, string | number | null>;
 
@@ -65,6 +65,13 @@ function rowTs(row: Row) {
   return raw ? Date.parse(raw.replace(" ", "T") + "+08:00") : NaN;
 }
 
+function rowTradeDate(row: Row) {
+  const explicit = String(row.trade_date ?? "").trim();
+  if (explicit) return explicit;
+  const barTime = String(row.bar_time_tw ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}(?:\s|T)/.test(barTime) ? barTime.slice(0, 10) : "";
+}
+
 function coreValid(row: Row) {
   const o = Number(row.open), h = Number(row.high), l = Number(row.low), c = Number(row.close), v = Number(row.volume ?? 0);
   return [o, h, l, c, v].every(Number.isFinite) && v >= 0 && h >= Math.max(o, l, c) && l <= Math.min(o, h, c);
@@ -107,15 +114,18 @@ export async function readResearchBlindOhlcFallback(env: Env, input: {
   if (!file.exists || !file.value || !file.sha) return fail("CANONICAL_OHLC_NOT_FOUND", { path });
 
   const parsed = parseCsv(file.value);
-  const required = ["symbol", "bar_time_tw", "ts_ms", "open", "high", "low", "close", "volume", "trade_date"];
+  // 1m canonical files carry an explicit trade_date column. Derived 5m canonical
+  // files are date-partitioned by path and carry the date in bar_time_tw instead.
+  // Treat both schemas as canonical, but still bind every accepted row to the
+  // requested trade date before cutoff validation.
+  const required = ["symbol", "bar_time_tw", "ts_ms", "open", "high", "low", "close", "volume"];
   const missingHeaders = required.filter((header) => !parsed.headers.includes(header));
   if (missingHeaders.length) return fail("SCHEMA_MISMATCH", { path, missing_headers: missingHeaders });
 
-  const sourceRows = parsed.rows.filter((row) => String(row.symbol ?? "") === symbol && String(row.trade_date ?? "") === tradeDate);
+  const sourceRows = parsed.rows.filter((row) => String(row.symbol ?? "") === symbol && rowTradeDate(row) === tradeDate);
   const slots = expectedSlots(timeframe, tradeDate);
   const slotByTs = new Map(slots.map((slot) => [slot.ts, slot]));
   const closedExpected = slots.filter((slot) => slot.closeTs <= cutoffTs);
-  const closedExpectedTs = new Set(closedExpected.map((slot) => slot.ts));
 
   let invalid = 0;
   let duplicates = 0;
