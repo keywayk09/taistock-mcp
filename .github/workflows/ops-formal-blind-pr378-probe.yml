@@ -1,4 +1,4 @@
-name: Probe tv-fugle-1d PR378 preview
+name: Validate tv-fugle-1d PR378 production
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
-      - name: Probe 60 frozen symbols sequentially
+      - name: Validate 60 frozen symbols sequentially
         shell: bash
         run: |
           python3 - <<'PY'
@@ -23,7 +23,7 @@ jobs:
           import urllib.request
           import urllib.error
 
-          base = "https://9b169a45-tv-fugle-1d.keikei99887.workers.dev/research/formal-blind-verification"
+          base = "https://tv-fugle-1d.keikei99887.workers.dev/research/formal-blind-verification"
           symbols = [
               "3624","2481","5309","1815","6202","6205","8110","4906","8043","2406",
               "6456","8028","1605","2332","5425","2492","6207","3028","4566","4919",
@@ -48,7 +48,7 @@ jobs:
                   headers={
                       "Accept": "application/json",
                       "Cache-Control": "no-cache",
-                      "User-Agent": "taistock-pr378-resource-probe/1",
+                      "User-Agent": "taistock-pr378-production-probe/2",
                   },
               )
               status = None
@@ -72,13 +72,19 @@ jobs:
               eligible = bool(isinstance(body, dict) and body.get("formal_blind_eligible") is True)
               formal_true += int(eligible)
               error1102 = "1102" in text or "worker_exceeded_resources" in text
-              print(f"{i:02d}/60 symbol={symbol} http={status} formal={eligible} error1102={error1102}")
-              if status != 200 or error1102:
+              reason = body.get("eligibility_reason") if isinstance(body, dict) else None
+              quality = body.get("quality_gate") if isinstance(body, dict) else None
+              quality_reason = quality.get("reason") if isinstance(quality, dict) else None
+              print(f"{i:02d}/60 symbol={symbol} http={status} formal={eligible} reason={reason} quality={quality_reason} error1102={error1102}")
+              if status != 200 or error1102 or not eligible:
                   failures.append({
                       "symbol": symbol,
                       "http": status,
+                      "formal": eligible,
+                      "eligibility_reason": reason,
+                      "quality_reason": quality_reason,
                       "error1102": error1102,
-                      "prefix": text[:180].replace("\n", " "),
+                      "prefix": text[:220].replace("\n", " "),
                   })
               time.sleep(0.15)
 
@@ -87,5 +93,5 @@ jobs:
           if failures:
               print("failures=" + json.dumps(failures, ensure_ascii=False))
               raise SystemExit(1)
-          print("PASS: 60/60 HTTP 200; no Cloudflare Error 1102")
+          print("PASS: 60/60 HTTP 200, FORMAL eligible, no Cloudflare Error 1102")
           PY
