@@ -1,0 +1,6 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "nextday-market-20260831-v1",
+  "request_kind": "market_snapshot",
+  "as_of": "2026-08-31"
+}
