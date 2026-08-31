@@ -2,6 +2,7 @@ import { runMarketData360dBackfillStep } from "./market-data-360d-backfill";
 import { setMarketDataCapturePolicy, setMarketDataCaptureTradeDate } from "./market-data-capture-context";
 import { runAdaptiveDailyMarketDataCapture } from "./market-data-daily-capture";
 import { recordHistoryBackfillFailure } from "./market-data-history-diagnostic";
+import { runOneShotMarketDataRepair20260831 } from "./market-data-one-shot-repair-20260831";
 import { runMarketDataPublisher } from "./market-data-publisher";
 import { decideExtendedMarketDataSchedule } from "./market-data-schedule";
 import {
@@ -205,6 +206,36 @@ async function runHistoryLane(env: Env, decision: ReturnType<typeof decideExtend
 
 export async function runExtendedScheduledMarketDataController(env: Env, scheduledTime: number) {
   const now = new Date(scheduledTime);
+
+  // Explicitly reviewed, self-disabling historical repair. It may pre-empt only
+  // while the exact 2026-08-31 manifest is in the known safe 5/8..8/8 state.
+  // Any unexpected canonical state fails closed and normal current-day work is
+  // allowed to continue rather than being held hostage by a repair diagnostic.
+  const repair = await runOneShotMarketDataRepair20260831(env, {
+    now,
+    deadlineAtMs: Date.now() + 22_000,
+    subrequestBudget: 37,
+  });
+  if (repair.prioritize_repair === true) {
+    console.log("market-data-one-shot-repair-20260831", repair);
+    return {
+      decision: {
+        lane: "ONE_SHOT_REPAIR" as const,
+        tradeDate: "2026-08-31",
+      },
+      one_shot_repair: repair,
+      result: repair.capture,
+      publication: null,
+      hotResults: repair.capture ? [repair.capture] : [],
+      publications: [],
+      backfill: null,
+      budget: null,
+    };
+  }
+  if (repair.status === "REPAIR_BLOCKED") {
+    console.error("market-data-one-shot-repair-20260831-blocked", repair);
+  }
+
   const decision = decideExtendedMarketDataSchedule(now);
   return decision.lane === "HISTORY"
     ? await runHistoryLane(env, decision, now)
