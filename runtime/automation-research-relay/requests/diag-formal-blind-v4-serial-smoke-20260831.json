@@ -1,0 +1,12 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "diag-formal-blind-v4-serial-smoke-20260831",
+  "kind": "formal_blind_batch",
+  "items": [
+    {"id":"serial-8028","symbol":"8028","trade_date":"2026-08-31","timeframe":"5m","decision_time":"09:35","limit":300},
+    {"id":"serial-8150","symbol":"8150","trade_date":"2026-08-31","timeframe":"5m","decision_time":"09:35","limit":300},
+    {"id":"serial-3231","symbol":"3231","trade_date":"2026-08-31","timeframe":"5m","decision_time":"09:35","limit":300},
+    {"id":"serial-2367","symbol":"2367","trade_date":"2026-08-31","timeframe":"5m","decision_time":"09:35","limit":300},
+    {"id":"serial-5340","symbol":"5340","trade_date":"2026-08-31","timeframe":"5m","decision_time":"09:35","limit":300}
+  ]
+}
