@@ -4,7 +4,6 @@ import {
   setMarketDataCapturePolicy,
   setMarketDataCaptureTradeDate,
 } from "./market-data-capture-context.ts";
-import { runAdaptiveDailyMarketDataCapture } from "./market-data-daily-capture.ts";
 
 export const ONE_SHOT_MARKET_DATA_REPAIR_DATE = "2026-08-31";
 export const ONE_SHOT_MARKET_DATA_REPAIR_VERSION = "market-data-one-shot-repair/2026-08-31-v1";
@@ -48,9 +47,19 @@ type RepairInspection = {
   index_status: string | null;
 };
 
+type CaptureInput = {
+  tradeDate: string;
+  finalAudit?: boolean;
+  now?: Date;
+  deadlineAtMs?: number;
+  subrequestBudget?: number;
+};
+
+type CaptureFunction = (env: Env, input: CaptureInput) => Promise<any>;
+
 type RepairDependencies = {
   readManifest?: (env: Env) => Promise<RepairManifest | null>;
-  capture?: typeof runAdaptiveDailyMarketDataCapture;
+  capture?: CaptureFunction;
 };
 
 function manifestPath() {
@@ -59,6 +68,14 @@ function manifestPath() {
 
 function layerKey(layer: RepairManifestLayer) {
   return `${String(layer.kind ?? "")}-${String(layer.market ?? "")}`;
+}
+
+async function defaultCapture(env: Env, input: CaptureInput) {
+  // Keep this lazy so the fail-closed manifest inspection and unit tests do not
+  // instantiate the full Daily capture graph. Production/Wrangler resolves the
+  // normal worker graph only when a repair mutation is actually required.
+  const { runAdaptiveDailyMarketDataCapture } = await import("./market-data-daily-capture.ts");
+  return runAdaptiveDailyMarketDataCapture(env, input);
 }
 
 export function inspectOneShotMarketDataRepairManifest(manifest: RepairManifest | null): RepairInspection {
@@ -168,7 +185,7 @@ export async function runOneShotMarketDataRepair20260831(
     const read = await readGitHubJson<RepairManifest>(runtimeEnv, manifestPath());
     return read.value;
   });
-  const capture = dependencies.capture ?? runAdaptiveDailyMarketDataCapture;
+  const capture: CaptureFunction = dependencies.capture ?? defaultCapture;
   const manifest = await readManifest(env);
   const inspection = inspectOneShotMarketDataRepairManifest(manifest);
 
