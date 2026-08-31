@@ -1,0 +1,40 @@
+name: Crypto Family MCP V1.2.8 Shadow Smoke
+
+on:
+  push:
+    branches: [research/crypto-mtf-rr-20260830]
+    paths:
+      - '.github/workflows/crypto-family-mcp-shadow-v128.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  family-crypto-shadow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      # Shadow-only injection. The repository default and Production Family MCP
+      # continue to point at the Production tv-crypto-engine URL.
+      CRYPTO_ENGINE_SHADOW_URL: https://0a7039af-tv-crypto-engine.keikei99887.workers.dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install repository dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Type-check shared crypto and Family metadata changes
+        shell: bash
+        run: |
+          # Run the repository TypeScript check first so the smoke cannot hide a
+          # compile-time regression in the shared Family crypto bridge.
+          npm run type-check
+
+      - name: Run Family MCP crypto Shadow bridge acceptance
+        shell: bash
+        run: |
+          # The test calls the exact handlers registered by FamilyMCP while
+          # injecting only the V1.2.8 Shadow engine URL. OAuth/Production routes
+          # are never modified or bypassed.
+          node --experimental-strip-types tests/family-crypto-shadow-bridge-v128.test.ts
