@@ -1,0 +1,48 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_RESPONSE_V1",
+  "relay_version": "automation-research-github-relay/v3.0.0",
+  "request_schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "diag-formal-blind-v3-retry-smoke-20260831",
+  "request_kind": "formal_blind_batch",
+  "request_sha256": "b914b55447acf13341ba3d8216a537e864f11658253242c4d1e044e128e3300f",
+  "generated_at_utc": "2026-08-31T14:39:19.311Z",
+  "bridge_base_id": "taistock-mcp-production-automation-research",
+  "read_only": true,
+  "writer_routes": false,
+  "status": "PASS",
+  "item_count": 2,
+  "concurrency": 2,
+  "semantic_retry_delays_ms": [
+    0,
+    1500,
+    4000,
+    9000
+  ],
+  "total_transient_retries": 0,
+  "items": [
+    {
+      "id": "retry-5425",
+      "symbol": "5425",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "PASS",
+      "returned": 7,
+      "attempts": 1,
+      "transient_retries": 0,
+      "last_transient_reason": null,
+      "file": "blind/retry-5425.json"
+    },
+    {
+      "id": "retry-2492",
+      "symbol": "2492",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "PASS",
+      "returned": 7,
+      "attempts": 1,
+      "transient_retries": 0,
+      "last_transient_reason": null,
+      "file": "blind/retry-2492.json"
+    }
+  ]
+}
