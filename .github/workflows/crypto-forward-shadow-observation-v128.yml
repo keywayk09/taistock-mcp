@@ -6,6 +6,12 @@ on:
   # validated research commit below. This does NOT promote the crypto engine.
   schedule:
     - cron: '0 * * * *'
+  # Editing only this workflow file on main triggers an immediate smoke so
+  # scheduler changes are validated without waiting for the next top of hour.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/crypto-forward-shadow-observation-v128.yml'
   workflow_dispatch:
 
 permissions:
