@@ -1,17 +1,16 @@
 name: Crypto Forward Shadow V1.2.8 Observation
 
 on:
-  # Initial push validates the collector immediately on the research branch.
+  # Forward observation uses a deterministic push tick instead of GitHub cron.
+  # The hourly tick file is updated by the external scheduler; collector/model
+  # code remains frozen on this research branch and Production is untouched.
   push:
     branches: [research/crypto-mtf-rr-20260830]
     paths:
       - 'research/crypto_forward_shadow_observation_v128.py'
+      - 'research/crypto_forward_shadow_hourly_tick.txt'
       - '.github/workflows/crypto-forward-shadow-observation-v128.yml'
-  # Forward evidence must come from independent future windows rather than
-  # repeated back-to-back reruns. One hourly sample is the fixed Shadow cadence.
-  schedule:
-    - cron: '0 * * * *'
-  # Keep manual replay available while the collector remains Shadow-only.
+  # Keep manual replay available for diagnosis without changing the cadence path.
   workflow_dispatch:
 
 permissions:
