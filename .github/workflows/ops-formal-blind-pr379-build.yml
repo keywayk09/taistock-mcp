@@ -1,0 +1,34 @@
+name: Reproduce tv-fugle-1d PR379 build
+
+on:
+  push:
+    branches:
+      - ops/formal-blind-pr379-build-20260901
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout tv-papertrader PR379 branch
+        uses: actions/checkout@v4
+        with:
+          repository: keywayk09/tv-papertrader
+          ref: fix/formal-blind-worker-resource-1102-v2-20260901
+          path: tv
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd tv/cloudflare/ohlc-tv-fugle-1d
+          npm install
+          npm run build
