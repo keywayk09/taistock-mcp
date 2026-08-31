@@ -42,6 +42,14 @@ function inMinuteWindow(hour: number, minute: number, targetHour: number, startM
   return hour === targetHour && minute >= startMinute && minute <= endMinute;
 }
 
+function inSameDayRecoveryWindow(hour: number, minute: number) {
+  // Keep one continuous recovery epoch from 22:15 through the final scheduled
+  // wake at 23:55. Official/relay layers can arrive after 22:55; ending the
+  // epoch at the hour boundary would strand an otherwise recoverable same-day
+  // manifest until the following morning. Midnight still closes the epoch.
+  return (hour === 22 && minute >= 15) || hour === 23;
+}
+
 export type MarketDataScheduleDecision = {
   tradeDate: string;
   finalAudit: boolean;
@@ -103,9 +111,10 @@ export function decideExtendedMarketDataSchedule(now = new Date()): MarketDataSc
     };
   }
 
-  // One missing-only recovery epoch later in the evening. Each missing layer
-  // can be attempted at most once inside this checkpoint window.
-  if (weekday && inMinuteWindow(hour, minute, 22, 15, 55)) {
+  // One missing-only recovery epoch later in the evening. Every continuation
+  // wake through 23:55 deliberately keeps the original 22:15 checkpoint so
+  // due-layer attempt fences remain monotonic instead of resetting at 23:00.
+  if (weekday && inSameDayRecoveryWindow(hour, minute)) {
     return {
       tradeDate: date,
       finalAudit: false,
