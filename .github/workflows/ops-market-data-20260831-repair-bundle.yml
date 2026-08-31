@@ -1,0 +1,216 @@
+name: Build 2026-08-31 OTC market-data repair bundle
+
+on:
+  push:
+    branches:
+      - ops/market-data-20260831-repair-bundle-20260901
+
+permissions:
+  contents: read
+
+jobs:
+  build-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          path: src
+
+      - name: Checkout verified TPEx relay cache
+        uses: actions/checkout@v4
+        with:
+          ref: market-data-relay
+          path: relay
+
+      - name: Build normalized immutable repair bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/build-repair.mjs <<'JS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+          import zlib from 'node:zlib';
+          import {
+            normalizeTpexInstitutional,
+            normalizeTpexMargin,
+            normalizeTpexSblShortSale,
+          } from `${process.cwd()}/src/src/v6/tw-market-data.ts`;
+
+          const tradeDate = '2026-08-31';
+          const version = 'diamond-tw-market-data/v2.3.1-cloudflare-one-layer-resumable';
+          const relayRoot = path.join(process.cwd(), 'relay/data/market-data/tpex-relay/2026-08-31');
+          const outRoot = path.join(process.cwd(), 'repair-bundle');
+          fs.rmSync(outRoot, { recursive: true, force: true });
+          fs.mkdirSync(outRoot, { recursive: true });
+
+          function stableValue(value) {
+            if (Array.isArray(value)) return value.map(stableValue);
+            if (value && typeof value === 'object') {
+              const out = {};
+              for (const key of Object.keys(value).sort()) out[key] = stableValue(value[key]);
+              return out;
+            }
+            if (value === undefined) return null;
+            if (typeof value === 'number' && !Number.isFinite(value)) return String(value);
+            return value;
+          }
+          function stableJson(value) { return JSON.stringify(stableValue(value), null, 2) + '\n'; }
+          function sha256(text) { return crypto.createHash('sha256').update(text).digest('hex'); }
+          function compressedEnvelope(logicalText) {
+            const plain = Buffer.from(logicalText, 'utf8');
+            const compressed = zlib.gzipSync(plain, { level: 9, mtime: 0 });
+            const payload = compressed.toString('base64');
+            return {
+              schema_version: 'diamond-github-compressed-json/v1',
+              codec: 'gzip+base64',
+              uncompressed_sha256: sha256(logicalText),
+              compressed_sha256: sha256(payload),
+              uncompressed_bytes: plain.length,
+              compressed_bytes: compressed.length,
+              payload_b64: payload,
+            };
+          }
+          function readJson(name) {
+            return JSON.parse(fs.readFileSync(path.join(relayRoot, name), 'utf8'));
+          }
+          function writeRepoFile(repoPath, logicalValue, compress = true) {
+            const target = path.join(outRoot, repoPath);
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            const logicalText = stableJson(logicalValue);
+            const storedText = compress ? stableJson(compressedEnvelope(logicalText)) : logicalText;
+            fs.writeFileSync(target, storedText);
+            return { repo_path: repoPath, logical_sha256: sha256(logicalText), stored_bytes: Buffer.byteLength(storedText) };
+          }
+
+          const institutionalBody = readJson('institutional.json');
+          const marginBody = readJson('margin.json');
+          const sblBalanceBody = readJson('sbl_balance.json');
+          const sblVolumeBody = readJson('sbl_volume.json');
+
+          const definitions = [
+            {
+              identity: 'institutional-otc', kind: 'institutional', market: 'otc',
+              source: 'TPEX_3INSTI_DAILY_TRADING',
+              rows: normalizeTpexInstitutional(institutionalBody, tradeDate),
+              raws: [{ source: 'TPEX_3INSTI_DAILY_TRADING', body: institutionalBody }],
+            },
+            {
+              identity: 'margin-otc', kind: 'margin', market: 'otc',
+              source: 'TPEX_MAINBOARD_MARGIN_BALANCE',
+              rows: normalizeTpexMargin(marginBody, tradeDate),
+              raws: [{ source: 'TPEX_MAINBOARD_MARGIN_BALANCE', body: marginBody }],
+            },
+            {
+              identity: 'sbl_short_sale-otc', kind: 'sbl_short_sale', market: 'otc',
+              source: 'TPEX_MARGIN_SBL+TPEX_SHORT_SELL',
+              rows: normalizeTpexSblShortSale(sblBalanceBody, sblVolumeBody, tradeDate),
+              raws: [
+                { source: 'TPEX_MARGIN_SBL', body: sblBalanceBody },
+                { source: 'TPEX_SHORT_SELL', body: sblVolumeBody },
+              ],
+            },
+          ];
+
+          const [year, month, day] = tradeDate.split('-');
+          const capturedAt = new Date().toISOString();
+          const layerReplacements = [];
+          const files = [];
+
+          for (const def of definitions) {
+            if (!def.rows.length) throw new Error(`${def.identity}:normalized_rows_empty`);
+            if (def.rows.some(row => row.trade_date !== tradeDate || row.market !== 'otc')) {
+              throw new Error(`${def.identity}:normalized_identity_or_date_mismatch`);
+            }
+            def.rows.sort((a, b) => String(a.symbol).localeCompare(String(b.symbol)));
+
+            const rawPaths = [];
+            for (const raw of def.raws) {
+              const rawHash = sha256(stableJson(raw.body));
+              const rawPath = `data/market-data/raw/${year}/${month}/${day}/${raw.source.toLowerCase()}-${rawHash}.json`;
+              const rawValue = {
+                schema_version: 'diamond-official-raw-capture/v1',
+                trade_date: tradeDate,
+                source: raw.source,
+                content_sha256: rawHash,
+                body: raw.body,
+              };
+              files.push(writeRepoFile(rawPath, rawValue, true));
+              rawPaths.push(rawPath);
+            }
+
+            const canonical = {
+              schema_version: version,
+              trade_date: tradeDate,
+              market: def.market,
+              kind: def.kind,
+              source: def.source,
+              source_date_verified: true,
+              rows: def.rows,
+            };
+            const contentSha = sha256(stableJson(canonical));
+            const datasetVersion = `sha256:${contentSha}`;
+            const snapshotPath = `data/market-data/daily/${year}/${month}/${day}/snapshots/${def.identity}/${contentSha}.json`;
+            const snapshotValue = { ...canonical, content_sha256: contentSha, dataset_version: datasetVersion };
+            files.push(writeRepoFile(snapshotPath, snapshotValue, true));
+
+            layerReplacements.push({
+              identity: def.identity,
+              kind: def.kind,
+              market: def.market,
+              status: 'READY',
+              source: def.source,
+              row_count: def.rows.length,
+              dataset_version: datasetVersion,
+              content_sha256: contentSha,
+              snapshot_path: snapshotPath,
+              raw_paths: rawPaths,
+              captured_at: capturedAt,
+              error: null,
+              last_attempt_at: capturedAt,
+              next_retry_at: null,
+            });
+          }
+
+          const metadata = {
+            schema_version: 'ops-market-data-repair-bundle/v1',
+            trade_date: tradeDate,
+            source: 'TPEX_OFFICIAL_RELAY_V2 exact-date cache',
+            source_branch: 'market-data-relay',
+            generated_at: capturedAt,
+            replacements: layerReplacements,
+            files,
+          };
+          fs.writeFileSync(path.join(outRoot, 'repair-metadata.json'), stableJson(metadata));
+          console.log(JSON.stringify(metadata, null, 2));
+          JS
+
+          node --experimental-strip-types /tmp/build-repair.mjs
+
+          python3 - <<'PY'
+          import json, pathlib, gzip, base64, hashlib
+          root=pathlib.Path('repair-bundle')
+          meta=json.loads((root/'repair-metadata.json').read_text())
+          assert len(meta['replacements']) == 3
+          for f in meta['files']:
+              p=root/f['repo_path']
+              body=json.loads(p.read_text())
+              assert body['schema_version']=='diamond-github-compressed-json/v1'
+              payload=base64.b64decode(body['payload_b64'])
+              assert len(payload)==body['compressed_bytes']
+              assert hashlib.sha256(body['payload_b64'].encode()).hexdigest()==body['compressed_sha256']
+              logical=gzip.decompress(payload)
+              assert len(logical)==body['uncompressed_bytes']
+              assert hashlib.sha256(logical).hexdigest()==body['uncompressed_sha256']
+          print('repair bundle envelope verification PASS')
+          PY
+
+      - name: Upload repair bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: market-data-20260831-otc-repair-bundle
+          path: repair-bundle
+          if-no-files-found: error
+          retention-days: 3
