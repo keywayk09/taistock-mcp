@@ -1,0 +1,25 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_RESPONSE_V1",
+  "relay_version": "automation-research-github-relay/v2.0.0",
+  "request_schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "diag-formal-blind-20260831-prod-v4",
+  "request_kind": "formal_blind_batch",
+  "request_sha256": "210e751c80bd79c0f21f036ce16ef14eafb53230d6733b45b9d1509475911b55",
+  "generated_at_utc": "2026-08-31T14:11:40.190Z",
+  "bridge_base_id": "taistock-mcp-production-automation-research",
+  "read_only": true,
+  "writer_routes": false,
+  "status": "PARTIAL_OR_BLOCKED",
+  "item_count": 1,
+  "items": [
+    {
+      "id": "diag-3624",
+      "symbol": "3624",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 7,
+      "file": "blind/diag-3624.json"
+    }
+  ]
+}
