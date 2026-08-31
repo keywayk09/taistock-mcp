@@ -27,14 +27,15 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, pathlib, urllib.request, urllib.error, urllib.parse
+          import json, pathlib, urllib.request
 
-          out = pathlib.Path('runtime/official-probe/results/2026-08-31-3624.json')
+          out = pathlib.Path('runtime/official-probe/results/2026-08-31-3624-v2.json')
           out.parent.mkdir(parents=True, exist_ok=True)
           urls = {
             'twse_openapi': 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL',
             'tpex_openapi': 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes',
             'twse_stock_day': 'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?date=20260831&stockNo=3624&response=json',
+            'twse_mi_index': 'https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=20260831&type=ALLBUT0999&response=json',
             'tpex_historical': 'https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php?l=zh-tw&d=115%2F08%2F31&se=EW&o=json',
           }
           result = {}
@@ -44,7 +45,7 @@ jobs:
               req = urllib.request.Request(url, headers={
                 'Accept': 'application/json',
                 'Cache-Control': 'no-cache',
-                'User-Agent': 'Mozilla/5.0 official-market-probe/1.0',
+                'User-Agent': 'Mozilla/5.0 official-market-probe/1.1',
               })
               with urllib.request.urlopen(req, timeout=30) as r:
                 raw = r.read()
@@ -67,10 +68,24 @@ jobs:
                     break
               elif isinstance(body, dict):
                 item['top_keys'] = list(body.keys())[:30]
+                item['stat'] = body.get('stat')
+                item['date'] = body.get('date')
                 if name == 'twse_stock_day':
-                  item['stat'] = body.get('stat')
-                  item['date'] = body.get('date')
                   item['data_first'] = (body.get('data') or [None])[0]
+                if name == 'twse_mi_index':
+                  tables = body.get('tables') or []
+                  item['table_count'] = len(tables)
+                  item['tables'] = []
+                  for idx, table in enumerate(tables):
+                    fields = table.get('fields') or []
+                    data = table.get('data') or []
+                    t = {'index': idx, 'title': table.get('title'), 'fields': fields[:30], 'row_count': len(data)}
+                    if fields and data:
+                      for row in data:
+                        if isinstance(row, list) and row and any(str(x).strip() == '3624' for x in row[:3]):
+                          t['symbol_3624_row'] = row
+                          break
+                    item['tables'].append(t)
                 if name == 'tpex_historical':
                   tables = body.get('tables') or []
                   item['table_count'] = len(tables)
@@ -93,8 +108,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git add runtime/official-probe/results/2026-08-31-3624.json
+          git add runtime/official-probe/results/2026-08-31-3624-v2.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'diag: write official market probe result'
+          git commit -m 'diag: write official market probe v2 result'
           git push origin "HEAD:${GITHUB_REF_NAME}"
