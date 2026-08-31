@@ -64,13 +64,15 @@ assert.doesNotMatch(dailyRelay, /grouped\.setdefault\(item\[0\]/);
 assertPythonCompiles("Daily relay", dailyRelay);
 
 // The watchdog must share the exact same concurrency group as the official relay writer.
-// Its final wake is deliberately 22:40 Taipei: it starts before the official 22:45 wake,
-// has an 8-minute timeout, and therefore either completes by 22:48 or fails before the
-// canonical Cloudflare DAILY_RECOVERY wake at 22:55. The official 22:45 job is serialized
-// behind it and re-reads the monotonic relay cache instead of racing a stale branch snapshot.
+// Its final wake remains 22:40 Taipei, while the Cloudflare DAILY_RECOVERY epoch is now
+// intentionally allowed to continue through 23:55. This gives late official/relay data a
+// bounded same-day self-heal window without reopening the checkpoint after midnight.
 const watchdogRelay = read(".github/workflows/tpex-relay-watchdog-v1.yml");
 const marketSchedule = read("src/v6/market-data-schedule.ts");
-assert.match(marketSchedule, /inMinuteWindow\(hour, minute, 22, 15, 55\)/);
+assert.match(marketSchedule, /inSameDayRecoveryWindow/);
+assert.match(marketSchedule, /hour === 23/);
+assert.match(marketSchedule, /23:55/);
+assert.match(marketSchedule, /checkpointIso\(date, 22, 15\)/);
 assert.match(watchdogRelay, /22:40/);
 assert.match(watchdogRelay, /cron: '40 14 \* \* 1-5'/);
 assert.match(watchdogRelay, /group: tpex-official-relay-v2/);
