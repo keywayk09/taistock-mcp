@@ -4,10 +4,14 @@ on:
   # GitHub scheduled workflows execute from the default branch. Keep this
   # scheduler on main, but pin the actual Shadow collector code to the already
   # validated research commit below. This does NOT promote the crypto engine.
+  #
+  # Avoid minute 0: GitHub documents that scheduled-event load is highest at
+  # the start of the hour and jobs may be delayed or dropped there. Minute 17
+  # preserves a one-hour cadence while moving this collector off that hot spot.
   schedule:
-    - cron: '0 * * * *'
+    - cron: '17 * * * *'
   # Editing only this workflow file on main triggers an immediate smoke so
-  # scheduler changes are validated without waiting for the next top of hour.
+  # scheduler changes are validated without waiting for the next scheduled run.
   push:
     branches: [main]
     paths:
