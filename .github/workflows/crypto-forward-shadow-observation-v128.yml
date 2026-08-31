@@ -1,17 +1,11 @@
 name: Crypto Forward Shadow V1.2.8 Observation
 
 on:
-  # GitHub scheduled workflows execute from the default branch. Keep this
-  # scheduler on main, but pin the actual Shadow collector code to the already
-  # validated research commit below. This does NOT promote the crypto engine.
-  #
-  # Avoid minute 0: GitHub documents that scheduled-event load is highest at
-  # the start of the hour and jobs may be delayed or dropped there. Minute 17
-  # preserves a one-hour cadence while moving this collector off that hot spot.
-  schedule:
-    - cron: '17 * * * *'
-  # Editing only this workflow file on main triggers an immediate smoke so
-  # scheduler changes are validated without waiting for the next scheduled run.
+  # Hourly timing is delegated to the repo's already-proven scheduled watchdog.
+  # This workflow remains an isolated Shadow collector and is invoked through
+  # workflow_dispatch; it never deploys or promotes the crypto engine.
+  # Editing only this workflow file on main still triggers an immediate smoke so
+  # collector/schema changes are validated independently of the scheduler bridge.
   push:
     branches: [main]
     paths:
