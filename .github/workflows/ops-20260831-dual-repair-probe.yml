@@ -1,0 +1,91 @@
+name: Ops 20260831 dual repair probe
+
+on:
+  push:
+    branches:
+      - 'ops/20260831-dual-repair-probe'
+    paths:
+      - '.github/workflows/ops-20260831-dual-repair-probe.yml'
+      - 'runtime/ops-probe/trigger-*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ops-20260831-dual-repair-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Probe TPEx and FORMAL verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p runtime/ops-probe
+          node <<'NODE'
+          const fs = require('fs');
+          const sleep = ms => new Promise(r => setTimeout(r, ms));
+          const out = { schema:'OPS_20260831_DUAL_REPAIR_PROBE_V1', generated_at:new Date().toISOString(), tpex:[], verifier:[] };
+
+          async function probeUrl(name, url, redirect='manual') {
+            const started = Date.now();
+            try {
+              const r = await fetch(url, { redirect, signal:AbortSignal.timeout(20000), headers:{accept:'application/json,text/plain,*/*','user-agent':'ops-20260831-dual-repair-probe'} });
+              const text = await r.text();
+              return {
+                name, url, ok:r.ok, status:r.status, status_text:r.statusText,
+                location:r.headers.get('location'), content_type:r.headers.get('content-type'),
+                cf_ray:r.headers.get('cf-ray'), retry_after:r.headers.get('retry-after'), server:r.headers.get('server'),
+                elapsed_ms:Date.now()-started, body_prefix:text.slice(0,600)
+              };
+            } catch (e) {
+              return { name, url, ok:false, error:String(e?.message || e), elapsed_ms:Date.now()-started };
+            }
+          }
+
+          const tpex = [
+            ['institutional','https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading'],
+            ['margin','https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance'],
+            ['margin_sbl','https://www.tpex.org.tw/openapi/v1/tpex_margin_sbl'],
+            ['short_sell','https://www.tpex.org.tw/openapi/v1/tpex_short_sell']
+          ];
+          for (const [name,url] of tpex) {
+            out.tpex.push(await probeUrl(`${name}_manual`,url,'manual'));
+            out.tpex.push(await probeUrl(`${name}_follow`,url,'follow'));
+            await sleep(350);
+          }
+
+          const symbols = ['3624','2481','5309','1815','6202','6205','8110','4906','8043','2406','6456','8028','1605','2332','5425','2492','6207','3028','4566','4919','5475','6182','3149','3006'];
+          for (const symbol of symbols) {
+            const q = new URLSearchParams({symbol,timeframe:'5m',trade_date:'2026-08-31',decision_time:'09:35'});
+            const url = `https://tv-fugle-1d.keikei99887.workers.dev/research/formal-blind-verification?${q}`;
+            out.verifier.push({symbol, ...(await probeUrl(`formal_${symbol}`,url,'follow'))});
+            await sleep(1100);
+          }
+          out.summary = {
+            tpex_statuses: out.tpex.map(x=>({name:x.name,status:x.status,location:x.location,content_type:x.content_type,error:x.error||null})),
+            verifier_status_counts: out.verifier.reduce((a,x)=>(a[String(x.status||'ERR')]=(a[String(x.status||'ERR')]||0)+1,a),{}),
+            verifier_non_200: out.verifier.filter(x=>x.status!==200).map(x=>({symbol:x.symbol,status:x.status,content_type:x.content_type,cf_ray:x.cf_ray,retry_after:x.retry_after,server:x.server,body_prefix:x.body_prefix,error:x.error||null}))
+          };
+          fs.writeFileSync('runtime/ops-probe/20260831-dual-repair-probe.json', JSON.stringify(out,null,2)+'\n');
+          console.log(JSON.stringify(out.summary,null,2));
+          NODE
+      - name: Commit diagnostic result to probe branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add runtime/ops-probe/20260831-dual-repair-probe.json
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'diag: capture TPEx and FORMAL verifier behavior'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
