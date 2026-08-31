@@ -1,0 +1,52 @@
+name: Probe PR379 FORMAL preview
+
+on:
+  push:
+    branches:
+      - ops/pr379-preview-probe-20260901
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Probe 60 frozen symbols sequentially
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://1c71777f-tv-fugle-1d.keikei99887.workers.dev/research/formal-blind-verification'
+          symbols=(3624 2481 5309 1815 6202 6205 8110 4906 8043 2406 6456 8028 1605 2332 5425 2492 6207 3028 4566 4919 5475 6182 3149 3006 4123 2301 3189 4939 3441 8150 3231 2367 5340 4540 1303 2399 6770 1717 6127 2363 3707 8088 3645 2455 3055 5351 6155 6285 6244 3605 4989 3706 2413 2329 2426 2006 2409 8064 2484 2354)
+          ok=0
+          non200=0
+          error1102=0
+          semantic_blocked=0
+          : > /tmp/results.tsv
+          for symbol in "${symbols[@]}"; do
+            url="${base}?symbol=${symbol}&timeframe=5m&trade_date=2026-08-31&decision_time=09%3A35"
+            body="/tmp/body-${symbol}.txt"
+            code="$(curl --silent --show-error --location --max-time 35 --output "$body" --write-out '%{http_code}' "$url" \
+              -H 'accept: application/json' \
+              -H 'cache-control: no-cache' \
+              -H 'user-agent: pr379-preview-probe/1' || true)"
+            if grep -qiE 'error[[:space:]]*1102|worker exceeded resource limits' "$body" 2>/dev/null; then
+              error1102=$((error1102+1))
+            fi
+            if [ "$code" = '200' ]; then
+              ok=$((ok+1))
+              if grep -q '"formal_blind_eligible"[[:space:]]*:[[:space:]]*false' "$body" 2>/dev/null; then
+                semantic_blocked=$((semantic_blocked+1))
+              fi
+            else
+              non200=$((non200+1))
+            fi
+            printf '%s\t%s\t%s\n' "$symbol" "$code" "$(wc -c < "$body" 2>/dev/null || echo 0)" >> /tmp/results.tsv
+            rm -f "$body"
+          done
+          echo "probe_summary total=${#symbols[@]} http_200=${ok} non_200=${non200} error_1102=${error1102} semantic_blocked=${semantic_blocked}"
+          cat /tmp/results.tsv
+          test "$ok" -eq 60
+          test "$non200" -eq 0
+          test "$error1102" -eq 0
