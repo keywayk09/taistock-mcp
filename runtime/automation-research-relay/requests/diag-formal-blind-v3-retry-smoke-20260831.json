@@ -1,0 +1,9 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "diag-formal-blind-v3-retry-smoke-20260831",
+  "kind": "formal_blind_batch",
+  "items": [
+    {"id":"retry-5425","symbol":"5425","trade_date":"2026-08-31","timeframe":"5m","decision_time":"09:35","limit":300},
+    {"id":"retry-2492","symbol":"2492","trade_date":"2026-08-31","timeframe":"5m","decision_time":"09:35","limit":300}
+  ]
+}
