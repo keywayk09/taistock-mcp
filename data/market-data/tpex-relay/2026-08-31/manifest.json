@@ -1,0 +1,41 @@
+{
+  "schema": "TPEX_OFFICIAL_RELAY_V2",
+  "trade_date": "2026-08-31",
+  "captured_at_utc": "2026-08-31T15:39:52.678Z",
+  "source_owner": "TPEx",
+  "transport": "GitHub hosted runner exact-date official TPEx OpenAPI repair",
+  "canonical_storage": "keywayk09/tv-papertrader main/data",
+  "datasets": {
+    "institutional": {
+      "source_date": "2026-08-31",
+      "row_count": 903,
+      "sha256": "a66b0024099434bd503205f4da1771bbfc3739784b4e86a801a99da82123dc34",
+      "endpoint": "https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading",
+      "file": "institutional.json"
+    },
+    "margin": {
+      "source_date": "2026-08-31",
+      "row_count": 920,
+      "sha256": "4ec1bf32eba7e47c9ae75788b075a189d8f66509f8c995c413e802576e55f4fe",
+      "endpoint": "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance",
+      "file": "margin.json"
+    },
+    "sbl_balance": {
+      "source_date": "2026-08-31",
+      "row_count": 931,
+      "sha256": "178c94991c9c46fb9771a27f90b341cc6e240aafe3afac56e7e5a54bfbb6b70f",
+      "endpoint": "https://www.tpex.org.tw/openapi/v1/tpex_margin_sbl",
+      "file": "sbl_balance.json"
+    },
+    "sbl_volume": {
+      "source_date": "2026-08-31",
+      "row_count": 1007,
+      "sha256": "255ff67e9d050802654e7292afb2d4b6688f3c56d19aceefd4d13c385575c2b9",
+      "endpoint": "https://www.tpex.org.tw/openapi/v1/tpex_short_sell",
+      "file": "sbl_volume.json"
+    }
+  },
+  "capture_errors": {},
+  "status": "COMPLETE",
+  "missing_datasets": []
+}
