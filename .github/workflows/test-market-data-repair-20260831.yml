@@ -6,6 +6,7 @@ on:
       - ops/repair-market-data-20260831-canonical
     paths:
       - src/v6/market-data-one-shot-repair-20260831.ts
+      - src/v6/market-data-scheduled-dispatch.ts
       - tests/market-data-one-shot-repair-20260831.test.ts
       - .github/workflows/test-market-data-repair-20260831.yml
   pull_request:
