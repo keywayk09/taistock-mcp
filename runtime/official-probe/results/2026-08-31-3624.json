@@ -1,0 +1,139 @@
+{
+  "twse_openapi": {
+    "url": "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+    "http_status": 200,
+    "final_url": "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+    "bytes": 318815,
+    "json_type": "list",
+    "row_count": 1377,
+    "sample_keys": [
+      "Date",
+      "Code",
+      "Name",
+      "TradeVolume",
+      "TradeValue",
+      "OpeningPrice",
+      "HighestPrice",
+      "LowestPrice",
+      "ClosingPrice",
+      "Change",
+      "Transaction"
+    ],
+    "distinct_dates_sample": [
+      "1150828"
+    ],
+    "ok": true
+  },
+  "tpex_openapi": {
+    "url": "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
+    "http_status": 200,
+    "final_url": "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
+    "bytes": 4191155,
+    "json_type": "list",
+    "row_count": 10713,
+    "sample_keys": [
+      "Date",
+      "SecuritiesCompanyCode",
+      "CompanyName",
+      "Close",
+      "Change",
+      "Open",
+      "High",
+      "Low",
+      "Average",
+      "TradingShares",
+      "TransactionAmount",
+      "TransactionNumber",
+      "LatestBidPrice",
+      "LatesAskPrice",
+      "Capitals",
+      "NextReferencePrice",
+      "NextLimitUp",
+      "NextLimitDown"
+    ],
+    "distinct_dates_sample": [
+      "1150831"
+    ],
+    "symbol_3624": {
+      "Date": "1150831",
+      "SecuritiesCompanyCode": "3624",
+      "CompanyName": "光頡",
+      "Open": "90.70",
+      "High": "94.00",
+      "Low": "87.30",
+      "Close": "88.30",
+      "TradingShares": "5249426"
+    },
+    "ok": true
+  },
+  "twse_stock_day": {
+    "url": "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?date=20260831&stockNo=3624&response=json",
+    "http_status": 200,
+    "final_url": "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?date=20260831&stockNo=3624&response=json",
+    "bytes": 61,
+    "json_type": "dict",
+    "row_count": 0,
+    "top_keys": [
+      "stat",
+      "total"
+    ],
+    "stat": "很抱歉，沒有符合條件的資料!",
+    "date": null,
+    "data_first": null,
+    "ok": true
+  },
+  "tpex_historical": {
+    "url": "https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php?l=zh-tw&d=115%2F08%2F31&se=EW&o=json",
+    "http_status": 200,
+    "final_url": "https://www.tpex.org.tw/web/stock/aftertrading/otc_quotes_no1430/stk_wn1430_result.php?l=zh-tw&d=115%2F08%2F31&se=EW&o=json",
+    "bytes": 146094,
+    "json_type": "dict",
+    "row_count": 0,
+    "top_keys": [
+      "tables",
+      "date",
+      "flagField",
+      "stat"
+    ],
+    "table_count": 1,
+    "fields": [
+      "代號",
+      "名稱",
+      "收盤 ",
+      "漲跌",
+      "開盤 ",
+      "最高 ",
+      "最低",
+      "成交股數  ",
+      " 成交金額(元)",
+      " 成交筆數 ",
+      "最後買價",
+      "最後買量<br>(張數)",
+      "最後賣價",
+      "最後賣量<br>(張數)",
+      "發行股數 ",
+      "次日漲停價 ",
+      "次日跌停價"
+    ],
+    "symbol_3624_row": [
+      "3624",
+      "光頡",
+      "88.30",
+      "-3.50",
+      "90.70",
+      "94.00",
+      "87.30",
+      "5,187,000",
+      "467,131,700",
+      "3,787",
+      "88.30",
+      "23",
+      "88.40",
+      "1",
+      "117,340,842",
+      "97.10",
+      "79.50"
+    ],
+    "ok": true
+  }
+}
