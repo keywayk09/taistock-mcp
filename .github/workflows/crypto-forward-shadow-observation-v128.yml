@@ -7,6 +7,10 @@ on:
     paths:
       - 'research/crypto_forward_shadow_observation_v128.py'
       - '.github/workflows/crypto-forward-shadow-observation-v128.yml'
+  # Forward evidence must come from independent future windows rather than
+  # repeated back-to-back reruns. One hourly sample is the fixed Shadow cadence.
+  schedule:
+    - cron: '0 * * * *'
   # Keep manual replay available while the collector remains Shadow-only.
   workflow_dispatch:
 
