@@ -1,0 +1,93 @@
+name: Ops TPEx relay 20260831 repair
+
+on:
+  push:
+    branches:
+      - 'ops/tpex-relay-20260831-repair'
+    paths:
+      - '.github/workflows/ops-tpex-relay-20260831-repair.yml'
+      - 'runtime/ops-probe/tpex-relay-trigger-*'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build exact-date relay payload from official TPEx OpenAPI
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/tpex-relay-repair
+          mkdir -p /tmp/tpex-relay-repair/2026-08-31
+          node <<'NODE'
+          const fs = require('fs');
+          const crypto = require('crypto');
+          (async () => {
+            const tradeDate = '2026-08-31';
+            const rocCompact = '1150831';
+            const base = '/tmp/tpex-relay-repair/2026-08-31';
+            const endpoints = {
+              institutional:'https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading',
+              margin:'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance',
+              sbl_balance:'https://www.tpex.org.tw/openapi/v1/tpex_margin_sbl',
+              sbl_volume:'https://www.tpex.org.tw/openapi/v1/tpex_short_sell',
+            };
+            const datasets = {};
+            for (const [name,url] of Object.entries(endpoints)) {
+              const r = await fetch(url, {headers:{accept:'application/json','user-agent':'ops-tpex-relay-20260831-repair'}});
+              const text = await r.text();
+              if (!r.ok) throw new Error(`${name}_http_${r.status}:${text.slice(0,200)}`);
+              const body = JSON.parse(text);
+              if (!Array.isArray(body) || !body.length) throw new Error(`${name}_empty`);
+              const dates = new Set(body.slice(0,100).map(row => String(row?.Date ?? row?.date ?? '')).filter(Boolean));
+              if (!dates.has(rocCompact)) throw new Error(`${name}_date_mismatch:${[...dates].slice(0,5).join(',')}`);
+              const payload = JSON.stringify(body);
+              const sha = crypto.createHash('sha256').update(payload).digest('hex');
+              const file = `${name}.json`;
+              fs.writeFileSync(`${base}/${file}`, payload+'\n');
+              datasets[name] = { source_date:tradeDate, row_count:body.length, sha256:sha, endpoint:url, file };
+              console.log(`${name} READY rows=${body.length} sha=${sha}`);
+            }
+            const manifest = {
+              schema:'TPEX_OFFICIAL_RELAY_V2', trade_date:tradeDate,
+              captured_at_utc:new Date().toISOString(), source_owner:'TPEx',
+              transport:'GitHub hosted runner exact-date official TPEx OpenAPI repair',
+              canonical_storage:'keywayk09/tv-papertrader main/data',
+              datasets, capture_errors:{}, status:'COMPLETE', missing_datasets:[]
+            };
+            fs.writeFileSync(`${base}/manifest.json`, JSON.stringify(manifest,null,2)+'\n');
+            fs.writeFileSync('/tmp/tpex-relay-repair/latest.json', JSON.stringify({schema:'TPEX_OFFICIAL_RELAY_LATEST_V2',trade_date:tradeDate,updated_at_utc:new Date().toISOString()},null,2)+'\n');
+          })().catch(e => { console.error(e?.stack || String(e)); process.exit(1); });
+          NODE
+      - name: Publish monotonic relay cache branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'tpex-official-relay-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git fetch origin market-data-relay:refs/remotes/origin/market-data-relay || true
+          if git show-ref --verify --quiet refs/remotes/origin/market-data-relay; then
+            git checkout -B market-data-relay refs/remotes/origin/market-data-relay
+          else
+            git checkout --orphan market-data-relay
+            git rm -rf . || true
+          fi
+          mkdir -p data/market-data/tpex-relay/2026-08-31
+          cp -a /tmp/tpex-relay-repair/2026-08-31/. data/market-data/tpex-relay/2026-08-31/
+          cp /tmp/tpex-relay-repair/latest.json data/market-data/tpex-relay/latest.json
+          git add data/market-data/tpex-relay
+          if git diff --cached --quiet; then
+            echo 'Relay cache already identical.'
+            exit 0
+          fi
+          git commit -m 'market-data: repair exact-date TPEx relay 2026-08-31'
+          git push origin HEAD:market-data-relay
