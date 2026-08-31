@@ -1,0 +1,556 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_RESPONSE_V1",
+  "relay_version": "automation-research-github-relay/v2.0.0",
+  "request_schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "intraday-blind-20260831-0935-v1",
+  "request_kind": "formal_blind_batch",
+  "request_sha256": "b043e0f824b7ed7f166450dea29816a9dc1ce1a5df1d75e8787b2664a9047781",
+  "generated_at_utc": "2026-08-31T10:04:21.116Z",
+  "bridge_base_id": "taistock-mcp-production-automation-research",
+  "read_only": true,
+  "writer_routes": false,
+  "status": "PARTIAL_OR_BLOCKED",
+  "item_count": 60,
+  "items": [
+    {
+      "id": "s01-3624",
+      "symbol": "3624",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s01-3624.json"
+    },
+    {
+      "id": "s02-2481",
+      "symbol": "2481",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s02-2481.json"
+    },
+    {
+      "id": "s03-5309",
+      "symbol": "5309",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s03-5309.json"
+    },
+    {
+      "id": "s04-1815",
+      "symbol": "1815",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s04-1815.json"
+    },
+    {
+      "id": "s05-6202",
+      "symbol": "6202",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s05-6202.json"
+    },
+    {
+      "id": "s06-6205",
+      "symbol": "6205",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s06-6205.json"
+    },
+    {
+      "id": "s07-8110",
+      "symbol": "8110",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s07-8110.json"
+    },
+    {
+      "id": "s08-4906",
+      "symbol": "4906",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s08-4906.json"
+    },
+    {
+      "id": "s09-8043",
+      "symbol": "8043",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s09-8043.json"
+    },
+    {
+      "id": "s10-2406",
+      "symbol": "2406",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s10-2406.json"
+    },
+    {
+      "id": "s11-6456",
+      "symbol": "6456",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s11-6456.json"
+    },
+    {
+      "id": "s12-8028",
+      "symbol": "8028",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s12-8028.json"
+    },
+    {
+      "id": "s13-1605",
+      "symbol": "1605",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s13-1605.json"
+    },
+    {
+      "id": "s14-2332",
+      "symbol": "2332",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s14-2332.json"
+    },
+    {
+      "id": "s15-5425",
+      "symbol": "5425",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s15-5425.json"
+    },
+    {
+      "id": "s16-2492",
+      "symbol": "2492",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s16-2492.json"
+    },
+    {
+      "id": "s17-6207",
+      "symbol": "6207",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s17-6207.json"
+    },
+    {
+      "id": "s18-3028",
+      "symbol": "3028",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s18-3028.json"
+    },
+    {
+      "id": "s19-4566",
+      "symbol": "4566",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s19-4566.json"
+    },
+    {
+      "id": "s20-4919",
+      "symbol": "4919",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s20-4919.json"
+    },
+    {
+      "id": "s21-5475",
+      "symbol": "5475",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s21-5475.json"
+    },
+    {
+      "id": "s22-6182",
+      "symbol": "6182",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s22-6182.json"
+    },
+    {
+      "id": "s23-3149",
+      "symbol": "3149",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s23-3149.json"
+    },
+    {
+      "id": "s24-3006",
+      "symbol": "3006",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s24-3006.json"
+    },
+    {
+      "id": "s25-4123",
+      "symbol": "4123",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s25-4123.json"
+    },
+    {
+      "id": "s26-2301",
+      "symbol": "2301",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s26-2301.json"
+    },
+    {
+      "id": "s27-3189",
+      "symbol": "3189",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s27-3189.json"
+    },
+    {
+      "id": "s28-4939",
+      "symbol": "4939",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s28-4939.json"
+    },
+    {
+      "id": "s29-3441",
+      "symbol": "3441",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s29-3441.json"
+    },
+    {
+      "id": "s30-8150",
+      "symbol": "8150",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s30-8150.json"
+    },
+    {
+      "id": "s31-3231",
+      "symbol": "3231",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s31-3231.json"
+    },
+    {
+      "id": "s32-2367",
+      "symbol": "2367",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s32-2367.json"
+    },
+    {
+      "id": "s33-5340",
+      "symbol": "5340",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s33-5340.json"
+    },
+    {
+      "id": "s34-4540",
+      "symbol": "4540",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s34-4540.json"
+    },
+    {
+      "id": "s35-1303",
+      "symbol": "1303",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s35-1303.json"
+    },
+    {
+      "id": "s36-2399",
+      "symbol": "2399",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s36-2399.json"
+    },
+    {
+      "id": "s37-6770",
+      "symbol": "6770",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s37-6770.json"
+    },
+    {
+      "id": "s38-1717",
+      "symbol": "1717",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s38-1717.json"
+    },
+    {
+      "id": "s39-6127",
+      "symbol": "6127",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s39-6127.json"
+    },
+    {
+      "id": "s40-2363",
+      "symbol": "2363",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s40-2363.json"
+    },
+    {
+      "id": "s41-3707",
+      "symbol": "3707",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s41-3707.json"
+    },
+    {
+      "id": "s42-8088",
+      "symbol": "8088",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s42-8088.json"
+    },
+    {
+      "id": "s43-3645",
+      "symbol": "3645",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s43-3645.json"
+    },
+    {
+      "id": "s44-2455",
+      "symbol": "2455",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s44-2455.json"
+    },
+    {
+      "id": "s45-3055",
+      "symbol": "3055",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s45-3055.json"
+    },
+    {
+      "id": "s46-5351",
+      "symbol": "5351",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s46-5351.json"
+    },
+    {
+      "id": "s47-6155",
+      "symbol": "6155",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s47-6155.json"
+    },
+    {
+      "id": "s48-6285",
+      "symbol": "6285",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s48-6285.json"
+    },
+    {
+      "id": "s49-6244",
+      "symbol": "6244",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s49-6244.json"
+    },
+    {
+      "id": "s50-3605",
+      "symbol": "3605",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s50-3605.json"
+    },
+    {
+      "id": "s51-4989",
+      "symbol": "4989",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s51-4989.json"
+    },
+    {
+      "id": "s52-3706",
+      "symbol": "3706",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s52-3706.json"
+    },
+    {
+      "id": "s53-2413",
+      "symbol": "2413",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s53-2413.json"
+    },
+    {
+      "id": "s54-2329",
+      "symbol": "2329",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s54-2329.json"
+    },
+    {
+      "id": "s55-2426",
+      "symbol": "2426",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s55-2426.json"
+    },
+    {
+      "id": "s56-2006",
+      "symbol": "2006",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s56-2006.json"
+    },
+    {
+      "id": "s57-2409",
+      "symbol": "2409",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s57-2409.json"
+    },
+    {
+      "id": "s58-8064",
+      "symbol": "8064",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s58-8064.json"
+    },
+    {
+      "id": "s59-2484",
+      "symbol": "2484",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s59-2484.json"
+    },
+    {
+      "id": "s60-2354",
+      "symbol": "2354",
+      "trade_date": "2026-08-31",
+      "decision_time": "09:35",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/s60-2354.json"
+    }
+  ]
+}
