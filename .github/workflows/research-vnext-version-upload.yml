@@ -1,0 +1,172 @@
+name: Research VNext Undeployed Version Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type UPLOAD_UNDEPLOYED_VNEXT_VERSION to authorize creation of an undeployed Worker version.
+        required: true
+        default: ""
+        type: string
+      expected_sha:
+        description: Exact 40-character branch commit SHA that must match the workflow checkout.
+        required: true
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-vnext-undeployed-version-upload
+  cancel-in-progress: false
+
+jobs:
+  upload-undeployed-version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      RESEARCH_VNEXT_OAUTH_KV_ID: ${{ secrets.RESEARCH_VNEXT_OAUTH_KV_ID }}
+      WRANGLER_SEND_METRICS: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pinned repository dependencies
+        run: npm install
+
+      - name: Enforce branch, SHA, credential and confirmation gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirmation }}" != 'UPLOAD_UNDEPLOYED_VNEXT_VERSION' ]; then
+            echo 'Exact upload confirmation is required.' >&2
+            exit 78
+          fi
+          if [ "${GITHUB_REF_NAME}" != 'refactor/research-vnext-foundation-20260901' ]; then
+            echo "Refusing version upload from unexpected ref ${GITHUB_REF_NAME}." >&2
+            exit 78
+          fi
+          if ! [[ "${{ inputs.expected_sha }}" =~ ^[0-9a-f]{40}$ ]] || [ "${{ inputs.expected_sha }}" != "${GITHUB_SHA}" ]; then
+            echo 'expected_sha must exactly match the checked-out branch commit.' >&2
+            exit 78
+          fi
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo 'Cloudflare upload credentials are required.' >&2
+            exit 78
+          fi
+          if ! [[ "${RESEARCH_VNEXT_OAUTH_KV_ID:-}" =~ ^[0-9a-fA-F]{32}$ ]]; then
+            echo 'RESEARCH_VNEXT_OAUTH_KV_ID must be an existing 32-hex namespace id.' >&2
+            exit 78
+          fi
+          echo 'UNDEPLOYED_VERSION_UPLOAD_GATE=PASS'
+
+      - name: Build bounded upload config locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/research-vnext-version-upload
+          node scripts/research-vnext-version-upload-plan.mjs \
+            --source wrangler.jsonc \
+            --config-out tmp/research-vnext-version-upload/wrangler.upload.jsonc \
+            --receipt-out tmp/research-vnext-version-upload/plan.json
+
+      - name: Snapshot active deployments before upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          config_path='tmp/research-vnext-version-upload/wrangler.upload.jsonc'
+          npx wrangler deployments list --name taistock-mcp --json --config "$config_path" --experimental-provision=false --experimental-auto-create=false > tmp/research-vnext-version-upload/deployments-before.json
+
+      - name: Upload version without traffic promotion
+        shell: bash
+        run: |
+          set -euo pipefail
+          config_path='tmp/research-vnext-version-upload/wrangler.upload.jsonc'
+          tag="research-vnext-${GITHUB_SHA:0:12}-${GITHUB_RUN_ID}"
+          printf '%s\n' "$tag" > tmp/research-vnext-version-upload/version-tag.txt
+          npx wrangler versions upload --config "$config_path" --experimental-provision=false --experimental-auto-create=false --tag "$tag" --message "Research VNext undeployed candidate ${GITHUB_SHA}"
+
+      - name: Resolve uploaded version and prove active deployment unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          config_path='tmp/research-vnext-version-upload/wrangler.upload.jsonc'
+          npx wrangler versions list --name taistock-mcp --json --config "$config_path" --experimental-provision=false --experimental-auto-create=false > tmp/research-vnext-version-upload/versions.json
+          npx wrangler deployments list --name taistock-mcp --json --config "$config_path" --experimental-provision=false --experimental-auto-create=false > tmp/research-vnext-version-upload/deployments-after.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path('tmp/research-vnext-version-upload')
+          tag = (root / 'version-tag.txt').read_text().strip()
+          versions = json.loads((root / 'versions.json').read_text())
+          before = json.loads((root / 'deployments-before.json').read_text())
+          after = json.loads((root / 'deployments-after.json').read_text())
+          if before != after:
+              raise SystemExit('active_deployment_changed_during_version_upload')
+
+          roots = versions if isinstance(versions, list) else [versions]
+          matches = {}
+
+          def walk(value):
+              if isinstance(value, dict):
+                  text = json.dumps(value, sort_keys=True)
+                  if tag in text:
+                      version_id = value.get('id') or value.get('version_id') or value.get('versionId')
+                      if isinstance(version_id, str) and version_id:
+                          matches[version_id] = value
+                  for child in value.values():
+                      walk(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      walk(child)
+
+          for row in roots:
+              walk(row)
+          if len(matches) != 1:
+              raise SystemExit(f'uploaded_version_resolution_failed:{list(matches)}')
+          version_id = next(iter(matches))
+
+          plan = json.loads((root / 'plan.json').read_text())
+          receipt = {
+              'schema': 'RESEARCH_VNEXT_VERSION_UPLOAD_EXECUTION_RECEIPT_V1',
+              'status': 'UPLOADED_UNDEPLOYED',
+              'source_sha': os.environ['GITHUB_SHA'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'worker_name': 'taistock-mcp',
+              'version_tag': tag,
+              'version_id': version_id,
+              'plan_source_sha256': plan['source_sha256'],
+              'upload_config_sha256': plan['upload_config_sha256'],
+              'oauth_kv_id_validated': True,
+              'oauth_kv_id_stored_in_receipt': False,
+              'cron_in_upload_config': False,
+              'resource_provisioning': 'DISABLED',
+              'trigger_mutation': 'NONE',
+              'active_deployment_unchanged': True,
+              'traffic_shift': 'NONE',
+              'production_mcp_contacted': False,
+          }
+          (root / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          print(f'uploaded_version_id={version_id}')
+          print('active_deployment_unchanged=true')
+          print('traffic_shift=NONE')
+          PY
+
+      - name: Upload version receipt only
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-vnext-undeployed-version-${{ github.run_id }}
+          path: tmp/research-vnext-version-upload/receipt.json
+          if-no-files-found: error
+          retention-days: 30
