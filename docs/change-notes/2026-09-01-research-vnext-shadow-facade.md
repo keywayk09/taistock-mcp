@@ -54,6 +54,37 @@ The facade exposes a frozen contract plus four VNext capability groups:
 
 It contains no tool registration and no direct provider access.
 
+## Final GREEN evidence
+
+Validated branch head: `6b25ff4332eb7cb1ec5ebbd37df958c635734743`.
+
+Research VNext Incremental Gate:
+
+- Run `33499196388`
+- Job `99828313013`
+- protected-surface scope gate: **PASS**
+- all VNext tests: **PASS**
+- VNext-only delegation assertions: **PASS**
+- Type-check: **PASS**
+- Full existing `test:research`: **PASS**
+- Wrangler dry-run: **PASS**
+- receipt/upload: **PASS**
+
+Independent repository CI:
+
+- Run `33499196465`
+- Job `99828313102`
+- Type-check: **PASS**
+- Full existing `test:research`: **PASS**
+- Wrangler dry-run: **PASS**
+
+Artifact:
+
+- ID `9796998155`
+- name `research-vnext-evidence-33499196388`
+- digest `sha256:9f58efd36fe25c3e54fdbf22520f2b509caad6ebb6c9dcc3c50c4e32d6c717c2`
+- expires `2026-10-01`
+
 ## Explicitly not changed
 
 - `src/v6/research-tools.ts`
@@ -71,8 +102,10 @@ It contains no tool registration and no direct provider access.
 | Adapter prerequisite | Run `33498838356` | PASS |
 | Facade RED | Run `33499093075`, job `99827986998` | EXPECTED FAIL — missing facade |
 | Facade implementation | Commit `7abdc510ffdd29b030e2cc5b045bee937ab29cae` | built, unregistered |
-| Facade GREEN | pending | pending |
+| Facade GREEN | Run `33499196388`, job `99828313013` | PASS |
+| Independent repo regression | Run `33499196465`, job `99828313102` | PASS |
+| Immutable-style evidence | Artifact `9796998155` | PASS |
 
 ## Final disposition
 
-`IN_PROGRESS_GREEN_VALIDATION`
+`PASS_SHADOW_FACADE_UNREGISTERED`
