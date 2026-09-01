@@ -60,6 +60,7 @@ Any failure must return `FAIL_CLOSED_MANUAL_INTERVENTION`. Automatic rollback re
 RED test:
 
 - `tests/research-vnext-atomic-execution-mechanics.test.ts`
+- RED commit: `1c5ac73ec669b0f5d52d8b7b7c2cd74d4dc6d585`
 
 A legal RED requires:
 
@@ -71,9 +72,38 @@ A legal RED requires:
 6. marker `ATOMIC_EXECUTION_MECHANICS_RED_READY=PASS` prints;
 7. only then may the test fail because `src/v6/research-vnext/atomic-execution-mechanics.ts` does not exist.
 
-Any earlier failure is a premise/harness failure and does not authorize implementation.
+## RED evidence — ACCEPTED
 
-## GREEN implementation allowed after accepted RED
+Research VNext Incremental Gate:
+
+- Run `33516205188`
+- Job `99883740352`
+- Change Note / protected-surface scope gate: **PASS**
+- Phase 10B bounded exception: `PHASE10B_HANDLER_CUTOVER_EXCEPTION=PASS`
+- authorization-policy test immediately before mechanics: **PASS**
+- atomic-deploy-preflight test immediately before mechanics: **PASS**
+- exact marker: `ATOMIC_EXECUTION_MECHANICS_RED_READY=PASS`
+- Owner tool count: `123`
+- Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- blocked skeleton: `SEALED`
+- Cloudflare credentials wired: `false`
+- Production commands present: `false`
+- Production deploy authorized: `false`
+- Production mutation: **NONE**
+- terminal result: **EXPECTED RED**
+- exact terminal error: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/atomic-execution-mechanics.ts`
+- downstream incremental type-check / full `test:research` / canonical dry-run / atomic-config dry-run: correctly **SKIPPED**
+
+Independent validation on the RED commit:
+
+- Type check Run `33516204985`: **SUCCESS**, including type-check, full `test:research`, and canonical Wrangler dry-run
+- Isolation Run `33516204947`: FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**; VNEXT failed only on the same expected missing mechanics module; isolation finalizer failed closed
+
+Disposition: `ATOMIC_EXECUTION_MECHANICS_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWED`.
+
+The RED failure remains immutable and is not rewritten as PASS.
+
+## GREEN implementation allowed
 
 Add only:
 
@@ -104,14 +134,10 @@ The planner may only return operation intents / receipts. It must not contain ex
 - Legacy deletion;
 - PR #206 merge.
 
-## RED evidence
-
-Pending.
-
 ## GREEN evidence
 
 Pending.
 
 ## Final disposition
 
-`ATOMIC_EXECUTION_MECHANICS_RED_PENDING`
+`ATOMIC_EXECUTION_MECHANICS_GREEN_IMPLEMENTATION_ALLOWED`
