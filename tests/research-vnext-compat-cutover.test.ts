@@ -112,8 +112,17 @@ assert.doesNotMatch(executable, /hypothesis\s*=|interpretation\s*=|buildReviewIn
 
 const ownerSource = fs.readFileSync(path.join(repoRoot, "src/v6/owner-content-handler.ts"), "utf8");
 const researchToolsSource = fs.readFileSync(path.join(repoRoot, "src/v6/research-tools.ts"), "utf8");
-assert.equal(ownerSource.includes("compat-cutover"), false, "Phase 10A must not modify Owner registration");
-assert.equal(researchToolsSource.includes("compat-cutover"), false, "Phase 10A bridge must remain unregistered until its own GREEN");
+assert.equal(ownerSource.includes("compat-cutover"), false, "Owner must not directly import/register the compat cutover");
+assert.match(
+  researchToolsSource,
+  /from\s+["']\.\/research-vnext\/compat-cutover(?:\.ts)?["']/,
+  "Phase 10B may integrate the Phase 10A bridge only through the approved compat-cutover surface",
+);
+assert.doesNotMatch(
+  researchToolsSource,
+  /research-vnext\/(research-gateway|shadow-facade|compute\/|memory\/)/,
+  "research-tools must not bypass compat-cutover after Phase 10B integration",
+);
 
 console.log(JSON.stringify({
   schema: "RESEARCH_VNEXT_COMPAT_CUTOVER_TEST_V1",
@@ -124,5 +133,6 @@ console.log(JSON.stringify({
   legacy_fallback_cases: 4,
   loader: "LAZY_CACHED",
   public_abi: "UNCHANGED",
-  production_registration: "UNCHANGED",
+  owner_direct_registration: "FORBIDDEN",
+  production_registration: "COMPAT_CUTOVER_BRANCH_ONLY",
 }, null, 2));
