@@ -199,13 +199,42 @@ Evidence:
 
 This cleanup RED is accepted and remains immutable.
 
-## Cleanup lifecycle target
+## Cleanup lifecycle GREEN — PASS
 
-The only acceptable post-cleanup state is:
+Cleanup lifecycle correction commit:
 
-`CLEANED_METADATA_PREFLIGHT_FAIL_CLOSED_ACTIVE_VERSION_DRIFT_ROOT_CAUSE_MAIN_WATCHDOG`
+- `e817c209b99c57df9f11968d8c94717233c73016`
 
-That state means:
+GREEN verification:
+
+- Research VNext Incremental Gate Run `33540339464`: `SUCCESS`
+- Type check Run `33540339406`: `SUCCESS`
+- Research VNext Isolation Gate Run `33540339417`: `SUCCESS`
+- same-head P7 / P8 / P9 / P11 / P12 / P13 / P13b / P14 / P15 / P16: `SUCCESS`
+- Owner ABI remains frozen at 123 tools / frozen digest
+- Production mutation: `NONE`
+
+Immutable-style GREEN evidence:
+
+- Artifact ID: `9813349567`
+- Artifact name: `research-vnext-evidence-33540339464`
+- Artifact digest: `sha256:68ff943987e8cb6d541120635e85e941f650f0aeb1e9df67b2d5f81a9832b660`
+
+The lifecycle test now accepts workflow/auth absence only when the Change Note proves the exact fail-closed live attempt, no OAuth KV reads, no authenticated MCP probe, cleanup ordering, immutable RED evidence, and the canonical main watchdog writer-collision root cause. Absence alone cannot PASS.
+
+## Cleanup docs-only final seal
+
+This commit is docs-only. It must itself pass:
+
+- Research VNext Incremental Gate;
+- Type check;
+- Research VNext Isolation Gate.
+
+Only after those three gates are `SUCCESS` is the metadata-preflight lifecycle sealed as:
+
+`CLEANED_METADATA_PREFLIGHT_FAIL_CLOSED_ACTIVE_VERSION_DRIFT_ROOT_CAUSE_MAIN_WATCHDOG_SEALED`
+
+That disposition means:
 
 - live metadata preflight failed before OAuth KV inspection;
 - no credential value was read or exposed;
