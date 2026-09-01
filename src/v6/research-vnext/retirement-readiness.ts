@@ -1,0 +1,15 @@
+export const RESEARCH_VNEXT_RETIREMENT_POLICY = Object.freeze({
+  schema: "RESEARCH_VNEXT_RETIREMENT_POLICY_V1" as const,
+  version: "research-vnext-retirement-policy/v1.0.0" as const,
+  reasoning_owner: "GPT" as const,
+  branch_switch_validation: "GREEN_RECEIPT_REQUIRED" as const,
+  production_switch_validation: "REQUIRED_BEFORE_LEGACY_RETIREMENT" as const,
+  legacy_retirement: "BLOCKED_UNTIL_PRODUCTION_SWITCH_STABLE" as const,
+  legacy_fallback: "MUST_REMAIN_AVAILABLE" as const,
+  public_abi_drift: "FORBIDDEN" as const,
+  direct_market_provider_access: "FORBIDDEN" as const,
+  ohlc_write: "FORBIDDEN" as const,
+  automatic_strategy_promotion: "FORBIDDEN" as const,
+  production_mutation_this_phase: "NONE" as const,
+  production_deploy_this_phase: "NONE" as const,
+});
