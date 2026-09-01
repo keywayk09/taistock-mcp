@@ -18,7 +18,9 @@ Current Cloudflare Workers/Wrangler documentation distinguishes Worker Versions 
 - trigger changes are applied separately with `wrangler triggers deploy` when using the versions workflow;
 - a Worker version contains code, bindings and compatibility configuration;
 - KV bindings require a concrete namespace ID;
-- this Worker uses Durable Objects, so version Preview URLs cannot be relied upon for validation.
+- Wrangler exposes automatic provisioning / auto-create controls and both must be forced off for this path;
+- this Worker uses Durable Objects, so version Preview URLs cannot be relied upon for validation;
+- structured Wrangler output and `versions list --json` are available for machine-readable version evidence.
 
 This phase freezes those constraints into repository tests and prepares a future manually authorized, undeployed version-upload path. It does **not** execute that path.
 
@@ -73,8 +75,9 @@ The future workflow must:
 RED test:
 
 - `tests/research-vnext-version-upload-isolation.test.ts`
+- RED commit: `cf7fa5d54548c77396e6621637c2ec21c37d9891`
 
-A legal RED requires all prechecks to pass first:
+A legal RED required all prechecks to pass first:
 
 - Production Validation Preflight remains sealed;
 - public ABI fixture remains `123` / frozen digest;
@@ -84,7 +87,31 @@ A legal RED requires all prechecks to pass first:
 - marker `VERSION_UPLOAD_ISOLATION_RED_READY=PASS` prints;
 - only then failure may occur because `scripts/research-vnext-version-upload-plan.mjs` does not exist.
 
-Any earlier failure is harness or premise failure and does not authorize implementation.
+## RED evidence — ACCEPTED
+
+Research VNext Incremental Gate:
+
+- Run `33508779546`
+- Job `99859111278`
+- Change Note / protected-surface gate: **PASS**
+- Phase 10B bounded exception: `PHASE10B_HANDLER_CUTOVER_EXCEPTION=PASS`
+- all earlier Research VNext tests before this test: **PASS**
+- Production Validation Preflight test: **PASS**
+- public ABI snapshot immediately before RED: **PASS** — `123` tools / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- Switch Stability precheck: **PASS**
+- exact marker: `VERSION_UPLOAD_ISOLATION_RED_READY=PASS`
+- source OAuth KV ID present: `false`
+- source Cron present: `true`
+- canonical deploy resource side effects: `true`
+- Legacy retirement: `BLOCKED_UNTIL_PRODUCTION_SWITCH_STABLE`
+- Production mutation: **NONE**
+- terminal result: **EXPECTED RED**
+- exact error: `ERR_MODULE_NOT_FOUND` for `scripts/research-vnext-version-upload-plan.mjs`
+- downstream incremental type-check / full `test:research` / Wrangler dry-run: correctly **SKIPPED**
+
+Disposition: `VERSION_UPLOAD_ISOLATION_RED_ACCEPTED_IMPLEMENTATION_ALLOWED`.
+
+The failure occurred only after every premise and frozen ABI check passed. Implementation is authorized only for the local planner and manual undeployed version-upload workflow described here; no Production execution is authorized.
 
 ## GREEN requirements
 
@@ -122,10 +149,6 @@ Then require all VNext tests, frozen ABI, type-check, full `test:research`, Wran
 - Owner/Family/OAuth/Market Data/FORMAL/OHLC runtime changes;
 - public ABI changes.
 
-## RED evidence
-
-Pending.
-
 ## GREEN evidence
 
 Pending.
@@ -136,4 +159,4 @@ Even after this phase passes, actual `versions upload` remains a Production-acco
 
 ## Final disposition
 
-`VERSION_UPLOAD_ISOLATION_RED_PENDING`
+`VERSION_UPLOAD_ISOLATION_GREEN_IMPLEMENTATION_ALLOWED`
