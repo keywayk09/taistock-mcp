@@ -5,6 +5,7 @@
 - PR: `#206` — must remain Draft/open/unmerged
 - Prerequisite Snapshot Core seal: `3bac7024cd82215fc705a1b943d79771b273437f`
 - Snapshot Core seal CI: Incremental `33521334862` SUCCESS; Type check `33521334875` SUCCESS; Isolation `33521334946` SUCCESS
+- Same-tree verification CI: Incremental `33521557294` SUCCESS; Type check `33521557144` SUCCESS; Isolation `33521557312` SUCCESS
 - Snapshot Core final disposition: `PASS_PRODUCTION_CONTROL_PLANE_SNAPSHOT_CORE_READ_ONLY_PRODUCTION_UNCHANGED`
 - Frozen Owner ABI: `123` tools / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
 - Production deploy authorization: **FALSE**
@@ -17,53 +18,48 @@ Prepare and test a manual-only Cloudflare Production control-plane snapshot harn
 
 This phase may add a GET-only client and a `workflow_dispatch` workflow, but the workflow must **not be dispatched in this phase**. The Production execution hard blocker remains active.
 
-## Current Cloudflare read-only surfaces
+## Read-only surfaces
 
-The harness is restricted to these three Worker control-plane GETs for `taistock-mcp`:
+The harness is restricted to exactly three Worker control-plane GETs for `taistock-mcp`:
 
-1. `GET /accounts/{account_id}/workers/scripts/taistock-mcp/deployments`
-2. `GET /accounts/{account_id}/workers/scripts/taistock-mcp/schedules`
-3. `GET /accounts/{account_id}/workers/scripts/taistock-mcp/settings`
+1. `/accounts/{account_id}/workers/scripts/taistock-mcp/deployments`
+2. `/accounts/{account_id}/workers/scripts/taistock-mcp/schedules`
+3. `/accounts/{account_id}/workers/scripts/taistock-mcp/settings`
 
-Expected Cloudflare response facts:
-
-- deployments: `result.deployments[]`, each with UUID `id` and `versions[]` of `{version_id, percentage}`;
-- schedules: `result.schedules[]` with `cron`;
-- settings: `result.bindings[]`, including KV `{name,type,namespace_id}` and Durable Object `{name,type,class_name}` bindings.
-
-No KV list/create API is needed because `OAUTH_KV` namespace ID is available from Worker settings.
+The settings response supplies the existing `OAUTH_KV` namespace ID and Durable Object binding metadata, so no KV create/list mutation path is required.
 
 ## Harness contract
 
-The future client must:
+The client must:
 
 - make exactly three GET requests;
 - use Bearer auth supplied at runtime only;
-- select the current deployment and require exactly one active version at `100%`;
+- select the current deployment result and require exactly one version at `100%`;
 - require Cron exactly `*/5 * * * *`;
 - read `OAUTH_KV` namespace ID from settings;
 - require `MCP_OBJECT` → `MyMCP` and `FAMILY_MCP_OBJECT` → `FamilyMCP`;
-- compute a deterministic SHA-256 fingerprint over normalized Worker bindings;
+- compute a deterministic SHA-256 fingerprint over normalized non-secret Worker binding metadata;
 - call the sealed Snapshot Core validator;
-- never include the API token in the receipt;
-- fail closed on non-2xx responses, `success:false`, missing/ambiguous data, or snapshot-core validation failure.
+- never include the API token or plain-text binding values in the receipt;
+- fail closed on non-2xx responses, `success:false`, missing/ambiguous data, or Snapshot Core validation failure.
 
-The future workflow must:
+The workflow must:
 
 - be `workflow_dispatch` only;
 - require confirmation exactly `READ_ONLY_PRODUCTION_CONTROL_PLANE_SNAPSHOT`;
-- require an exact 40-hex expected SHA and checkout that exact SHA;
+- require an exact lowercase 40-hex expected SHA and checkout that exact SHA;
 - use `permissions: contents: read`;
 - expose Cloudflare credentials only as step environment secrets;
 - execute only the GET-only snapshot client;
 - upload the resulting JSON receipt as an artifact;
-- contain no Wrangler, curl, deploy workflow calls, Production MCP endpoint calls, or mutation verbs.
+- contain no deployment/rollback/version mutation command or Production MCP endpoint call.
 
 ## TEST BEFORE BUILD
 
 RED test:
 
 - `tests/research-vnext-production-control-plane-live-snapshot.test.ts`
+- RED commit: `a89fdf1b4e33f9b81fb94bf0cd3d5a3ffe0d4107`
 
 A legal RED requires:
 
@@ -74,30 +70,55 @@ A legal RED requires:
 5. marker `PRODUCTION_CONTROL_PLANE_LIVE_SNAPSHOT_RED_READY=PASS` prints;
 6. only then may the test fail because `scripts/research-vnext-production-control-plane-live-snapshot.mjs` does not exist.
 
-After accepted RED, GREEN may atomically add:
+## RED evidence — ACCEPTED
+
+Research VNext Incremental Gate:
+
+- Run `33521942833`
+- Job `99903129043`
+- Change Note / protected-surface scope gate: **PASS**
+- all prior VNext tests before the current test: **PASS**
+- exact marker: `PRODUCTION_CONTROL_PLANE_LIVE_SNAPSHOT_RED_READY=PASS`
+- Owner tool count: `123`
+- Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- Snapshot Core: `SEALED`
+- blocked execution workflow: `SEALED`
+- capture mode: `GET_ONLY_MANUAL_NOT_EXECUTED`
+- Production deploy authorized: `false`
+- Production mutation: **NONE**
+- terminal result: **EXPECTED RED**
+- exact terminal error: `ERR_MODULE_NOT_FOUND` for `scripts/research-vnext-production-control-plane-live-snapshot.mjs`
+- downstream incremental type-check / full `test:research` / canonical dry-run / atomic-config dry-run: correctly **SKIPPED**
+
+Independent validation on the RED commit:
+
+- Type check Run `33521942933`: **SUCCESS**, including type-check, full `test:research`, and canonical Wrangler dry-run
+- Isolation Run `33521942878`: FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**; VNEXT failed only on the same expected missing GET-only client; isolation finalizer failed closed
+
+Disposition: `PRODUCTION_CONTROL_PLANE_LIVE_SNAPSHOT_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWED`.
+
+The RED failure remains immutable and is not rewritten as PASS.
+
+## GREEN implementation allowed
+
+Atomically add only:
 
 - `scripts/research-vnext-production-control-plane-live-snapshot.mjs`
 - `.github/workflows/research-vnext-production-control-plane-live-snapshot.yml`
 
-The GREEN test uses injected mock `fetch` responses matching current Cloudflare API shapes and must prove all requests are GET-only and token-safe before the workflow exists on the branch.
+The client must remain GET-only and token-safe. The workflow must remain manual-only and **must not be dispatched in this phase**.
 
 ## Explicitly forbidden
 
 - dispatching the live snapshot workflow in this phase;
 - POST / PUT / PATCH / DELETE Cloudflare calls;
-- `wrangler deploy`, rollback, versions upload/deploy;
-- curl-based control-plane mutations;
+- Production deploy, rollback, or version mutation;
 - Production MCP `/my-mcp`, `/health`, or workers.dev contact;
 - modifying/removing the atomic Production execution hard blocker;
-- real deploy or rollback;
 - OAuth KV mutation;
 - Cron mutation;
 - Legacy deletion;
 - PR #206 merge.
-
-## RED evidence
-
-Pending.
 
 ## GREEN evidence
 
@@ -105,4 +126,4 @@ Pending.
 
 ## Final disposition
 
-`PRODUCTION_CONTROL_PLANE_LIVE_SNAPSHOT_RED_PENDING`
+`PRODUCTION_CONTROL_PLANE_LIVE_SNAPSHOT_GREEN_IMPLEMENTATION_ALLOWED`

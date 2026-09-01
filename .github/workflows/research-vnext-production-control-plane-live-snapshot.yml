@@ -1,0 +1,71 @@
+name: Research VNext Production Control-Plane Live Snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type READ_ONLY_PRODUCTION_CONTROL_PLANE_SNAPSHOT
+        required: true
+        type: string
+      expected_sha:
+        description: Exact 40-hex Research VNext source SHA to snapshot against
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact requested SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.expected_sha }}
+          persist-credentials: false
+
+      - name: Fail closed unless read-only confirmation and SHA match
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirmation }}" != "READ_ONLY_PRODUCTION_CONTROL_PLANE_SNAPSHOT" ]; then
+            echo "FAIL: exact read-only confirmation required"
+            exit 78
+          fi
+          if ! [[ "${{ inputs.expected_sha }}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "FAIL: expected_sha must be exact lowercase 40-hex"
+            exit 78
+          fi
+          actual="$(git rev-parse HEAD)"
+          if [ "$actual" != "${{ inputs.expected_sha }}" ]; then
+            echo "FAIL: checked out SHA does not match expected_sha"
+            exit 78
+          fi
+          echo "READ_ONLY_PRODUCTION_CONTROL_PLANE_SNAPSHOT_AUTHORIZED=PASS"
+          echo "production_deploy_authorized=false"
+          echo "production_mutation=NONE"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Capture GET-only Production control-plane snapshot
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RESEARCH_VNEXT_EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types scripts/research-vnext-production-control-plane-live-snapshot.mjs \
+            > research-vnext-production-control-plane-live-snapshot.json
+
+      - name: Upload immutable-style read-only snapshot receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-vnext-production-control-plane-live-snapshot-${{ github.run_id }}
+          path: research-vnext-production-control-plane-live-snapshot.json
+          if-no-files-found: error
+          retention-days: 30
