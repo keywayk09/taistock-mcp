@@ -99,8 +99,46 @@ Evidence:
 - Research VNext Incremental Gate Run `33535719817`: `FAILURE`
 - Type check Run `33535719677`: `SUCCESS`
 - Research VNext Isolation Gate Run `33535719927`: `FAILURE`
-- Isolation failure is confined to VNEXT; the unrelated research/domain workflows remained green.
 
 The failure is a test-only wording false positive. The lifecycle test used an unanchored `doesNotMatch` for `PASS_ATOMIC_PRODUCTION_ONE_SHOT_DEPLOY_AND_CLEANUP_SEALED`, while this Change Note intentionally contains that token inside the warning sentence stating that the credential-blocked state MUST NOT be relabeled as a full authenticated PASS.
 
-GREEN-A remains immutable and is not promoted. The correction is limited to making the forbidden full-PASS check line/disposition anchored; no Production workflow, authorization, runtime, Worker deployment, rollback, Cron, OAuth KV, Durable Object lifecycle or Legacy state is changed.
+GREEN-A remains immutable and is not promoted. No Production mutation occurred.
+
+## GREEN-B — accepted
+
+Single-point anchored-disposition correction:
+
+- test commit: `2558f71f06e22514cda0d42c311fa671a7fc7b09`
+- correction: full authenticated PASS is rejected only when it appears as an actual standalone/Disposition lifecycle value; explanatory warning prose no longer produces a false positive.
+- Production one-shot workflow: `ABSENT`
+- Production authorization: `ABSENT`
+- Production mutation during GREEN-B: `NONE`
+
+GREEN-B verification:
+
+- Research VNext Incremental Gate Run `33537523134`: `SUCCESS`
+- Type check Run `33537523206`: `SUCCESS`
+- Research VNext Isolation Gate Run `33537523282`: `SUCCESS`
+- P7 / P8 / P9 / P11 / P12 / P13 / P13b / P14 / P15 / P16 workflows on the same head: `SUCCESS`
+
+Immutable-style GREEN-B evidence:
+
+- Artifact ID: `9812262947`
+- Artifact name: `research-vnext-evidence-33537523134`
+- Artifact digest: `sha256:b35a39d79e5dd8aee14a4790e344b8349057351e0ea7a5e45675a95b18a0f1f4`
+
+## Final docs-only seal
+
+This commit is docs-only and must itself pass all three gates:
+
+- Research VNext Incremental Gate;
+- Type check;
+- Research VNext Isolation Gate.
+
+Only after all three are `SUCCESS` is the cleanup lifecycle sealed as:
+
+`SEALED_DEPLOYED_CONTROL_PLANE_PASS_AUTHENTICATED_PROBE_CREDENTIAL_BLOCKED_NO_ROLLBACK_TEMPORARY_SURFACES_CLEANED`
+
+This seal does not authorize another deploy, rollback, Legacy retirement, Cron mutation, OAuth KV mutation, Durable Object migration/lifecycle mutation, Family/Market Data/FORMAL Blind/OHLC mutation, or PR merge.
+
+The authenticated runtime probe remains a distinct blocker and must be satisfied with a valid read-only credential before any future full authenticated Production PASS or Legacy retirement decision.
