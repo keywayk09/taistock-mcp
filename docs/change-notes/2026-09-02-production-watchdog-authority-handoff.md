@@ -47,8 +47,41 @@ Required active lease fields:
 4. Lease malformed, future-issued beyond tolerance, too long, or source ref/SHA unverifiable → fail the watchdog job without dispatching Production.
 5. Lease never authorizes a Worker deploy, rollback, Cron mutation, OAuth/KV mutation, Durable Object lifecycle change, or Legacy retirement.
 
-## TEST BEFORE BUILD
+## TEST BEFORE BUILD — formal RED accepted
 
-The RED test must land before the evaluator/workflow implementation. It must prove current watchdog lacks the authority lease contract and fail only on that missing capability.
+RED head:
 
-No Production action is authorized by the RED or GREEN implementation commits.
+- `150400d6c9816a8959dfbfe0039fb67681c5e4e9`
+
+Evidence:
+
+- Type check workflow Run `33540549007`: `FAILURE`
+- Job `99965419355`: `FAILURE`
+- TypeScript `npm run type-check`: `SUCCESS`
+- existing Research / Family / Market Data regressions reached the ops-contract test without an earlier failure
+- marker before terminal RED: `PRODUCTION_WATCHDOG_AUTHORITY_HANDOFF_RED_READY=PASS`
+- watchdog recovery writer: `PRESENT`
+- authority evaluator: `ABSENT`
+- `production_deploy_authorized=false`
+- `production_mutation=NONE`
+- exact terminal assertion: `production authority lease evaluator must exist only after accepted RED`
+- Cloudflare dry-run step was skipped because the intended RED stopped the test workflow first
+- Production contact/mutation from this RED: `NONE`
+
+The RED remains immutable and is not rewritten as PASS.
+
+Disposition:
+
+`PRODUCTION_WATCHDOG_AUTHORITY_HANDOFF_RED_ACCEPTED_MINIMAL_GREEN_ALLOWED`
+
+## GREEN boundary
+
+The minimum implementation allowed after the accepted RED is limited to:
+
+- one credential-free lease evaluator script;
+- one watchdog read/gate path before the existing receipt logic;
+- exact Git ref/SHA ancestry verification for an active lease;
+- preservation of the existing main recovery logic when the lease is absent or expired;
+- fail-closed behavior for malformed or unverifiable leases.
+
+No lease is created by the GREEN implementation itself, so GREEN CI cannot suppress or mutate Production.
