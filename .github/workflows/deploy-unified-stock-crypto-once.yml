@@ -1,4 +1,4 @@
-name: Deploy Unified Stock Crypto Once
+name: Validate Unified Stock Crypto
 
 on:
   push:
@@ -7,22 +7,23 @@ on:
       - '.github/workflows/deploy-unified-stock-crypto-once.yml'
   workflow_dispatch:
 
+# IMPORTANT: this workflow is validation-only.
+# Production deployment authority for taistock-mcp belongs exclusively to
+# .github/workflows/deploy-cloudflare-production.yml.
 permissions:
   contents: read
 
 concurrency:
-  group: unified-stock-crypto-one-shot
-  cancel-in-progress: false
+  group: unified-stock-crypto-validation
+  cancel-in-progress: true
 
 jobs:
-  deploy-and-verify:
+  validate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       WORKER_BASE_URL: https://taistock-mcp.keywayk09.workers.dev
       CRYPTO_BASE_URL: https://tv-crypto-engine.keikei99887.workers.dev
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
     steps:
       - uses: actions/checkout@v4
@@ -32,13 +33,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - name: Require Cloudflare credentials
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo 'missing CLOUDFLARE_API_TOKEN'; exit 1; }
-          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo 'missing CLOUDFLARE_ACCOUNT_ID'; exit 1; }
 
       - name: Install and validate unified source
         shell: bash
@@ -86,62 +80,7 @@ jobs:
           console.log(`CRYPTO_VOLATILE_LANE_PASS selected=${x.selected_count} candidates=${(x.candidates||[]).length}`);
           NODE
 
-      - name: Resolve OAuth KV
-        id: kv
-        shell: bash
-        run: |
-          set -euo pipefail
-          endpoint="https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces"
-          curl --fail --silent --show-error --max-time 30 "${endpoint}?per_page=1000" \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H 'Content-Type: application/json' > /tmp/kv.json
-          kv_id="$(node - <<'NODE'
-          const fs=require('fs');
-          const body=JSON.parse(fs.readFileSync('/tmp/kv.json','utf8'));
-          if (!body.success) process.exit(2);
-          const rows=body.result || [];
-          const preferred=rows.find(x=>x.title==='taistock-mcp-OAUTH_KV');
-          const legacy=rows.filter(x=>x.title==='OAUTH_KV');
-          const chosen=preferred || (legacy.length===1 ? legacy[0] : null);
-          process.stdout.write(chosen?.id || '');
-          NODE
-          )"
-          if [ -z "$kv_id" ]; then
-            curl --fail --silent --show-error --max-time 30 -X POST "$endpoint" \
-              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-              -H 'Content-Type: application/json' \
-              --data '{"title":"taistock-mcp-OAUTH_KV"}' > /tmp/kv-create.json
-            kv_id="$(node - <<'NODE'
-          const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/kv-create.json','utf8'));
-          if (!x.success || !x.result?.id) process.exit(2); process.stdout.write(x.result.id);
-          NODE
-            )"
-          fi
-          [[ "$kv_id" =~ ^[0-9a-fA-F]{32}$ ]] || { echo 'invalid kv id'; exit 1; }
-          echo "id=$kv_id" >> "$GITHUB_OUTPUT"
-
-      - name: Deploy latest main to Cloudflare
-        shell: bash
-        env:
-          OAUTH_KV_ID: ${{ steps.kv.outputs.id }}
-        run: |
-          set -euo pipefail
-          cp wrangler.jsonc wrangler.unified.jsonc
-          trap 'rm -f wrangler.unified.jsonc' EXIT
-          python - <<'PY'
-          import os,re
-          from pathlib import Path
-          p=Path('wrangler.unified.jsonc')
-          s=p.read_text()
-          kv=os.environ['OAUTH_KV_ID']
-          pattern=r'("binding"\s*:\s*"OAUTH_KV")(\s*)(\})'
-          s,n=re.subn(pattern, lambda m: m.group(1)+',\n\t\t\t"id": "'+kv+'"'+m.group(2)+m.group(3), s, count=1)
-          if n != 1: raise SystemExit('oauth kv injection failed')
-          p.write_text(s)
-          PY
-          npx wrangler deploy --config wrangler.unified.jsonc
-
-      - name: Verify deployed unified gateway
+      - name: Verify deployed unified gateway read-only
         shell: bash
         run: |
           set -euo pipefail
@@ -151,19 +90,18 @@ jobs:
           const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/health.json','utf8'));
           const tools=x?.market_data?.crypto_tools || [];
           if (x.status !== 'ok') process.exit(2);
-          if (x.version !== '6.19.0') process.exit(3);
           if (x.mcp_endpoint !== '/my-mcp') process.exit(4);
           if (x?.family_mcp?.endpoint !== '/family-mcp') process.exit(5);
           for (const name of ['get_crypto_engine_status','get_crypto_candidates','get_crypto_deep_probe']) {
             if (!tools.includes(name)) process.exit(6);
           }
           if (x?.family_mcp?.crypto !== 'SAME_FAMILY_MCP_CONNECTION_TO_CENTRAL_TV_CRYPTO_ENGINE_READ_ONLY') process.exit(7);
-          console.log('UNIFIED_STOCK_CRYPTO_GATEWAY_PASS');
+          console.log(`UNIFIED_STOCK_CRYPTO_READ_ONLY_PASS version=${x.version}`);
           NODE
               then exit 0; fi
             fi
             sleep 8
           done
-          echo 'Unified production smoke failed'
+          echo 'Unified production read-only smoke failed'
           cat /tmp/health.json 2>/dev/null || true
           exit 1
