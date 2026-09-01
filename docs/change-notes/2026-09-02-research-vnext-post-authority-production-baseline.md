@@ -96,3 +96,27 @@ This RED is accepted and remains immutable; it will not be rewritten as PASS.
 Disposition:
 
 `POST_AUTHORITY_PRODUCTION_BASELINE_RED_ACCEPTED_GET_ONLY_GREEN_ALLOWED`
+
+## GET-only bridge GREEN
+
+Implementation head: `3808ba865f78cf688e31b859e2131b53fb0efddd`.
+
+The only new execution surface is `.github/workflows/research-vnext-post-authority-production-baseline.yml`. No authorization file exists at the GREEN head, so this workflow cannot run its live capture path during GREEN verification.
+
+GREEN evidence:
+
+- Research VNext Incremental Gate Run `33548028150`: `SUCCESS`.
+- Type check Run `33548028389`: `SUCCESS`.
+- Research VNext Isolation Gate Run `33548028192`: `SUCCESS` across `VNEXT`, `FAMILY`, `MARKET_DATA`, `FORMAL_BLIND`, `OWNER_OPS`, and `BUNDLE`.
+- Incremental evidence artifact ID `9816289469`.
+- Incremental evidence digest `sha256:edfd51e8acbf6ec4c387e1684c41b62f32c2421263f0be05f51c2367efc3dab8`.
+- workflow trigger: exact branch + exact authorization path only.
+- authorization commit contract: exactly one changed file.
+- sealed source checkout: `6dc5beb02c168ad6c7c74c314fc9cf704253391a`.
+- Cloudflare credentials are scoped only to the GET-only snapshot step.
+- no deploy, rollback, Cron write, KV write/delete, OAuth issuance/refresh, DO lifecycle change, or Legacy retirement is present.
+- authorization: `ABSENT`.
+- `production_deploy_authorized=false`.
+- `production_mutation=NONE`.
+
+A docs-only seal commit must itself pass Incremental, Type, and Isolation before a one-time live authorization may be created.
