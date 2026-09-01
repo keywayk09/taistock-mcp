@@ -31,10 +31,11 @@ jobs:
 
       - name: Detect stale or failed Production
         id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          receipt='tmp/deploy-receipts/taistock-mcp-cloudflare.json'
           dispatch=false
           reason='up_to_date'
           authority_policy='${{ steps.authority.outputs.policy }}'
@@ -63,52 +64,112 @@ jobs:
             dispatch=false
             reason='external_cutover_lease_active'
           elif [ "$authority_policy" = 'EVALUATE_MAIN_RECEIPT' ]; then
-            if [ ! -f "$receipt" ]; then
-              dispatch=true
-              reason='missing_receipt'
-            else
-              readarray -t meta < <(python - <<'PY'
+            # Canonical deploy truth is live GitHub Actions metadata. The old
+            # committed receipt is archival history only and is not authoritative.
+            gh run list --workflow deploy-cloudflare-production.yml --branch main --limit 20 \
+              --json databaseId,headSha,status,conclusion,createdAt,event \
+              > /tmp/canonical-deploy-runs.json
+
+            readarray -t deploy_meta < <(python - <<'PY'
           import json
           from datetime import datetime, timezone
           from pathlib import Path
-          body=json.loads(Path('tmp/deploy-receipts/taistock-mcp-cloudflare.json').read_text())
-          sha=str(body.get('source_sha') or '')
-          reason=str(body.get('reason') or '')
-          recorded=str(body.get('recorded_at') or '')
-          age=10**9
-          if recorded:
-              try:
-                  dt=datetime.fromisoformat(recorded.replace('Z','+00:00'))
-                  age=max(0,int((datetime.now(timezone.utc)-dt).total_seconds()))
-              except Exception:
-                  pass
-          print(sha)
-          print(reason)
-          print(age)
-          PY
-              )
-              receipt_sha="${meta[0]:-}"
-              receipt_reason="${meta[1]:-}"
-              receipt_age="${meta[2]:-999999}"
 
-              if [ -z "$receipt_sha" ] || ! git cat-file -e "${receipt_sha}^{commit}" 2>/dev/null; then
+          rows=json.loads(Path('/tmp/canonical-deploy-runs.json').read_text())
+          if not isinstance(rows,list):
+              raise SystemExit('invalid_canonical_actions_evidence:not_array')
+
+          def parse_time(value):
+              try:
+                  return datetime.fromisoformat(str(value).replace('Z','+00:00'))
+              except Exception:
+                  return datetime.fromtimestamp(0, tz=timezone.utc)
+
+          rows=sorted(rows, key=lambda x: parse_time((x or {}).get('createdAt')), reverse=True)
+          active_statuses={'queued','in_progress','requested','waiting','pending'}
+          active=next((x for x in rows if isinstance(x,dict) and str(x.get('status') or '') in active_statuses), None)
+          if active is not None:
+              print('IN_PROGRESS')
+              print(str(active.get('headSha') or ''))
+              print('0')
+              print(str(active.get('databaseId') or ''))
+              raise SystemExit(0)
+
+          completed=next((x for x in rows if isinstance(x,dict) and str(x.get('status') or '') == 'completed'), None)
+          if completed is None:
+              print('MISSING')
+              print('')
+              print('999999')
+              print('')
+              raise SystemExit(0)
+
+          created=parse_time(completed.get('createdAt'))
+          age=max(0,int((datetime.now(timezone.utc)-created).total_seconds()))
+          conclusion=str(completed.get('conclusion') or '')
+          state='SUCCESS' if conclusion == 'success' else 'FAILED'
+          print(state)
+          print(str(completed.get('headSha') or ''))
+          print(str(age))
+          print(str(completed.get('databaseId') or ''))
+          PY
+            )
+
+            deploy_state="${deploy_meta[0]:-MISSING}"
+            deploy_sha="${deploy_meta[1]:-}"
+            deploy_age="${deploy_meta[2]:-999999}"
+            deploy_run_id="${deploy_meta[3]:-}"
+
+            case "$deploy_state" in
+              IN_PROGRESS)
+                dispatch=false
+                reason='canonical_deploy_in_progress'
+                ;;
+              MISSING)
                 dispatch=true
-                reason='invalid_receipt_sha'
-              elif ! git diff --quiet "$receipt_sha" HEAD -- \
-                src \
-                wrangler.jsonc \
-                package.json \
-                package-lock.json \
-                .github/workflows/deploy-cloudflare-production.yml; then
-                dispatch=true
-                reason='production_source_stale'
-              elif [ "$receipt_reason" != 'DEPLOYED_CRON_AND_FULL_MARKET_SMOKE_VERIFIED' ] \
-                && [ "$receipt_reason" != 'DEPLOYED_OAUTH_KV_AND_CRON_VERIFIED' ] \
-                && [ "$receipt_age" -ge 900 ]; then
-                dispatch=true
-                reason='failed_receipt_retry_due'
-              fi
-            fi
+                reason='missing_canonical_deploy_evidence'
+                ;;
+              FAILED)
+                if ! [[ "$deploy_age" =~ ^[0-9]+$ ]]; then
+                  echo 'invalid_canonical_actions_evidence:failed_age' >&2
+                  exit 78
+                fi
+                if [ "$deploy_age" -ge 900 ]; then
+                  dispatch=true
+                  reason='failed_deploy_retry_due'
+                else
+                  dispatch=false
+                  reason='failed_deploy_retry_wait'
+                fi
+                ;;
+              SUCCESS)
+                if ! [[ "$deploy_sha" =~ ^[0-9a-f]{40}$ ]]; then
+                  echo 'invalid_canonical_actions_evidence:success_head_sha' >&2
+                  exit 78
+                fi
+                if ! git cat-file -e "${deploy_sha}^{commit}" 2>/dev/null; then
+                  echo 'invalid_canonical_actions_evidence:success_head_unavailable' >&2
+                  exit 78
+                fi
+                if ! git diff --quiet "$deploy_sha" HEAD -- \
+                  src \
+                  wrangler.jsonc \
+                  package.json \
+                  package-lock.json \
+                  .github/workflows/deploy-cloudflare-production.yml; then
+                  dispatch=true
+                  reason='production_source_stale'
+                else
+                  dispatch=false
+                  reason='latest_successful_deploy'
+                fi
+                ;;
+              *)
+                echo "invalid_canonical_actions_evidence:state=${deploy_state}" >&2
+                exit 78
+                ;;
+            esac
+
+            echo "canonical deploy evidence: state=${deploy_state} run_id=${deploy_run_id} head_sha=${deploy_sha:-none} age=${deploy_age}"
           else
             echo "invalid_external_cutover_lease:unexpected_policy=${authority_policy}" >&2
             exit 78
