@@ -78,8 +78,6 @@ console.log(JSON.stringify({
   production_mutation: "NONE",
 }, null, 2));
 
-// TEST BEFORE BUILD: only after all premises above pass in CI may the pure
-// atomic-deploy planner and bounded CI dry-run step be implemented.
 const planner = await import("../scripts/research-vnext-atomic-deploy-plan.mjs");
 
 assert.equal(
@@ -153,6 +151,10 @@ assert.match(gate, /RESEARCH_VNEXT_OAUTH_KV_ID:\s*0123456789abcdef0123456789abcd
 assert.match(gate, /--experimental-provision=false/);
 assert.match(gate, /--experimental-auto-create=false/);
 assert.match(gate, /atomic_deploy_preflight=PASS/);
+assert.match(gate, /--config-out wrangler\.research-vnext-atomic\.jsonc/);
+assert.match(gate, /--config wrangler\.research-vnext-atomic\.jsonc/);
+assert.match(gate, /trap 'rm -f wrangler\.research-vnext-atomic\.jsonc' EXIT/);
+assert.doesNotMatch(gate, /--config-out tmp\/research-vnext-atomic-deploy\/wrangler\.atomic\.jsonc/);
 const deployLines = gate.split("\n").filter((line) => /npx\s+wrangler\s+deploy\b/.test(line));
 assert.ok(deployLines.length >= 2, "canonical and atomic-config dry-runs must both be present");
 for (const line of deployLines) {
@@ -168,6 +170,8 @@ console.log(JSON.stringify({
   oauth_kv: "EXISTING_INPUT_ONLY",
   trigger_mutation_intent: "NONE",
   resource_provisioning: "DISABLED",
+  temp_config_anchor: "REPOSITORY_ROOT",
+  temp_config_cleanup: "TRAP_ALWAYS",
   ci_execution: "WRANGLER_DEPLOY_DRY_RUN_ONLY",
   real_deploy_semantics: "ATOMIC_IMMEDIATE_100_PERCENT",
   production_deploy_authorized: false,

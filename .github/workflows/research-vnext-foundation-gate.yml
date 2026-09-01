@@ -95,12 +95,14 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf tmp/research-vnext-atomic-deploy dist-atomic-preflight
+          rm -f wrangler.research-vnext-atomic.jsonc
+          trap 'rm -f wrangler.research-vnext-atomic.jsonc' EXIT
           mkdir -p tmp/research-vnext-atomic-deploy
           node scripts/research-vnext-atomic-deploy-plan.mjs \
             --source wrangler.jsonc \
-            --config-out tmp/research-vnext-atomic-deploy/wrangler.atomic.jsonc \
+            --config-out wrangler.research-vnext-atomic.jsonc \
             --receipt-out tmp/research-vnext-atomic-deploy/plan.json
-          npx wrangler deploy --dry-run --config tmp/research-vnext-atomic-deploy/wrangler.atomic.jsonc --outdir dist-atomic-preflight --experimental-provision=false --experimental-auto-create=false
+          npx wrangler deploy --dry-run --config wrangler.research-vnext-atomic.jsonc --outdir dist-atomic-preflight --experimental-provision=false --experimental-auto-create=false
           python - <<'PY'
           import json
           from pathlib import Path

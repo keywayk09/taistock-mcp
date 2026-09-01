@@ -83,39 +83,74 @@ Disposition: `ATOMIC_DEPLOY_PREFLIGHT_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWED`
 
 The RED failure remains immutable and is not rewritten as PASS.
 
-## GREEN implementation allowed
+## GREEN implementation
 
-Add only:
+Implementation commit: `1418a3b303d9a61b323f30470a6661e6e4b5763d`
 
-- `scripts/research-vnext-atomic-deploy-plan.mjs` — pure local planner / CLI; no network, Cloudflare API, subprocess or deploy execution;
-- bounded test-only additions to `.github/workflows/research-vnext-foundation-gate.yml` to build a temporary config using a fake 32-hex KV ID and execute **only** `wrangler deploy --dry-run` against it.
+Added:
 
-Source `wrangler.jsonc` must remain unchanged.
+- `scripts/research-vnext-atomic-deploy-plan.mjs` — pure local planner / CLI;
+- bounded dry-run step in `.github/workflows/research-vnext-foundation-gate.yml`.
 
-### Planner contract
+The planner validates worker identity, existing-KV input shape, exact source Cron, protected SQLite DO exports/bindings, and absence of legacy migrations. It injects the test KV ID exactly once, strips triggers, forbids `crons: []`, preserves protected exports exactly, and emits a non-secret dry-run-only receipt.
 
-Fail closed unless:
+Source `wrangler.jsonc` remains unchanged.
 
-- Worker name is exactly `taistock-mcp`;
-- exactly one `OAUTH_KV` binding exists and source has no `id`;
-- source Cron is exactly `*/5 * * * *`;
-- `MyMCP` and `FamilyMCP` exports remain live SQLite Durable Objects;
-- matching Durable Object bindings remain present;
-- no `migrations` exists;
-- supplied KV ID is exactly 32 hex characters.
+## Failed GREEN attempt 1 — immutable relative-config-path harness failure
 
-Generated config must inject the ID exactly once, preserve protected exports/bindings, remove `triggers`, never emit empty Cron configuration, and leave source input unchanged.
+Implementation commit `1418a3b303d9a61b323f30470a6661e6e4b5763d` produced a late CI dry-run failure after all code and regression tests had passed.
 
-Receipt must not contain the KV ID and must state: dry-run only; real deployment mode = atomic immediate 100%; Production deployment unauthorized; trigger mutation intent none; resource provisioning disabled; Production mutation none.
+Research VNext Incremental Gate:
 
-### CI dry-run contract
+- Run `33512557029`
+- Job `99871565113`
+- Change Note / protected-surface scope gate: **PASS**
+- all Research VNext tests: **PASS**
+- atomic planner/unit assertions: **PASS**
+- frozen public ABI: **PASS** — `123` tools / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- incremental type-check: **PASS**
+- full `test:research`: **PASS**
+- canonical `wrangler deploy --dry-run`: **PASS**
+- atomic planner receipt: **PASS** with `READY_FOR_DRY_RUN_ONLY`, exports preserved, trigger mutation intent NONE, Production deploy unauthorized, Production mutation NONE
+- atomic temporary-config `wrangler deploy --dry-run`: **FAIL**
+- exact Wrangler version: `4.127.1`
+- exact terminal error: `The entry-point file at "src/index-automation-bridge.ts" was not found.`
+- evidence receipt/upload steps: correctly **SKIPPED**
 
-The new Incremental Gate step must use only `wrangler deploy --dry-run` with:
+Diagnosis:
 
-- `--experimental-provision=false`
-- `--experimental-auto-create=false`
+The planner output was written to `tmp/research-vnext-atomic-deploy/wrangler.atomic.jsonc`. Wrangler resolves the relative `main = src/index-automation-bridge.ts` from the generated config file's directory, so it searched beneath the temporary subdirectory instead of the repository root. The canonical repo-root dry-run succeeded immediately before this step, proving the entry point itself exists and bundles correctly.
 
-No Cloudflare credentials may be used by that step.
+This is a **temporary-config anchoring / dry-run harness defect**, not a Durable Object exports, KV, Cron, ABI, runtime, or Production behavior defect.
+
+Planner receipt immediately before the failure:
+
+- source SHA256: `51dacbe95f8fd4e1d9cdea878c48e13e8e182303af06baddfbf9ca6971ca240c`
+- generated-config SHA256: `e9ce8ddd20acc2f8b2230bf09b9510e360518ba21110d5c06ff0e6791e505c42`
+- Production mutation: **NONE**
+
+Independent same-commit validation:
+
+- Type check Run `33512557173`: **SUCCESS**, including full `test:research` and canonical Wrangler dry-run
+- Isolation Run `33512557120`: **SUCCESS** — VNEXT / FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE all PASS; isolation finalizer PASS
+
+No Production workflow was dispatched; no Cloudflare credentials were used by the atomic dry-run; no Production deploy, KV/Cron mutation, Production MCP contact or traffic shift occurred.
+
+Disposition: `GREEN_ATTEMPT_1_RELATIVE_MAIN_PATH_HARNESS_FAILURE_IMMUTABLE`.
+
+The failed attempt remains immutable and is not rewritten as PASS.
+
+### Authorized single correction
+
+Do not change planner semantics. Change only the CI harness so the ephemeral generated Wrangler config is written at repository root as `wrangler.research-vnext-atomic.jsonc`, preserving the source config's relative `main` path semantics. Add an EXIT trap so the ephemeral root config is removed on both success and failure. The receipt may remain under `tmp/`.
+
+Static tests must freeze:
+
+- root-level `--config-out wrangler.research-vnext-atomic.jsonc`;
+- dry-run uses `--config wrangler.research-vnext-atomic.jsonc`;
+- cleanup trap always removes that file;
+- nested temp-config output is forbidden;
+- planner source remains unchanged.
 
 ## Explicitly forbidden
 
@@ -134,8 +169,8 @@ No Cloudflare credentials may be used by that step.
 
 ## GREEN evidence
 
-Pending implementation.
+Pending corrected GREEN.
 
 ## Final disposition
 
-`ATOMIC_DEPLOY_PREFLIGHT_GREEN_IMPLEMENTATION_ALLOWED`
+`ATOMIC_DEPLOY_PREFLIGHT_GREEN_HARNESS_CORRECTION_ALLOWED`
