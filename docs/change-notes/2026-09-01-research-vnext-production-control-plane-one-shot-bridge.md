@@ -7,7 +7,8 @@
 - Initial RED commit: `9b138d10f0a931a125f6d62b546b407896cc0325`
 - Same-tree RED verification commit: `218b98f9cd4c423ac00ddd173dc455cf4af77dbc`
 - Docs-only PR-sync trigger: `fc3048f8c230a455182602ec019f0aca4f169543`
-- GREEN implementation commit: `176c4f4a1693bddcefb4698f54d13c9c3d420450`
+- GREEN implementation commit A: `176c4f4a1693bddcefb4698f54d13c9c3d420450`
+- GREEN verification child A: `b484d97881bc0fc8803af6b386872aee43d3cc5b`
 - Frozen Owner ABI: `123` / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
 - Production deploy authorization: **FALSE**
 - Production mutation: **NONE**
@@ -72,7 +73,7 @@ Research VNext Incremental Gate:
 - exact terminal assertion: `temporary one-shot GET-only bridge workflow must exist only after accepted RED`
 - downstream incremental type-check / full research regression / dry-runs: correctly **SKIPPED**
 
-Independent validation on the RED commit:
+Independent RED validation:
 
 - Type check Run `33524162512`: **SUCCESS**, including type check, full `test:research`, and Wrangler dry-run
 - Isolation Run `33524162507`: FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**; VNEXT failed only on the same expected missing temporary workflow; isolation finalizer failed closed as designed
@@ -83,21 +84,41 @@ Disposition:
 
 The RED failure remains immutable and is not rewritten as PASS.
 
-## GREEN implementation
+## GREEN implementation A — FAILED, IMMUTABLE
 
-Implementation commit:
+Implementation A:
 
 - `176c4f4a1693bddcefb4698f54d13c9c3d420450`
+- verification child: `b484d97881bc0fc8803af6b386872aee43d3cc5b`
 
-Added only:
+Implementation A added only the temporary workflow and no authorization JSON, so it did **not** contact Production.
 
-- `.github/workflows/research-vnext-production-control-plane-one-shot.yml`
+GREEN verification A:
 
-No authorization JSON was created in the GREEN implementation commit, so the path-scoped one-shot workflow could not execute and Production could not be contacted.
+- Incremental Run `33524816000`
+- Job `99912842566`
+- scope gate: **PASS**
+- all tests before the one-shot bridge test: **PASS**
+- canonical live snapshot test: **PASS** (`mock_get_calls=3`, token leak false, live dispatch false)
+- one-shot RED-ready preconditions: **PASS**
+- terminal result: **FAILURE**
+- exact failing assertion: workflow source did not contain literal `sealed/scripts/research-vnext-production-control-plane-live-snapshot.mjs`
+- root cause: workflow used `cd sealed` followed by `scripts/research-vnext-production-control-plane-live-snapshot.mjs`; execution semantics were equivalent, but the frozen GREEN harness requires the explicit pinned `sealed/scripts/...` path in workflow source.
+- Production contact during failed GREEN A: **NONE**
+- authorization JSON: **ABSENT**
+- Production deploy authorized: `false`
+- Production mutation: **NONE**
 
-The workflow is pinned to sealed source `9fa1499eeaeb2ccaa7e118502f8b618c76401a31`, validates that the triggering commit changes exactly the authorization file, validates exact schema/mode/source/deploy/mutation/nonce fields, then executes only the sealed GET-only snapshot client with Cloudflare credentials limited to that step. It uploads the receipt as an artifact and contains no deploy/rollback/mutation route.
+This failure is preserved and is not relabeled PASS.
 
-GREEN CI evidence: pending on this docs-only verification child commit; runtime remains exactly the implementation above.
+## GREEN correction B — SINGLE-POINT FIX
+
+Only permitted correction:
+
+- replace `cd sealed` + `scripts/...` invocation with direct `sealed/scripts/research-vnext-production-control-plane-live-snapshot.mjs` invocation;
+- retain all trigger, branch, authorization, secret, source-SHA, permissions, artifact, no-mutation, and no-authorization-file constraints unchanged.
+
+Correction B CI evidence: pending.
 
 ## Cleanup requirement
 

@@ -82,9 +82,8 @@ jobs:
           RESEARCH_VNEXT_EXPECTED_SHA: 9fa1499eeaeb2ccaa7e118502f8b618c76401a31
         run: |
           set -euo pipefail
-          cd sealed
-          node --experimental-strip-types scripts/research-vnext-production-control-plane-live-snapshot.mjs \
-            > ../research-vnext-production-control-plane-one-shot-receipt.json
+          node --experimental-strip-types sealed/scripts/research-vnext-production-control-plane-live-snapshot.mjs \
+            > research-vnext-production-control-plane-one-shot-receipt.json
 
       - name: Upload immutable-style one-shot receipt
         uses: actions/upload-artifact@v4
