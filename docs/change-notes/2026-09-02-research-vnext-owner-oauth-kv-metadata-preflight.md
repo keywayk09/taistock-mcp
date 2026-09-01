@@ -80,7 +80,52 @@ Disposition:
 
 `OWNER_OAUTH_KV_METADATA_PREFLIGHT_RED_ACCEPTED_GREEN_WORKFLOW_ALLOWED`
 
-Before GREEN authorization:
+## GREEN workflow — PASS, unauthorized
 
-- Production contact by this phase: `NONE`;
-- Production mutation: `NONE`.
+Temporary GET-only workflow implementation:
+
+- commit: `6241edc88d090d9273291ffb2c31451a36054dda`
+- path: `.github/workflows/research-vnext-owner-oauth-kv-metadata-preflight.yml`
+- authorization path remained `ABSENT`, so GREEN validation made no Production contact.
+
+GREEN verification:
+
+- Research VNext Incremental Gate Run `33538704326`: `SUCCESS`
+- Type check Run `33538704343`: `SUCCESS`
+- Research VNext Isolation Gate Run `33538704381`: `SUCCESS`
+- same-head P7 / P8 / P9 / P12 / P13 / P13b / P14 / P15 / P16: `SUCCESS`
+- Owner ABI remains frozen at 123 tools / frozen digest
+- Production mutation: `NONE`
+
+Immutable-style GREEN evidence:
+
+- Artifact ID: `9812716553`
+- Artifact name: `research-vnext-evidence-33538704326`
+- Artifact digest: `sha256:5d0158f85c32b38ff4541a0eda108b8758172b923e65b3cb559a53ade28ac17b`
+
+Workflow contract:
+
+- exact push branch and exact one-file authorization trigger;
+- exact sealed source `ca89b77a06b79a09df3ade88a18e7225b53b2093`;
+- GET-only Production control-plane baseline before OAuth KV inspection;
+- active version/OAuth KV/binding fingerprint fail-closed drift checks;
+- GET-only Cloudflare OAuth KV key/value reads;
+- raw key names and raw values never emitted;
+- key identifiers may appear only as SHA-256 hashes;
+- strict Owner candidate requires Owner grant client match + owner role + owner userId + `owner:full` scope + non-expired state;
+- metadata receipt explicitly emits `token_leak=false`, `production_mutation=NONE`, `authenticated_mcp_probe_executed=false`, `legacy_retirement_authorized=false`;
+- no Worker deploy/rollback, OAuth issuance/refresh, KV write/delete, Cron mutation, DO lifecycle mutation or Legacy retirement.
+
+Disposition before seal:
+
+`PASS_OWNER_OAUTH_KV_METADATA_PREFLIGHT_WORKFLOW_GREEN_UNAUTHORIZED`
+
+## Docs-only workflow seal
+
+This docs-only commit must itself pass:
+
+- Research VNext Incremental Gate;
+- Type check;
+- Research VNext Isolation Gate.
+
+Only after all three are `SUCCESS` may one exact GET-only metadata authorization be created. The authorization does not authorize an MCP probe or any Production mutation.
