@@ -7,6 +7,7 @@
 - Initial RED commit: `9b138d10f0a931a125f6d62b546b407896cc0325`
 - Same-tree RED verification commit: `218b98f9cd4c423ac00ddd173dc455cf4af77dbc`
 - Docs-only PR-sync trigger: `fc3048f8c230a455182602ec019f0aca4f169543`
+- GREEN implementation commit: `176c4f4a1693bddcefb4698f54d13c9c3d420450`
 - Frozen Owner ABI: `123` / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
 - Production deploy authorization: **FALSE**
 - Production mutation: **NONE**
@@ -84,15 +85,19 @@ The RED failure remains immutable and is not rewritten as PASS.
 
 ## GREEN implementation
 
-Allowed implementation is limited to:
+Implementation commit:
+
+- `176c4f4a1693bddcefb4698f54d13c9c3d420450`
+
+Added only:
 
 - `.github/workflows/research-vnext-production-control-plane-one-shot.yml`
 
-The GREEN implementation commit must **not** create the authorization JSON. Therefore it cannot trigger the temporary workflow and cannot contact Production.
+No authorization JSON was created in the GREEN implementation commit, so the path-scoped one-shot workflow could not execute and Production could not be contacted.
 
-The workflow itself must remain pinned to sealed source `9fa1499eeaeb2ccaa7e118502f8b618c76401a31`, validate an authorization-file-only trigger commit, and execute only the sealed GET-only snapshot client.
+The workflow is pinned to sealed source `9fa1499eeaeb2ccaa7e118502f8b618c76401a31`, validates that the triggering commit changes exactly the authorization file, validates exact schema/mode/source/deploy/mutation/nonce fields, then executes only the sealed GET-only snapshot client with Cloudflare credentials limited to that step. It uploads the receipt as an artifact and contains no deploy/rollback/mutation route.
 
-GREEN CI evidence: pending.
+GREEN CI evidence: pending on this docs-only verification child commit; runtime remains exactly the implementation above.
 
 ## Cleanup requirement
 
