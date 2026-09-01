@@ -86,8 +86,23 @@ for (const file of vnextFiles) {
 
 const ownerSource = fs.readFileSync(path.join(repoRoot, "src/v6/owner-content-handler.ts"), "utf8");
 const researchToolsSource = fs.readFileSync(path.join(repoRoot, "src/v6/research-tools.ts"), "utf8");
-assert.equal(ownerSource.includes("research-vnext"), false, "Foundation phase must not register VNext in Owner MCP");
-assert.equal(researchToolsSource.includes("research-vnext"), false, "Foundation phase must not register VNext through legacy research-tools");
+
+// Owner MCP must never directly import/register Research VNext. Phase 10B uses
+// one internal compat-cutover adapter behind the existing Legacy research
+// registrar, preserving the same public tool graph and schemas.
+assert.equal(ownerSource.includes("research-vnext"), false, "Owner MCP direct Research VNext registration remains forbidden");
+
+const vnextImports = Array.from(
+  researchToolsSource.matchAll(/from\s+["'](\.\/research-vnext\/[^"']+)["']/g),
+  (match) => match[1],
+);
+assert.deepEqual(
+  vnextImports,
+  ["./research-vnext/compat-cutover"],
+  "research-tools may import only the approved Phase 10B compat-cutover surface",
+);
+assert.doesNotMatch(researchToolsSource, /research-vnext\/(research-gateway|shadow-facade|compute\/|memory\/)/, "research-tools must not bypass the compat-cutover boundary");
+assert.match(researchToolsSource, /createResearchVNextCompatRegistrationServer/, "Phase 10B must use the bounded compat registration adapter");
 
 console.log(JSON.stringify({
   schema: "RESEARCH_VNEXT_FOUNDATION_TEST_V1",
@@ -95,5 +110,6 @@ console.log(JSON.stringify({
   contract: RESEARCH_VNEXT_CONTRACT_VERSION,
   evidence: RESEARCH_VNEXT_EVIDENCE_VERSION,
   source_files_scanned: vnextFiles.length,
-  production_registration: "UNCHANGED",
+  owner_direct_registration: "FORBIDDEN",
+  production_registration: "COMPAT_CUTOVER_BRANCH_ONLY",
 }, null, 2));

@@ -8,6 +8,7 @@ import { registerFormalBlindOhlcReaderTool } from "./formal-blind-ohlc-reader";
 import { registerGptJudgmentMemoryTools } from "./gpt-judgment-memory-tools";
 import { registerResearchBlindOhlcFallbackTool } from "./research-blind-ohlc-fallback";
 import { getResearchStatus, getStoredCandles } from "./research-pipeline";
+import { createResearchVNextCompatRegistrationServer } from "./research-vnext/compat-cutover";
 import { registerResearchValidationTools } from "./research-validation-tools";
 import { registerReviewOrchestratorTools } from "./review-orchestrator-tools";
 import { registerSelective1mReplayTool } from "./selective-1m-replay-tool";
@@ -23,6 +24,8 @@ const ok = (value: unknown) => ({
 });
 
 export function registerResearchTools(server: McpServer, env: Env) {
+  const compatServer = createResearchVNextCompatRegistrationServer(server);
+
   server.registerTool("get_research_pipeline_status", {
     description: "查詢 Diamond 舊研究資料狀態。舊直抓行情流程已停用，正式 OHLC 一律走 OHLC MCP。",
     inputSchema: {},
@@ -57,13 +60,13 @@ export function registerResearchTools(server: McpServer, env: Env) {
   registerFormalBlindOhlcReaderTool(server, env);
   registerDeterministicBacktestTool(server);
   registerBatchBacktestTool(server, env);
-  registerSelective1mReplayTool(server);
+  registerSelective1mReplayTool(compatServer);
   registerSwingOutcomePathTool(server);
   registerResearchValidationTools(server);
   registerSignalEventLedgerTools(server, env);
   registerExperimentLedgerTools(server, env);
   registerTxfReviewTools(server, env);
-  registerReviewOrchestratorTools(server, env);
+  registerReviewOrchestratorTools(compatServer, env);
   registerGptJudgmentMemoryTools(server, env);
   registerStrategyLabTools(server);
   registerSupplyChainTools(server);

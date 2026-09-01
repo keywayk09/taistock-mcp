@@ -26,20 +26,12 @@ assert.match(
   /createResearchVNextCompatRegistrationServer/,
   "research-tools must construct the bounded compat registration server",
 );
-
-const selectiveCall = researchTools.match(/registerSelective1mReplayTool\(([^)]+)\)/)?.[1]?.trim() ?? "";
-assert.equal(
-  selectiveCall,
-  "compatServer",
+assert.ok(
+  researchTools.includes("registerSelective1mReplayTool(compatServer)"),
   "Selective 1m Replay registrar must be wired through compatServer",
 );
-
-const orchestratorCall = researchTools.match(/registerReviewOrchestratorTools\(([^,]+),\s*this?\.?env|registerReviewOrchestratorTools\(([^,]+),\s*env/)?.[1]
-  ?? researchTools.match(/registerReviewOrchestratorTools\(([^,]+),\s*env\)/)?.[1]
-  ?? "";
-assert.equal(
-  orchestratorCall.trim(),
-  "compatServer",
+assert.ok(
+  researchTools.includes("registerReviewOrchestratorTools(compatServer, env)"),
   "Review Orchestrator registrar must be wired through compatServer",
 );
 
@@ -67,17 +59,19 @@ for (const call of [
 assert.equal(owner.includes("research-vnext"), false, "Owner must not directly import/register Research VNext");
 assert.equal(owner.includes("compat-cutover"), false, "Owner must remain unchanged in Phase 10B");
 
-// The old foundation assertion must be narrowed rather than deleted: direct
-// Owner registration stays forbidden, while research-tools may reference only
-// the approved compat-cutover module.
+// The old foundation assertion is narrowed rather than deleted: direct Owner
+// registration stays forbidden, while research-tools may reference only the
+// approved compat-cutover module.
 assert.match(boundaryTest, /compat-cutover/, "boundary test must explicitly encode the Phase 10B compat exception");
-assert.match(boundaryTest, /Owner.*direct|owner.*direct|Owner MCP/i, "boundary test must retain the Owner direct-registration prohibition");
+assert.match(boundaryTest, /Owner MCP.*direct|Owner.*direct/i, "boundary test must retain the Owner direct-registration prohibition");
+assert.match(boundaryTest, /research-gateway\|shadow-facade|research-gateway/, "boundary test must forbid direct gateway/facade bypass imports");
 
-// The incremental gate exception must be exact and phase-scoped. Owner and all
+// The incremental gate exception is exact and phase-scoped. Owner and all
 // other protected surfaces stay fail-closed.
-assert.match(gate, /PHASE10B|Phase 10B|handler-cutover/, "scope gate must identify the Phase 10B exception explicitly");
-assert.match(gate, /src\/v6\/research-tools\\?\.ts|src\/v6\/research-tools\.ts/, "scope gate must name research-tools as the only cutover protected file");
+assert.match(gate, /PHASE10B_HANDLER_CUTOVER_EXCEPTION/, "scope gate must identify the Phase 10B exception explicitly");
+assert.match(gate, /src\/v6\/research-tools\.ts/, "scope gate must name research-tools as the only cutover protected file");
 assert.match(gate, /owner-content-handler/, "Owner must remain in the protected-surface gate");
+assert.match(gate, /protected_files\[@\]/, "scope gate must verify the exact protected file set");
 
 assert.equal(fixture.owner_tool_count, 123, "Phase 10B must preserve the frozen Owner tool count");
 assert.equal(
