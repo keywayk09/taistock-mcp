@@ -118,7 +118,20 @@ Primary risk is accidentally treating an unproven Legacy behavior as parity-cove
 
 ## RED evidence
 
-Pending.
+RED test commit: `0fce50e89d93302000c9aab6895dc252ea5b37f4`.
+
+Research VNext Incremental Gate:
+
+- Run `33503434762`
+- Job `99841823896`
+- Change Note / protected-surface scope gate: **PASS**
+- existing Research VNext Foundation test before the new test: **PASS**
+- new compat-cutover test: **FAIL (EXPECTED RED)**
+- exact failure: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/compat-cutover.ts`
+- downstream incremental type-check / full `test:research` / Wrangler dry-run: correctly **SKIPPED**
+- Production mutation: **NONE**
+
+Disposition: `PHASE10A_RED_ACCEPTED_IMPLEMENTATION_ALLOWED`.
 
 ## GREEN evidence
 
@@ -134,4 +147,4 @@ Remove the 10A bridge/test. No shared registration surface is modified in this p
 
 ## Final disposition
 
-`RED_PENDING`
+`GREEN_IMPLEMENTATION_ALLOWED`
