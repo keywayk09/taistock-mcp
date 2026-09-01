@@ -87,3 +87,20 @@ Meaning:
 - Legacy retirement: blocked until an authenticated read-only runtime probe is available and passes.
 
 This disposition MUST NOT be relabeled as `PASS_ATOMIC_PRODUCTION_ONE_SHOT_DEPLOY_AND_CLEANUP_SEALED` because the authenticated runtime probe has not passed.
+
+## GREEN-A — immutable, not accepted
+
+GREEN-A head:
+
+- `4e74b1d3d02697e88a629233dea4c4206a726a9d`
+
+Evidence:
+
+- Research VNext Incremental Gate Run `33535719817`: `FAILURE`
+- Type check Run `33535719677`: `SUCCESS`
+- Research VNext Isolation Gate Run `33535719927`: `FAILURE`
+- Isolation failure is confined to VNEXT; the unrelated research/domain workflows remained green.
+
+The failure is a test-only wording false positive. The lifecycle test used an unanchored `doesNotMatch` for `PASS_ATOMIC_PRODUCTION_ONE_SHOT_DEPLOY_AND_CLEANUP_SEALED`, while this Change Note intentionally contains that token inside the warning sentence stating that the credential-blocked state MUST NOT be relabeled as a full authenticated PASS.
+
+GREEN-A remains immutable and is not promoted. The correction is limited to making the forbidden full-PASS check line/disposition anchored; no Production workflow, authorization, runtime, Worker deployment, rollback, Cron, OAuth KV, Durable Object lifecycle or Legacy state is changed.
