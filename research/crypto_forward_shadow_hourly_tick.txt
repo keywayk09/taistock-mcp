@@ -1,4 +1,4 @@
 # Crypto Forward Shadow V1.2.8 hourly observation tick
 # Updated only to trigger the aggregate-only research collector.
 # No model, threshold, ranking, Production routing, or raw market data lives here.
-2026-09-01T20:33:53Z
+2026-09-01T21:33:23Z
