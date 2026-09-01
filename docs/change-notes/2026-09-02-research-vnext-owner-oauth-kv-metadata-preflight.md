@@ -34,22 +34,53 @@ A temporary one-shot preflight may be created only after accepted RED. Its contr
 - `production_mutation=NONE` must be explicit;
 - no Worker deploy, rollback, Cron mutation, KV write/delete, OAuth issuance/refresh, Durable Object lifecycle mutation or Legacy retirement.
 
-A candidate is only structurally eligible when the decoded record proves all of:
+A strict candidate is only structurally eligible when the decoded token record proves all of:
 
-- role = `owner`;
+- its `clientId` matches a client referenced by an existing `grant:owner:` record;
+- role resolves to `owner` from the token record or its nested props/tokenProps;
 - userId = `owner`;
 - scope contains `owner:full`;
 - record is not demonstrably expired.
 
 Metadata eligibility alone is **not** an authenticated runtime PASS and does not authorize Legacy retirement.
 
-## TEST BEFORE BUILD — RED candidate
+## TEST BEFORE BUILD — formal RED accepted
 
-The RED test must prove the sealed postdeploy cleanup state, Owner ABI, current Production baseline expectations and token-leak rules first, then fail only because the temporary metadata-preflight workflow does not yet exist.
+Formal RED head:
 
-Before accepted RED:
+- `6acc15f9ee5e043943be4b3fb0f62020635c47ab`
 
-- temporary workflow: `ABSENT`;
-- temporary authorization: `ABSENT`;
+Evidence:
+
+- Research VNext Incremental Gate Run `33538430696`: `FAILURE`
+- Incremental Job `99958371628`: `FAILURE`
+- scope/protected-surface gate: `SUCCESS`
+- marker before terminal RED: `OWNER_OAUTH_KV_METADATA_PREFLIGHT_RED_READY=PASS`
+- sealed cleanup head: `ca89b77a06b79a09df3ade88a18e7225b53b2093`
+- expected active Production version: `0d7a4c8d-0ccf-4d89-9cd4-ab28fab70c5c`
+- expected OAuth KV: `696e3654d2fa4c3bb1a868e5095b5660`
+- expected binding fingerprint: `d1faf34e53a3901c0ca13f4c29ff354194c7a3788bd94aa7a2e37509eaf1a49b`
+- Owner ABI: `123` / frozen digest
+- temporary workflow: `ABSENT`
+- temporary authorization: `ABSENT`
+- `token_leak=false`
+- `production_mutation=NONE`
+- exact terminal assertion: `temporary Owner OAuth KV metadata preflight workflow must exist only after accepted RED`
+
+Independent validation:
+
+- Type check Run `33538430687`: `SUCCESS`
+- Research VNext Isolation Gate Run `33538430721`: `FAILURE`
+- Isolation FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE: `SUCCESS`
+- Isolation VNEXT: `FAILURE`
+
+The RED remains immutable and is not rewritten as PASS.
+
+Disposition:
+
+`OWNER_OAUTH_KV_METADATA_PREFLIGHT_RED_ACCEPTED_GREEN_WORKFLOW_ALLOWED`
+
+Before GREEN authorization:
+
 - Production contact by this phase: `NONE`;
 - Production mutation: `NONE`.
