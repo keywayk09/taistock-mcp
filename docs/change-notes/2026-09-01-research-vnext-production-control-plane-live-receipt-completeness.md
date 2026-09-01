@@ -57,6 +57,10 @@ Allowed future GREEN implementation, only after accepted RED:
 - no Production deploy / rollback / mutation;
 - no temporary one-shot bridge recreation until the corrected GET-only source is separately GREEN and SEALED.
 
+## PR-sync verification child
+
+The initial RED commit `dcf992b6cec19ecf702548226ab31028244e4d75` became PR #206 head successfully, but GitHub created no check-suite/status for that Git Data ref update. This docs-only child exists only to force a normal PR synchronize event. Test semantics and runtime remain unchanged.
+
 ## Current disposition
 
 `PRODUCTION_CONTROL_PLANE_LIVE_RECEIPT_COMPLETENESS_RED_PENDING`
