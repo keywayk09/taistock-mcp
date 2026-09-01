@@ -59,14 +59,35 @@ function toJsonSchema(raw: unknown): CanonicalValue | null {
   return canonicalize(z.toJSONSchema(schema));
 }
 
+const captured: CapturedTool[] = [];
+const fakeServer = {
+  registerTool(name: string, config: Record<string, unknown>) {
+    captured.push({ name, config });
+    return undefined;
+  },
+};
+
 // The repository intentionally uses extensionless TypeScript imports in the
-// existing Owner runtime. Node's --experimental-strip-types runner does not
-// resolve those imports as ESM. Install a test-local CommonJS TypeScript loader
-// so the untouched production graph can be required exactly as written.
+// existing Owner runtime. Node's strip-types runner does not resolve them as
+// ESM. A test-local CJS loader lets the untouched internal TS graph resolve.
+// External MCP runtime classes are stubbed only so Node does not bridge ESM
+// package loaders; they do not contribute tool names or schemas to this probe.
 const cjsRequire = createRequire(import.meta.url) as NodeJS.Require & {
   extensions: Record<string, (module: unknown, filename: string) => void>;
 };
+const nodeModule = cjsRequire("node:module") as {
+  _load: (request: string, parent: unknown, isMain: boolean) => unknown;
+};
 const previousTsLoader = cjsRequire.extensions[".ts"];
+const originalLoad = nodeModule._load;
+
+class StubMcpAgent {}
+class StubMcpServer {
+  registerTool() {
+    return undefined;
+  }
+}
+
 cjsRequire.extensions[".ts"] = (module: unknown, filename: string) => {
   const source = fs.readFileSync(filename, "utf8");
   const output = ts.transpileModule(source, {
@@ -82,31 +103,33 @@ cjsRequire.extensions[".ts"] = (module: unknown, filename: string) => {
   (module as { _compile(code: string, filename: string): void })._compile(output, filename);
 };
 
-let OwnerMCP: { prototype: { init: () => Promise<void> } };
+nodeModule._load = function (request: string, parent: unknown, isMain: boolean) {
+  if (request === "@modelcontextprotocol/sdk/server/mcp.js") {
+    return { McpServer: StubMcpServer };
+  }
+  if (request === "agents/mcp") {
+    return { McpAgent: StubMcpAgent };
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+
 try {
-  ({ MyMCP: OwnerMCP } = cjsRequire("../src/v6/owner-content-handler.ts") as {
+  const { MyMCP: OwnerMCP } = cjsRequire("../src/v6/owner-content-handler.ts") as {
     MyMCP: { prototype: { init: () => Promise<void> } };
-  });
+  };
+
+  // Exercise the real Owner init/registration graph without starting a Worker
+  // or invoking any registered handler. Keep the TS loader active because the
+  // Owner graph contains a lazy Family registration import during init().
+  await OwnerMCP.prototype.init.call({
+    server: fakeServer,
+    env: {} as Env,
+  } as any);
 } finally {
+  nodeModule._load = originalLoad;
   if (previousTsLoader) cjsRequire.extensions[".ts"] = previousTsLoader;
   else delete cjsRequire.extensions[".ts"];
 }
-
-const captured: CapturedTool[] = [];
-const fakeServer = {
-  registerTool(name: string, config: Record<string, unknown>) {
-    captured.push({ name, config });
-    return undefined;
-  },
-};
-
-// Exercise the real Owner init/registration graph without starting a Worker or
-// invoking any registered handler. This captures inherited Base MCP tools plus
-// the current Owner composition while keeping all providers and storage idle.
-await OwnerMCP.prototype.init.call({
-  server: fakeServer,
-  env: {} as Env,
-} as any);
 
 assert.ok(captured.length > 0, "Owner init must register at least one MCP tool");
 const names = captured.map((tool) => tool.name);
@@ -185,8 +208,8 @@ const actual = canonicalize({
   },
 });
 
-// The RED run intentionally reaches this line first and prints the exact
-// semantic snapshot before failing because the fixture does not yet exist.
+// The valid RED run must reach this line and print the exact semantic snapshot
+// before failing solely because the fixture does not yet exist.
 console.log(`ACTUAL_PUBLIC_ABI_SNAPSHOT=${JSON.stringify(actual)}`);
 
 const fixturePath = path.join(root, "tests/fixtures/research-vnext-public-abi-snapshot.json");
