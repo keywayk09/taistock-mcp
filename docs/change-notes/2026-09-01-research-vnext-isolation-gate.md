@@ -41,6 +41,8 @@ The failed receipt is preserved and must not be relabeled as PASS.
 
 ## GREEN implementation
 
+Implementation commit: `fcf73378557c61dada6d3966812ee28f1bdc73f3`.
+
 This phase adds only:
 
 1. `src/v6/research-vnext/isolation-manifest.ts`
@@ -68,6 +70,48 @@ The new workflow uses a fail-fast-disabled matrix so VNEXT, FAMILY, MARKET_DATA,
 - only `npx wrangler deploy --dry-run` is present;
 - bundle hashes and byte size are evidence only.
 
+## Final GREEN evidence
+
+Validated implementation head: `fcf73378557c61dada6d3966812ee28f1bdc73f3`.
+
+Research VNext Incremental Gate:
+
+- Run `33499768843`
+- Job `99830154653`
+- Change Note / protected-surface scope gate: **PASS**
+- all Research VNext tests: **PASS**
+- Type-check: **PASS**
+- Full existing `test:research`: **PASS**
+- Wrangler deploy dry-run: **PASS**
+- immutable-style receipt generation/upload: **PASS**
+
+Independent repository CI:
+
+- Run `33499768886`
+- Job `99830154858`
+- Type-check: **PASS**
+- Full existing `test:research`: **PASS**
+- Wrangler deploy dry-run: **PASS**
+
+Fan-out Research VNext Isolation Gate:
+
+- Run `33499768983`
+- `domain-VNEXT` job `99830155228`: **PASS**
+- `domain-FAMILY` job `99830155217`: **PASS**
+- `domain-MARKET_DATA` job `99830155424`: **PASS**
+- `domain-FORMAL_BLIND` job `99830155157`: **PASS**
+- `domain-OWNER_OPS` job `99830155304`: **PASS**
+- `domain-BUNDLE` job `99830154951`: **PASS**
+- `isolation-evidence` job `99830328690`: **PASS**
+- fail-closed final assertion: **PASS**
+
+Artifacts:
+
+- Incremental evidence ID `9797225919`, digest `sha256:5adaa760006a43e8bf1b95c1da0d4647e4660697675dfa4dd400990efd3afc00`
+- Isolation evidence ID `9797225965`, digest `sha256:02561b84ad973a7ccdf74d8f1d10880bf039d7eea5feef049a1c96663f6c7417`
+- Isolation bundle ID `9797222213`, digest `sha256:898b1f9f60dba81b7f9d2eb5680ec760691043aff958a0d8b9c260eed94d9587`
+- All above expire `2026-10-01`
+
 ## Explicitly not changed
 
 - Owner MCP registration/toolset
@@ -81,6 +125,7 @@ The new workflow uses a fail-fast-disabled matrix so VNEXT, FAMILY, MARKET_DATA,
 - OHLC worker/data plane
 - `wrangler.jsonc`
 - Production deploy topology
+- public MCP ABI/tool count
 
 ## Evidence log
 
@@ -88,11 +133,17 @@ The new workflow uses a fail-fast-disabled matrix so VNEXT, FAMILY, MARKET_DATA,
 |---|---|---|
 | Shadow Facade prerequisite | Run `33499196388` | PASS |
 | Isolation RED | Run `33499484174`, job `99829240513` | EXPECTED FAIL — missing isolation manifest |
-| Isolation implementation | pending commit | built, unregistered |
-| Incremental VNext GREEN | pending | pending |
-| Independent repo CI | pending | pending |
-| Fan-out isolation GREEN | pending | pending |
+| Isolation implementation | Commit `fcf73378557c61dada6d3966812ee28f1bdc73f3` | built, unregistered |
+| Incremental VNext GREEN | Run `33499768843`, job `99830154653` | PASS |
+| Independent repo CI | Run `33499768886`, job `99830154858` | PASS |
+| Fan-out isolation GREEN | Run `33499768983` | PASS — all six domains + evidence |
+| Incremental immutable-style evidence | Artifact `9797225919` | PASS |
+| Isolation immutable-style evidence | Artifacts `9797225965`, `9797222213` | PASS |
+
+## Rollback
+
+Remove the unregistered isolation manifest and the isolation workflow, then revert this Change Note. No Production runtime depends on Research VNext.
 
 ## Final disposition
 
-`IN_PROGRESS_GREEN_VALIDATION`
+`PASS_ISOLATION_GATE_SHADOW_UNREGISTERED`
