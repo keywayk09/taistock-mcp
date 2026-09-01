@@ -11,9 +11,21 @@
 
 Migrate the selective 1m replay deterministic core into Research VNext while preserving the existing frozen-data and conservative-resolution semantics exactly. GPT remains the interpretation/reasoning owner; replay only resolves factual intrabar ordering when the evidence permits it.
 
-## Test-before-build plan
+## Test-before-build proof
 
-The RED shadow test is committed before `src/v6/research-vnext/compute/selective-1m-replay.ts` exists.
+RED commit: `86c8185296831e9247d811d9b817c5482e82a3eb`.
+
+Research VNext Incremental Gate Run `33496955813`, job `99821231898`:
+
+- Change Note / protected-surface scope gate: **PASS**
+- Foundation boundary test: **PASS**
+- New replay shadow test: **FAIL (EXPECTED RED)**
+- Failure: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/compute/selective-1m-replay.ts`
+- Type-check / full existing research regression / Wrangler dry-run: correctly **SKIPPED** after RED.
+
+The failed receipt is preserved and must not be relabeled as a pass.
+
+## Frozen shadow contract
 
 Strict success parity covers:
 
@@ -27,20 +39,30 @@ Strict error-code parity covers:
 2. tampered 1m rows that no longer reproduce the frozen dataset hash;
 3. replay requested for a 5m result that is not explicitly ambiguous/replay-required.
 
-The VNext implementation must be independent and must not import/delegate to legacy selective replay. It must also remain provider-free, runtime-clock-free and reasoning-free.
+## GREEN implementation
 
-## Required invariants
+Added only `src/v6/research-vnext/compute/selective-1m-replay.ts`.
+
+It independently implements the existing deterministic replay contract while retaining the existing public replay schema and engine identity during migration. A separate internal constant, `RESEARCH_VNEXT_REPLAY_IMPLEMENTATION_VERSION`, identifies the VNext implementation without changing returned evidence.
+
+Required invariants retained:
 
 - exact frozen dataset/version/hash verification;
 - exact row count and chronological/duplicate/OHLC validation;
 - exact symbol/trade-date/bucket boundary checks;
 - no future data outside the ambiguous 5m bucket;
-- legacy conservative 5m result remains preserved in output;
+- legacy conservative 5m result preserved in output;
 - deterministic replay identity/hash;
 - no fetch/provider access;
-- no OHLC writes;
+- no OHLC writes/persistence;
+- no runtime-clock dependency;
 - no GPT hypothesis/interpretation logic;
+- no import/delegation to legacy selective replay;
 - no Production registration.
+
+### Intentional migration rule
+
+Public replay output semantics and version identity remain unchanged during architecture migration so GPT/tool consumers see strict parity. Any future replay-semantic or public-version change must be a separate test-first change with its own Change Note.
 
 ## Explicitly not changed
 
@@ -59,14 +81,14 @@ The VNext implementation must be independent and must not import/delegate to leg
 | Stage | Evidence | Result |
 |---|---|---|
 | Swing prerequisite | Run `33496676642` | PASS |
-| Replay RED shadow test | pending | pending |
-| Replay implementation | not created yet | pending |
-| Full regression | pending | pending |
+| Replay RED | Run `33496955813`, job `99821231898` | EXPECTED FAIL — missing VNext replay module |
+| Replay implementation | GREEN validation pending | pending |
+| Full regression | GREEN validation pending | pending |
 
 ## Rollback
 
-Remove the unregistered VNext replay shadow test. No Production runtime depends on VNext.
+Remove the unregistered VNext replay module and replay shadow test. No Production runtime depends on VNext.
 
 ## Final disposition
 
-`IN_PROGRESS_TEST_FIRST`
+`IN_PROGRESS_GREEN_VALIDATION`
