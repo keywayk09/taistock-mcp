@@ -7,7 +7,7 @@ import {
   RESEARCH_VNEXT_EVIDENCE_VERSION,
   createResearchEvidenceEnvelope,
   parseResearchVNextRequest,
-} from "../src/v6/research-vnext/contracts/research-contract";
+} from "../src/v6/research-vnext/contracts/research-contract.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const vnextRoot = path.join(repoRoot, "src/v6/research-vnext");

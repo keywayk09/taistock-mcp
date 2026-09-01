@@ -32,20 +32,45 @@ Current main SHA `20a357923a35b495aefa32eee99ebd8eb14f8ee8` passed GitHub Action
 
 All completed successfully.
 
-## Phase 1 intended change
+## RED proof before implementation
 
-Add only an **unregistered** `src/v6/research-vnext/` foundation and its safety tests. The existing `research-tools.ts`, `owner-content-handler.ts`, public MCP tools, Family, OAuth, Market Data, FORMAL Blind, OHLC, Crypto and deployment topology remain unchanged.
+Dedicated Research VNext Foundation Gate Run `33495236712`, job `99815763795`:
+
+- Change Note / Phase-1 scope gate: **PASS**
+- Research VNext foundation boundary test: **FAIL (EXPECTED RED)**
+- Failure: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/contracts/research-contract`
+- Type check / full regression / Wrangler dry-run: correctly **SKIPPED** after the failing boundary test
+
+This receipt proves the boundary test existed and failed before the VNext implementation was added. The failed run is retained as evidence and is not rewritten as a pass.
+
+## Phase 1 implementation
+
+The GREEN implementation adds only an **unregistered** `src/v6/research-vnext/` foundation:
+
+- `src/v6/research-vnext/contracts/research-contract.ts`
+  - freezes the V1 request/evidence schema identity;
+  - explicitly assigns reasoning authority to GPT;
+  - limits backend authority to data, deterministic compute, replay, evidence and memory;
+  - rejects unsupported operations such as `THINK`;
+  - bounds request IDs, dataset identities and serialized payload/evidence size;
+  - performs no provider access and no writes.
+- `src/v6/research-vnext/README.md`
+  - records authority, hard boundaries and migration phases.
+- `tests/research-vnext-boundary.test.ts`
+  - retains the RED assertions and changes the module import to the repository's explicit `.ts` import convention used by existing Node strip-types tests.
 
 ## Explicitly not changed
 
 - `src/v6/owner-content-handler.ts`
 - `src/v6/research-tools.ts`
+- `src/index-v6.ts`
 - Family routes/tools
 - OAuth
 - Market Data writer/read path
 - FORMAL Blind behavior
 - OHLC ingest/repair/write path
 - Crypto gateway
+- `wrangler.jsonc`
 - Cloudflare Production deployment configuration
 - Public MCP tool names or input schemas
 
@@ -58,10 +83,10 @@ Delete the unregistered VNext foundation/test/workflow files on this branch. Bec
 | Stage | Evidence | Result |
 |---|---|---|
 | Baseline | main `20a3579`, Run `33458763695` | PASS |
-| RED test | pending | pending |
-| Foundation implementation | pending | pending |
-| Full regression | pending | pending |
+| RED test | Run `33495236712`, job `99815763795` | EXPECTED FAIL — missing VNext contract |
+| Foundation implementation | GREEN validation pending | pending |
+| Full regression | GREEN validation pending | pending |
 
 ## Final disposition
 
-`IN_PROGRESS_TEST_FIRST`
+`IN_PROGRESS_GREEN_VALIDATION`
