@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Probe frozen 60 symbols against PR383 Production with zero retries
+      - name: Probe frozen 60 symbols against PR384 Production with zero retries
         shell: bash
         run: |
           set -euo pipefail
@@ -52,7 +52,7 @@ jobs:
                 headers:{
                   accept:'application/json',
                   'cache-control':'no-cache',
-                  'user-agent':'formal-blind-503-diagnostic/post-pr383-compact'
+                  'user-agent':'formal-blind-503-diagnostic/post-pr384-snapshot-stream'
                 }
               });
               const text=await response.text();
@@ -81,42 +81,22 @@ jobs:
                 body_prefix:text.slice(0,4000)
               };
             }catch(error){
-              row={
-                index:i+1,
-                id:item.id,
-                symbol:item.symbol,
-                status:null,
-                ok:false,
-                cloudflare_1102:false,
-                elapsed_ms:Math.round(performance.now()-started),
-                error:String(error?.stack||error)
-              };
+              row={index:i+1,id:item.id,symbol:item.symbol,status:null,ok:false,cloudflare_1102:false,elapsed_ms:Math.round(performance.now()-started),error:String(error?.stack||error)};
             }
             rows.push(row);
             const marker=row.cloudflare_1102?'CF1102':row.status===503?'HTTP503':row.status===429?'HTTP429':row.ok?'PASS':'FAIL';
-            console.log(JSON.stringify({
-              marker,
-              index:row.index,
-              symbol:row.symbol,
-              status:row.status,
-              cloudflare_1102:row.cloudflare_1102,
-              elapsed_ms:row.elapsed_ms,
-              content_type:row.content_type??null,
-              cf_ray:row.cf_ray??null,
-              body_bytes:row.body_bytes??null,
-              body_prefix:row.ok?undefined:row.body_prefix??row.error??null
-            }));
+            console.log(JSON.stringify({marker,index:row.index,symbol:row.symbol,status:row.status,cloudflare_1102:row.cloudflare_1102,elapsed_ms:row.elapsed_ms,content_type:row.content_type??null,cf_ray:row.cf_ray??null,body_bytes:row.body_bytes??null,body_prefix:row.ok?undefined:row.body_prefix??row.error??null}));
             if(i<request.items.length-1) await sleep(650);
           }
 
           const first503=rows.find(x=>x.status===503);
           const first1102=rows.find(x=>x.cloudflare_1102===true);
           const summary={
-            schema:'FORMAL_BLIND_503_DIAGNOSTIC_V6_POST_PR383_COMPACT',
+            schema:'FORMAL_BLIND_503_DIAGNOSTIC_V7_POST_PR384_SNAPSHOT_STREAM',
             generated_at:new Date().toISOString(),
-            target_merge_sha:'fed767c32f12c837c67470331c6c964387774e6c',
-            target_production_version_id:'082a7638-1c8a-4aff-ac4a-94efd340cf7e',
-            cloudflare_build_id:'f84ac47f-76f1-40ba-9bc4-9c048006f0c1',
+            target_merge_sha:'6de520dcb017dfc893fc1f7b57bc957a4f75b426',
+            target_production_version_id:'0cc570c5-531e-4feb-a133-7e5c3d079b9a',
+            cloudflare_build_id:'555df6eb-82c6-4b82-83a5-b2bd82214443',
             request_id:request.request_id,
             inter_item_pacing_ms:650,
             retry_count:0,
@@ -133,22 +113,11 @@ jobs:
             rows
           };
           await fs.writeFile('tmp/formal-blind-503-diagnostic/result.json',`${JSON.stringify(summary,null,2)}\n`);
-          console.log('FORMAL_BLIND_503_DIAGNOSTIC_SUMMARY='+JSON.stringify({
-            item_count:summary.item_count,
-            http_200_count:summary.http_200_count,
-            http_503_count:summary.http_503_count,
-            http_429_count:summary.http_429_count,
-            network_error_count:summary.network_error_count,
-            cloudflare_1102_count:summary.cloudflare_1102_count,
-            first_503_index:summary.first_503_index,
-            first_503_symbol:summary.first_503_symbol,
-            first_1102_index:summary.first_1102_index,
-            first_1102_symbol:summary.first_1102_symbol
-          }));
+          console.log('FORMAL_BLIND_503_DIAGNOSTIC_SUMMARY='+JSON.stringify({item_count:summary.item_count,http_200_count:summary.http_200_count,http_503_count:summary.http_503_count,http_429_count:summary.http_429_count,network_error_count:summary.network_error_count,cloudflare_1102_count:summary.cloudflare_1102_count,first_503_index:summary.first_503_index,first_503_symbol:summary.first_503_symbol,first_1102_index:summary.first_1102_index,first_1102_symbol:summary.first_1102_symbol}));
           NODE
       - name: Upload diagnostic artifact
         uses: actions/upload-artifact@v4
         with:
-          name: formal-blind-503-diagnostic-post-pr383-${{ github.run_id }}
+          name: formal-blind-503-diagnostic-post-pr384-${{ github.run_id }}
           path: tmp/formal-blind-503-diagnostic/result.json
           retention-days: 14
