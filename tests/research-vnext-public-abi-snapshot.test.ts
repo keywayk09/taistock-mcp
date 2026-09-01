@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as ts from "typescript";
 import { z } from "zod";
-import { MyMCP as OwnerMCP } from "../src/v6/owner-content-handler.ts";
 
 type CapturedTool = {
   name: string;
@@ -56,6 +57,39 @@ function toJsonSchema(raw: unknown): CanonicalValue | null {
     ? raw
     : z.object(raw as Record<string, z.ZodType>);
   return canonicalize(z.toJSONSchema(schema));
+}
+
+// The repository intentionally uses extensionless TypeScript imports in the
+// existing Owner runtime. Node's --experimental-strip-types runner does not
+// resolve those imports as ESM. Install a test-local CommonJS TypeScript loader
+// so the untouched production graph can be required exactly as written.
+const cjsRequire = createRequire(import.meta.url) as NodeJS.Require & {
+  extensions: Record<string, (module: unknown, filename: string) => void>;
+};
+const previousTsLoader = cjsRequire.extensions[".ts"];
+cjsRequire.extensions[".ts"] = (module: unknown, filename: string) => {
+  const source = fs.readFileSync(filename, "utf8");
+  const output = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+      esModuleInterop: true,
+      moduleResolution: ts.ModuleResolutionKind.Node10,
+    },
+    fileName: filename,
+    reportDiagnostics: false,
+  }).outputText;
+  (module as { _compile(code: string, filename: string): void })._compile(output, filename);
+};
+
+let OwnerMCP: { prototype: { init: () => Promise<void> } };
+try {
+  ({ MyMCP: OwnerMCP } = cjsRequire("../src/v6/owner-content-handler.ts") as {
+    MyMCP: { prototype: { init: () => Promise<void> } };
+  });
+} finally {
+  if (previousTsLoader) cjsRequire.extensions[".ts"] = previousTsLoader;
+  else delete cjsRequire.extensions[".ts"];
 }
 
 const captured: CapturedTool[] = [];
