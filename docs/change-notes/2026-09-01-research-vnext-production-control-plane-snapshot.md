@@ -100,18 +100,72 @@ Implementation commit:
 
 - `440ee3f5107344cdfe1ee9fc9fff1d77bf87ae3c`
 
+Verification-trigger commit:
+
+- `1a3937bd41a57c10168a54549e707f25b654f1f2` — Change Note only; runtime remains exactly the implementation above.
+
 Added only:
 
 - `src/v6/research-vnext/production-control-plane-snapshot.ts`
 
 The module is pure/deterministic and contains no imports, network access, subprocesses, Cloudflare calls, Production endpoints, Wrangler/curl commands, or mutation capability. It validates the complete normalized pre-deploy snapshot contract and returns a frozen receipt with the active version captured as the future rollback-target candidate while keeping deploy authorization false.
 
+## GREEN evidence — PASS
+
+Research VNext Incremental Gate:
+
+- Run `33520966218`: **SUCCESS**
+- all Research VNext tests: **PASS**
+- snapshot-core contract test: **PASS**
+- incremental type check: **PASS**
+- full `test:research`: **PASS**
+- canonical Wrangler dry-run: **PASS**
+- atomic deploy config dry-run: **PASS**
+- evidence artifact ID: `9805673556`
+- evidence artifact digest: `sha256:163febd60809f0e07c1a09df47d0968fc8a436e11100c26c7801ed399c7b2d75`
+
+Independent Type check:
+
+- Run `33520966148`: **SUCCESS**
+- type-check: **PASS**
+- full `test:research`: **PASS**
+- canonical Wrangler dry-run: **PASS**
+
+Isolation Gate:
+
+- Run `33520966172`: **SUCCESS**
+- VNEXT: **PASS**
+- FAMILY: **PASS**
+- MARKET_DATA: **PASS**
+- FORMAL_BLIND: **PASS**
+- OWNER_OPS: **PASS**
+- BUNDLE: **PASS**
+- isolation evidence artifact ID: `9805666713`
+- isolation evidence digest: `sha256:08c0f343f7a34a9351d60ea317e91083769b06eff950220c5e5fc61089f083da`
+- isolation bundle artifact ID: `9805660764`
+- isolation bundle digest: `sha256:3192e716c16c90f191876a608ea57e30d4082b106f2ded8f9155413b4b4bf864`
+
+Frozen public ABI remains:
+
+- Owner tool count: `123`
+- Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+
+Production status remains:
+
+- deploy authorization: **FALSE**
+- deploy: **NONE**
+- rollback: **NONE**
+- mutation: **NONE**
+- execution hard blocker: **ACTIVE**
+- Legacy retirement: **BLOCKED**
+- PR #206: **Draft/open/unmerged**
+
 ## Explicitly forbidden
 
-- adding the live Cloudflare snapshot workflow before this core contract is GREEN and sealed;
+- adding or executing a live Cloudflare snapshot workflow as part of this core phase;
 - modifying/removing the Production execution hard blocker;
 - Cloudflare credentials in runtime code;
-- Production MCP contact;
+- Production MCP mutation;
 - POST/PUT/PATCH/DELETE Cloudflare calls;
 - Wrangler deploy/rollback/version mutation;
 - OAuth KV mutation;
@@ -119,10 +173,6 @@ The module is pure/deterministic and contains no imports, network access, subpro
 - Legacy deletion;
 - PR #206 merge.
 
-## GREEN evidence
-
-Pending verification on this note-only trigger commit. Runtime implementation remains exactly `440ee3f5107344cdfe1ee9fc9fff1d77bf87ae3c`.
-
 ## Final disposition
 
-`PRODUCTION_CONTROL_PLANE_SNAPSHOT_GREEN_VERIFICATION_PENDING`
+`PASS_PRODUCTION_CONTROL_PLANE_SNAPSHOT_CORE_READ_ONLY_PRODUCTION_UNCHANGED`
