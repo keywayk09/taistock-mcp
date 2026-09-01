@@ -139,3 +139,124 @@ This docs-only seal commit must itself pass:
 Only after all three seal checks are `SUCCESS` may exactly one recapture authorization file be created. Until then, Production contact remains none for this recapture phase.
 
 PR #206 remains Draft/open/unmerged. Production deploy remains unauthorized. Production mutation remains `NONE`.
+
+## Bridge seal — PASS
+
+Bridge seal commit: `3be195dc5e2ccffa3ec693abbaf53f4818368e43`
+
+- Research VNext Incremental Gate Run `33531169692`: `SUCCESS`
+- Type check Run `33531169619`: `SUCCESS`
+- Research VNext Isolation Gate Run `33531169596`: `SUCCESS`
+- PR #206 remained Draft/open/unmerged.
+- Recapture authorization was still absent throughout bridge GREEN + seal.
+- Production contact remained none until the later one-shot authorization commit.
+- Production deploy authorized: `false`
+- Production mutation: `NONE`
+
+Disposition:
+
+`PASS_PRODUCTION_CONTROL_PLANE_LIVE_RECAPTURE_BRIDGE_SEALED`
+
+## Corrected one-shot live recapture — SUCCESS
+
+Only after bridge seal three-green, exactly one authorization file was created.
+
+Authorization commit: `9e60b241635bcffc706e537455598b3ff2431b9f`
+
+The authorization commit was verified against the bridge seal and changed exactly one file:
+
+- `runtime/research-vnext-production-control-plane-one-shot-recapture-authorization.json`
+
+Frozen authorization inputs:
+
+- schema: `RESEARCH_VNEXT_PRODUCTION_CONTROL_PLANE_ONE_SHOT_RECAPTURE_AUTH_V1`
+- mode: `READ_ONLY_PRODUCTION_CONTROL_PLANE_SNAPSHOT`
+- source SHA: `bc77effcee66c773fc529df864b1acd33641107f`
+- Production deploy authorized: `false`
+- Production mutation: `NONE`
+
+The single push triggered exactly one dedicated corrected recapture workflow run:
+
+- Recapture Run `33531322196`: `SUCCESS`
+- event: `push`
+- authorization head: `9e60b241635bcffc706e537455598b3ff2431b9f`
+- corrected sealed source: `bc77effcee66c773fc529df864b1acd33641107f`
+- GET-only snapshot step: `SUCCESS`
+- immutable-style receipt upload: `SUCCESS`
+
+Immutable corrected live receipt:
+
+- Artifact ID: `9809833837`
+- Artifact name: `research-vnext-production-control-plane-one-shot-recapture-33531322196`
+- Artifact digest: `sha256:9f4ddd0bc0f0b877208a6f605bb73e086aa27528885ef4c62c96cb3f1146de6f`
+- Receipt status: `READ_ONLY_SNAPSHOT_VALID`
+- worker: `taistock-mcp`
+- active deployment: `8e4b3922-e96b-4e2b-b365-65e2e9f71968`
+- active version: `75f989b9-e798-4d32-a95f-7253b4e703ec`
+- active version percentage: `100`
+- cron: `*/5 * * * *`
+- protected exports: `MyMCP`, `FamilyMCP`
+- binding fingerprint: `d1faf34e53a3901c0ca13f4c29ff354194c7a3788bd94aa7a2e37509eaf1a49b`
+- rollback target: `75f989b9-e798-4d32-a95f-7253b4e703ec`
+- hard blocker: `REQUIRED_ACTIVE`
+- read_only_capture: `true`
+- token_leak: `false`
+- Production deploy authorized: `false`
+- Production mutation: `NONE`
+
+This corrected receipt is the accepted live control-plane snapshot evidence. The first historical receipt remains immutable and is not rewritten.
+
+## Immediate temporary recapture cleanup
+
+After immutable live evidence was obtained, cleanup was executed in fail-closed order:
+
+1. Workflow cleanup commit: `0ed451a027e44ed881ce7377c05d5159c3434a00`
+   - removed `.github/workflows/research-vnext-production-control-plane-one-shot-recapture.yml`
+2. Authorization cleanup commit: `2df63f1da0dc75765cb8ea9639df50f3f36982c6`
+   - removed `runtime/research-vnext-production-control-plane-one-shot-recapture-authorization.json`
+
+The workflow was removed before the authorization file, so deleting the authorization could not trigger a second recapture. Both temporary paths are absent at cleanup head.
+
+No deploy, rollback, Production MCP invocation, OHLC write, resource provisioning, or other Production mutation occurred.
+
+## TEST BEFORE BUILD — cleanup lifecycle RED
+
+Cleanup head:
+
+- `2df63f1da0dc75765cb8ea9639df50f3f36982c6`
+
+The existing bridge test intentionally remained on its pre-cleanup lifecycle semantics before the cleanup GREEN correction. This produced the expected fail-closed cleanup RED:
+
+- Research VNext Incremental Gate Run `33531433136`: `FAILURE`
+- Incremental Job `99935281924`: `FAILURE`
+- Change Note / protected-surface scope gate: `SUCCESS`
+- all tests before the recapture bridge test: `SUCCESS`
+- recapture preconditions marker: `PRODUCTION_CONTROL_PLANE_LIVE_RECAPTURE_BRIDGE_RED_READY=PASS`
+- exact terminal assertion: `temporary one-shot recapture GET-only bridge must exist only after accepted RED`
+- Type check Run `33531433218`: `SUCCESS`
+- Research VNext Isolation Gate Run `33531433148`: `FAILURE`
+- Isolation FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE: `SUCCESS`
+- Isolation VNEXT: `FAILURE`
+
+This cleanup RED is accepted because the only VNEXT failure is the old assertion requiring the now-correctly-removed temporary recapture workflow. The failure remains immutable and is not rewritten as PASS.
+
+Disposition:
+
+`PRODUCTION_CONTROL_PLANE_LIVE_RECAPTURE_CLEANUP_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWED`
+
+## Cleanup GREEN contract
+
+The cleanup lifecycle test may now be corrected, without changing runtime or Production surfaces, so it accepts exactly two fail-closed states:
+
+1. bridge-present lifecycle:
+   - validates the bounded temporary bridge contract and optional exact authorization contract;
+2. bridge-absent post-cleanup lifecycle:
+   - authorization must also be absent;
+   - corrected live Run `33531322196` and Artifact `9809833837` must be recorded;
+   - receipt must explicitly record `token_leak: false`, `read_only_capture: true`, deploy authorization false, and mutation none;
+   - workflow cleanup commit and authorization cleanup commit must be recorded;
+   - cleanup RED evidence must remain recorded.
+
+No missing or partially cleaned lifecycle is accepted.
+
+Production deploy remains unauthorized. Production mutation remains `NONE`. PR #206 remains Draft/open/unmerged.
