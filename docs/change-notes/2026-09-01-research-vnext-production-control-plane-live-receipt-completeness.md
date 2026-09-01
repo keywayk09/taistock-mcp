@@ -136,7 +136,11 @@ This formal RED remains immutable and is not rewritten as PASS.
 
 ## GREEN implementation
 
-Allowed implementation is intentionally minimal and additive:
+Implementation commit:
+
+- `f1e87cc03232902899c130d8204d3c10b3dac410`
+
+The implementation is intentionally minimal and additive:
 
 - `src/v6/research-vnext/production-control-plane-snapshot.ts` emits `token_leak: false` in the internal read-only snapshot receipt;
 - the Cloudflare API token is still never passed into `buildProductionControlPlaneSnapshot`;
@@ -145,6 +149,10 @@ Allowed implementation is intentionally minimal and additive:
 - no Owner registration, Family, Market Data, FORMAL Blind, OAuth KV, Cron, Durable Object lifecycle, OHLC, workflow trigger, Production deploy, rollback, or mutation behavior changes.
 
 Production deploy remains unauthorized. Production mutation remains `NONE`.
+
+## GREEN verification synchronize child
+
+The GREEN implementation was written through Git Data and produced no check-suite on its direct ref update. This docs-only child exists only to force a normal PR synchronize event. No runtime or test semantics are changed.
 
 ## Current disposition
 
