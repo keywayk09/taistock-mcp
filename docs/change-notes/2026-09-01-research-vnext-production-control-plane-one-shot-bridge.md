@@ -4,6 +4,8 @@
 - Branch: `refactor/research-vnext-foundation-20260901`
 - PR: `#206` — remains Draft/open/unmerged
 - Canonical sealed manual harness source: `9fa1499eeaeb2ccaa7e118502f8b618c76401a31`
+- Initial RED commit: `9b138d10f0a931a125f6d62b546b407896cc0325`
+- Same-tree RED verification commit: `218b98f9cd4c423ac00ddd173dc455cf4af77dbc`
 - Frozen Owner ABI: `123` / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
 - Production deploy authorization: **FALSE**
 - Production mutation: **NONE**
@@ -47,7 +49,7 @@ A valid RED must first prove:
 
 ## RED evidence
 
-Pending formal CI.
+Pending formal CI. The docs-only commit following `218b98f9...` exists solely to force GitHub PR synchronize after the Git Data ref update produced no check-suite; test semantics are unchanged.
 
 ## GREEN implementation
 
