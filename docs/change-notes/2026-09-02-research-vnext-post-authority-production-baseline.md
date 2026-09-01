@@ -101,7 +101,7 @@ Disposition:
 
 Implementation head: `3808ba865f78cf688e31b859e2131b53fb0efddd`.
 
-The only new execution surface is `.github/workflows/research-vnext-post-authority-production-baseline.yml`. No authorization file exists at the GREEN head, so this workflow cannot run its live capture path during GREEN verification.
+The only new execution surface was `.github/workflows/research-vnext-post-authority-production-baseline.yml`. No authorization file existed at the GREEN head, so this workflow could not run its live capture path during GREEN verification.
 
 GREEN evidence:
 
@@ -113,10 +113,47 @@ GREEN evidence:
 - workflow trigger: exact branch + exact authorization path only.
 - authorization commit contract: exactly one changed file.
 - sealed source checkout: `6dc5beb02c168ad6c7c74c314fc9cf704253391a`.
-- Cloudflare credentials are scoped only to the GET-only snapshot step.
-- no deploy, rollback, Cron write, KV write/delete, OAuth issuance/refresh, DO lifecycle change, or Legacy retirement is present.
-- authorization: `ABSENT`.
+- Cloudflare credentials were scoped only to the GET-only snapshot step.
+- no deploy, rollback, Cron write, KV write/delete, OAuth issuance/refresh, DO lifecycle change, or Legacy retirement was present.
+- authorization at GREEN: `ABSENT`.
 - `production_deploy_authorized=false`.
 - `production_mutation=NONE`.
 
-A docs-only seal commit must itself pass Incremental, Type, and Isolation before a one-time live authorization may be created.
+## Docs-only seal and one-time live capture
+
+The bridge was sealed before authorization and then executed exactly once.
+
+- docs-only seal head: `8f92f302...`.
+- seal Incremental Run `33548207977`: `SUCCESS`.
+- seal Type Run `33548207974`: `SUCCESS`.
+- seal Isolation Run `33548208050`: `SUCCESS`.
+- one-file authorization head: `4b9a9b67dbfc5564a128db66d36f7e961e054aa1`.
+- live GET-only baseline Run `33548350116`: `SUCCESS`.
+- live evidence artifact ID `9816384247`.
+- live evidence digest `sha256:09988733fdcb120674f76fc9c1d8db218cf4110ef9d44e60ed9a40cff5ae6135`.
+- observed active Version ID: `72cb66b1-ea3d-4eea-bb70-21c0fe40ef4f`.
+- binding fingerprint remained `d1faf34e53a3901c0ca13f4c29ff354194c7a3788bd94aa7a2e37509eaf1a49b`.
+- OAuth KV and Cron remained unchanged.
+- `read_only_capture=true`.
+- `token_leak=false`.
+- `production_deploy_authorized=false`.
+- `production_mutation=NONE`.
+
+The observed Version ID differs from the earlier canonical-main deployment ID and is preserved as historical evidence. This baseline phase does not infer or rewrite its writer attribution.
+
+## Temporary-surface cleanup — completed
+
+The one-shot execution surface was removed immediately after the successful capture:
+
+- workflow removed first at cleanup commit `47fea3a1...`;
+- authorization removed second at cleanup commit `d873ac51650737ece6b24b2101430697ed5d58ec`;
+- temporary workflow: `ABSENT`;
+- temporary authorization: `ABSENT`;
+- no deploy or rollback was performed by cleanup;
+- no additional Production mutation was authorized.
+
+The earlier RED remains immutable. The completed live capture and subsequent cleanup are a later lifecycle state and must not cause the RED-only bridge assertion to fire again.
+
+Final lifecycle disposition:
+
+`POST_AUTHORITY_PRODUCTION_BASELINE_COMPLETED_READ_ONLY_TEMPORARY_SURFACES_CLEANED`
