@@ -1,0 +1,33 @@
+{
+  "schema": "FORMAL_BLIND_RESOURCE_DIAGNOSTIC_V1",
+  "generated_at": "2026-09-01T01:31:17Z",
+  "source_workflow_run_id": 33458967182,
+  "source_branch": "ops/formal-blind-503-diagnostic-20260901",
+  "request_id": "intraday-blind-20260831-0935-pr379-merged-final-v4",
+  "production_worker": "tv-fugle-1d",
+  "production_version_before_fix": "3d2fcc93-5951-4bea-9111-8406e83a1efc",
+  "item_count": 60,
+  "http_200_count": 10,
+  "http_503_count": 50,
+  "http_429_count": 0,
+  "network_error_count": 0,
+  "first_503_index": 11,
+  "first_503_symbol": "6456",
+  "first_503_cf_ray": "a34082658f3ee659-DEN",
+  "cloudflare_error": {
+    "status": 503,
+    "error_code": 1102,
+    "error_name": "worker_exceeded_resources",
+    "title": "Error 1102: Worker exceeded resource limits",
+    "detail": "A Worker script configured by the website owner exceeded its resource limits (CPU time or memory) and was terminated.",
+    "retryable": false,
+    "owner_action_required": true,
+    "what_you_should_do": "Do not retry. The same request will hit the same resource limits. The site owner must optimize the Worker script."
+  },
+  "observations": [
+    "The first ten requests returned HTTP 200 before the first resource-limit response.",
+    "From item 11 onward, every remaining request returned Cloudflare Error 1102 in this direct 60-symbol diagnostic.",
+    "The response was Cloudflare platform JSON, not the OHLC endpoint CANONICAL_READER_FAILED JSON path.",
+    "This file is post-fix diagnostic evidence only. It does not modify or reinterpret the immutable 2026-08-31 original research receipt or selection evidence."
+  ]
+}
