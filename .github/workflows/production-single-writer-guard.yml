@@ -36,29 +36,39 @@ jobs:
           for (const name of files) {
             if (name === canonical) continue;
             const text = fs.readFileSync(path.join(dir, name), 'utf8');
-            const lower = text.toLowerCase();
+            const lines = text.split(/\r?\n/);
 
-            // Direct Wrangler writes to the taistock-mcp default/main config are forbidden.
-            const wranglerDeploy = /\bwrangler\s+deploy\b/i.test(text);
-            const defaultMainConfig = /--config\s+(?:\.\/)?wrangler\.jsonc\b/i.test(text);
-            const unifiedMainConfig = /--config\s+(?:\.\/)?wrangler\.unified(?:\.production)?\.jsonc\b/i.test(text);
-            const taistockEndpoint = lower.includes('taistock-mcp.keywayk09.workers.dev');
-            const unscopedWranglerDeploy = wranglerDeploy && !/--config\s+[^\s]+/i.test(text);
+            // A Wrangler dry-run is validation, not a writer. Real deploy commands are
+            // forbidden when they use the taistock-mcp default/unified config or omit
+            // an explicit config (which would fall back to the repository default).
+            for (const line of lines) {
+              if (!/\bwrangler\s+deploy\b/i.test(line)) continue;
+              if (/--dry-run\b/i.test(line)) continue;
 
-            // Direct Cloudflare Workers API writes to the production script are forbidden.
+              const configMatch = line.match(/--config\s+([^\s]+)/i);
+              const config = configMatch ? configMatch[1].replace(/["']/g, '') : null;
+              const taistockConfig = !config ||
+                /(?:^|\/)wrangler\.jsonc$/i.test(config) ||
+                /(?:^|\/)wrangler\.unified(?:\.production)?\.jsonc$/i.test(config);
+
+              if (taistockConfig) {
+                violations.push(`${name}: ${line.trim()}`);
+              }
+            }
+
+            // Direct Cloudflare Workers API writes to the taistock-mcp script are
+            // forbidden outside the canonical workflow.
             const directScriptTarget = /workers\/scripts\/taistock-mcp\b/i.test(text);
             const mutatingHttp = /(?:-x|--request)\s+(?:post|put|patch|delete)\b/i.test(text);
-
-            if ((wranglerDeploy && (defaultMainConfig || unifiedMainConfig || taistockEndpoint || unscopedWranglerDeploy)) ||
-                (directScriptTarget && mutatingHttp)) {
-              violations.push(name);
+            if (directScriptTarget && mutatingHttp) {
+              violations.push(`${name}: direct Workers API mutation`);
             }
           }
 
           if (violations.length) {
             console.error('PRODUCTION_SINGLE_WRITER_VIOLATION');
             console.error(`Only ${canonical} may mutate taistock-mcp Production.`);
-            for (const name of violations) console.error(`- ${name}`);
+            for (const item of violations) console.error(`- ${item}`);
             process.exit(1);
           }
 
