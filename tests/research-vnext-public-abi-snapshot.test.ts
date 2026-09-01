@@ -182,7 +182,27 @@ assert.ok(scripts["test:market-data"], "Market Data regression script must remai
 assert.match(scripts["test:research"] ?? "", /test:formal-blind-ohlc/);
 assert.match(scripts["test:research"] ?? "", /test:ops-contracts/);
 
-const actual = canonicalize({
+const ownerAbiSha256 = sha256(tools);
+const publicIngress = {
+  owner: ["/my-mcp", "/mcp"],
+  family: ["/family-mcp"],
+  owner_scope: "owner:full",
+  family_scope: "family:read",
+};
+const regressionGuards = {
+  isolation_domains: [...isolationDomains],
+  family: "test:family-selection",
+  market_data: "test:market-data",
+  formal_blind: "test:formal-blind-ohlc",
+  owner_ops: "test:ops-contracts",
+  bundle: "wrangler deploy --dry-run",
+};
+
+// Keep the full per-tool hash material available in CI diagnostics. The frozen
+// fixture stores the aggregate digest instead of duplicating 123 hash records;
+// owner_abi_sha256 is SHA-256 over the entire ordered per-tool hash list, so a
+// change to any tool name/description/input/output/metadata changes the fixture.
+const actualDiagnostic = canonicalize({
   schema: "RESEARCH_VNEXT_PUBLIC_ABI_SNAPSHOT_V1",
   owner_identity: {
     name: identityMatch[1],
@@ -191,35 +211,34 @@ const actual = canonicalize({
   owner_tool_count: tools.length,
   owner_tool_names: tools.map((tool) => tool.name),
   owner_tools: tools,
-  owner_abi_sha256: sha256(tools),
-  public_ingress: {
-    owner: ["/my-mcp", "/mcp"],
-    family: ["/family-mcp"],
-    owner_scope: "owner:full",
-    family_scope: "family:read",
-  },
-  regression_guards: {
-    isolation_domains: [...isolationDomains],
-    family: "test:family-selection",
-    market_data: "test:market-data",
-    formal_blind: "test:formal-blind-ohlc",
-    owner_ops: "test:ops-contracts",
-    bundle: "wrangler deploy --dry-run",
-  },
+  owner_abi_sha256: ownerAbiSha256,
+  public_ingress: publicIngress,
+  regression_guards: regressionGuards,
 });
 
-// The valid RED run must reach this line and print the exact semantic snapshot
-// before failing solely because the fixture does not yet exist.
-console.log(`ACTUAL_PUBLIC_ABI_SNAPSHOT=${JSON.stringify(actual)}`);
+const frozenActual = canonicalize({
+  schema: "RESEARCH_VNEXT_PUBLIC_ABI_SNAPSHOT_V1",
+  owner_identity: {
+    name: identityMatch[1],
+    version: identityMatch[2],
+  },
+  owner_tool_count: tools.length,
+  owner_tool_names: tools.map((tool) => tool.name),
+  owner_abi_sha256: ownerAbiSha256,
+  public_ingress: publicIngress,
+  regression_guards: regressionGuards,
+});
+
+console.log(`ACTUAL_PUBLIC_ABI_SNAPSHOT=${JSON.stringify(actualDiagnostic)}`);
 
 const fixturePath = path.join(root, "tests/fixtures/research-vnext-public-abi-snapshot.json");
 const expected = canonicalize(JSON.parse(fs.readFileSync(fixturePath, "utf8")));
-assert.deepEqual(actual, expected, "public MCP ABI drifted from the frozen pre-cutover snapshot");
+assert.deepEqual(frozenActual, expected, "public MCP ABI drifted from the frozen pre-cutover snapshot");
 
 console.log(JSON.stringify({
   schema: "RESEARCH_VNEXT_PUBLIC_ABI_SNAPSHOT_TEST_V1",
   status: "PASS",
   owner_tool_count: tools.length,
-  owner_abi_sha256: (actual as Record<string, unknown>).owner_abi_sha256,
+  owner_abi_sha256: ownerAbiSha256,
   production_registration: "LEGACY_UNCHANGED",
 }, null, 2));
