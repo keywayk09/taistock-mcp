@@ -10,6 +10,7 @@ const SOURCE = "6dc5beb02c168ad6c7c74c314fc9cf704253391a";
 const NOTE = "docs/change-notes/2026-09-02-research-vnext-post-authority-production-baseline.md";
 const WORKFLOW = ".github/workflows/research-vnext-post-authority-production-baseline.yml";
 const AUTH = "runtime/research-vnext-post-authority-production-baseline-authorization.json";
+const CLEANED = "POST_AUTHORITY_PRODUCTION_BASELINE_COMPLETED_READ_ONLY_TEMPORARY_SURFACES_CLEANED";
 
 const fixture = JSON.parse(read("tests/fixtures/research-vnext-public-abi-snapshot.json"));
 assert.equal(fixture.owner_tool_count, 123);
@@ -50,35 +51,47 @@ console.log(JSON.stringify({
 }, null, 2));
 
 if (!exists(WORKFLOW)) {
-  assert.equal(exists(AUTH), false, "authorization must not exist before baseline bridge GREEN");
-  assert.fail("temporary post-authority GET-only baseline workflow must exist only after accepted RED");
+  // RED remains immutable, but after the one-time live capture the correct
+  // terminal state is that both temporary surfaces are absent. Accept that
+  // state only when the immutable live evidence and cleanup disposition are
+  // explicitly recorded in the Change Note.
+  assert.equal(exists(AUTH), false, "authorization must be absent after temporary workflow cleanup");
+  assert.match(note, /live GET-only baseline Run `33548350116`: `SUCCESS`/);
+  assert.match(note, /live evidence artifact ID `9816384247`/);
+  assert.match(note, /sha256:09988733fdcb120674f76fc9c1d8db218cf4110ef9d44e60ed9a40cff5ae6135/);
+  assert.match(note, /72cb66b1-ea3d-4eea-bb70-21c0fe40ef4f/);
+  assert.match(note, /d1faf34e53a3901c0ca13f4c29ff354194c7a3788bd94aa7a2e37509eaf1a49b/);
+  assert.match(note, /workflow removed first at cleanup commit `47fea3a1\.\.\.`/);
+  assert.match(note, /authorization removed second at cleanup commit `d873ac51650737ece6b24b2101430697ed5d58ec`/);
+  assert.match(note, new RegExp(CLEANED));
+  console.log("POST_AUTHORITY_PRODUCTION_BASELINE_CLEANUP_GREEN=PASS");
+} else {
+  const workflow = read(WORKFLOW);
+  assert.match(workflow, /^name:\s*Research VNext Post-Authority Production Baseline/m);
+  assert.match(workflow, /push:/);
+  assert.match(workflow, /refactor\/research-vnext-foundation-20260901/);
+  assert.match(workflow, /runtime\/research-vnext-post-authority-production-baseline-authorization\.json/);
+  assert.doesNotMatch(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /permissions:\s*\n\s*contents:\s*read/);
+  assert.match(workflow, /RESEARCH_VNEXT_POST_AUTHORITY_BASELINE_AUTH_V1/);
+  assert.match(workflow, /READ_ONLY_PRODUCTION_CONTROL_PLANE_SNAPSHOT/);
+  assert.match(workflow, new RegExp(SOURCE));
+  assert.match(workflow, /production_deploy_authorized/);
+  assert.match(workflow, /production_mutation/);
+  assert.match(workflow, /research-vnext-production-control-plane-live-snapshot\.mjs/);
+  assert.match(workflow, /CLOUDFLARE_API_TOKEN:\s*\$\{\{\s*secrets\.CLOUDFLARE_API_TOKEN\s*\}\}/);
+  assert.match(workflow, /CLOUDFLARE_ACCOUNT_ID:\s*\$\{\{\s*secrets\.CLOUDFLARE_ACCOUNT_ID\s*\}\}/);
+  assert.doesNotMatch(workflow, /\bwrangler\s+(?:deploy|rollback)\b|-X\s+(?:POST|PUT|PATCH|DELETE)/i);
+  assert.match(workflow, /actions\/upload-artifact@v4/);
+
+  if (exists(AUTH)) {
+    const auth = JSON.parse(read(AUTH));
+    assert.equal(auth.schema, "RESEARCH_VNEXT_POST_AUTHORITY_BASELINE_AUTH_V1");
+    assert.equal(auth.mode, "READ_ONLY_PRODUCTION_CONTROL_PLANE_SNAPSHOT");
+    assert.equal(auth.source_sha, SOURCE);
+    assert.equal(auth.production_deploy_authorized, false);
+    assert.equal(auth.production_mutation, "NONE");
+  }
+
+  console.log("POST_AUTHORITY_PRODUCTION_BASELINE_BRIDGE_GREEN=PASS");
 }
-
-const workflow = read(WORKFLOW);
-assert.match(workflow, /^name:\s*Research VNext Post-Authority Production Baseline/m);
-assert.match(workflow, /push:/);
-assert.match(workflow, /refactor\/research-vnext-foundation-20260901/);
-assert.match(workflow, /runtime\/research-vnext-post-authority-production-baseline-authorization\.json/);
-assert.doesNotMatch(workflow, /workflow_dispatch:/);
-assert.match(workflow, /permissions:\s*\n\s*contents:\s*read/);
-assert.match(workflow, /RESEARCH_VNEXT_POST_AUTHORITY_BASELINE_AUTH_V1/);
-assert.match(workflow, /READ_ONLY_PRODUCTION_CONTROL_PLANE_SNAPSHOT/);
-assert.match(workflow, new RegExp(SOURCE));
-assert.match(workflow, /production_deploy_authorized/);
-assert.match(workflow, /production_mutation/);
-assert.match(workflow, /research-vnext-production-control-plane-live-snapshot\.mjs/);
-assert.match(workflow, /CLOUDFLARE_API_TOKEN:\s*\$\{\{\s*secrets\.CLOUDFLARE_API_TOKEN\s*\}\}/);
-assert.match(workflow, /CLOUDFLARE_ACCOUNT_ID:\s*\$\{\{\s*secrets\.CLOUDFLARE_ACCOUNT_ID\s*\}\}/);
-assert.doesNotMatch(workflow, /\bwrangler\s+(?:deploy|rollback)\b|-X\s+(?:POST|PUT|PATCH|DELETE)/i);
-assert.match(workflow, /actions\/upload-artifact@v4/);
-
-if (exists(AUTH)) {
-  const auth = JSON.parse(read(AUTH));
-  assert.equal(auth.schema, "RESEARCH_VNEXT_POST_AUTHORITY_BASELINE_AUTH_V1");
-  assert.equal(auth.mode, "READ_ONLY_PRODUCTION_CONTROL_PLANE_SNAPSHOT");
-  assert.equal(auth.source_sha, SOURCE);
-  assert.equal(auth.production_deploy_authorized, false);
-  assert.equal(auth.production_mutation, "NONE");
-}
-
-console.log("POST_AUTHORITY_PRODUCTION_BASELINE_BRIDGE_GREEN=PASS");
