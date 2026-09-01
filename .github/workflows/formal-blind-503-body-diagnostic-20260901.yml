@@ -16,12 +16,10 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - name: Probe frozen 60 symbols directly against OHLC verification
+      - name: Probe frozen 60 symbols with 5s pacing and zero retries
         shell: bash
         run: |
           set -euo pipefail
@@ -29,126 +27,35 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from 'node:fs/promises';
           import { performance } from 'node:perf_hooks';
-
-          const requestPath = 'runtime/automation-research-relay/requests/intraday-blind-20260831-0935-pr379-merged-final-v4.json';
-          const request = JSON.parse(await fs.readFile(requestPath, 'utf8'));
-          const base = 'https://tv-fugle-1d.keikei99887.workers.dev/research/formal-blind-verification';
-          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-          const rows = [];
-
-          for (let i = 0; i < request.items.length; i += 1) {
-            const item = request.items[i];
-            const params = new URLSearchParams({
-              symbol: String(item.symbol),
-              timeframe: String(item.timeframe),
-              trade_date: String(item.trade_date),
-              decision_time: String(item.decision_time).length === 5 ? `${item.decision_time}:00` : String(item.decision_time),
-            });
-            const started = performance.now();
+          const requestPath='runtime/automation-research-relay/requests/intraday-blind-20260831-0935-pr379-merged-final-v4.json';
+          const request=JSON.parse(await fs.readFile(requestPath,'utf8'));
+          const base='https://tv-fugle-1d.keikei99887.workers.dev/research/formal-blind-verification';
+          const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+          const rows=[];
+          for(let i=0;i<request.items.length;i+=1){
+            const item=request.items[i];
+            const params=new URLSearchParams({symbol:String(item.symbol),timeframe:String(item.timeframe),trade_date:String(item.trade_date),decision_time:String(item.decision_time).length===5?`${item.decision_time}:00`:String(item.decision_time)});
+            const started=performance.now();
             let row;
-            try {
-              const response = await fetch(`${base}?${params}`, {
-                method: 'GET',
-                redirect: 'error',
-                signal: AbortSignal.timeout(70_000),
-                headers: {
-                  accept: 'application/json',
-                  'cache-control': 'no-cache',
-                  'user-agent': 'formal-blind-503-diagnostic/post-pr381',
-                },
-              });
-              const text = await response.text();
-              let parsed = null;
-              try { parsed = JSON.parse(text); } catch {}
-              const cloudflare1102 = response.status === 503 && (
-                Number(parsed?.error_code || 0) === 1102 ||
-                String(parsed?.error_name || '') === 'worker_exceeded_resources' ||
-                parsed?.retryable === false && String(parsed?.title || '').includes('Error 1102') ||
-                text.includes('Error 1102') ||
-                text.includes('"error_code":1102')
-              );
-              row = {
-                index: i + 1,
-                id: item.id,
-                symbol: item.symbol,
-                status: response.status,
-                ok: response.ok,
-                cloudflare_1102: cloudflare1102,
-                elapsed_ms: Math.round(performance.now() - started),
-                content_type: response.headers.get('content-type'),
-                content_length: response.headers.get('content-length'),
-                cf_ray: response.headers.get('cf-ray'),
-                server: response.headers.get('server'),
-                body_bytes: Buffer.byteLength(text, 'utf8'),
-                body_prefix: text.slice(0, 4000),
-              };
-            } catch (error) {
-              row = {
-                index: i + 1,
-                id: item.id,
-                symbol: item.symbol,
-                status: null,
-                ok: false,
-                cloudflare_1102: false,
-                elapsed_ms: Math.round(performance.now() - started),
-                error: String(error?.stack || error),
-              };
-            }
+            try{
+              const response=await fetch(`${base}?${params}`,{method:'GET',redirect:'error',signal:AbortSignal.timeout(70_000),headers:{accept:'application/json','cache-control':'no-cache','user-agent':'formal-blind-503-diagnostic/post-pr381-pacing5s'}});
+              const text=await response.text();
+              let parsed=null; try{parsed=JSON.parse(text);}catch{}
+              const cloudflare1102=response.status===503&&(Number(parsed?.error_code||0)===1102||String(parsed?.error_name||'')==='worker_exceeded_resources'||text.includes('Error 1102')||text.includes('"error_code":1102'));
+              row={index:i+1,id:item.id,symbol:item.symbol,status:response.status,ok:response.ok,cloudflare_1102:cloudflare1102,elapsed_ms:Math.round(performance.now()-started),cf_ray:response.headers.get('cf-ray'),body_prefix:text.slice(0,1200)};
+            }catch(error){row={index:i+1,id:item.id,symbol:item.symbol,status:null,ok:false,cloudflare_1102:false,elapsed_ms:Math.round(performance.now()-started),error:String(error?.stack||error)};}
             rows.push(row);
-            const marker = row.cloudflare_1102 ? 'CF1102' : row.status === 503 ? 'HTTP503' : row.status === 429 ? 'HTTP429' : row.ok ? 'PASS' : 'FAIL';
-            console.log(JSON.stringify({
-              marker,
-              index: row.index,
-              symbol: row.symbol,
-              status: row.status,
-              cloudflare_1102: row.cloudflare_1102,
-              elapsed_ms: row.elapsed_ms,
-              content_type: row.content_type ?? null,
-              cf_ray: row.cf_ray ?? null,
-              body_bytes: row.body_bytes ?? null,
-              body_prefix: row.ok ? undefined : row.body_prefix ?? row.error ?? null,
-            }));
-            if (i < request.items.length - 1) await sleep(650);
+            console.log(JSON.stringify({marker:row.cloudflare_1102?'CF1102':row.status===503?'HTTP503':row.status===429?'HTTP429':row.ok?'PASS':'FAIL',index:row.index,symbol:row.symbol,status:row.status,cloudflare_1102:row.cloudflare_1102,elapsed_ms:row.elapsed_ms,cf_ray:row.cf_ray??null}));
+            if(i<request.items.length-1) await sleep(5000);
           }
-
-          const first1102 = rows.find((x) => x.cloudflare_1102 === true);
-          const summary = {
-            schema: 'FORMAL_BLIND_503_DIAGNOSTIC_V3_POST_PR381',
-            generated_at: new Date().toISOString(),
-            target_merge_sha: '0b72309dbcbaa67f112237a734d0ae53d2ac34a4',
-            target_production_version_id: '6bb87b9d-224b-47a5-bea3-65221fca7463',
-            cloudflare_build_id: '19f2755d-a331-4132-adfa-9cd28bc20e92',
-            request_id: request.request_id,
-            item_count: rows.length,
-            http_200_count: rows.filter((x) => x.status === 200).length,
-            http_503_count: rows.filter((x) => x.status === 503).length,
-            http_429_count: rows.filter((x) => x.status === 429).length,
-            network_error_count: rows.filter((x) => x.status == null).length,
-            cloudflare_1102_count: rows.filter((x) => x.cloudflare_1102 === true).length,
-            first_503_index: rows.find((x) => x.status === 503)?.index ?? null,
-            first_503_symbol: rows.find((x) => x.status === 503)?.symbol ?? null,
-            first_1102_index: first1102?.index ?? null,
-            first_1102_symbol: first1102?.symbol ?? null,
-            rows,
-          };
-          await fs.writeFile('tmp/formal-blind-503-diagnostic/result.json', `${JSON.stringify(summary, null, 2)}\n`);
-          console.log('FORMAL_BLIND_503_DIAGNOSTIC_SUMMARY=' + JSON.stringify({
-            item_count: summary.item_count,
-            http_200_count: summary.http_200_count,
-            http_503_count: summary.http_503_count,
-            http_429_count: summary.http_429_count,
-            network_error_count: summary.network_error_count,
-            cloudflare_1102_count: summary.cloudflare_1102_count,
-            first_503_index: summary.first_503_index,
-            first_503_symbol: summary.first_503_symbol,
-            first_1102_index: summary.first_1102_index,
-            first_1102_symbol: summary.first_1102_symbol,
-          }));
+          const first1102=rows.find(x=>x.cloudflare_1102===true);
+          const summary={schema:'FORMAL_BLIND_503_DIAGNOSTIC_V4_POST_PR381_PACING5S',generated_at:new Date().toISOString(),target_merge_sha:'0b72309dbcbaa67f112237a734d0ae53d2ac34a4',target_production_version_id:'6bb87b9d-224b-47a5-bea3-65221fca7463',inter_item_pacing_ms:5000,retry_count:0,item_count:rows.length,http_200_count:rows.filter(x=>x.status===200).length,http_503_count:rows.filter(x=>x.status===503).length,http_429_count:rows.filter(x=>x.status===429).length,network_error_count:rows.filter(x=>x.status==null).length,cloudflare_1102_count:rows.filter(x=>x.cloudflare_1102===true).length,first_1102_index:first1102?.index??null,first_1102_symbol:first1102?.symbol??null,rows};
+          await fs.writeFile('tmp/formal-blind-503-diagnostic/result.json',`${JSON.stringify(summary,null,2)}\n`);
+          console.log('FORMAL_BLIND_503_DIAGNOSTIC_SUMMARY='+JSON.stringify({item_count:summary.item_count,http_200_count:summary.http_200_count,http_503_count:summary.http_503_count,http_429_count:summary.http_429_count,network_error_count:summary.network_error_count,cloudflare_1102_count:summary.cloudflare_1102_count,first_1102_index:summary.first_1102_index,first_1102_symbol:summary.first_1102_symbol}));
           NODE
-
       - name: Upload diagnostic artifact
         uses: actions/upload-artifact@v4
         with:
-          name: formal-blind-503-diagnostic-post-pr381-${{ github.run_id }}
+          name: formal-blind-503-diagnostic-post-pr381-pacing5s-${{ github.run_id }}
           path: tmp/formal-blind-503-diagnostic/result.json
           retention-days: 14
