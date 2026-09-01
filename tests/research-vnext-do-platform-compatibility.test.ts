@@ -34,27 +34,27 @@ assert.doesNotMatch(wrangler, /"migrations"\s*:/, "do not mix declarative export
 const uploadWorkflow = read(".github/workflows/research-vnext-version-upload.yml");
 assert.match(uploadWorkflow, /workflow_dispatch:/);
 assert.match(uploadWorkflow, /wrangler versions upload/);
-assert.doesNotMatch(
+assert.match(
   uploadWorkflow,
   /DO_EXPORTS_VERSION_UPLOAD_BLOCKED/,
-  "RED premise requires the current manual workflow to lack the newly required platform blocker",
+  "accepted RED has been satisfied; GREEN requires the platform blocker",
 );
 
-console.log("DO_PLATFORM_COMPATIBILITY_RED_READY=PASS");
+console.log("DO_PLATFORM_COMPATIBILITY_GREEN_PRECHECK=PASS");
 console.log(JSON.stringify({
-  schema: "RESEARCH_VNEXT_DO_PLATFORM_COMPATIBILITY_RED_V1",
+  schema: "RESEARCH_VNEXT_DO_PLATFORM_COMPATIBILITY_GREEN_PRECHECK_V1",
   status: "PASS",
   owner_tool_count: fixture.owner_tool_count,
   owner_abi_sha256: fixture.owner_abi_sha256,
   durable_object_exports: ["MyMCP", "FamilyMCP"],
   versions_upload_present: true,
-  versions_upload_platform_blocker_present: false,
+  versions_upload_platform_blocker_present: true,
   legacy_retirement: RESEARCH_VNEXT_RETIREMENT_POLICY.legacy_retirement,
   production_mutation: "NONE",
 }, null, 2));
 
-// TEST BEFORE BUILD: only after every repository/platform premise above has
-// passed in CI may the policy-only compatibility correction be implemented.
+// Accepted RED evidence is sealed in the Change Note. GREEN now verifies the
+// policy-only correction and the fail-closed manual workflow semantics.
 const policyModule = await import("../src/v6/research-vnext/do-deployment-policy.ts");
 
 const policy = policyModule.RESEARCH_VNEXT_DO_DEPLOYMENT_POLICY;

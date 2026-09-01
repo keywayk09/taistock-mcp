@@ -100,15 +100,17 @@ Disposition: `DO_PLATFORM_COMPATIBILITY_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWE
 
 The failed RED evidence is immutable and is not rewritten as PASS.
 
-## GREEN implementation allowed after accepted RED
+## GREEN implementation
+
+Implementation commit: `eadd6eae6d7fa159f3b8b9504f6aad408353b14a`
 
 ### Policy-only module
 
-Add:
+Added:
 
 - `src/v6/research-vnext/do-deployment-policy.ts`
 
-It must contain no runtime imports or side effects and freeze at least:
+It freezes:
 
 - `versions_upload = BLOCKED_WHILE_DURABLE_OBJECT_EXPORTS_PRESENT`
 - `gradual_deployment = BLOCKED_WHILE_DURABLE_OBJECT_EXPORTS_PRESENT`
@@ -118,18 +120,42 @@ It must contain no runtime imports or side effects and freeze at least:
 - `zero_traffic_candidate_validation = BLOCKED_PENDING_COMPATIBLE_DEPLOYMENT_DESIGN`
 - `production_mutation = NONE`
 
+The module contains no imports, network calls, subprocesses or runtime side effects.
+
 ### Manual workflow fail-closed correction
 
-Modify only `.github/workflows/research-vnext-version-upload.yml` so that, immediately after checkout and before any Wrangler/Cloudflare operation, it terminates fail-closed.
+`.github/workflows/research-vnext-version-upload.yml` now terminates immediately after checkout and before setup-node, npm install, planner, Wrangler commands or any credential-dependent Cloudflare operation.
 
-Required behavior:
+Current `exports` state emits:
 
-- detect the current `exports` block;
-- emit explicit marker `DO_EXPORTS_VERSION_UPLOAD_BLOCKED`;
-- exit before setup/install/planner/deployment/version commands;
-- even if `exports` later disappears unexpectedly, still exit and require a new separately tested authorization phase;
-- do not remove the previously prepared commands from history; they may remain unreachable in the workflow for auditability;
-- no Cloudflare credential-dependent operation may precede the blocker.
+- `DO_EXPORTS_VERSION_UPLOAD_BLOCKED`
+- `PLATFORM_REAUTHORIZATION_REQUIRED`
+- exit code `78`
+
+If `exports` unexpectedly disappears, the workflow still emits `PLATFORM_REAUTHORIZATION_REQUIRED` and exits `78`. The previously prepared upload commands remain unreachable for auditability.
+
+## Failed GREEN attempt 1 — immutable harness flip failure
+
+Implementation commit `eadd6eae6d7fa159f3b8b9504f6aad408353b14a` produced one expected-to-be-corrected test harness failure:
+
+- Incremental Run `33511192351`
+- Job `99866972574`
+- Change Note / protected-surface scope gate: **PASS**
+- exact failure occurred in `tests/research-vnext-do-platform-compatibility.test.ts`
+- stale RED-only assertion still required `DO_EXPORTS_VERSION_UPLOAD_BLOCKED` to be absent
+- the implementation correctly added that blocker, so the stale RED premise self-failed before GREEN policy/workflow assertions ran
+- downstream incremental type-check / full `test:research` / Wrangler dry-run: correctly **SKIPPED**
+
+Independent validation on the same implementation commit:
+
+- Type check Run `33511193411`: **SUCCESS**, including type-check, full `test:research`, and Wrangler dry-run
+- Isolation Run `33511192533`: FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**; VNEXT failed only on the same stale RED-only assertion; finalizer failed closed as designed
+
+No policy or workflow behavior defect was identified. No Production deploy, Cloudflare write, workflow dispatch, OAuth KV mutation, Cron mutation, Production MCP contact or traffic shift occurred.
+
+Disposition: `GREEN_ATTEMPT_1_HARNESS_FLIP_FAILURE_IMMUTABLE`.
+
+Authorized correction is **test-only**: flip the accepted RED precondition to GREEN verification that the blocker is now present. The policy module and fail-closed workflow must remain unchanged.
 
 ## Explicitly forbidden
 
@@ -170,8 +196,8 @@ A later phase must design a Cloudflare-supported atomic `wrangler deploy` valida
 
 ## GREEN evidence
 
-Pending.
+Pending corrected GREEN.
 
 ## Final disposition
 
-`DO_PLATFORM_COMPATIBILITY_GREEN_IMPLEMENTATION_ALLOWED`
+`DO_PLATFORM_COMPATIBILITY_GREEN_HARNESS_CORRECTION_ALLOWED`
