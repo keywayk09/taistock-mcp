@@ -47,7 +47,7 @@ type RegistrationServer = {
 
 type ToolHandler = (...args: any[]) => any;
 
-type JsonRecord = Record<string, any>;
+type JsonRecord = Record<PropertyKey, any>;
 
 const COMPAT_HANDLER_NAMES = new Set([
   "resolve_ambiguous_backtest_with_1m",
