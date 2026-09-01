@@ -29,14 +29,24 @@ At this baseline:
 
 ## TEST BEFORE BUILD
 
-The RED test must be committed before `src/v6/research-vnext/research-gateway.ts` exists.
+RED Change Note commit: `8e4b95d17c2cdcb00bd2a3cbf74d94612dd50c90`.
+RED test commit: `cf8fade56d6a9ed52254208f91b82835c0ce3e55`.
 
-Expected first failure:
+The RED test was committed before `src/v6/research-vnext/research-gateway.ts` existed.
 
-- existing VNext tests remain PASS;
-- new gateway test fails precisely with `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/research-gateway.ts`;
-- downstream type-check / full regression / Wrangler dry-run are blocked by the incremental gate after the expected RED;
-- failed evidence is immutable and must not be relabeled as PASS.
+## RED evidence
+
+Research VNext Incremental Gate:
+
+- Run `33500497344`
+- Job `99832461609`
+- Change Note / protected-surface scope gate: **PASS**
+- existing Research VNext boundary test: **PASS**
+- new gateway test: **FAIL (EXPECTED RED)**
+- exact failure: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/research-gateway.ts`
+- type-check / full research regression / Wrangler dry-run inside the incremental gate: correctly **SKIPPED** after RED
+
+The failed receipt is immutable and must not be relabeled as PASS.
 
 ## Frozen gateway contract
 
@@ -88,7 +98,7 @@ Primary risks are accidental eager coupling, unbounded error leakage, and introd
 
 ## Tests
 
-Planned RED/GREEN test:
+RED/GREEN test:
 
 - `tests/research-vnext-gateway.test.ts`
 
@@ -100,13 +110,13 @@ After implementation, required validation remains:
 - Wrangler dry-run
 - Research VNext Isolation Gate across VNEXT / FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE
 
-## RED evidence
+## GREEN implementation
 
-Pending first RED run. Do not write implementation until the missing-module RED is observed.
+Not built yet. RED is now formally proven; implementation may proceed.
 
 ## GREEN evidence
 
-Not built yet.
+Pending.
 
 ## Artifact / hash
 
@@ -118,4 +128,4 @@ Remove the unregistered gateway and its test. No Production runtime may depend o
 
 ## Final disposition
 
-`RED_PENDING`
+`RED_CONFIRMED_IMPLEMENTATION_ALLOWED`
