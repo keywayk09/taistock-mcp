@@ -1,3 +1,9 @@
+import {
+  ResearchVNextResourceError,
+  assertResearchVNextResourceBudget,
+  type ResearchVNextResourcePolicy,
+} from "./resource-policy.ts";
+
 export const RESEARCH_VNEXT_GATEWAY_VERSION =
   "research-vnext-gateway/v1.0.0" as const;
 
@@ -10,7 +16,8 @@ export type ResearchVNextGatewayCapability =
 export type ResearchVNextGatewayErrorCode =
   | "UNKNOWN_CAPABILITY"
   | "CAPABILITY_FAILED"
-  | "TIMEOUT";
+  | "TIMEOUT"
+  | "RESOURCE_LIMIT";
 
 export type ResearchVNextGatewayResult =
   | {
@@ -39,6 +46,7 @@ type ResearchVNextGatewayFacade = {
 export type ResearchVNextGatewayOptions = {
   timeoutMs?: number;
   maxErrorMessageChars?: number;
+  resourcePolicy?: Partial<ResearchVNextResourcePolicy>;
   loadFacade?: () =>
     | ResearchVNextGatewayFacade
     | Promise<ResearchVNextGatewayFacade>;
@@ -124,6 +132,7 @@ export function createResearchVNextGateway(
     32,
     2_000,
   );
+  const resourcePolicy = options.resourcePolicy ?? {};
   const loader = options.loadFacade ?? defaultLoadFacade;
   let facadePromise: Promise<ResearchVNextGatewayFacade> | null = null;
 
@@ -185,6 +194,7 @@ export function createResearchVNextGateway(
 
       const knownCapability = capability as ResearchVNextGatewayCapability;
       try {
+        assertResearchVNextResourceBudget(input, resourcePolicy);
         const value = await withTimeout(
           Promise.resolve().then(() => dispatch(knownCapability, input)),
           timeoutMs,
@@ -194,7 +204,9 @@ export function createResearchVNextGateway(
         const code: ResearchVNextGatewayErrorCode =
           error instanceof ResearchVNextGatewayTimeoutError
             ? "TIMEOUT"
-            : "CAPABILITY_FAILED";
+            : error instanceof ResearchVNextResourceError && error.code === "RESOURCE_LIMIT"
+              ? "RESOURCE_LIMIT"
+              : "CAPABILITY_FAILED";
         return {
           ok: false,
           capability,
