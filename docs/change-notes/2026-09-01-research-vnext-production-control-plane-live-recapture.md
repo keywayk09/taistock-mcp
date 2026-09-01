@@ -10,11 +10,9 @@
 
 ## Why a second independent recapture is required
 
-The first connector-compatible GET-only Production control-plane snapshot was executed exactly once and preserved as immutable evidence. Its workflow run succeeded, but artifact review found that the JSON receipt omitted the frozen acceptance field `token_leak: false`.
+The first connector-compatible GET-only Production control-plane snapshot was executed exactly once and preserved as immutable evidence. Its workflow run succeeded, but artifact review found that its JSON receipt omitted the frozen acceptance field `token_leak: false`. That first receipt remains immutable and is not rewritten as PASS. Its temporary bridge and authorization were removed and the cleanup lifecycle was sealed.
 
-That first receipt remains immutable and is not rewritten as PASS. Its temporary bridge and authorization were removed and the cleanup lifecycle was later sealed.
-
-A separate TEST BEFORE BUILD phase then repaired only the internal receipt contract so it emits explicit `token_leak: false` while continuing to prove the Cloudflare token is used only in request Authorization headers and is absent from serialized receipt output.
+A separate TEST BEFORE BUILD phase repaired only the internal receipt contract so it emits explicit `token_leak: false` while continuing to prove the Cloudflare token is used only in request Authorization headers and is absent from serialized receipt output.
 
 Corrected receipt completeness seal:
 
@@ -26,55 +24,71 @@ Corrected receipt completeness seal:
 - Production deploy authorized: `false`
 - Production mutation: `NONE`
 
-The canonical live snapshot workflow remains manual `workflow_dispatch` only and is not changed into a push/PR workflow.
+The canonical live snapshot workflow remains manual `workflow_dispatch` only and is unchanged.
 
-## Why this uses a distinct temporary bridge
+## Distinct temporary bridge
 
-The first temporary one-shot bridge is historical evidence and has already been cleaned. This phase does not recreate or mutate that historical bridge path.
-
-A second, distinct connector-compatible bridge will be used only after formal RED acceptance and later bridge GREEN + seal:
+The first temporary bridge is historical evidence and is not recreated or modified. This phase uses distinct paths:
 
 - workflow: `.github/workflows/research-vnext-production-control-plane-one-shot-recapture.yml`
 - authorization: `runtime/research-vnext-production-control-plane-one-shot-recapture-authorization.json`
 - pinned corrected source: `bc77effcee66c773fc529df864b1acd33641107f`
 
-The recapture bridge must remain absent during RED. The recapture authorization must remain absent until the new bridge itself is GREEN and SEALED.
+The recapture authorization must remain absent until the new bridge is GREEN and SEALED.
 
-## TEST BEFORE BUILD — bridge RED
+## TEST BEFORE BUILD — formal bridge RED
 
 RED test:
 
 - `tests/research-vnext-production-control-plane-live-recapture-bridge.test.ts`
 
-Before the deliberate terminal RED, the test must prove:
+Initial RED commit:
 
-1. first temporary bridge remains absent;
-2. first authorization remains absent;
-3. recapture authorization remains absent;
-4. corrected sealed source contains explicit `token_leak: false`;
-5. canonical live snapshot workflow remains `workflow_dispatch` only;
-6. sealed live client remains GET-only;
-7. completeness seal has all three required SUCCESS runs;
-8. Owner ABI remains frozen at 123 / frozen digest;
-9. Production deploy authorization remains false;
-10. Production mutation remains none;
-11. marker `PRODUCTION_CONTROL_PLANE_LIVE_RECAPTURE_BRIDGE_RED_READY=PASS` prints;
-12. only then may RED fail because the distinct recapture workflow does not yet exist.
+- `02fc98cd9e851065e74102e57d38be007c7b401c`
 
-Expected terminal assertion:
+The Git Data ref update became PR #206 head but produced no check-suite, so docs-only verification child `9edd7acc0f2b445f88bb4b000d172565cca7a026` forced a normal PR synchronize event without changing RED semantics or runtime.
 
-`temporary one-shot recapture GET-only bridge must exist only after accepted RED`
+Formal RED evidence:
 
-## Future GREEN bounds
+- Research VNext Incremental Gate Run `33530782294`: `FAILURE`
+- Incremental Job `99933095511`: `FAILURE`
+- Change Note / protected-surface scope gate: `SUCCESS`
+- marker before terminal RED: `PRODUCTION_CONTROL_PLANE_LIVE_RECAPTURE_BRIDGE_RED_READY=PASS`
+- first temporary bridge: `CLEANED`
+- corrected sealed source: `bc77effcee66c773fc529df864b1acd33641107f`
+- corrected receipt contract: `TOKEN_LEAK_FALSE_PRESENT`
+- canonical manual harness: `WORKFLOW_DISPATCH_ONLY_UNCHANGED`
+- Owner tool count: `123`
+- Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- Production deploy authorized: `false`
+- Production mutation: `NONE`
+- exact terminal assertion: `temporary one-shot recapture GET-only bridge must exist only after accepted RED`
 
-Only after accepted RED may the new temporary bridge be implemented. Its future contract is bounded to:
+Independent RED validation:
+
+- Type check Run `33530782077`: `SUCCESS`
+- Research VNext Isolation Gate Run `33530782208`: expected fail-closed with VNEXT failing on the same missing recapture bridge
+- Isolation FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE: `SUCCESS`
+- Isolation VNEXT: `FAILURE`
+
+Disposition:
+
+`PRODUCTION_CONTROL_PLANE_LIVE_RECAPTURE_BRIDGE_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWED`
+
+The RED failure remains immutable and is not rewritten as PASS.
+
+## GREEN implementation bounds
+
+The new temporary recapture workflow is now permitted, with all of these hard bounds:
 
 - exact branch + exact recapture authorization path trigger;
-- triggering commit changes exactly one authorization file;
+- triggering commit must change exactly one authorization file;
+- authorization schema `RESEARCH_VNEXT_PRODUCTION_CONTROL_PLANE_ONE_SHOT_RECAPTURE_AUTH_V1`;
+- mode `READ_ONLY_PRODUCTION_CONTROL_PLANE_SNAPSHOT`;
 - corrected source pinned to `bc77effcee66c773fc529df864b1acd33641107f`;
 - workflow permissions `contents: read`;
 - Cloudflare secrets only in the snapshot step;
-- sealed snapshot client only;
+- corrected sealed snapshot client only;
 - GET-only control-plane access;
 - immutable-style artifact receipt;
 - no `gh`, no `curl`, no Wrangler deploy/rollback, no POST/PUT/PATCH/DELETE;
@@ -84,12 +98,8 @@ Only after accepted RED may the new temporary bridge be implemented. Its future 
 - Production deploy authorization remains false;
 - Production mutation remains none.
 
-No recapture authorization exists in this RED phase. No Production contact occurs in RED or bridge GREEN/seal.
-
-## PR-sync verification child
-
-Initial RED commit `02fc98cd9e851065e74102e57d38be007c7b401c` became PR #206 head successfully, but GitHub created no check-suite for the Git Data ref update. This docs-only child exists only to force a normal PR synchronize event. RED test semantics, runtime, workflow state, and Production state remain unchanged.
+No recapture authorization file is created in this GREEN implementation. Therefore bridge GREEN/seal cannot contact Production.
 
 ## Current disposition
 
-`PRODUCTION_CONTROL_PLANE_LIVE_RECAPTURE_BRIDGE_RED_PENDING`
+`PRODUCTION_CONTROL_PLANE_LIVE_RECAPTURE_BRIDGE_GREEN_IMPLEMENTED_PENDING_VERIFICATION`
