@@ -1,0 +1,58 @@
+name: Research VNext Atomic Production Execution
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Required confirmation is EXECUTE_ATOMIC_VNEXT_PRODUCTION. This skeleton remains blocked regardless of input.
+        required: true
+        default: ""
+        type: string
+      expected_sha:
+        description: Source commit policy is EXACT_40_HEX_REQUIRED. This skeleton remains blocked regardless of input.
+        required: true
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-vnext-atomic-production-execution-blocked
+  cancel-in-progress: false
+
+jobs:
+  blocked-skeleton:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RESEARCH_VNEXT_EXECUTION_STATE: BLOCKED_SKELETON
+      RESEARCH_VNEXT_REQUIRED_CONFIRMATION: EXECUTE_ATOMIC_VNEXT_PRODUCTION
+      RESEARCH_VNEXT_EXPECTED_SHA_POLICY: EXACT_40_HEX_REQUIRED
+      RESEARCH_VNEXT_PREDEPLOY_VERSION_POLICY: PREDEPLOY_ACTIVE_VERSION_REQUIRED
+      RESEARCH_VNEXT_CRON_POLICY: EXACT_PRE_POST_MATCH_REQUIRED
+      RESEARCH_VNEXT_ROLLBACK_ELIGIBILITY: NO_DO_LIFECYCLE_CHANGE_AND_BINDINGS_STILL_VALID
+      RESEARCH_VNEXT_ROLLBACK_UNCERTAINTY: FAIL_CLOSED_MANUAL_INTERVENTION
+      RESEARCH_VNEXT_POSTDEPLOY_PROBE_POLICY: READ_ONLY_PRODUCTION_PROBE_REQUIRED
+      RESEARCH_VNEXT_OWNER_ABI: 123:00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fail closed pending explicit Production authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'ATOMIC_PRODUCTION_EXECUTION_BLOCKED_PENDING_EXPLICIT_AUTHORIZATION'
+          echo "execution_state=${RESEARCH_VNEXT_EXECUTION_STATE}"
+          echo "required_confirmation=${RESEARCH_VNEXT_REQUIRED_CONFIRMATION}"
+          echo "expected_sha_policy=${RESEARCH_VNEXT_EXPECTED_SHA_POLICY}"
+          echo "predeploy_version_policy=${RESEARCH_VNEXT_PREDEPLOY_VERSION_POLICY}"
+          echo "cron_policy=${RESEARCH_VNEXT_CRON_POLICY}"
+          echo "rollback_eligibility=${RESEARCH_VNEXT_ROLLBACK_ELIGIBILITY}"
+          echo "rollback_uncertainty=${RESEARCH_VNEXT_ROLLBACK_UNCERTAINTY}"
+          echo "postdeploy_probe_policy=${RESEARCH_VNEXT_POSTDEPLOY_PROBE_POLICY}"
+          echo "owner_abi=${RESEARCH_VNEXT_OWNER_ABI}"
+          echo 'production_deploy_authorized=false'
+          echo 'production_mutation=NONE'
+          exit 78

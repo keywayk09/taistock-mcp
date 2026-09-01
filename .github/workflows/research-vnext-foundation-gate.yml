@@ -1,0 +1,149 @@
+name: Research VNext Incremental Gate
+
+on:
+  pull_request:
+    paths:
+      - "src/v6/research-vnext/**"
+      - "src/v6/research-tools.ts"
+      - "scripts/research-vnext-*.mjs"
+      - "tests/research-vnext-*.test.ts"
+      - "docs/change-notes/**"
+      - ".github/workflows/research-vnext-foundation-gate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  vnext-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Change Note and protected-surface scope gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          git diff --name-only "origin/${{ github.base_ref }}...HEAD" | tee /tmp/research-vnext-changed.txt
+
+          grep -Eq '^docs/change-notes/[^/]+\.md$' /tmp/research-vnext-changed.txt || {
+            echo 'FAIL: every Research VNext change requires a Change Note'
+            exit 1
+          }
+
+          protected='^(src/v6/owner-content-handler\.ts|src/v6/research-tools\.ts|src/index-v6\.ts|src/v6/family-|src/v6/tw-market-data|src/v6/formal-blind|src/v6/mcp-runtime-composition\.ts|wrangler\.jsonc|\.github/workflows/deploy-cloudflare)'
+          if grep -Eq "$protected" /tmp/research-vnext-changed.txt; then
+            mapfile -t protected_files < <(grep -E "$protected" /tmp/research-vnext-changed.txt | sort -u)
+
+            # PHASE10B_HANDLER_CUTOVER_EXCEPTION
+            # One exact protected runtime file is allowed only for the tested
+            # Phase 10B compat cutover. Owner/Family/Market/FORMAL/deploy remain
+            # fail-closed and cannot enter this exception.
+            if [ "${#protected_files[@]}" -eq 1 ] \
+              && [ "${protected_files[0]}" = "src/v6/research-tools.ts" ] \
+              && grep -Fxq 'docs/change-notes/2026-09-01-research-vnext-handler-cutover.md' /tmp/research-vnext-changed.txt \
+              && grep -Fxq 'tests/research-vnext-handler-cutover.test.ts' /tmp/research-vnext-changed.txt \
+              && grep -Fxq 'tests/research-vnext-compat-registration.test.ts' /tmp/research-vnext-changed.txt \
+              && grep -q 'createResearchVNextCompatRegistrationServer' src/v6/research-tools.ts \
+              && grep -q 'registerSelective1mReplayTool(compatServer)' src/v6/research-tools.ts \
+              && grep -q 'registerReviewOrchestratorTools(compatServer, env)' src/v6/research-tools.ts; then
+              echo 'PHASE10B_HANDLER_CUTOVER_EXCEPTION=PASS'
+            else
+              echo 'FAIL: protected/shared Production surface changed outside the exact Phase 10B handler-cutover exception'
+              printf '%s\n' "${protected_files[@]}"
+              exit 1
+            fi
+          fi
+
+      - name: Run all Research VNext tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find tests -maxdepth 1 -type f -name 'research-vnext-*.test.ts' | sort)
+          if [ "${#tests[@]}" -eq 0 ]; then
+            echo 'FAIL: no Research VNext tests found'
+            exit 1
+          fi
+          for test_file in "${tests[@]}"; do
+            echo "==> ${test_file}"
+            node --experimental-strip-types "${test_file}"
+          done
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Full existing research regression
+        run: npm run test:research
+
+      - name: Cloudflare dry-run only
+        run: npx wrangler deploy --dry-run --outdir dist
+
+      - name: Atomic deploy config dry-run only
+        env:
+          RESEARCH_VNEXT_OAUTH_KV_ID: 0123456789abcdef0123456789abcdef
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf tmp/research-vnext-atomic-deploy dist-atomic-preflight
+          rm -f wrangler.research-vnext-atomic.jsonc
+          trap 'rm -f wrangler.research-vnext-atomic.jsonc' EXIT
+          mkdir -p tmp/research-vnext-atomic-deploy
+          node scripts/research-vnext-atomic-deploy-plan.mjs \
+            --source wrangler.jsonc \
+            --config-out wrangler.research-vnext-atomic.jsonc \
+            --receipt-out tmp/research-vnext-atomic-deploy/plan.json
+          npx wrangler deploy --dry-run --config wrangler.research-vnext-atomic.jsonc --outdir dist-atomic-preflight --experimental-provision=false --experimental-auto-create=false
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          receipt=json.loads(Path('tmp/research-vnext-atomic-deploy/plan.json').read_text())
+          if receipt.get('status') != 'READY_FOR_DRY_RUN_ONLY':
+              raise SystemExit(f"atomic_preflight_status={receipt.get('status')}")
+          if receipt.get('production_deploy_authorized') is not False:
+              raise SystemExit('production_deploy_must_remain_unauthorized')
+          if receipt.get('production_mutation') != 'NONE':
+              raise SystemExit('production_mutation_must_remain_none')
+          print('ATOMIC_DEPLOY_CONFIG_DRY_RUN=PASS')
+          PY
+
+      - name: Write immutable-style gate receipt
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          {
+            echo 'schema=RESEARCH_VNEXT_INCREMENTAL_GATE_V1'
+            echo "base_ref=${{ github.base_ref }}"
+            echo "head_sha=${{ github.event.pull_request.head.sha }}"
+            echo "run_id=${{ github.run_id }}"
+            echo 'change_note=PASS'
+            echo 'scope_gate=PASS'
+            echo 'phase10b_handler_cutover_scope=BOUNDED'
+            echo 'all_vnext_tests=PASS'
+            echo 'type_check=PASS'
+            echo 'existing_research_regression=PASS'
+            echo 'wrangler_dry_run=PASS'
+            echo 'atomic_deploy_preflight=PASS'
+            echo 'production_mutation=NONE'
+          } > evidence/research-vnext-incremental-gate.txt
+          sha256sum evidence/research-vnext-incremental-gate.txt > evidence/research-vnext-incremental-gate.sha256
+
+      - name: Upload gate evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-vnext-evidence-${{ github.run_id }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: error
