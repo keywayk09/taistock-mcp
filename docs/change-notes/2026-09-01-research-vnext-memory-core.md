@@ -78,6 +78,36 @@ The core returns canonical payload, content hash, collection/key/metadata, and p
 
 GPT-authored `thesis`, `interpretation`, and `optimization_hypotheses` remain input evidence fields. The core validates and preserves them; it does not synthesize them, promote them, or mutate strategy rules.
 
+## Final GREEN evidence
+
+Validated branch head: `7adff88985d437bb59f8905c95070e4dc371ab11`.
+
+Research VNext Incremental Gate:
+
+- Run `33498386438`
+- Job `99825750841`
+- Change Note / protected-surface scope gate: **PASS**
+- All Research VNext tests including memory core: **PASS**
+- Type-check: **PASS**
+- Full existing `test:research`: **PASS**
+- Wrangler deploy dry-run: **PASS**
+- Receipt generation/upload: **PASS**
+
+Independent repository CI:
+
+- Run `33498386378`
+- Job `99825750956`
+- Type-check: **PASS**
+- Full existing `test:research`: **PASS**
+- Wrangler deploy dry-run: **PASS**
+
+Artifact:
+
+- ID `9796681773`
+- name `research-vnext-evidence-33498386438`
+- digest `sha256:713f02465016d72db17e97d153ce7e350fee654c5010690515e3d02d49f75a04`
+- expires `2026-10-01`
+
 ## Explicitly not changed
 
 - legacy `src/v6/gpt-judgment-memory.ts`
@@ -96,8 +126,9 @@ GPT-authored `thesis`, `interpretation`, and `optimization_hypotheses` remain in
 | Replay prerequisite | Run `33497884351` | PASS |
 | Memory Core RED | Run `33498166911`, job `99825049271` | EXPECTED FAIL — missing module |
 | Memory Core implementation | Commit `09e35f4b3f057efa5fa8b7f68862c4422d40cfe7` | built, unregistered |
-| Memory Core GREEN | pending | pending |
-| Full regression | pending | pending |
+| Memory Core GREEN | Run `33498386438`, job `99825750841` | PASS |
+| Independent repo regression | Run `33498386378`, job `99825750956` | PASS |
+| Immutable-style evidence | Artifact `9796681773` | PASS |
 
 ## Rollback
 
@@ -105,4 +136,4 @@ Remove the unregistered VNext memory core and its test. No Production runtime de
 
 ## Final disposition
 
-`IN_PROGRESS_GREEN_VALIDATION`
+`PASS_PURE_CORE_UNREGISTERED`
