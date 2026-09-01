@@ -114,7 +114,24 @@ Main risk is accidentally turning a compatibility cutover into a broad protected
 
 ## RED evidence
 
-Pending.
+RED test commit: `e9c54dbad6be155a1273c70994fde774e561d4ba`.
+
+Research VNext Incremental Gate:
+
+- Run `33503942954`
+- Job `99843449610`
+- Change Note / protected-surface scope gate: **PASS**
+- Foundation test: **PASS**
+- Phase 10A compat bridge test: **PASS**
+- Gateway test: **PASS**
+- GitHub Memory Adapter test: **PASS**
+- new Phase 10B handler cutover test: **FAIL (EXPECTED RED)**
+- exact assertion: `research-tools must import only the approved VNext compat-cutover surface`
+- actual state: `src/v6/research-tools.ts` still routes all registrars through the Legacy/original `server`
+- downstream incremental type-check / full `test:research` / Wrangler dry-run: correctly **SKIPPED**
+- Production mutation: **NONE**
+
+Disposition: `PHASE10B_RED_ACCEPTED_IMPLEMENTATION_ALLOWED`.
 
 ## GREEN evidence
 
@@ -130,4 +147,4 @@ Revert `research-tools.ts` to pass the original server directly to all registrar
 
 ## Final disposition
 
-`RED_PENDING`
+`GREEN_IMPLEMENTATION_ALLOWED`
