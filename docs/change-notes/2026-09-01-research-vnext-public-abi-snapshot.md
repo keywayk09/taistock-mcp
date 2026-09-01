@@ -115,11 +115,29 @@ After GREEN:
 
 ## RED evidence
 
-Pending.
+RED test commit: `baf24b1affe3b1315a7d064d94414bed5d5b68a4`.
+
+### Harness diagnostic failure — immutable, not accepted as the Phase 9 RED
+
+Research VNext Incremental Gate:
+
+- Run `33501969431`
+- Job `99837144731`
+- Change Note / protected-surface scope gate: **PASS**
+- existing VNext Boundary / Gateway / Memory Adapter / Isolation / Memory Core tests before the new test: **PASS**
+- new public ABI snapshot test: **FAIL before registration capture**
+- exact failure: Node strip-types could not resolve the existing extensionless `../index` import from `src/v6/owner-content-handler.ts`
+- error: `ERR_MODULE_NOT_FOUND` for `src/index`
+- no `ACTUAL_PUBLIC_ABI_SNAPSHOT=` line was produced
+- downstream incremental type-check / full research regression / Wrangler dry-run: correctly **SKIPPED**
+
+Disposition of this failed evidence: `HARNESS_FAILURE_IMMUTABLE_NOT_PHASE9_RED`.
+
+The production source is not to be changed to satisfy the test. The next test-only revision must provide a CommonJS TypeScript require hook so the existing extensionless internal imports can be resolved while still executing the real Owner `init()` graph. The fixture remains absent.
 
 ## GREEN implementation
 
-Not built. The GREEN artifact for this phase should be the frozen JSON fixture only unless the RED reveals a test-harness defect.
+Not built. The GREEN artifact for this phase should be the frozen JSON fixture only after a valid fixture-missing RED is observed.
 
 ## GREEN evidence
 
@@ -135,4 +153,4 @@ Remove the Phase 9 test and snapshot fixture. No Production runtime may depend o
 
 ## Final disposition
 
-`RED_PENDING`
+`HARNESS_FIX_REQUIRED_FIXTURE_STILL_FORBIDDEN`
