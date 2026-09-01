@@ -96,16 +96,15 @@ The earlier orphan Git object `4454acad0871ad342302f12b49653a16d17523c4` never b
 
 ## GREEN implementation
 
-Allowed now:
+Implementation commit:
+
+- `440ee3f5107344cdfe1ee9fc9fff1d77bf87ae3c`
+
+Added only:
 
 - `src/v6/research-vnext/production-control-plane-snapshot.ts`
 
-Required APIs:
-
-- `RESEARCH_VNEXT_PRODUCTION_CONTROL_PLANE_SNAPSHOT_VERSION`
-- `buildProductionControlPlaneSnapshot(input)`
-
-The module must remain pure/deterministic, with no imports, network access, subprocesses, or executable Production commands.
+The module is pure/deterministic and contains no imports, network access, subprocesses, Cloudflare calls, Production endpoints, Wrangler/curl commands, or mutation capability. It validates the complete normalized pre-deploy snapshot contract and returns a frozen receipt with the active version captured as the future rollback-target candidate while keeping deploy authorization false.
 
 ## Explicitly forbidden
 
@@ -122,8 +121,8 @@ The module must remain pure/deterministic, with no imports, network access, subp
 
 ## GREEN evidence
 
-Pending.
+Pending verification on this note-only trigger commit. Runtime implementation remains exactly `440ee3f5107344cdfe1ee9fc9fff1d77bf87ae3c`.
 
 ## Final disposition
 
-`PRODUCTION_CONTROL_PLANE_SNAPSHOT_GREEN_IMPLEMENTATION_ALLOWED`
+`PRODUCTION_CONTROL_PLANE_SNAPSHOT_GREEN_VERIFICATION_PENDING`
