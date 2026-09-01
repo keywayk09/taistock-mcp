@@ -56,20 +56,37 @@ The adapter exposes:
 
 The review write first loads the exact immutable original judgment and then delegates all semantic validation/canonicalization to the pure Memory Core.
 
-## In-memory RED/GREEN test
+## Final GREEN evidence
 
-Uses the existing `__GITHUB_DATA_MEMORY` store mode, so CI validates actual canonical-store semantics without writing the real GitHub data repository.
+Validated branch head: `c0659da186ca23e4148187f0653208eba94db01a`.
 
-Frozen cases:
+Research VNext Incremental Gate:
 
-1. first judgment write is immutable and non-idempotent;
-2. exact replay is idempotent;
-3. exact judgment read/list works;
-4. same key with changed content fails `IMMUTABLE_CONFLICT`;
-5. review persists only after original judgment lookup and core validation;
-6. GPT trading knowledge persists with promotion forbidden;
-7. filtered knowledge list works;
-8. source boundary: adapter imports Core + canonical store, no direct provider access or GPT reasoning synthesis.
+- Run `33498838356`
+- Job `99827181438`
+- Change Note / protected-surface scope gate: **PASS**
+- all Research VNext tests: **PASS**
+- in-memory immutable/idempotent/conflict tests: **PASS**
+- review and knowledge persistence tests: **PASS**
+- Type-check: **PASS**
+- Full existing `test:research`: **PASS**
+- Wrangler dry-run: **PASS**
+- receipt/upload: **PASS**
+
+Independent repository CI:
+
+- Run `33498838310`
+- Job `99827181947`
+- Type-check: **PASS**
+- Full existing `test:research`: **PASS**
+- Wrangler dry-run: **PASS**
+
+Artifact:
+
+- ID `9796861323`
+- name `research-vnext-evidence-33498838356`
+- digest `sha256:519d02fe2e42abafed67e279cdc7a062a85d4b2164c2d689088778534f5b73ad`
+- expires `2026-10-01`
 
 ## Explicitly not changed
 
@@ -88,8 +105,10 @@ Frozen cases:
 | Memory Core prerequisite | Run `33498386438` | PASS |
 | Adapter RED | Run `33498693317`, job `99826716838` | EXPECTED FAIL — missing module |
 | Adapter implementation | Commit `68a2ee9d0c3f79f16fc2d07e5b7e76fadbbf2ecb` | built, unregistered |
-| Adapter GREEN | pending | pending |
+| Adapter GREEN | Run `33498838356`, job `99827181438` | PASS |
+| Independent repo regression | Run `33498838310`, job `99827181947` | PASS |
+| Immutable-style evidence | Artifact `9796861323` | PASS |
 
 ## Final disposition
 
-`IN_PROGRESS_GREEN_VALIDATION`
+`PASS_ADAPTER_UNREGISTERED`
