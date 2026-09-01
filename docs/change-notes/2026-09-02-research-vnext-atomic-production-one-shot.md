@@ -87,37 +87,53 @@ Disposition:
 
 `ATOMIC_PRODUCTION_ONE_SHOT_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWED`
 
-## GREEN implementation contract
+## GREEN implementation — PASS
 
-A distinct temporary workflow is now allowed at:
+Temporary workflow implementation commit:
 
-- `.github/workflows/research-vnext-atomic-production-one-shot.yml`
+- `38f5be7ab7427c3c881fa790b178bebc45ac134b`
 
-Authorization remains absent during GREEN and seal, so this workflow cannot run against Production yet.
+Authorization remained absent, so GREEN validation did not contact Production.
 
-The workflow is required to:
+GREEN verification:
 
-1. trigger only on the exact branch and exact authorization JSON path;
-2. reject any trigger commit that changes more than that one file;
-3. pin deployment source to `87bf6d22cc9ed9a44a8017aa860d956f1ec6eef7`;
-4. capture a GET-only predeploy control-plane snapshot;
-5. fail closed unless active version, cron, full binding fingerprint, OAuth KV, protected exports and DO bindings exactly match the immutable baseline;
-6. derive the existing OAuth KV namespace from the live snapshot only;
-7. generate the deploy config with the sealed pure planner, resource provisioning disabled and trigger mutation intent none;
-8. run `wrangler deploy --dry-run` before mutation;
-9. permit exactly one real `wrangler deploy` when all prior gates pass;
-10. make no Cron/KV API mutation and introduce no DO migrations;
-11. capture a GET-only postdeploy snapshot and require cron/OAuth KV/full binding fingerprint/exports/DO bindings to be preserved;
-12. require a new 100% active Worker version;
-13. run the sealed read-only Production MCP probe;
-14. retain pre/post/plan/probe/deploy evidence even on workflow failure;
-15. never perform automatic rollback.
-
-If the future one-shot fails before the deploy step, Production mutation remains none. If it fails after the deploy step, the immutable evidence must be inspected before any manual exact-version rollback decision.
-
-Until GREEN and its seal both pass:
-
+- Research VNext Incremental Gate Run `33534534752`: `SUCCESS`
+- Type check Run `33534534832`: `SUCCESS`
+- Research VNext Isolation Gate Run `33534534860`: `SUCCESS`
+- scope/protected-surface gate: `SUCCESS`
+- all Research VNext tests: `SUCCESS`
+- full existing research regression: `SUCCESS`
+- Cloudflare dry-run only: `SUCCESS`
+- atomic deploy-config dry-run only: `SUCCESS`
+- Owner ABI remains `123` / frozen digest
 - Production authorization file: `ABSENT`
+- Production deploy authorization: `false`
+- Production mutation: `NONE`
+
+Immutable-style GREEN evidence:
+
+- Artifact ID: `9811094118`
+- Artifact name: `research-vnext-evidence-33534534752`
+- Artifact digest: `sha256:01cfaee1469460d618b525519d8ee9fdef645040f65733a38b17dab34be38751`
+
+The temporary workflow contract is bounded to exact branch + exact authorization-file trigger, exact source/baseline, predeploy drift rejection, pure planner + dry-run, one Worker deploy mutation only, postdeploy read-only validation, read-only MCP probe, immutable evidence upload, no resource provisioning, no Cron mutation, no KV creation and no automatic rollback.
+
+Disposition before seal:
+
+`PASS_ATOMIC_PRODUCTION_ONE_SHOT_HARNESS_GREEN_UNAUTHORIZED`
+
+## Seal requirement
+
+This docs-only seal commit must itself pass:
+
+- Research VNext Incremental Gate;
+- Type check;
+- Research VNext Isolation Gate.
+
+Only after all three are `SUCCESS` may the autonomous deployment decision be evaluated. Even then, authorization is issued only if PR #206 remains Draft/open/unmerged, the branch head is the seal commit, the authorization path is absent, and no prerequisite has drifted.
+
+Until that decision:
+
 - Production deploy authorization: `false`
 - Production mutation: `NONE`
 - Production rollback: `NONE`
