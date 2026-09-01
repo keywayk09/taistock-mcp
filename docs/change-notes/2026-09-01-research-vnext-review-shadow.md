@@ -9,9 +9,7 @@
 
 ## Purpose
 
-Begin the first real Research VNext capability migration with a deterministic-only slice: review metrics. GPT remains responsible for interpretation, hypotheses, counter-evidence and research decisions.
-
-The VNext slice is allowed to compute only factual metrics such as counts, win/loss/flat totals, win rate, expectancy, profit factor, MFE/MAE summaries, 5m ambiguity rates and 1m replay-required counts.
+Migrate the first real Research VNext capability as a deterministic-only slice: review metrics. GPT remains responsible for interpretation, hypotheses, counter-evidence and research decisions.
 
 ## Test-before-build proof
 
@@ -25,29 +23,19 @@ Research VNext Incremental Gate Run `33495962952`, job `99818105320`:
 - Failure: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/compute/review-metrics.ts`
 - Type-check / full existing research regression / Wrangler dry-run: correctly **SKIPPED** after RED
 
-The failed receipt is preserved. It is not rewritten or relabeled as a pass.
+The failed receipt is preserved and was not rewritten as a pass.
 
 ## Frozen shadow contract
 
-The same inputs are evaluated through:
+Legacy `summarizeReviewRows()` and VNext `summarizeReviewMetrics()` consume the same frozen inputs. Required verdict is `STRICT_DEEP_EQUAL` for every case; approximate parity is not accepted.
 
-- legacy `summarizeReviewRows()`;
-- VNext `summarizeReviewMetrics()`.
+Frozen cases cover empty input, mixed TW-stock/TXF units, wins-only PF behavior, losses-only PF behavior, explicit-null legacy semantics and deterministic breakdown ordering.
 
-Required shadow verdict: `STRICT_DEEP_EQUAL` for every frozen case. Approximate parity is not accepted.
-
-Frozen cases cover:
-
-1. empty input;
-2. mixed TW-stock and TXF units;
-3. wins-only profit-factor behavior;
-4. losses-only profit-factor behavior;
-5. explicit-null legacy semantics;
-6. deterministic breakdown ordering.
-
-The test also requires the VNext implementation to be independent: it must not import/delegate to `review-orchestrator.ts`, and it must not absorb `buildReviewInterpretation()` or emit observations/hypotheses.
+The test also proves VNext is an independent implementation and does not absorb legacy interpretation/hypothesis generation.
 
 ## GREEN implementation
+
+Implementation commit: `65123ddc9cb00c071209b8c6a4a672acd0537a3f`.
 
 Added `src/v6/research-vnext/compute/review-metrics.ts` only.
 
@@ -70,43 +58,57 @@ Hard boundaries:
 
 ### Intentional migration rule
 
-This architecture migration preserves current legacy numeric semantics exactly, including explicit-null behavior, because changing semantics while changing architecture would make failures ambiguous. Any future semantic correction must be a separate test-first change with its own Change Note and evidence.
+Current legacy numeric semantics are preserved exactly, including explicit-null behavior. Semantic corrections require a separate test-first change; they are not hidden inside architecture migration.
 
-## CI harness change
+## GREEN verification
 
-The Research VNext workflow was generalized from the one-time Foundation Gate to an Incremental Gate that automatically executes every `tests/research-vnext-*.test.ts` file before type-check, existing full research regression and Wrangler dry-run.
+Research VNext Incremental Gate Run `33496155753`, job `99818721298`: **SUCCESS**.
 
-This is an engineering-test harness change only. It does not deploy or register VNext.
+Passed:
+
+- protected-surface scope gate;
+- all Research VNext tests, including 6 frozen strict-parity review cases;
+- type-check;
+- full existing `test:research`;
+- Wrangler dry-run;
+- immutable-style receipt and artifact upload.
+
+Independent repository CI Run `33496155834`, job `99818721933`: **SUCCESS** with type-check, full `test:research`, and Wrangler dry-run all passing.
+
+Evidence artifact:
+
+- Artifact ID: `9795809480`
+- Name: `research-vnext-evidence-33496155753`
+- Digest: `sha256:76ed3db9367d35096fcabccf20a2de5263a09aa7ee0ef387b680a4f1593587a6`
+- Expiry: 2026-10-01
 
 ## Explicitly not changed
 
-- `src/v6/review-orchestrator.ts` legacy behavior
+- legacy `src/v6/review-orchestrator.ts`
 - `src/v6/review-orchestrator-tools.ts`
 - `src/v6/research-tools.ts`
 - `src/v6/owner-content-handler.ts`
 - `src/index-v6.ts`
 - public MCP tool ABI
-- Family / OAuth
-- Market Data
-- FORMAL Blind
-- OHLC ingest/read/write contract
-- Crypto
+- Family / OAuth / Market Data / FORMAL Blind / OHLC / Crypto
 - `wrangler.jsonc`
 - Production deployment workflow
+
+## Rollback
+
+Remove the unregistered VNext review-metrics module and shadow tests. No Production registration points to VNext.
 
 ## Evidence log
 
 | Stage | Evidence | Result |
 |---|---|---|
 | Foundation prerequisite | Run `33495611664` | PASS |
-| Review metrics RED shadow test | Run `33495962952`, job `99818105320` | EXPECTED FAIL — missing VNext metrics module |
-| Review metrics implementation | GREEN validation pending | pending |
-| Full regression | GREEN validation pending | pending |
-
-## Rollback
-
-Remove `src/v6/research-vnext/compute/review-metrics.ts` and the shadow-test/harness additions. No Production registration points to VNext, so rollback has no Production runtime dependency.
+| Review metrics RED | Run `33495962952`, job `99818105320` | EXPECTED FAIL |
+| Implementation | commit `65123ddc` | PASS |
+| VNext gate | Run `33496155753`, job `99818721298` | PASS |
+| Independent repo CI | Run `33496155834`, job `99818721933` | PASS |
+| Artifact | `9795809480`, digest `76ed3d...3587a6` | STORED |
 
 ## Final disposition
 
-`IN_PROGRESS_GREEN_VALIDATION`
+`PHASE_2_PASS_UNREGISTERED_SHADOW`
