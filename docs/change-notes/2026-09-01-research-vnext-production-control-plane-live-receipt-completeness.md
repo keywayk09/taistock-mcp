@@ -97,12 +97,55 @@ The cleanup Change Note is amended with the already-completed cleanup seal evide
 - Type check Run `33528997181`: `SUCCESS`
 - Research VNext Isolation Gate Run `33528997209`: `SUCCESS`
 
-No completeness-test semantics are relaxed. The next verification must still prove exactly three mock GETs, token sentinel absent from serialized receipt, deploy authorization false, mutation none, print the RED-ready marker, and then fail only on missing explicit `token_leak: false`.
+No completeness-test semantics are relaxed.
 
-## Formal RED synchronize child
+## Formal RED — ACCEPTED, IMMUTABLE
 
-Correction commit `ca6321b294e96da0c09e24614e279110a6dbbc24` updated evidence only and produced no check-suite after the Git Data ref update. This docs-only child exists only to create a normal PR synchronize event. Test semantics and runtime remain unchanged.
+Formal verification child:
+
+- `fa943d40ea525f34f07ea6cc4ec10eb9dbccd73a`
+
+Research VNext Incremental Gate:
+
+- Run `33529860387`: `FAILURE`
+- Job `99929987720`: `FAILURE`
+- Change Note / protected-surface scope gate: `SUCCESS`
+- marker before terminal RED: `PRODUCTION_CONTROL_PLANE_LIVE_RECEIPT_COMPLETENESS_RED_READY=PASS`
+- mock GET calls: `3`
+- serialized token present: `false`
+- Owner tool count: `123`
+- Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- Production deploy authorized: `false`
+- Production mutation: `NONE`
+- exact terminal assertion: `live receipt must explicitly emit token_leak=false`
+- actual `receipt.token_leak`: `undefined`
+- expected: `false`
+
+Independent validation:
+
+- Type check Run `33529860512`: `SUCCESS`
+- Research VNext Isolation Gate Run `33529860439`: `FAILURE`
+- Isolation VNEXT: `FAILURE` on the same expected completeness RED
+- Isolation FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE: `SUCCESS`
+
+Disposition:
+
+`PRODUCTION_CONTROL_PLANE_LIVE_RECEIPT_COMPLETENESS_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWED`
+
+This formal RED remains immutable and is not rewritten as PASS.
+
+## GREEN implementation
+
+Allowed implementation is intentionally minimal and additive:
+
+- `src/v6/research-vnext/production-control-plane-snapshot.ts` emits `token_leak: false` in the internal read-only snapshot receipt;
+- the Cloudflare API token is still never passed into `buildProductionControlPlaneSnapshot`;
+- the completeness test continues to prove the sentinel token is present only in request Authorization headers and absent from serialized receipt;
+- public MCP ABI remains unchanged;
+- no Owner registration, Family, Market Data, FORMAL Blind, OAuth KV, Cron, Durable Object lifecycle, OHLC, workflow trigger, Production deploy, rollback, or mutation behavior changes.
+
+Production deploy remains unauthorized. Production mutation remains `NONE`.
 
 ## Current disposition
 
-`PRODUCTION_CONTROL_PLANE_LIVE_RECEIPT_COMPLETENESS_FORMAL_RED_PENDING`
+`PRODUCTION_CONTROL_PLANE_LIVE_RECEIPT_COMPLETENESS_GREEN_IMPLEMENTED_PENDING_VERIFICATION`

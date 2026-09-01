@@ -112,6 +112,7 @@ export function buildProductionControlPlaneSnapshot(input: {
     rollback_target_version_id: activeVersionId,
     hard_blocker: "REQUIRED_ACTIVE",
     read_only_capture: true,
+    token_leak: false,
     production_deploy_authorized: false,
     production_mutation: "NONE",
   } as const);
