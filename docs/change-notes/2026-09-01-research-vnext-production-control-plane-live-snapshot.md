@@ -99,18 +99,58 @@ Disposition: `PRODUCTION_CONTROL_PLANE_LIVE_SNAPSHOT_RED_ACCEPTED_GREEN_IMPLEMEN
 
 The RED failure remains immutable and is not rewritten as PASS.
 
-## GREEN implementation allowed
+## GREEN implementation
 
-Atomically add only:
+Implementation commit:
+
+- `a6d15c12a8a7ddc65b518785aed05f8a7f72f937`
+
+Atomically added:
 
 - `scripts/research-vnext-production-control-plane-live-snapshot.mjs`
 - `.github/workflows/research-vnext-production-control-plane-live-snapshot.yml`
 
-The client must remain GET-only and token-safe. The workflow must remain manual-only and **must not be dispatched in this phase**.
+The client remains GET-only and token-safe. The workflow remains manual-only and was **not dispatched** during GREEN validation.
+
+## GREEN evidence — PASS
+
+Research VNext Incremental Gate:
+
+- Run `33522583347`: **SUCCESS**
+- Job `99905271739`: **SUCCESS**
+- Change Note / protected-surface scope gate: **PASS**
+- all Research VNext tests: **PASS**
+- live snapshot harness test: **PASS**
+- `mock_get_calls=3`
+- deployment shape: **PASS**
+- schedules shape: **PASS**
+- settings/bindings shape: **PASS**
+- token leak: `false`
+- workflow mode: `MANUAL_GET_ONLY`
+- live dispatch executed: `false`
+- Production mutation: **NONE**
+- frozen Owner tool count: `123`
+- frozen Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- full existing `test:research`: **PASS**
+- canonical Wrangler dry-run: **PASS**
+- atomic deploy-config dry-run: **PASS**
+- deploy authorization remained: `false`
+- hard blocker remained active
+
+Independent validation:
+
+- Type check Run `33522583305`: **SUCCESS**
+- Isolation Run `33522583349`: **SUCCESS** across VNEXT / FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE
+
+Immutable-style gate evidence:
+
+- Artifact ID: `9806336577`
+- Artifact name: `research-vnext-evidence-33522583347`
+- Artifact digest: `sha256:63539f27495883a4b0c721c196be2df742a4deac69a3d79d8f312c9a488a4a8e`
 
 ## Explicitly forbidden
 
-- dispatching the live snapshot workflow in this phase;
+- dispatching the live snapshot workflow before this seal itself passes all gates;
 - POST / PUT / PATCH / DELETE Cloudflare calls;
 - Production deploy, rollback, or version mutation;
 - Production MCP `/my-mcp`, `/health`, or workers.dev contact;
@@ -120,10 +160,8 @@ The client must remain GET-only and token-safe. The workflow must remain manual-
 - Legacy deletion;
 - PR #206 merge.
 
-## GREEN evidence
-
-Pending.
-
 ## Final disposition
 
-`PRODUCTION_CONTROL_PLANE_LIVE_SNAPSHOT_GREEN_IMPLEMENTATION_ALLOWED`
+`PASS_PRODUCTION_CONTROL_PLANE_LIVE_SNAPSHOT_HARNESS_GET_ONLY_UNDISPATCHED_PRODUCTION_UNCHANGED`
+
+Next phase may execute the sealed manual GET-only Production control-plane snapshot only after this docs-only seal commit itself passes Incremental + Type check + Isolation. That next phase remains read-only and does not authorize deploy, rollback, Legacy retirement, or PR merge.
