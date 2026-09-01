@@ -10,66 +10,43 @@
 - Production deploy: **NONE**
 - Production mutation: **NONE**
 
-## Newly verified external platform constraint
+## Platform constraint
 
-Current Cloudflare Durable Objects documentation states:
+Current Cloudflare Durable Objects semantics require this repository to treat declarative `exports` as an atomic lifecycle surface:
 
 1. `exports` and legacy `migrations` are mutually exclusive lifecycle declarations.
-2. Once a Worker has been deployed using `exports`, subsequent lifecycle-aware deploys must continue to use `exports` (or neither, which reconciles against an empty declaration and is usually a mistake).
-3. `wrangler versions upload` does not apply Durable Object lifecycle changes.
-4. If Wrangler configuration contains `exports` entries, `wrangler versions upload` fails fast with an actionable error.
-5. Gradual deployments are not supported with `exports`.
-6. Durable Object lifecycle changes are atomic and must be applied with `wrangler deploy`.
+2. The existing Worker uses declarative `exports`; later lifecycle-aware deploys must preserve that model.
+3. `wrangler versions upload` does not apply the lifecycle model and fails when the configuration contains `exports` entries.
+4. Gradual deployments are not supported with `exports`.
+5. Durable Object lifecycle deployment therefore requires atomic `wrangler deploy` handling.
 
-The repository itself already documents the same lifecycle rule in `wrangler.jsonc`: Durable Object lifecycle uses declarative exports and Production deploys must use `wrangler deploy`.
+The repository independently states the same constraint in `wrangler.jsonc`: Durable Object lifecycle uses declarative exports and Production deploys must use `wrangler deploy`.
 
-## Why the prior Version Upload Isolation PASS is not rewritten
-
-The prior phase proved a narrower repository property:
-
-- a local planner can inject an existing OAuth KV ID;
-- Cron mutation intent can be removed from a temporary config;
-- a manual workflow can be structurally isolated from traffic promotion and control-plane REST writes;
-- that workflow was never dispatched.
-
-Those CI results remain valid and immutable.
-
-However, newly verified Cloudflare platform semantics mean the prepared execution path is **not Cloudflare-executable while `wrangler.jsonc` contains Durable Object `exports`**. Therefore this phase supersedes only the prior phase's execution eligibility, not its recorded local-isolation evidence.
-
-## Current repository facts
-
-`wrangler.jsonc` contains live declarative exports for:
+Protected live exports remain:
 
 - `MyMCP`
 - `FamilyMCP`
 
-The current manual workflow `.github/workflows/research-vnext-version-upload.yml` contains an eventual `wrangler versions upload` command. It has never been dispatched and has caused no Production mutation.
+They were not removed, renamed, hidden or converted to `migrations`.
 
-## Purpose
+## Relationship to prior Version Upload Isolation PASS
 
-Fail closed on the newly discovered platform incompatibility before any Cloudflare write can occur.
+The prior phase remains historically valid and immutable as a local-isolation proof:
 
-This phase must **not** solve the incompatibility by removing or hiding `exports`. It must instead freeze a policy and make the manual version-upload workflow inoperable while the incompatible lifecycle model remains present.
+- existing OAuth KV ID can be injected as an input;
+- Cron mutation intent can be removed from a temporary config;
+- the prepared workflow was manual-only and structurally isolated from traffic promotion/control-plane REST writes;
+- it was never dispatched.
 
-## TEST BEFORE BUILD
+That historical result remains `PASS_VERSION_UPLOAD_ISOLATION_PATH_READY_NOT_EXECUTED`.
 
-RED test:
+This phase supersedes only its **execution eligibility**: while Durable Object `exports` remain, the prepared `wrangler versions upload` path is not a Cloudflare-compatible execution path.
 
-- `tests/research-vnext-do-platform-compatibility.test.ts`
-- RED commit: `7a8ca894fa57cdc0cb47922c2e164f28a6a01e4f`
+## TEST BEFORE BUILD — accepted RED
 
-A legal RED required all of these to pass first:
+RED test: `tests/research-vnext-do-platform-compatibility.test.ts`
 
-1. Version Upload Isolation remains historically sealed as `PASS_VERSION_UPLOAD_ISOLATION_PATH_READY_NOT_EXECUTED`;
-2. frozen Owner ABI remains exactly `123` / frozen digest;
-3. Legacy retirement remains blocked;
-4. `wrangler.jsonc` still contains `exports` for `MyMCP` and `FamilyMCP`;
-5. `wrangler.jsonc` still states Production deploys must use `wrangler deploy`;
-6. the current manual workflow still contains `wrangler versions upload` and has no DO-exports platform blocker yet;
-7. marker `DO_PLATFORM_COMPATIBILITY_RED_READY=PASS` prints;
-8. only then the test may fail because `src/v6/research-vnext/do-deployment-policy.ts` does not exist.
-
-## RED evidence — ACCEPTED
+RED commit: `7a8ca894fa57cdc0cb47922c2e164f28a6a01e4f`
 
 Research VNext Incremental Gate:
 
@@ -77,40 +54,38 @@ Research VNext Incremental Gate:
 - Job `99863378358`
 - Change Note / protected-surface scope gate: **PASS**
 - Phase 10B bounded exception: `PHASE10B_HANDLER_CUTOVER_EXCEPTION=PASS`
-- all earlier Research VNext tests before the new compatibility test: **PASS**
+- all earlier VNext tests before the new test: **PASS**
 - exact marker: `DO_PLATFORM_COMPATIBILITY_RED_READY=PASS`
 - Owner tool count: `123`
 - Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
-- protected Durable Object exports: `MyMCP`, `FamilyMCP`
+- protected exports: `MyMCP`, `FamilyMCP`
 - `wrangler versions upload` present: `true`
-- platform blocker present before implementation: `false`
+- platform blocker before implementation: `false`
 - Legacy retirement: `BLOCKED_UNTIL_PRODUCTION_SWITCH_STABLE`
 - Production mutation: **NONE**
 - terminal result: **EXPECTED RED**
-- exact terminal error: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/do-deployment-policy.ts`
+- exact error: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/do-deployment-policy.ts`
 - downstream incremental type-check / full `test:research` / Wrangler dry-run: correctly **SKIPPED**
 
-Independent validation on the same RED commit:
+Independent validation on the RED commit:
 
 - Type check Run `33510088974`: **SUCCESS**
-- Isolation Run `33510088975`: FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**; VNEXT failed only on the same expected missing policy module, therefore isolation finalizer failed closed as designed
-- P7 / P8 / P9 / P11 / P12 / P13 / P13b / P14 / P15 / P16 workflows: **SUCCESS**
+- Isolation Run `33510088975`: FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**; VNEXT failed only on the same expected missing policy module; finalizer failed closed
+- P7 / P8 / P9 / P11 / P12 / P13 / P13b / P14 / P15 / P16: **SUCCESS**
 
 Disposition: `DO_PLATFORM_COMPATIBILITY_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWED`.
 
-The failed RED evidence is immutable and is not rewritten as PASS.
+The RED failure remains immutable and is not rewritten as PASS.
 
 ## GREEN implementation
 
 Implementation commit: `eadd6eae6d7fa159f3b8b9504f6aad408353b14a`
 
-### Policy-only module
-
-Added:
+Added policy-only module:
 
 - `src/v6/research-vnext/do-deployment-policy.ts`
 
-It freezes:
+Frozen policy:
 
 - `versions_upload = BLOCKED_WHILE_DURABLE_OBJECT_EXPORTS_PRESENT`
 - `gradual_deployment = BLOCKED_WHILE_DURABLE_OBJECT_EXPORTS_PRESENT`
@@ -120,84 +95,137 @@ It freezes:
 - `zero_traffic_candidate_validation = BLOCKED_PENDING_COMPATIBLE_DEPLOYMENT_DESIGN`
 - `production_mutation = NONE`
 
-The module contains no imports, network calls, subprocesses or runtime side effects.
+The policy module has no imports, provider/network access, subprocesses or runtime side effects.
 
-### Manual workflow fail-closed correction
+The existing manual workflow `.github/workflows/research-vnext-version-upload.yml` was changed to fail closed immediately after checkout and before setup-node, npm install, planner, Wrangler commands, or credential-dependent Cloudflare operations.
 
-`.github/workflows/research-vnext-version-upload.yml` now terminates immediately after checkout and before setup-node, npm install, planner, Wrangler commands or any credential-dependent Cloudflare operation.
-
-Current `exports` state emits:
+When `exports` are present it emits:
 
 - `DO_EXPORTS_VERSION_UPLOAD_BLOCKED`
 - `PLATFORM_REAUTHORIZATION_REQUIRED`
-- exit code `78`
+- exits `78`
 
-If `exports` unexpectedly disappears, the workflow still emits `PLATFORM_REAUTHORIZATION_REQUIRED` and exits `78`. The previously prepared upload commands remain unreachable for auditability.
+If `exports` unexpectedly disappear, it still emits `PLATFORM_REAUTHORIZATION_REQUIRED` and exits `78`. Previously prepared upload commands remain after the blocker only for auditability and are unreachable.
 
-## Failed GREEN attempt 1 — immutable harness flip failure
+## Failed GREEN attempt 1 — immutable harness failure
 
-Implementation commit `eadd6eae6d7fa159f3b8b9504f6aad408353b14a` produced one expected-to-be-corrected test harness failure:
+Implementation commit `eadd6eae6d7fa159f3b8b9504f6aad408353b14a` produced a test-harness-only failure:
 
 - Incremental Run `33511192351`
 - Job `99866972574`
-- Change Note / protected-surface scope gate: **PASS**
-- exact failure occurred in `tests/research-vnext-do-platform-compatibility.test.ts`
-- stale RED-only assertion still required `DO_EXPORTS_VERSION_UPLOAD_BLOCKED` to be absent
-- the implementation correctly added that blocker, so the stale RED premise self-failed before GREEN policy/workflow assertions ran
-- downstream incremental type-check / full `test:research` / Wrangler dry-run: correctly **SKIPPED**
+- scope gate: **PASS**
+- exact failure: stale RED-only assertion still required `DO_EXPORTS_VERSION_UPLOAD_BLOCKED` to be absent
+- the implementation correctly added the blocker, so this stale RED premise self-failed before GREEN policy/workflow assertions ran
+- downstream incremental type-check / full `test:research` / dry-run: correctly **SKIPPED**
 
-Independent validation on the same implementation commit:
+Independent same-commit evidence:
 
-- Type check Run `33511193411`: **SUCCESS**, including type-check, full `test:research`, and Wrangler dry-run
-- Isolation Run `33511192533`: FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**; VNEXT failed only on the same stale RED-only assertion; finalizer failed closed as designed
+- Type check Run `33511193411`: **SUCCESS**, including full `test:research` and Wrangler dry-run
+- Isolation Run `33511192533`: FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**; VNEXT failed only on the same stale RED assertion; finalizer failed closed
 
-No policy or workflow behavior defect was identified. No Production deploy, Cloudflare write, workflow dispatch, OAuth KV mutation, Cron mutation, Production MCP contact or traffic shift occurred.
+No implementation defect or Production mutation was identified.
 
 Disposition: `GREEN_ATTEMPT_1_HARNESS_FLIP_FAILURE_IMMUTABLE`.
 
-Authorized correction is **test-only**: flip the accepted RED precondition to GREEN verification that the blocker is now present. The policy module and fail-closed workflow must remain unchanged.
+The failed GREEN attempt remains immutable and is not rewritten as PASS.
 
-## Explicitly forbidden
+## Corrected GREEN — PASS
 
-- modifying `wrangler.jsonc`;
-- removing/renaming `MyMCP` or `FamilyMCP` exports;
-- converting `exports` to `migrations`;
-- dispatching the manual version-upload workflow;
-- `wrangler versions upload` execution;
-- gradual deployment creation;
-- `wrangler deploy` execution;
-- Cloudflare API writes;
-- OAuth KV mutation;
-- Cron mutation;
-- Production MCP contact;
-- PR #206 merge;
-- Legacy deletion;
-- public MCP ABI changes;
-- Owner/Family/OAuth/Market Data/FORMAL/OHLC runtime changes.
+Test-only harness correction commit:
 
-## GREEN acceptance
+- `5a06c0e1c4fffdbb7b21bee3d05c28177dad226d`
 
-Tests must prove:
+The correction changed only the accepted RED precondition into a GREEN precheck requiring the platform blocker to be present. The policy module and fail-closed workflow were unchanged.
 
-- policy object exactly encodes the platform blocker;
-- policy source has no imports, fetch, subprocesses, provider access or write operations;
-- current `wrangler.jsonc` protected exports remain intact;
-- manual workflow blocker occurs textually before setup-node, npm install, planner, Wrangler list/upload commands, or any Cloudflare-dependent operation;
-- workflow remains `workflow_dispatch` only;
-- no automatic CI dispatch occurs;
-- previous upload commands are unreachable under current and unexpected no-exports states;
-- all VNext tests, frozen ABI, type-check, full `test:research`, Wrangler dry-run and six-domain Isolation Gate pass.
+Research VNext Incremental Gate:
 
-## Next phase after seal
+- Run `33511571358`
+- Job `99868248201`
+- Change Note / protected-surface scope gate: **PASS**
+- all Research VNext tests: **PASS**
+- `DO_PLATFORM_COMPATIBILITY_GREEN_PRECHECK=PASS`
+- DO deployment policy assertions: **PASS**
+- fail-closed workflow ordering assertions: **PASS**
+- frozen public ABI snapshot: **PASS** — `123` tools / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- incremental type-check: **PASS**
+- full `test:research`: **PASS**
+- Wrangler dry-run: **PASS**
+- evidence upload: **PASS**
+- artifact ID: `9801863507`
+- artifact digest: `sha256:4d5bf22c0e1f074faf400ce3c008c43c331d9da14538a5552ab9b5134b38c29e`
 
-Do **not** proceed to zero-traffic version override deployment while `exports` blocks versions upload/gradual deployment.
+Independent Type check:
 
-A later phase must design a Cloudflare-supported atomic `wrangler deploy` validation/cutover strategy that preserves declarative Durable Object lifecycle, isolates unrelated OAuth/Cron side effects, proves rollback boundaries, and receives explicit Production authorization before any mutation.
+- Run `33511571023`: **SUCCESS**
+- type-check: **PASS**
+- full `test:research`: **PASS**
+- Wrangler dry-run: **PASS**
 
-## GREEN evidence
+Isolation Gate:
 
-Pending corrected GREEN.
+- Run `33511570858`: **SUCCESS**
+- VNEXT: **PASS**
+- FAMILY: **PASS**
+- MARKET_DATA: **PASS**
+- FORMAL_BLIND: **PASS**
+- OWNER_OPS: **PASS**
+- BUNDLE: **PASS**
+- isolation finalizer: **PASS**
+- evidence artifact ID: `9801859281`
+- evidence digest: `sha256:29c4c205c88797dc46108828ab73b25f413998eefb52e3e34b03d930d5fb52fc`
+- bundle artifact ID: `9801855331`
+- bundle digest: `sha256:fbe86be74c2097131667a576006d68e2108f24f4fe06d5985c6cb2240b0fac80`
+
+Additional workflows on the corrected GREEN commit:
+
+- P7 Swing Outcome Path `33511571067`: **SUCCESS**
+- P8 Experiment Memory `33511570850`: **SUCCESS**
+- P9 Diamond Capability Registry `33511571046`: **SUCCESS**
+- P11 Research Validation `33511571254`: **SUCCESS**
+- P12 Strategy Lab Governance `33511571086`: **SUCCESS**
+- P13 Cross-market Supply Chain Graph `33511570892`: **SUCCESS**
+- P13b Supply Chain Data Plane `33511570932`: **SUCCESS**
+- P14 TXF Dual-market Review `33511571071`: **SUCCESS**
+- P15 Review Swing Orchestration `33511571104`: **SUCCESS**
+- P16 GPT Judgment Memory `33511570887`: **SUCCESS**
+
+Production facts throughout RED / implementation / correction / GREEN:
+
+- version-upload workflow dispatch: **NONE**
+- Cloudflare Worker version creation: **NONE**
+- `wrangler versions upload` execution: **NONE**
+- `wrangler deploy` execution: **NONE**
+- gradual deployment: **NONE**
+- OAuth KV mutation: **NONE**
+- Cron mutation: **NONE**
+- Production MCP contact: **NONE**
+- traffic shift: **NONE**
+- public ABI change: **NONE**
+- Legacy retirement: **BLOCKED**
+- PR #206 merge: **NONE**
+
+## Explicitly forbidden after this seal
+
+- removing/renaming/hiding `MyMCP` or `FamilyMCP` exports;
+- converting `exports` to `migrations` as a shortcut;
+- dispatching the now-blocked version-upload workflow as a deployment attempt;
+- `wrangler versions upload` / gradual deployment while `exports` remain;
+- any Production deploy without a separately tested and explicitly authorized atomic deployment phase;
+- Legacy deletion before Production switch stability.
+
+## Next phase
+
+Do **not** proceed with zero-traffic version override or gradual deployment.
+
+The next safe design phase is a Cloudflare-supported **atomic `wrangler deploy` validation/cutover strategy** that:
+
+- preserves declarative Durable Object `exports`;
+- treats existing OAuth KV as an immutable input;
+- prevents unrelated Cron/control-plane mutation;
+- proves rollback boundaries and active-version identity;
+- validates Owner ABI and live read-only behavior after an eventual authorized atomic deployment;
+- receives a separate explicit Production authorization before any mutation.
 
 ## Final disposition
 
-`DO_PLATFORM_COMPATIBILITY_GREEN_HARNESS_CORRECTION_ALLOWED`
+`PASS_DO_PLATFORM_COMPATIBILITY_FAIL_CLOSED_PRODUCTION_UNCHANGED`
