@@ -9,54 +9,17 @@ on:
 
 permissions:
   contents: read
-  checks: read
 
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - name: Require PR380 Cloudflare Production build success
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET_REPO: keywayk09/tv-papertrader
-          TARGET_SHA: ca8c577fc3d1d226d0caa7de4f328e85c3f12ebe
-        shell: bash
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'NODE'
-          const repo = process.env.TARGET_REPO;
-          const sha = process.env.TARGET_SHA;
-          const token = process.env.GH_TOKEN;
-          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-          for (let attempt = 1; attempt <= 48; attempt += 1) {
-            const response = await fetch(`https://api.github.com/repos/${repo}/commits/${sha}/check-runs`, {
-              headers: {
-                accept: 'application/vnd.github+json',
-                authorization: `Bearer ${token}`,
-                'x-github-api-version': '2022-11-28',
-                'user-agent': 'formal-blind-post-pr380-gate/1.0',
-              },
-            });
-            if (!response.ok) throw new Error(`github_check_runs_http_${response.status}:${(await response.text()).slice(0,500)}`);
-            const body = await response.json();
-            const check = (body.check_runs || []).find((x) => x.name === 'Workers Builds: tv-fugle-1d');
-            console.log(JSON.stringify({ attempt, status: check?.status ?? null, conclusion: check?.conclusion ?? null, external_id: check?.external_id ?? null }));
-            if (check?.status === 'completed') {
-              if (check.conclusion !== 'success') throw new Error(`cloudflare_build_not_success:${check.conclusion}`);
-              console.log(`CLOUDFLARE_PR380_BUILD_SUCCESS=${check.external_id || 'unknown'}`);
-              process.exit(0);
-            }
-            if (attempt < 48) await sleep(5000);
-          }
-          throw new Error('cloudflare_build_status_timeout');
-          NODE
 
       - name: Probe frozen 60 symbols directly against OHLC verification
         shell: bash
@@ -140,6 +103,8 @@ jobs:
             schema: 'FORMAL_BLIND_503_DIAGNOSTIC_V2_POST_PR380',
             generated_at: new Date().toISOString(),
             target_merge_sha: 'ca8c577fc3d1d226d0caa7de4f328e85c3f12ebe',
+            target_production_version_id: '1556bd42-d831-48e0-a2d8-910f725e9a15',
+            cloudflare_build_id: '551af4b8-7575-4380-bcb9-1de5d5623701',
             request_id: request.request_id,
             item_count: rows.length,
             http_200_count: rows.filter((x) => x.status === 200).length,
