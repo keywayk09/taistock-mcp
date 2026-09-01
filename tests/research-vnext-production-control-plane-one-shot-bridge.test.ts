@@ -10,6 +10,7 @@ const SEALED_SOURCE_SHA = "9fa1499eeaeb2ccaa7e118502f8b618c76401a31";
 const BRANCH = "refactor/research-vnext-foundation-20260901";
 const AUTH_PATH = "runtime/research-vnext-production-control-plane-one-shot-authorization.json";
 const BRIDGE_PATH = ".github/workflows/research-vnext-production-control-plane-one-shot.yml";
+const CLEANUP_NOTE_PATH = "docs/change-notes/2026-09-01-research-vnext-production-control-plane-one-shot-cleanup.md";
 
 const fixture = JSON.parse(read("tests/fixtures/research-vnext-public-abi-snapshot.json"));
 assert.equal(fixture.owner_tool_count, 123);
@@ -39,9 +40,56 @@ console.log(JSON.stringify({
   production_mutation: "NONE",
 }, null, 2));
 
-// TEST BEFORE BUILD: first formal RED must stop here because the temporary
-// connector-compat one-shot bridge does not exist yet.
-assert.equal(exists(BRIDGE_PATH), true, "temporary one-shot GET-only bridge workflow must exist only after accepted RED");
+const bridgeExists = exists(BRIDGE_PATH);
+const authExists = exists(AUTH_PATH);
+
+// Post-live cleanup is a distinct lifecycle state. The temporary workflow and
+// one-shot authorization are allowed to be absent only after immutable live
+// evidence and the exact cleanup commits are documented and sealed.
+if (!bridgeExists && !authExists) {
+  assert.equal(exists(CLEANUP_NOTE_PATH), true, "post-cleanup Change Note must exist before cleanup can pass");
+  const cleanupNote = read(CLEANUP_NOTE_PATH);
+
+  console.log("PRODUCTION_CONTROL_PLANE_ONE_SHOT_CLEANUP_RED_READY=PASS");
+
+  assert.match(cleanupNote, /Live snapshot run: `33527987699`/);
+  assert.match(cleanupNote, /Live snapshot job: `99923622130`/);
+  assert.match(cleanupNote, /Artifact ID: `9808495101`/);
+  assert.match(cleanupNote, /Artifact digest: `sha256:f38b86c862b1bce5d2c0d06a94b7d2ebf7ed0c29caa9cfa39102ad35c304e000`/);
+  assert.match(cleanupNote, /Snapshot status: `READ_ONLY_SNAPSHOT_VALID`/);
+  assert.match(cleanupNote, /Active deployment ID: `8e4b3922-e96b-4e2b-b365-65e2e9f71968`/);
+  assert.match(cleanupNote, /Active version ID: `75f989b9-e798-4d32-a95f-7253b4e703ec`/);
+  assert.match(cleanupNote, /Rollback target version ID: `75f989b9-e798-4d32-a95f-7253b4e703ec`/);
+  assert.match(cleanupNote, /Binding fingerprint: `d1faf34e53a3901c0ca13f4c29ff354194c7a3788bd94aa7a2e37509eaf1a49b`/);
+  assert.match(cleanupNote, /Temporary workflow cleanup commit: `98eb80511bb0fd72a4cd73d234307ffef12f7ff5`/);
+  assert.match(cleanupNote, /Authorization cleanup commit: `0944ba36e1dd6366bc0faea542837d958ee8c6c1`/);
+  assert.match(cleanupNote, /Production deploy authorized: `false`/);
+  assert.match(cleanupNote, /Production mutation: `NONE`/);
+  assert.match(
+    cleanupNote,
+    /PASS_PRODUCTION_CONTROL_PLANE_ONE_SHOT_LIVE_SNAPSHOT_CAPTURED_AND_TEMPORARY_BRIDGE_CLEANED_PRODUCTION_UNCHANGED/,
+    "cleanup evidence disposition must be sealed only after accepted RED",
+  );
+
+  console.log(JSON.stringify({
+    schema: "RESEARCH_VNEXT_PRODUCTION_CONTROL_PLANE_ONE_SHOT_CLEANUP_TEST_V1",
+    status: "PASS",
+    live_snapshot: "READ_ONLY_SNAPSHOT_VALID",
+    temporary_bridge: "REMOVED",
+    authorization: "REMOVED",
+    source_execution: "PINNED_SEALED_SHA",
+    owner_tool_count: fixture.owner_tool_count,
+    owner_abi_sha256: fixture.owner_abi_sha256,
+    production_deploy_authorized: false,
+    production_mutation: "NONE",
+  }, null, 2));
+  process.exit(0);
+}
+
+// TEST BEFORE BUILD: first formal RED stopped here because the temporary
+// connector-compat one-shot bridge did not exist yet. While the bridge is in
+// its pre-cleanup lifecycle, preserve every original fail-closed assertion.
+assert.equal(bridgeExists, true, "temporary one-shot GET-only bridge workflow must exist only after accepted RED");
 
 const workflow = read(BRIDGE_PATH);
 assert.match(workflow, /push:/);
