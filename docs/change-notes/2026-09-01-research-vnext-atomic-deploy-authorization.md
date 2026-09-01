@@ -4,7 +4,7 @@
 - Branch: `refactor/research-vnext-foundation-20260901`
 - PR: `#206` — must remain Draft/open/unmerged
 - Prerequisite Atomic Deploy Preflight seal: `a5d9fa87dca75af35b977bf1fc9ee11511b8b0fc`
-- Seal CI: Incremental `33513456976` SUCCESS; Type check `33513457024` SUCCESS; Isolation `33513456959` SUCCESS
+- Prerequisite seal CI: Incremental `33513456976` SUCCESS; Type check `33513457024` SUCCESS; Isolation `33513456959` SUCCESS
 - Frozen Owner ABI: `123` tools / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
 - Legacy retirement: **BLOCKED_UNTIL_PRODUCTION_SWITCH_STABLE**
 - Production deploy: **NONE**
@@ -14,27 +14,27 @@
 
 Freeze the exact safety contract that must be satisfied before any real Research VNext atomic Production deployment workflow may be built or authorized.
 
-This phase is **policy-only**. It must not create an executor, dispatch a Production workflow, contact Production, or invoke Cloudflare.
+This phase is **policy-only**. It does not create an executor, dispatch a Production workflow, contact Production, or invoke Cloudflare.
 
 ## Platform rollback contract
 
-Current Cloudflare Workers documentation states:
+Current Cloudflare Workers documentation establishes the rollback constraints used by this policy:
 
-1. `wrangler rollback <VERSION_ID>` immediately creates a deployment of the selected version at 100% traffic.
-2. Connected resources are not changed by rollback.
-3. Rollback is not allowed across a Durable Object lifecycle change made through `exports` or legacy `migrations`.
-4. Rollback can also be rejected if a target version depends on a binding resource that has since been deleted or changed.
-5. Only recent published versions are eligible rollback targets.
+1. rollback to an eligible version immediately creates a 100%-traffic deployment of that version;
+2. connected resources are not changed by rollback;
+3. rollback is not allowed across a Durable Object lifecycle change made through declarative `exports` or legacy `migrations`;
+4. rollback can be rejected when the target version depends on a bound resource that no longer exists or is no longer compatible;
+5. rollback eligibility is limited to recent published versions.
 
-Therefore this cutover may treat rollback as eligible only if the pre-deploy active version is captured exactly, the protected `MyMCP` / `FamilyMCP` exports remain lifecycle-identical, no DO lifecycle reconciliation change occurs, and required bound resources still exist. Any uncertainty must fail closed to manual intervention; no blind automatic rollback is allowed.
+Therefore this cutover treats rollback as eligible only when the exact pre-deploy active version is captured, protected `MyMCP` / `FamilyMCP` exports remain lifecycle-identical, no Durable Object lifecycle change occurs, and required bindings remain valid. Any uncertainty fails closed to manual intervention. Blind automatic rollback is forbidden.
 
 ## Current repository facts
 
 - Atomic deploy dry-run preflight is sealed as `PASS_ATOMIC_DEPLOY_PREFLIGHT_DRY_RUN_ONLY_PRODUCTION_UNCHANGED`.
-- The sealed planner preserves `MyMCP` and `FamilyMCP` exports exactly, injects an existing OAuth KV ID, removes triggers from the temporary config, disables auto-provision/auto-create, and records real deploy semantics as immediate 100% traffic.
-- `.github/workflows/research-vnext-production-validation.yml` is manual/read-only and already requires `READ_ONLY_PRODUCTION_PROBE` before Production contact.
-- Canonical `.github/workflows/deploy-cloudflare-production.yml` is not suitable for the VNext cutover because it may create OAuth KV and explicitly PUT Cron in addition to deploying.
-- `research-vnext-version-upload.yml` remains fail-closed because Durable Object `exports` block versions upload / gradual deployment.
+- The sealed planner preserves `MyMCP` and `FamilyMCP` exports exactly, injects an already-existing OAuth KV ID, removes triggers from the temporary config, disables auto-provision / auto-create, and records real deploy semantics as immediate 100% traffic.
+- `.github/workflows/research-vnext-production-validation.yml` remains manual/read-only and requires `READ_ONLY_PRODUCTION_PROBE` before Production contact.
+- Canonical `.github/workflows/deploy-cloudflare-production.yml` is not reused for VNext cutover because it may create OAuth KV and explicitly PUT Cron in addition to deployment.
+- `.github/workflows/research-vnext-version-upload.yml` remains fail-closed because Durable Object `exports` block versions upload / gradual deployment for this Worker.
 
 ## TEST BEFORE BUILD
 
@@ -46,7 +46,7 @@ RED test:
 Legal RED requirements:
 
 1. prerequisite atomic deploy preflight seal present;
-2. Owner ABI remains exactly 123 / frozen digest;
+2. Owner ABI remains exactly `123` / frozen digest;
 3. Legacy retirement remains blocked;
 4. DO lifecycle policy still requires atomic deployment and blocks versions upload;
 5. protected exports remain `MyMCP`, `FamilyMCP`;
@@ -87,57 +87,157 @@ Disposition: `ATOMIC_DEPLOY_AUTHORIZATION_POLICY_RED_ACCEPTED_GREEN_IMPLEMENTATI
 
 The RED failure remains immutable and is not rewritten as PASS.
 
-## GREEN implementation allowed
+## GREEN implementation
 
-Add one policy-only module:
+Implementation commit:
+
+- `48b02f731d0617fc7d26ceb0ecb474db0dc6e142`
+
+Added exactly one policy-only module:
 
 - `src/v6/research-vnext/atomic-deploy-authorization.ts`
 
-It must have no imports, network access, subprocesses, Cloudflare calls or executable Wrangler commands.
+No executable Production deploy/rollback workflow was added.
 
-It must freeze at least:
+The policy freezes:
 
-- phase = `DESIGN_ONLY_EXECUTION_BLOCKED`
-- workflow mode = `MANUAL_ONLY_REQUIRED`
-- exact confirmation = `EXECUTE_ATOMIC_VNEXT_PRODUCTION`
-- exact 40-hex source SHA required
+- `schema = RESEARCH_VNEXT_ATOMIC_DEPLOY_AUTHORIZATION_V1`
+- `phase = DESIGN_ONLY_EXECUTION_BLOCKED`
+- `workflow_mode = MANUAL_ONLY_REQUIRED`
+- required confirmation = `EXECUTE_ATOMIC_VNEXT_PRODUCTION`
+- source SHA = exact 40-hex required
 - OAuth KV = existing secret input only
-- pre-deploy active deployment/version snapshot required
-- Cron pre/post exact match required
+- pre-deploy snapshot = active deployment and exact version required
+- Cron = exact pre/post snapshot match required
 - protected exports = `MyMCP`, `FamilyMCP`
-- DO lifecycle change = forbidden for this cutover
-- deploy semantics = immediate atomic 100%
-- rollback exact version ID only
+- DO lifecycle change = `FORBIDDEN_FOR_THIS_CUTOVER`
+- deploy semantics = `ATOMIC_IMMEDIATE_100_PERCENT`
+- rollback mode = exact version ID only
 - rollback target = exact pre-deploy active version
-- rollback eligible only when no DO lifecycle change occurred and required bindings remain valid
-- automatic rollback = false
-- uncertainty = fail closed / manual intervention
-- post-deploy read-only Production probe required
-- Owner ABI = 123 / frozen digest
-- Legacy retirement remains blocked until switch stability
-- Production deploy authorized = false
-- Production mutation = NONE
+- rollback eligibility = only if no DO lifecycle change occurred and required bindings remain valid
+- automatic rollback = `false`
+- rollback uncertainty = `FAIL_CLOSED_MANUAL_INTERVENTION`
+- post-deploy probe = `READ_ONLY_PRODUCTION_PROBE_REQUIRED`
+- Owner tool count = `123`
+- Owner ABI digest = frozen digest
+- Legacy retirement remains `BLOCKED_UNTIL_PRODUCTION_SWITCH_STABLE`
+- Production deploy authorized = `false`
+- Production mutation = `NONE`
 
-## Explicitly forbidden
+The policy source contains no imports, network access, Cloudflare API access, subprocesses, or executable Wrangler commands.
 
-- creating an executable Production deploy workflow in this phase;
-- real Production deploy or rollback;
-- Cloudflare API calls;
-- Production workflow dispatch;
-- Production MCP contact;
-- OAuth KV mutation;
-- Cron mutation;
-- protected export mutation;
-- source `wrangler.jsonc` mutation;
-- versions upload / gradual deployment;
+## GREEN evidence — PASS
+
+Research VNext Incremental Gate:
+
+- Run `33514688088`: **SUCCESS**
+- all Research VNext tests: **PASS**
+- authorization policy contract: **PASS**
+- incremental type-check: **PASS**
+- full `test:research`: **PASS**
+- canonical Wrangler dry-run: **PASS**
+- atomic temporary-config Wrangler dry-run: **PASS**
+- evidence receipt/upload: **PASS**
+- frozen Owner ABI: **PASS** — `123` tools / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- Production deploy authorized: `false`
+- Production mutation: **NONE**
+
+Incremental evidence artifact:
+
+- artifact ID: `9803099995`
+- digest: `sha256:93071d1cf6ac46190db5d1e79a59fa6dd7ca5d51a0e184f9809d5eb1870f0049`
+
+Independent Type check:
+
+- Run `33514687970`: **SUCCESS**
+- type-check: **PASS**
+- full `test:research`: **PASS**
+- canonical Wrangler dry-run: **PASS**
+
+Isolation Gate:
+
+- Run `33514687876`: **SUCCESS**
+- VNEXT: **PASS**
+- FAMILY: **PASS**
+- MARKET_DATA: **PASS**
+- FORMAL_BLIND: **PASS**
+- OWNER_OPS: **PASS**
+- BUNDLE: **PASS**
+- isolation finalizer: **PASS**
+
+Isolation artifacts:
+
+- evidence artifact ID: `9803093791`
+- evidence digest: `sha256:dcd8bcc8f5a7f65a8f7aad5e05619c5982066f4effd61df6a9dc340c7a76e2b0`
+- bundle artifact ID: `9803089361`
+- bundle digest: `sha256:e121453b927673f843ca717935cc4dc6200a22398f535269f8b152f87af82b4e`
+
+Additional workflows on implementation commit:
+
+- P7 Swing Outcome Path `33514688068`: **SUCCESS**
+- P8 Experiment Memory `33514687894`: **SUCCESS**
+- P9 Diamond Capability Registry `33514688089`: **SUCCESS**
+- P11 Research Validation `33514687844`: **SUCCESS**
+- P12 Strategy Lab Governance `33514688005`: **SUCCESS**
+- P13 Cross-market Supply Chain Graph `33514688073`: **SUCCESS**
+- P13b Supply Chain Data Plane `33514688147`: **SUCCESS**
+- P14 TXF Dual-market Review `33514688022`: **SUCCESS**
+- P15 Review Swing Orchestration `33514687975`: **SUCCESS**
+- P16 GPT Judgment Memory `33514688028`: **SUCCESS**
+
+## Production facts throughout this phase
+
+- real Production deploy: **NONE**
+- real rollback: **NONE**
+- executable VNext Production deploy workflow created: **NO**
+- Cloudflare API writes: **NONE**
+- Production workflow dispatch: **NONE**
+- Production MCP contact: **NONE**
+- OAuth KV mutation: **NONE**
+- Cron mutation: **NONE**
+- protected export mutation: **NONE**
+- traffic shift: **NONE**
+- public ABI drift: **NONE**
+- Legacy retirement: **BLOCKED**
+- PR #206 merge: **NONE**
+
+## Explicitly forbidden after this seal
+
+- treating this policy PASS as Production execution authorization;
+- any real Production deploy or rollback without a separately tested manual execution gate and a later explicit authorization;
 - automatic rollback;
-- Legacy deletion;
-- PR #206 merge.
+- rollback when DO lifecycle identity or required bindings are uncertain;
+- Cloudflare control-plane writes outside the separately authorized execution phase;
+- OAuth KV or Cron mutation;
+- versions upload / gradual deployment while Durable Object `exports` remain;
+- protected export mutation;
+- source `wrangler.jsonc` mutation as a shortcut;
+- Legacy deletion before Production switch stability;
+- PR #206 merge before later cutover acceptance.
 
-## GREEN evidence
+## Next phase
 
-Pending.
+The next safe phase is a **manual Production Atomic Deploy Execution Workflow RED / blocked-skeleton design**. It must remain non-executable until its own RED/GREEN gates and a later explicit Production authorization are complete.
+
+That phase must test-first freeze at least:
+
+- `workflow_dispatch` only;
+- exact branch SHA and explicit confirmation inputs;
+- existing Production OAuth KV ID as immutable secret input only;
+- pre-deploy active deployment/version snapshot;
+- pre-deploy Cron snapshot;
+- sealed atomic planner and root-anchored temporary config;
+- exact protected exports and no trigger mutation intent;
+- auto-provision / auto-create disabled;
+- real deploy semantics explicitly documented as immediate 100% switch;
+- exact pre-deploy rollback target capture;
+- rollback eligibility only when no DO lifecycle change occurred and bindings remain valid;
+- no automatic rollback;
+- post-deploy read-only Production probe and exact Owner ABI `123` / frozen digest;
+- Cron post-snapshot exact match;
+- Legacy retained until Production switch stability;
+- fail closed before any mutation unless a separate execution authorization is present.
 
 ## Final disposition
 
-`ATOMIC_DEPLOY_AUTHORIZATION_POLICY_GREEN_IMPLEMENTATION_ALLOWED`
+`PASS_ATOMIC_DEPLOY_AUTHORIZATION_POLICY_EXECUTION_BLOCKED_PRODUCTION_UNCHANGED`
