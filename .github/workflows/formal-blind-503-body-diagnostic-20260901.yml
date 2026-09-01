@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Probe frozen 60 symbols against PR382 Production with zero retries
+      - name: Probe frozen 60 symbols against PR383 Production with zero retries
         shell: bash
         run: |
           set -euo pipefail
@@ -52,7 +52,7 @@ jobs:
                 headers:{
                   accept:'application/json',
                   'cache-control':'no-cache',
-                  'user-agent':'formal-blind-503-diagnostic/post-pr382'
+                  'user-agent':'formal-blind-503-diagnostic/post-pr383-compact'
                 }
               });
               const text=await response.text();
@@ -112,11 +112,11 @@ jobs:
           const first503=rows.find(x=>x.status===503);
           const first1102=rows.find(x=>x.cloudflare_1102===true);
           const summary={
-            schema:'FORMAL_BLIND_503_DIAGNOSTIC_V5_POST_PR382',
+            schema:'FORMAL_BLIND_503_DIAGNOSTIC_V6_POST_PR383_COMPACT',
             generated_at:new Date().toISOString(),
-            target_merge_sha:'627150f90177d49b9c708f75587e6be1fbb16824',
-            target_production_version_id:'15431a90-70b4-4023-bd1e-d21bc8d01b4c',
-            cloudflare_build_id:'da328227-b2fc-4142-ae5e-af698d0dbaf1',
+            target_merge_sha:'fed767c32f12c837c67470331c6c964387774e6c',
+            target_production_version_id:'082a7638-1c8a-4aff-ac4a-94efd340cf7e',
+            cloudflare_build_id:'f84ac47f-76f1-40ba-9bc4-9c048006f0c1',
             request_id:request.request_id,
             inter_item_pacing_ms:650,
             retry_count:0,
@@ -149,6 +149,6 @@ jobs:
       - name: Upload diagnostic artifact
         uses: actions/upload-artifact@v4
         with:
-          name: formal-blind-503-diagnostic-post-pr382-${{ github.run_id }}
+          name: formal-blind-503-diagnostic-post-pr383-${{ github.run_id }}
           path: tmp/formal-blind-503-diagnostic/result.json
           retention-days: 14
