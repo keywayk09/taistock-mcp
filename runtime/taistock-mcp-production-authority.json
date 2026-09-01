@@ -1,0 +1,13 @@
+{
+  "schema": "TAISTOCK_MCP_PRODUCTION_AUTHORITY_V1",
+  "mode": "EXTERNAL_CUTOVER_LEASE",
+  "worker": "taistock-mcp",
+  "source_ref": "refactor/research-vnext-foundation-20260901",
+  "source_sha": "6dc5beb02c168ad6c7c74c314fc9cf704253391a",
+  "issued_at": "2026-09-01T18:10:00Z",
+  "expires_at": "2026-09-01T23:40:00Z",
+  "watchdog_main_recovery_suspended": true,
+  "production_deploy_authorized": false,
+  "production_mutation": "NONE",
+  "handoff_id": "research-vnext-cutover-20260902-6dc5beb0"
+}
