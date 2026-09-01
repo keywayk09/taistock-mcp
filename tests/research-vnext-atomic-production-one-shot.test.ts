@@ -13,6 +13,9 @@ const BASELINE_BINDING_FINGERPRINT = "d1faf34e53a3901c0ca13f4c29ff354194c7a3788b
 const WORKFLOW = ".github/workflows/research-vnext-atomic-production-one-shot.yml";
 const AUTH = "runtime/research-vnext-atomic-production-one-shot-authorization.json";
 const NOTE = "docs/change-notes/2026-09-02-research-vnext-atomic-production-one-shot.md";
+const RESULT_NOTE = "docs/change-notes/2026-09-02-research-vnext-atomic-production-deploy-result.md";
+const CLEANUP_NOTE = "docs/change-notes/2026-09-02-research-vnext-atomic-production-cleanup.md";
+const CREDENTIAL_BLOCKED_DISPOSITION = "DEPLOYED_CONTROL_PLANE_PASS_AUTHENTICATED_PROBE_CREDENTIAL_BLOCKED_NO_ROLLBACK_TEMPORARY_SURFACES_CLEANED";
 
 const fixture = JSON.parse(read("tests/fixtures/research-vnext-public-abi-snapshot.json"));
 assert.equal(fixture.owner_tool_count, 123);
@@ -70,11 +73,30 @@ console.log(JSON.stringify({
 }, null, 2));
 
 if (!exists(WORKFLOW)) {
-  if (/PASS_ATOMIC_PRODUCTION_ONE_SHOT_DEPLOY_AND_CLEANUP_SEALED/.test(note)) {
+  const fullyAuthenticatedPass = /PASS_ATOMIC_PRODUCTION_ONE_SHOT_DEPLOY_AND_CLEANUP_SEALED/.test(note);
+  const resultNote = exists(RESULT_NOTE) ? read(RESULT_NOTE) : "";
+  const cleanupNote = exists(CLEANUP_NOTE) ? read(CLEANUP_NOTE) : "";
+  const credentialBlockedCleaned = new RegExp(CREDENTIAL_BLOCKED_DISPOSITION).test(cleanupNote);
+
+  if (fullyAuthenticatedPass || credentialBlockedCleaned) {
     assert.equal(exists(AUTH), false, "authorization must be absent after sealed cleanup");
-    console.log("ATOMIC_PRODUCTION_ONE_SHOT_POST_CLEANUP=PASS");
+
+    if (credentialBlockedCleaned) {
+      assert.match(resultNote, /POSTDEPLOY_AUTHENTICATED_MCP_PROBE_BLOCKED_BY_MISSING_GITHUB_SECRET/);
+      assert.match(resultNote, /Decision: `NO_ROLLBACK`/);
+      assert.match(resultNote, /0d7a4c8d-0ccf-4d89-9cd4-ab28fab70c5c/);
+      assert.match(cleanupNote, /Production control-plane validation: `PASS`/);
+      assert.match(cleanupNote, /Authenticated MCP probe: `BLOCKED_BY_MISSING_GITHUB_SECRET`/);
+      assert.match(cleanupNote, /Production rollback: `NONE`/);
+      assert.match(cleanupNote, /Legacy retirement: `BLOCKED`/);
+      assert.doesNotMatch(cleanupNote, /PASS_ATOMIC_PRODUCTION_ONE_SHOT_DEPLOY_AND_CLEANUP_SEALED/);
+      console.log("ATOMIC_PRODUCTION_ONE_SHOT_POST_CLEANUP_CREDENTIAL_BLOCKED=PASS");
+    } else {
+      console.log("ATOMIC_PRODUCTION_ONE_SHOT_POST_CLEANUP=PASS");
+    }
     process.exit(0);
   }
+
   assert.fail("temporary atomic Production one-shot workflow must exist only after accepted RED");
 }
 
