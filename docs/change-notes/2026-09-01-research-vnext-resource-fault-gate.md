@@ -28,14 +28,29 @@ At this baseline:
 
 ## TEST BEFORE BUILD
 
-RED test must be committed before `src/v6/research-vnext/resource-policy.ts` exists.
+RED Change Note commit: `345e7ff24ee3a151f1d401d976277be0fea17e53`.
+RED test commit: `83dbb79e69fb2cb6fb5a9115a3015558fbcbc370`.
 
-Expected first RED:
+The RED test was committed before `src/v6/research-vnext/resource-policy.ts` existed.
 
-- existing VNext tests remain PASS until the new resource/fault test is reached;
-- new test fails precisely with `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/resource-policy.ts`;
-- downstream incremental type-check / full regression / Wrangler dry-run are blocked after the expected RED;
-- failed evidence remains immutable.
+## RED evidence
+
+Research VNext Incremental Gate:
+
+- Run `33501053608`
+- Job `99834238126`
+- Change Note / protected-surface scope gate: **PASS**
+- existing Research VNext Boundary: **PASS**
+- existing thin/lazy Gateway: **PASS**
+- existing GitHub Memory Adapter: **PASS**
+- existing Isolation manifest test: **PASS**
+- existing Memory Core: **PASS**
+- existing Selective 1m Replay shadow parity: **PASS**
+- new Resource / Fault test: **FAIL (EXPECTED RED)**
+- exact failure: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/resource-policy.ts`
+- incremental type-check / full research regression / Wrangler dry-run: correctly **SKIPPED** after RED
+
+This failed receipt is immutable and must not be relabeled as PASS.
 
 ## Frozen Phase 8 contract
 
@@ -106,7 +121,7 @@ Resource limits can accidentally become trading semantics if they inspect market
 
 ## Tests
 
-Planned RED/GREEN test:
+RED/GREEN test:
 
 - `tests/research-vnext-resource-fault.test.ts`
 
@@ -118,13 +133,9 @@ Required post-GREEN validation:
 - Wrangler dry-run;
 - full Research VNext Isolation Gate.
 
-## RED evidence
-
-Pending first run.
-
 ## GREEN implementation
 
-Not built yet.
+Not built yet. Expected RED is formally proven; implementation is now allowed.
 
 ## GREEN evidence
 
@@ -140,4 +151,4 @@ Remove the pure resource policy, its gateway integration, and the Phase 8 test. 
 
 ## Final disposition
 
-`RED_PENDING`
+`RED_CONFIRMED_IMPLEMENTATION_ALLOWED`
