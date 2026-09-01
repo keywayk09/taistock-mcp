@@ -34,12 +34,56 @@ This remains immutable failure evidence and is not rewritten as PASS.
 
 Autonomous decision remains `NO_ROLLBACK` because no runtime defect was demonstrated and all structural/control-plane invariants were preserved.
 
-## TEST BEFORE BUILD — cleanup RED candidate
+## TEST BEFORE BUILD — cleanup formal RED accepted
 
 Cleanup lifecycle test:
 
 - `tests/research-vnext-atomic-production-one-shot-cleanup.test.ts`
 
-The formal RED must prove all deployment, credential-blocker, NO_ROLLBACK, ABI and cleanup preconditions first, then fail only because the final credential-blocked cleanup disposition has not yet been recorded.
+Formal RED head:
 
-No Production mutation is authorized by this cleanup phase.
+- `60192dd891c050c8691a280051489b277729d40d`
+
+Evidence:
+
+- Research VNext Incremental Gate Run `33535473568`: `FAILURE`
+- Incremental Job `99948598794`: `FAILURE`
+- scope/protected-surface gate: `SUCCESS`
+- marker before terminal RED: `ATOMIC_PRODUCTION_ONE_SHOT_CLEANUP_RED_READY=PASS`
+- deployed version: `0d7a4c8d-0ccf-4d89-9cd4-ab28fab70c5c`
+- control-plane validation: `PASS`
+- authenticated MCP probe: `BLOCKED_BY_MISSING_GITHUB_SECRET`
+- rollback: `NONE`
+- temporary workflow: `ABSENT`
+- temporary authorization: `ABSENT`
+- Owner ABI: `123` / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- exact terminal assertion: `credential-blocked cleanup disposition must be recorded only after accepted cleanup RED`
+
+Independent validation:
+
+- Type check Run `33535473461`: `SUCCESS`
+- Research VNext Isolation Gate Run `33535473705`: `FAILURE`
+- Isolation FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE: `SUCCESS`
+- Isolation VNEXT: `FAILURE`
+
+The formal RED remains immutable and is not rewritten as PASS.
+
+## GREEN cleanup lifecycle disposition
+
+The accepted postdeploy state is deliberately narrower than a full authenticated runtime PASS:
+
+`DEPLOYED_CONTROL_PLANE_PASS_AUTHENTICATED_PROBE_CREDENTIAL_BLOCKED_NO_ROLLBACK_TEMPORARY_SURFACES_CLEANED`
+
+Meaning:
+
+- Production Worker deploy: completed;
+- postdeploy active version: `0d7a4c8d-0ccf-4d89-9cd4-ab28fab70c5c` at 100%;
+- postdeploy control-plane invariants: preserved;
+- authenticated MCP tool probe: not completed because the configured GitHub probe secret is absent/empty;
+- rollback: not executed;
+- temporary workflow: removed;
+- temporary authorization: removed;
+- no further Production mutation authorized;
+- Legacy retirement: blocked until an authenticated read-only runtime probe is available and passes.
+
+This disposition MUST NOT be relabeled as `PASS_ATOMIC_PRODUCTION_ONE_SHOT_DEPLOY_AND_CLEANUP_SEALED` because the authenticated runtime probe has not passed.
