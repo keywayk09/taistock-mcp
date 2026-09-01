@@ -14,11 +14,11 @@
 
 Create a test-first, permanently blocked GitHub Actions workflow skeleton for a future Research VNext atomic Production cutover.
 
-This phase must **not** create a deploy executor. The skeleton is only a machine-readable authorization envelope so later phases have a single manually dispatched surface whose required inputs and safety policy are already frozen.
+This phase does **not** create a deploy executor. The skeleton is only a machine-readable authorization envelope so later phases have a single manually dispatched surface whose required inputs and safety policy are already frozen.
 
 ## Safety design
 
-The future skeleton must:
+The skeleton must:
 
 1. be `workflow_dispatch` only;
 2. expose `confirmation` and `expected_sha` inputs;
@@ -35,6 +35,7 @@ A later separately RED-proven phase may add execution mechanics. This phase is n
 RED test:
 
 - `tests/research-vnext-atomic-production-execution-skeleton.test.ts`
+- RED commit: `86f517a7650568da12875339135c2231cb297119`
 
 Legal RED requires all of these to pass before the missing-workflow failure:
 
@@ -49,15 +50,44 @@ Legal RED requires all of these to pass before the missing-workflow failure:
 - marker `ATOMIC_PRODUCTION_EXECUTION_SKELETON_RED_READY=PASS` prints;
 - only then may the test fail because `.github/workflows/research-vnext-atomic-production-execution.yml` does not exist.
 
-Any earlier failure is a premise/harness failure and does not authorize implementation.
+## RED evidence — ACCEPTED
 
-## GREEN implementation allowed after accepted RED
+Research VNext Incremental Gate:
+
+- Run `33515386896`
+- Job `99880997460`
+- Change Note / protected-surface scope gate: **PASS**
+- Phase 10B bounded exception: `PHASE10B_HANDLER_CUTOVER_EXCEPTION=PASS`
+- authorization-policy test immediately before the new skeleton test: **PASS**
+- atomic-deploy-preflight test immediately before the new skeleton test: **PASS**
+- exact marker: `ATOMIC_PRODUCTION_EXECUTION_SKELETON_RED_READY=PASS`
+- Owner tool count: `123`
+- Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- authorization phase: `DESIGN_ONLY_EXECUTION_BLOCKED`
+- workflow mode: `MANUAL_ONLY_REQUIRED`
+- automatic rollback: `false`
+- Production deploy authorized: `false`
+- Production mutation: **NONE**
+- terminal result: **EXPECTED RED**
+- exact terminal error: `ENOENT` for `.github/workflows/research-vnext-atomic-production-execution.yml`
+- downstream incremental type-check / full `test:research` / canonical dry-run / atomic-config dry-run: correctly **SKIPPED**
+
+Independent validation on the RED commit:
+
+- Type check Run `33515386890`: **SUCCESS**, including type-check, full `test:research`, and canonical Wrangler dry-run
+- Isolation Run `33515386874`: FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**; VNEXT failed only on the same expected missing workflow; isolation finalizer failed closed
+
+Disposition: `ATOMIC_PRODUCTION_EXECUTION_SKELETON_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWED`.
+
+The RED failure remains immutable and is not rewritten as PASS.
+
+## GREEN implementation allowed
 
 Add only:
 
 - `.github/workflows/research-vnext-atomic-production-execution.yml`
 
-The GREEN workflow must remain a **blocked skeleton**, not an executor.
+The GREEN workflow remains a **blocked skeleton**, not an executor.
 
 Required static contract:
 
@@ -75,7 +105,7 @@ Required static contract:
   - postdeploy probe `READ_ONLY_PRODUCTION_PROBE_REQUIRED`;
   - Owner ABI `123:00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`;
 - checkout may run;
-- immediately afterward one step named `Fail closed pending explicit Production authorization` must emit `ATOMIC_PRODUCTION_EXECUTION_BLOCKED_PENDING_EXPLICIT_AUTHORIZATION`, `production_deploy_authorized=false`, `production_mutation=NONE`, then exit `78`;
+- immediately afterward one step named `Fail closed pending explicit Production authorization` emits the blocker and immutable status lines, then exits `78`;
 - no Cloudflare credential wiring;
 - no setup-node / npm install;
 - no Wrangler/curl/fetch;
@@ -85,8 +115,8 @@ Required static contract:
 
 ## Explicitly forbidden
 
-- real `wrangler deploy`;
-- real `wrangler rollback`;
+- real Production deploy;
+- real Production rollback;
 - Cloudflare API calls;
 - Production MCP contact;
 - Cloudflare credential wiring in the skeleton;
@@ -99,14 +129,10 @@ Required static contract:
 - Legacy deletion;
 - PR #206 merge.
 
-## RED evidence
-
-Pending.
-
 ## GREEN evidence
 
 Pending.
 
 ## Final disposition
 
-`ATOMIC_PRODUCTION_EXECUTION_SKELETON_RED_PENDING`
+`ATOMIC_PRODUCTION_EXECUTION_SKELETON_GREEN_IMPLEMENTATION_ALLOWED`
