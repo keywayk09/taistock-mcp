@@ -1,0 +1,304 @@
+name: Research VNext Atomic Production One-Shot
+
+on:
+  push:
+    branches:
+      - 'refactor/research-vnext-foundation-20260901'
+    paths:
+      - 'runtime/research-vnext-atomic-production-one-shot-authorization.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-vnext-atomic-production-one-shot
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SOURCE_SHA: 87bf6d22cc9ed9a44a8017aa860d956f1ec6eef7
+      EXPECTED_PREDEPLOY_VERSION: 75f989b9-e798-4d32-a95f-7253b4e703ec
+      EXPECTED_BINDING_FINGERPRINT: d1faf34e53a3901c0ca13f4c29ff354194c7a3788bd94aa7a2e37509eaf1a49b
+      EXPECTED_CRON: '*/5 * * * *'
+      AUTH_PATH: runtime/research-vnext-atomic-production-one-shot-authorization.json
+
+    steps:
+      - name: Checkout authorization commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Fail closed on exact atomic Production authorization
+        shell: bash
+        env:
+          EXPECTED_BRANCH: refactor/research-vnext-foundation-20260901
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_NAME" != "$EXPECTED_BRANCH" ]; then
+            echo 'FAIL: unexpected branch'
+            exit 78
+          fi
+          if [ "$GITHUB_SHA" != "$AFTER_SHA" ]; then
+            echo 'FAIL: event after SHA mismatch'
+            exit 78
+          fi
+          mapfile -t changed < <(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA")
+          if [ "${#changed[@]}" -ne 1 ] || [ "${changed[0]}" != "$AUTH_PATH" ]; then
+            echo 'FAIL: authorization commit must change exactly one authorization file'
+            printf '%s\n' "${changed[@]}"
+            exit 78
+          fi
+          node <<'NODE'
+          const fs = require('node:fs');
+          const body = JSON.parse(fs.readFileSync(process.env.AUTH_PATH, 'utf8'));
+          const fail = (message) => { throw new Error(message); };
+          if (body.schema !== 'RESEARCH_VNEXT_ATOMIC_PRODUCTION_ONE_SHOT_AUTH_V1') fail('INVALID_AUTH_SCHEMA');
+          if (body.confirmation !== 'EXECUTE_ATOMIC_VNEXT_PRODUCTION') fail('INVALID_CONFIRMATION');
+          if (body.source_sha !== process.env.SOURCE_SHA) fail('SOURCE_SHA_MISMATCH');
+          if (body.expected_predeploy_version_id !== process.env.EXPECTED_PREDEPLOY_VERSION) fail('PREDEPLOY_VERSION_MISMATCH');
+          if (body.expected_binding_fingerprint !== process.env.EXPECTED_BINDING_FINGERPRINT) fail('BINDING_FINGERPRINT_MISMATCH');
+          if (body.expected_cron !== process.env.EXPECTED_CRON) fail('CRON_MISMATCH');
+          if (body.production_deploy_authorized !== true) fail('DEPLOY_NOT_AUTHORIZED');
+          if (body.allowed_mutation !== 'ATOMIC_WORKER_DEPLOY_ONLY') fail('INVALID_MUTATION_SCOPE');
+          if (!/^vnext-atomic-prod-20260902-[a-z0-9-]{8,64}$/.test(String(body.authorization_nonce ?? ''))) fail('INVALID_AUTH_NONCE');
+          console.log('ATOMIC_VNEXT_PRODUCTION=AUTHORIZED_EXACT_ONE_SHOT');
+          console.log('allowed_mutation=ATOMIC_WORKER_DEPLOY_ONLY');
+          NODE
+
+      - name: Checkout exact sealed deployment source
+        uses: actions/checkout@v4
+        with:
+          ref: 87bf6d22cc9ed9a44a8017aa860d956f1ec6eef7
+          path: sealed
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install sealed source dependencies
+        working-directory: sealed
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install
+
+      - name: Capture GET-only predeploy control-plane snapshot
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RESEARCH_VNEXT_EXPECTED_SHA: 87bf6d22cc9ed9a44a8017aa860d956f1ec6eef7
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          node --experimental-strip-types sealed/scripts/research-vnext-production-control-plane-live-snapshot.mjs \
+            > evidence/predeploy.json
+
+      - name: Fail closed on exact live baseline before mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const receipt = JSON.parse(fs.readFileSync('evidence/predeploy.json', 'utf8'));
+          const fail = (message) => { throw new Error(message); };
+          if (receipt.status !== 'READ_ONLY_SNAPSHOT_VALID') fail('PREDEPLOY_STATUS_INVALID');
+          if (receipt.source_sha !== process.env.SOURCE_SHA) fail('PREDEPLOY_SOURCE_SHA_DRIFT');
+          if (receipt.active_version_id !== process.env.EXPECTED_PREDEPLOY_VERSION) fail('PREDEPLOY_ACTIVE_VERSION_DRIFT');
+          if (receipt.active_version_percentage !== 100) fail('PREDEPLOY_NOT_100_PERCENT');
+          if (JSON.stringify(receipt.cron_schedules) !== JSON.stringify([process.env.EXPECTED_CRON])) fail('PREDEPLOY_CRON_DRIFT');
+          if (receipt.binding_fingerprint !== process.env.EXPECTED_BINDING_FINGERPRINT) fail('PREDEPLOY_BINDING_DRIFT');
+          if (!/^[0-9a-f]{32}$/.test(String(receipt.oauth_kv_id ?? ''))) fail('PREDEPLOY_OAUTH_KV_INVALID');
+          if (JSON.stringify(receipt.protected_exports) !== JSON.stringify(['MyMCP', 'FamilyMCP'])) fail('PREDEPLOY_EXPORT_DRIFT');
+          const expectedDo = [
+            { name: 'MCP_OBJECT', className: 'MyMCP' },
+            { name: 'FAMILY_MCP_OBJECT', className: 'FamilyMCP' },
+          ];
+          if (JSON.stringify(receipt.durable_object_bindings) !== JSON.stringify(expectedDo)) fail('PREDEPLOY_DO_BINDING_DRIFT');
+          if (receipt.rollback_target_version_id !== process.env.EXPECTED_PREDEPLOY_VERSION) fail('ROLLBACK_TARGET_DRIFT');
+          if (receipt.hard_blocker !== 'REQUIRED_ACTIVE') fail('HARD_BLOCKER_NOT_ACTIVE');
+          if (receipt.read_only_capture !== true || receipt.token_leak !== false) fail('PREDEPLOY_READ_ONLY_EVIDENCE_INVALID');
+          if (receipt.production_deploy_authorized !== false || receipt.production_mutation !== 'NONE') fail('PREDEPLOY_MUTATION_EVIDENCE_INVALID');
+          fs.appendFileSync(process.env.GITHUB_ENV, `RESEARCH_VNEXT_OAUTH_KV_ID=${receipt.oauth_kv_id}\n`);
+          console.log('PREDEPLOY_EXACT_LIVE_BASELINE=PASS');
+          NODE
+
+      - name: Build atomic config and run dry-run only
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          node sealed/scripts/research-vnext-atomic-deploy-plan.mjs \
+            --source sealed/wrangler.jsonc \
+            --config-out sealed/wrangler.research-vnext-atomic.jsonc \
+            --receipt-out evidence/plan.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const plan = JSON.parse(fs.readFileSync('evidence/plan.json', 'utf8'));
+          const fail = (message) => { throw new Error(message); };
+          if (plan.status !== 'READY_FOR_DRY_RUN_ONLY') fail('PLAN_STATUS_INVALID');
+          if (plan.worker_name !== 'taistock-mcp') fail('PLAN_WORKER_INVALID');
+          if (plan.oauth_kv_id_validated !== true) fail('PLAN_OAUTH_KV_INVALID');
+          if (plan.triggers_in_deploy_config !== false) fail('PLAN_TRIGGER_MUTATION_PRESENT');
+          if (plan.exports_preserved !== true || plan.migrations_present !== false) fail('PLAN_DO_LIFECYCLE_INVALID');
+          if (plan.resource_provisioning !== 'DISABLED') fail('PLAN_RESOURCE_PROVISIONING_INVALID');
+          if (plan.trigger_mutation_intent !== 'NONE') fail('PLAN_TRIGGER_INTENT_INVALID');
+          if (plan.production_deploy_authorized !== false || plan.production_mutation !== 'NONE') fail('PLAN_PURITY_INVALID');
+          console.log('ATOMIC_DEPLOY_PLAN=PASS');
+          NODE
+          cd sealed
+          npx wrangler deploy --dry-run --config wrangler.research-vnext-atomic.jsonc
+
+      - name: Record exact mutation authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const auth = JSON.parse(fs.readFileSync(process.env.AUTH_PATH, 'utf8'));
+          const pre = JSON.parse(fs.readFileSync('evidence/predeploy.json', 'utf8'));
+          const receipt = {
+            schema: 'RESEARCH_VNEXT_ATOMIC_PRODUCTION_MUTATION_INTENT_V1',
+            status: 'AUTHORIZED',
+            source_sha: process.env.SOURCE_SHA,
+            predeploy_version_id: pre.active_version_id,
+            rollback_target_version_id: pre.active_version_id,
+            confirmation: auth.confirmation,
+            production_deploy_authorized: true,
+            allowed_mutation: 'ATOMIC_WORKER_DEPLOY_ONLY',
+            resource_provisioning: 'DISABLED',
+            cron_mutation: 'FORBIDDEN',
+            automatic_rollback: false,
+          };
+          fs.writeFileSync('evidence/mutation-intent.json', `${JSON.stringify(receipt, null, 2)}\n`);
+          NODE
+
+      - name: Execute exactly one atomic Production worker deploy
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          cd sealed
+          npx wrangler deploy --config wrangler.research-vnext-atomic.jsonc 2>&1 | tee ../evidence/deploy.log
+
+      - name: Capture and validate GET-only postdeploy control-plane snapshot
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RESEARCH_VNEXT_EXPECTED_SHA: 87bf6d22cc9ed9a44a8017aa860d956f1ec6eef7
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            if node --experimental-strip-types sealed/scripts/research-vnext-production-control-plane-live-snapshot.mjs \
+              > evidence/postdeploy-candidate.json; then
+              if node <<'NODE'
+          const fs = require('node:fs');
+          const pre = JSON.parse(fs.readFileSync('evidence/predeploy.json', 'utf8'));
+          const post = JSON.parse(fs.readFileSync('evidence/postdeploy-candidate.json', 'utf8'));
+          const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+          const fail = (message) => { throw new Error(message); };
+          if (post.status !== 'READ_ONLY_SNAPSHOT_VALID') fail('POSTDEPLOY_STATUS_INVALID');
+          if (post.source_sha !== process.env.SOURCE_SHA) fail('POSTDEPLOY_SOURCE_SHA_INVALID');
+          if (post.active_version_percentage !== 100) fail('POSTDEPLOY_NOT_100_PERCENT');
+          if (post.active_version_id === pre.active_version_id) fail('POSTDEPLOY_VERSION_NOT_ADVANCED');
+          if (!same(post.cron_schedules, pre.cron_schedules)) fail('POSTDEPLOY_CRON_CHANGED');
+          if (post.oauth_kv_id !== pre.oauth_kv_id) fail('POSTDEPLOY_OAUTH_KV_CHANGED');
+          if (post.binding_fingerprint !== pre.binding_fingerprint) fail('POSTDEPLOY_BINDING_FINGERPRINT_CHANGED');
+          if (!same(post.protected_exports, pre.protected_exports)) fail('POSTDEPLOY_EXPORTS_CHANGED');
+          if (!same(post.durable_object_bindings, pre.durable_object_bindings)) fail('POSTDEPLOY_DO_BINDINGS_CHANGED');
+          if (post.read_only_capture !== true || post.token_leak !== false) fail('POSTDEPLOY_READ_ONLY_EVIDENCE_INVALID');
+          if (post.production_deploy_authorized !== false || post.production_mutation !== 'NONE') fail('POSTDEPLOY_SNAPSHOT_PURITY_INVALID');
+          console.log(`POSTDEPLOY_CONTROL_PLANE=PASS:${post.active_version_id}`);
+          NODE
+              then
+                mv evidence/postdeploy-candidate.json evidence/postdeploy.json
+                exit 0
+              fi
+            fi
+            sleep 2
+          done
+          echo 'FAIL: postdeploy control-plane did not converge to a validated new version' >&2
+          exit 1
+
+      - name: Run read-only Production MCP probe
+        shell: bash
+        env:
+          RESEARCH_VNEXT_PROBE_ENDPOINT: https://taistock-mcp.keywayk09.workers.dev/my-mcp
+          RESEARCH_VNEXT_PROBE_CONFIRMATION: READ_ONLY_PRODUCTION_PROBE
+          RESEARCH_VNEXT_PROBE_TOKEN: ${{ secrets.RESEARCH_VNEXT_PROBE_TOKEN }}
+          RESEARCH_VNEXT_CALL_REPLAY: 'true'
+          RESEARCH_VNEXT_CALL_REVIEW: 'true'
+          RESEARCH_VNEXT_SWING_TRADE_DATE: ''
+          RESEARCH_VNEXT_PROBE_MODE: READ_ONLY_PRODUCTION_PROBE
+        run: |
+          set -euo pipefail
+          node sealed/scripts/research-vnext-production-probe.mjs > evidence/probe.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const probe = JSON.parse(fs.readFileSync('evidence/probe.json', 'utf8'));
+          const fail = (message) => { throw new Error(message); };
+          if (probe.status !== 'PASS') fail('PROBE_STATUS_INVALID');
+          if ((probe.missing_tools ?? []).length !== 0) fail('PROBE_MISSING_TOOLS');
+          if (probe.production_mutation !== 'NONE') fail('PROBE_MUTATION_INVALID');
+          const calls = probe.calls ?? {};
+          if (calls.resolve_ambiguous_backtest_with_1m?.status !== 'PASS') fail('REPLAY_PROBE_FAILED');
+          if (calls.finalize_daily_review_run?.status !== 'PASS') fail('REVIEW_PROBE_FAILED');
+          console.log('READ_ONLY_PRODUCTION_MCP_PROBE=PASS');
+          NODE
+
+      - name: Write final immutable deployment receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const pre = JSON.parse(fs.readFileSync('evidence/predeploy.json', 'utf8'));
+          const post = JSON.parse(fs.readFileSync('evidence/postdeploy.json', 'utf8'));
+          const plan = JSON.parse(fs.readFileSync('evidence/plan.json', 'utf8'));
+          const probe = JSON.parse(fs.readFileSync('evidence/probe.json', 'utf8'));
+          const receipt = {
+            schema: 'RESEARCH_VNEXT_ATOMIC_PRODUCTION_ONE_SHOT_RECEIPT_V1',
+            status: 'PASS',
+            source_sha: process.env.SOURCE_SHA,
+            predeploy_version_id: pre.active_version_id,
+            postdeploy_version_id: post.active_version_id,
+            rollback_target_version_id: pre.active_version_id,
+            cron_preserved: JSON.stringify(pre.cron_schedules) === JSON.stringify(post.cron_schedules),
+            oauth_kv_preserved: pre.oauth_kv_id === post.oauth_kv_id,
+            binding_fingerprint_preserved: pre.binding_fingerprint === post.binding_fingerprint,
+            protected_exports_preserved: JSON.stringify(pre.protected_exports) === JSON.stringify(post.protected_exports),
+            durable_object_bindings_preserved: JSON.stringify(pre.durable_object_bindings) === JSON.stringify(post.durable_object_bindings),
+            do_lifecycle_change: false,
+            plan_status: plan.status,
+            probe_status: probe.status,
+            production_deploy_authorized: true,
+            production_mutation: 'ATOMIC_WORKER_DEPLOY_ONLY',
+            resource_provisioning: 'DISABLED',
+            cron_mutation: 'NONE',
+            automatic_rollback: false,
+          };
+          fs.writeFileSync('evidence/final.json', `${JSON.stringify(receipt, null, 2)}\n`);
+          console.log('ATOMIC_PRODUCTION_ONE_SHOT=PASS');
+          NODE
+
+      - name: Upload immutable-style one-shot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-vnext-atomic-production-one-shot-${{ github.run_id }}
+          path: evidence
+          if-no-files-found: warn
+          retention-days: 30
