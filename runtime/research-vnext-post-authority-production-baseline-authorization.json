@@ -1,8 +1,0 @@
-{
-  "schema": "RESEARCH_VNEXT_POST_AUTHORITY_BASELINE_AUTH_V1",
-  "mode": "READ_ONLY_PRODUCTION_CONTROL_PLANE_SNAPSHOT",
-  "source_sha": "6dc5beb02c168ad6c7c74c314fc9cf704253391a",
-  "production_deploy_authorized": false,
-  "production_mutation": "NONE",
-  "authorization_nonce": "vnext-post-authority-baseline-20260902-6dc5beb0"
-}
