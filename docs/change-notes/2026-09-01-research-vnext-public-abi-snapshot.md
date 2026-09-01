@@ -163,25 +163,41 @@ Disposition: `PHASE9_RED_ACCEPTED_FIXTURE_CREATION_ALLOWED`.
 
 ## GREEN implementation
 
+GREEN implementation commit: `21b6fa911a991aa30616464411f2d89e09639a4a`.
+
 GREEN adds only test/evidence artifacts:
 
 - compact semantic fixture `tests/fixtures/research-vnext-public-abi-snapshot.json`;
 - snapshot test comparison projection that keeps full per-tool hash computation/diagnostics while comparing the compact semantic fixture.
 
-No Production runtime, registration, protected surface, strategy semantics, or provider behavior is changed.
-
-## Tests required for GREEN
-
-- new public ABI snapshot test;
-- all Research VNext tests;
-- type-check;
-- full `test:research` including Family/OAuth/Market/FORMAL/Ops contracts;
-- Wrangler dry-run;
-- full Research VNext Isolation Gate.
+No Production runtime, registration, protected surface, strategy semantics, or provider behavior was changed.
 
 ## GREEN evidence
 
-Pending.
+Research VNext Incremental Gate:
+
+- Run `33502862450`: **SUCCESS**
+- all Research VNext tests: **PASS**
+- public ABI snapshot: **PASS**
+- type-check: **PASS**
+- full `test:research`: **PASS**
+- Wrangler dry-run: **PASS**
+- immutable-style evidence upload: **PASS**
+
+Independent Type check:
+
+- Run `33502862646`: **SUCCESS**
+
+Research VNext Isolation Gate:
+
+- Run `33502862480`: **SUCCESS**
+- `VNEXT`: PASS
+- `FAMILY`: PASS
+- `MARKET_DATA`: PASS
+- `FORMAL_BLIND`: PASS
+- `OWNER_OPS`: PASS
+- `BUNDLE`: PASS
+- fail-closed isolation evidence: PASS
 
 ## Artifact / hash
 
@@ -190,7 +206,11 @@ Frozen baseline values:
 - Owner tool count: `123`
 - Owner ABI SHA-256: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
 
-Workflow artifact/digest: pending GREEN CI.
+Workflow artifact:
+
+- Artifact ID: `9798421801`
+- Name: `research-vnext-evidence-33502862450`
+- Digest: `sha256:7d576957b01e09b0a5ef72b7fbb86cf28a2d0c4c734262a8fcd5010b78e3b6f1`
 
 ## Rollback
 
@@ -198,4 +218,4 @@ Remove the Phase 9 test and snapshot fixture. No Production runtime depends on e
 
 ## Final disposition
 
-`GREEN_IMPLEMENTATION_PENDING_VALIDATION`
+`PASS_PHASE9_PUBLIC_ABI_FROZEN`
