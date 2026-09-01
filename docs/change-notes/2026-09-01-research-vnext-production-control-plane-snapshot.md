@@ -39,14 +39,9 @@ The active version becomes the only permitted future rollback target candidate. 
 
 ## Cloudflare API semantics frozen for the future workflow
 
-Current Cloudflare APIs provide read-only GET surfaces for:
+Current Cloudflare APIs provide read-only GET surfaces for active deployments, Cron schedules, Worker settings/bindings, and KV namespace discovery. The future snapshot workflow must use GET-only control-plane reads.
 
-- active deployments: `GET /accounts/{account_id}/workers/scripts/{script_name}/deployments`;
-- Cron schedules: `GET /accounts/{account_id}/workers/scripts/{script_name}/schedules`;
-- Worker settings/bindings: `GET /accounts/{account_id}/workers/scripts/{script_name}/settings`;
-- KV namespaces: read/list GET only.
-
-The future snapshot workflow must use GET-only control-plane reads. `POST`, `PUT`, `PATCH`, `DELETE`, `wrangler deploy`, `wrangler rollback`, versions upload/deploy, and any Production mutation are forbidden.
+`POST`, `PUT`, `PATCH`, `DELETE`, `wrangler deploy`, `wrangler rollback`, versions upload/deploy, and any Production mutation are forbidden.
 
 The existing canonical Production workflow is explicitly unsuitable for this snapshot because it contains OAuth KV creation, `wrangler deploy`, and Cron `PUT` side effects.
 
@@ -55,7 +50,6 @@ The existing canonical Production workflow is explicitly unsuitable for this sna
 RED test:
 
 - `tests/research-vnext-production-control-plane-snapshot.test.ts`
-- RED commit: `4454acad0871ad342302f12b49653a16d17523c4`
 
 A legal RED requires:
 
@@ -98,7 +92,7 @@ The module must be pure/deterministic, have no imports, no network access, no su
 
 ## RED evidence
 
-Pending.
+Pending formal RED run on the branch commit that first adds the RED test. The earlier orphan Git object `4454acad0871ad342302f12b49653a16d17523c4` is **not** formal RED evidence because it never became branch head.
 
 ## GREEN evidence
 
