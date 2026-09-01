@@ -99,6 +99,10 @@ The cleanup Change Note is amended with the already-completed cleanup seal evide
 
 No completeness-test semantics are relaxed. The next verification must still prove exactly three mock GETs, token sentinel absent from serialized receipt, deploy authorization false, mutation none, print the RED-ready marker, and then fail only on missing explicit `token_leak: false`.
 
+## Formal RED synchronize child
+
+Correction commit `ca6321b294e96da0c09e24614e279110a6dbbc24` updated evidence only and produced no check-suite after the Git Data ref update. This docs-only child exists only to create a normal PR synchronize event. Test semantics and runtime remain unchanged.
+
 ## Current disposition
 
 `PRODUCTION_CONTROL_PLANE_LIVE_RECEIPT_COMPLETENESS_FORMAL_RED_PENDING`
