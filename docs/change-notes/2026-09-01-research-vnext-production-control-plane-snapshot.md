@@ -50,6 +50,7 @@ The existing canonical Production workflow is explicitly unsuitable for this sna
 RED test:
 
 - `tests/research-vnext-production-control-plane-snapshot.test.ts`
+- formal RED commit: `ac705b002de1ee5f3ed3c443a2453d4cdfa2d513`
 
 A legal RED requires:
 
@@ -62,11 +63,40 @@ A legal RED requires:
 7. marker `PRODUCTION_CONTROL_PLANE_SNAPSHOT_RED_READY=PASS` prints;
 8. only then may the test fail because `src/v6/research-vnext/production-control-plane-snapshot.ts` does not exist.
 
-Any earlier failure is a premise/harness failure and does not authorize implementation.
+## RED evidence — ACCEPTED
 
-## GREEN implementation allowed after accepted RED
+Research VNext Incremental Gate:
 
-Add only:
+- Run `33520542304`
+- Job `99898361402`
+- Change Note / protected-surface scope gate: **PASS**
+- Phase 10B bounded exception: **PASS**
+- prior VNext authorization/preflight/mechanics/skeleton tests before this phase: **PASS**
+- exact marker: `PRODUCTION_CONTROL_PLANE_SNAPSHOT_RED_READY=PASS`
+- Owner tool count: `123`
+- Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- Atomic Execution Mechanics: `SEALED`
+- blocked execution workflow: `SEALED`
+- protected exports: `MyMCP`, `FamilyMCP`
+- expected Cron: `*/5 * * * *`
+- Production deploy authorized: `false`
+- Production mutation: **NONE**
+- terminal result: **EXPECTED RED**
+- exact terminal error: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/production-control-plane-snapshot.ts`
+- downstream incremental type-check / full `test:research` / canonical dry-run / atomic-config dry-run: correctly **SKIPPED**
+
+Independent validation on the formal RED commit:
+
+- Type check Run `33520542270`: **SUCCESS**, including type-check, full `test:research`, and canonical Wrangler dry-run
+- Isolation Run `33520542377`: FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**; VNEXT failed only on the same expected missing snapshot module; isolation finalizer failed closed
+
+Disposition: `PRODUCTION_CONTROL_PLANE_SNAPSHOT_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWED`.
+
+The earlier orphan Git object `4454acad0871ad342302f12b49653a16d17523c4` never became branch head and is explicitly **not** formal RED evidence.
+
+## GREEN implementation
+
+Allowed now:
 
 - `src/v6/research-vnext/production-control-plane-snapshot.ts`
 
@@ -75,7 +105,7 @@ Required APIs:
 - `RESEARCH_VNEXT_PRODUCTION_CONTROL_PLANE_SNAPSHOT_VERSION`
 - `buildProductionControlPlaneSnapshot(input)`
 
-The module must be pure/deterministic, have no imports, no network access, no subprocesses, and no executable Production command strings.
+The module must remain pure/deterministic, with no imports, network access, subprocesses, or executable Production commands.
 
 ## Explicitly forbidden
 
@@ -90,14 +120,10 @@ The module must be pure/deterministic, have no imports, no network access, no su
 - Legacy deletion;
 - PR #206 merge.
 
-## RED evidence
-
-Pending formal RED run on the branch commit that first adds the RED test. The earlier orphan Git object `4454acad0871ad342302f12b49653a16d17523c4` is **not** formal RED evidence because it never became branch head.
-
 ## GREEN evidence
 
 Pending.
 
 ## Final disposition
 
-`PRODUCTION_CONTROL_PLANE_SNAPSHOT_RED_PENDING`
+`PRODUCTION_CONTROL_PLANE_SNAPSHOT_GREEN_IMPLEMENTATION_ALLOWED`
