@@ -10,17 +10,25 @@
 
 Split GPT research memory into a pure deterministic memory core plus a later persistence adapter. The core may validate, canonicalize, hash, and package GPT-authored judgment/review/knowledge evidence, but it must not own provider access, GitHub persistence, runtime clock, strategy promotion, or autonomous reasoning.
 
-## Test-before-build
+## Test-before-build proof
 
-RED test added first in `tests/research-vnext-memory-core.test.ts`.
+RED test was added first in `tests/research-vnext-memory-core.test.ts`.
 
-Expected first failure: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/memory/memory-core.ts`.
+RED evidence:
 
-The failed receipt must remain immutable and must not be relabeled as PASS.
+- Run `33498166911`
+- Job `99825049271`
+- Change Note / protected-surface scope gate: **PASS**
+- Existing Research VNext foundation: **PASS**
+- Memory Core test: **FAIL (EXPECTED RED)**
+- Exact failure: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/memory/memory-core.ts`
+- Type-check / full existing research regression / Wrangler dry-run: correctly **SKIPPED** after RED
+
+This failed receipt is preserved and must not be relabeled as PASS.
 
 ## Frozen contract
 
-The first VNext memory core must preserve these legacy invariants:
+The first VNext memory core preserves these legacy invariants:
 
 - GPT judgment schema: `diamond-gpt-judgment/v1`
 - GPT judgment review schema: `diamond-gpt-judgment-review/v1`
@@ -37,9 +45,23 @@ The first VNext memory core must preserve these legacy invariants:
 - `ACCEPTED` trading knowledge requires HUMAN actor and `human_approved=true`
 - Production promotion remains forbidden
 
-## New isolation boundary
+## GREEN implementation
 
-`memory-core.ts` must not import or call:
+Implementation commit: `09e35f4b3f057efa5fa8b7f68862c4422d40cfe7`.
+
+Added only `src/v6/research-vnext/memory/memory-core.ts`.
+
+The new pure core prepares three immutable-record payload families:
+
+1. market judgments;
+2. judgment reviews;
+3. trading knowledge.
+
+The core returns canonical payload, content hash, collection/key/metadata, and policy markers. It does **not** perform persistence.
+
+### New isolation boundary
+
+`memory-core.ts` does not import or call:
 
 - `github-data-store`
 - `putIndexedImmutableRecord`
@@ -50,7 +72,11 @@ The first VNext memory core must preserve these legacy invariants:
 - runtime clock (`Date.now`, `new Date`)
 - legacy record functions
 
-Persistence will be a separate adapter after the pure core is validated.
+`recorded_at` is supplied explicitly by the future adapter instead of being read inside the core.
+
+### Reasoning ownership
+
+GPT-authored `thesis`, `interpretation`, and `optimization_hypotheses` remain input evidence fields. The core validates and preserves them; it does not synthesize them, promote them, or mutate strategy rules.
 
 ## Explicitly not changed
 
@@ -68,10 +94,15 @@ Persistence will be a separate adapter after the pure core is validated.
 | Stage | Evidence | Result |
 |---|---|---|
 | Replay prerequisite | Run `33497884351` | PASS |
-| Memory Core RED | pending CI | pending |
-| Memory Core GREEN | not built yet | pending |
+| Memory Core RED | Run `33498166911`, job `99825049271` | EXPECTED FAIL — missing module |
+| Memory Core implementation | Commit `09e35f4b3f057efa5fa8b7f68862c4422d40cfe7` | built, unregistered |
+| Memory Core GREEN | pending | pending |
 | Full regression | pending | pending |
+
+## Rollback
+
+Remove the unregistered VNext memory core and its test. No Production runtime depends on VNext.
 
 ## Final disposition
 
-`RED_PENDING`
+`IN_PROGRESS_GREEN_VALIDATION`
