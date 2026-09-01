@@ -117,7 +117,7 @@ After GREEN:
 
 RED test commit: `baf24b1affe3b1315a7d064d94414bed5d5b68a4`.
 
-### Harness diagnostic failure — immutable, not accepted as the Phase 9 RED
+### Harness diagnostic failure #1 — immutable, not accepted as the Phase 9 RED
 
 Research VNext Incremental Gate:
 
@@ -131,9 +131,26 @@ Research VNext Incremental Gate:
 - no `ACTUAL_PUBLIC_ABI_SNAPSHOT=` line was produced
 - downstream incremental type-check / full research regression / Wrangler dry-run: correctly **SKIPPED**
 
-Disposition of this failed evidence: `HARNESS_FAILURE_IMMUTABLE_NOT_PHASE9_RED`.
+Disposition: `HARNESS_FAILURE_IMMUTABLE_NOT_PHASE9_RED`.
 
-The production source is not to be changed to satisfy the test. The next test-only revision must provide a CommonJS TypeScript require hook so the existing extensionless internal imports can be resolved while still executing the real Owner `init()` graph. The fixture remains absent.
+### Harness diagnostic failure #2 — immutable, not accepted as the Phase 9 RED
+
+Harness revision commit: `6928b3bbc199c9613c02fc461391722c70eb1bc5`.
+
+Research VNext Incremental Gate:
+
+- Run `33502150892`
+- Job `99837731921`
+- Change Note / protected-surface scope gate: **PASS**
+- existing VNext Boundary / Gateway / Memory Adapter / Isolation / Memory Core tests before the new test: **PASS**
+- CommonJS TypeScript hook resolved the first extensionless-import problem, but loading the ESM dependency graph through CommonJS triggered Node loader failure before Owner registration capture
+- exact failure: `ERR_INTERNAL_ASSERTION` from `ModuleLoader.getModuleJobForRequire`
+- no `ACTUAL_PUBLIC_ABI_SNAPSHOT=` line was produced
+- downstream incremental type-check / full research regression / Wrangler dry-run: correctly **SKIPPED**
+
+Disposition: `HARNESS_FAILURE_IMMUTABLE_NOT_PHASE9_RED`.
+
+The fixture is still forbidden. No runtime source will be changed for either harness failure. The next revision must keep the TypeScript loader active through Owner `init()` and test-locally stub only the external MCP runtime classes (`McpServer` / `McpAgent`) that are not part of the registration metadata being frozen. Internal taistock registration modules remain real and execute unchanged.
 
 ## GREEN implementation
 
