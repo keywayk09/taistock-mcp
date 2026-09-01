@@ -16,6 +16,7 @@ const NOTE = "docs/change-notes/2026-09-02-research-vnext-atomic-production-one-
 const RESULT_NOTE = "docs/change-notes/2026-09-02-research-vnext-atomic-production-deploy-result.md";
 const CLEANUP_NOTE = "docs/change-notes/2026-09-02-research-vnext-atomic-production-cleanup.md";
 const CREDENTIAL_BLOCKED_DISPOSITION = "DEPLOYED_CONTROL_PLANE_PASS_AUTHENTICATED_PROBE_CREDENTIAL_BLOCKED_NO_ROLLBACK_TEMPORARY_SURFACES_CLEANED";
+const FULLY_AUTHENTICATED_PASS = "PASS_ATOMIC_PRODUCTION_ONE_SHOT_DEPLOY_AND_CLEANUP_SEALED";
 
 const fixture = JSON.parse(read("tests/fixtures/research-vnext-public-abi-snapshot.json"));
 assert.equal(fixture.owner_tool_count, 123);
@@ -73,7 +74,7 @@ console.log(JSON.stringify({
 }, null, 2));
 
 if (!exists(WORKFLOW)) {
-  const fullyAuthenticatedPass = /PASS_ATOMIC_PRODUCTION_ONE_SHOT_DEPLOY_AND_CLEANUP_SEALED/.test(note);
+  const fullyAuthenticatedPass = /(?:^|\n)\s*(?:Disposition:\s*)?`?PASS_ATOMIC_PRODUCTION_ONE_SHOT_DEPLOY_AND_CLEANUP_SEALED`?\s*(?:\n|$)/m.test(note);
   const resultNote = exists(RESULT_NOTE) ? read(RESULT_NOTE) : "";
   const cleanupNote = exists(CLEANUP_NOTE) ? read(CLEANUP_NOTE) : "";
   const credentialBlockedCleaned = new RegExp(CREDENTIAL_BLOCKED_DISPOSITION).test(cleanupNote);
@@ -89,7 +90,8 @@ if (!exists(WORKFLOW)) {
       assert.match(cleanupNote, /Authenticated MCP probe: `BLOCKED_BY_MISSING_GITHUB_SECRET`/);
       assert.match(cleanupNote, /Production rollback: `NONE`/);
       assert.match(cleanupNote, /Legacy retirement: `BLOCKED`/);
-      assert.doesNotMatch(cleanupNote, /PASS_ATOMIC_PRODUCTION_ONE_SHOT_DEPLOY_AND_CLEANUP_SEALED/);
+      const fullPassDisposition = new RegExp(`(?:^|\\n)\\s*(?:Disposition:\\s*)?\`?${FULLY_AUTHENTICATED_PASS}\`?\\s*(?:\\n|$)`, "m");
+      assert.doesNotMatch(cleanupNote, fullPassDisposition);
       console.log("ATOMIC_PRODUCTION_ONE_SHOT_POST_CLEANUP_CREDENTIAL_BLOCKED=PASS");
     } else {
       console.log("ATOMIC_PRODUCTION_ONE_SHOT_POST_CLEANUP=PASS");
