@@ -35,10 +35,11 @@ assert.match(planner, /resource_provisioning:\s*"DISABLED"/);
 assert.match(planner, /trigger_mutation_intent:\s*"NONE"/);
 assert.doesNotMatch(planner, /\bfetch\s*\(|api\.cloudflare\.com|child_process|exec\(|spawn\(/i);
 
-const snapshot = read("scripts/research-vnext-production-control-plane-live-snapshot.mjs");
-assert.match(snapshot, /method:\s*"GET"/);
-assert.doesNotMatch(snapshot, /method:\s*"(POST|PUT|PATCH|DELETE)"/i);
-assert.match(snapshot, /token_leak:\s*false/);
+const liveSnapshot = read("scripts/research-vnext-production-control-plane-live-snapshot.mjs");
+assert.match(liveSnapshot, /method:\s*"GET"/);
+assert.doesNotMatch(liveSnapshot, /method:\s*"(POST|PUT|PATCH|DELETE)"/i);
+const snapshotBuilder = read("src/v6/research-vnext/production-control-plane-snapshot.ts");
+assert.match(snapshotBuilder, /token_leak:\s*false/);
 
 const probe = read("scripts/research-vnext-production-probe.mjs");
 assert.match(probe, /READ_ONLY_PRODUCTION_PROBE/);
