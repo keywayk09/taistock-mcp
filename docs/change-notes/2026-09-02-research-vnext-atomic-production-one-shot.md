@@ -10,16 +10,14 @@
 
 ## Immutable prerequisites
 
-The corrected read-only Production control-plane recapture and cleanup are sealed before this phase.
-
-Final cleanup seal evidence:
+Final corrected control-plane cleanup seal:
 
 - seal commit: `87bf6d22cc9ed9a44a8017aa860d956f1ec6eef7`
 - Research VNext Incremental Gate Run `33532739409`: `SUCCESS`
 - Type check Run `33532739410`: `SUCCESS`
 - Research VNext Isolation Gate Run `33532739330`: `SUCCESS`
-- seal artifact: `9810399696`
-- seal artifact digest: `sha256:46b6b9d862e235af0e0f37ea165ce77a66c308a9a65990bf5578ef81f086f1e0`
+- artifact: `9810399696`
+- artifact digest: `sha256:46b6b9d862e235af0e0f37ea165ce77a66c308a9a65990bf5578ef81f086f1e0`
 
 Corrected live baseline from immutable artifact `9809833837`:
 
@@ -33,69 +31,93 @@ Corrected live baseline from immutable artifact `9809833837`:
 - Production deploy authorized in baseline: `false`
 - Production mutation in baseline: `NONE`
 
-## Execution design
+The permanent `.github/workflows/research-vnext-atomic-production-execution.yml` remains a blocked skeleton and is not repurposed.
 
-The existing permanent workflow `.github/workflows/research-vnext-atomic-production-execution.yml` remains blocked and unchanged. It is not repurposed for live execution.
+## RED-A — immutable, not accepted
 
-A distinct temporary one-shot workflow may be implemented only after accepted RED. Its contract must be:
+Initial RED-A head:
 
-1. exact branch + exact authorization-file push trigger;
-2. authorization commit changes exactly one file;
-3. exact sealed source SHA `87bf6d22cc9ed9a44a8017aa860d956f1ec6eef7`;
-4. predeploy GET-only control-plane snapshot before any mutation;
-5. fail closed unless active version, cron, binding fingerprint, OAuth KV binding, protected exports and DO bindings exactly match the immutable baseline;
-6. use the existing OAuth KV namespace from the predeploy snapshot only — no create/list-selection mutation logic;
-7. generate atomic Wrangler config through the sealed planner, with resource provisioning disabled and trigger mutation intent none;
-8. run Wrangler dry-run before any mutation;
-9. permit exactly one real `wrangler deploy` only after all preceding checks pass;
-10. no Cron PUT, no KV POST, no resource provisioning, no DO migrations, no automatic rollback;
-11. postdeploy GET-only control-plane snapshot must preserve cron, binding fingerprint, OAuth KV and protected DO bindings;
-12. postdeploy read-only MCP probe must pass;
-13. upload immutable pre/post/plan/probe/deploy receipt bundle;
-14. temporary workflow and authorization must be removed immediately after immutable evidence is captured.
-
-Rollback remains manual exact-version only and may be considered only if postdeploy validation fails while DO lifecycle and bindings remain safe.
-
-## TEST BEFORE BUILD — RED-A immutable failure
-
-The first RED candidate was not accepted because a test precondition looked for `token_leak: false` in the live GET client instead of the deterministic snapshot builder that emits the receipt field.
-
-- RED-A head: `35073dfe244cb3772f665e2733cc07f4120e3bc4`
+- `35073dfe244cb3772f665e2733cc07f4120e3bc4`
 - Research VNext Incremental Gate Run `33533821730`: `FAILURE`
 - Type check Run `33533821742`: `SUCCESS`
 - Research VNext Isolation Gate Run `33533821597`: `FAILURE`
 - Isolation FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE: `SUCCESS`
 - Isolation VNEXT: `FAILURE`
-- unexpected terminal assertion: live snapshot source did not match `/token_leak:\s*false/`
-- Production contact: `NONE`
-- Production mutation: `NONE`
 
-RED-A remains immutable and is not promoted to an accepted RED.
+RED-A failed before the intended marker because the test looked for `token_leak: false` in the GET client rather than the deterministic snapshot builder. It remains immutable and is not promoted.
 
-Single-point test correction commit:
+Single-point correction:
 
-- `06b1d347d1fbbffec915f1c989b185dd30671ab1`
-- correction only moves the `token_leak: false` source assertion to `src/v6/research-vnext/production-control-plane-snapshot.ts`
-- no workflow implementation
+- test correction commit: `06b1d347d1fbbffec915f1c989b185dd30671ab1`
+- evidence-note commit: `5cf9de4f66e99bb55908aefb22f7031000950eb0`
+- no workflow implementation at correction time
 - no authorization file
 - no Production contact or mutation
 
-## TEST BEFORE BUILD — formal RED candidate
+## Formal RED — accepted
 
-RED test:
+Formal RED head:
 
-- `tests/research-vnext-atomic-production-one-shot.test.ts`
+- `5cf9de4f66e99bb55908aefb22f7031000950eb0`
 
-No temporary execution workflow or authorization file is present. The accepted RED must reach marker:
+Evidence:
 
-`ATOMIC_PRODUCTION_ONE_SHOT_RED_READY=PASS`
+- Research VNext Incremental Gate Run `33534062752`: `FAILURE`
+- Incremental Job `99943924625`: `FAILURE`
+- scope/protected-surface gate: `SUCCESS`
+- marker before terminal RED: `ATOMIC_PRODUCTION_ONE_SHOT_RED_READY=PASS`
+- source SHA: `87bf6d22cc9ed9a44a8017aa860d956f1ec6eef7`
+- expected predeploy version: `75f989b9-e798-4d32-a95f-7253b4e703ec`
+- expected binding fingerprint: `d1faf34e53a3901c0ca13f4c29ff354194c7a3788bd94aa7a2e37509eaf1a49b`
+- expected cron: `*/5 * * * *`
+- Owner ABI: `123` / frozen digest
+- permanent execution skeleton: `BLOCKED_UNCHANGED`
+- Production deploy authorized: `false`
+- Production mutation: `NONE`
+- exact terminal assertion: `temporary atomic Production one-shot workflow must exist only after accepted RED`
 
-and then fail only on:
+Independent validation:
 
-`temporary atomic Production one-shot workflow must exist only after accepted RED`
+- Type check Run `33534062724`: `SUCCESS`
+- Research VNext Isolation Gate Run `33534062798`: `FAILURE`
+- Isolation FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE: `SUCCESS`
+- Isolation VNEXT: `FAILURE`
 
-Until formal RED is accepted and GREEN + seal complete:
+Disposition:
 
+`ATOMIC_PRODUCTION_ONE_SHOT_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWED`
+
+## GREEN implementation contract
+
+A distinct temporary workflow is now allowed at:
+
+- `.github/workflows/research-vnext-atomic-production-one-shot.yml`
+
+Authorization remains absent during GREEN and seal, so this workflow cannot run against Production yet.
+
+The workflow is required to:
+
+1. trigger only on the exact branch and exact authorization JSON path;
+2. reject any trigger commit that changes more than that one file;
+3. pin deployment source to `87bf6d22cc9ed9a44a8017aa860d956f1ec6eef7`;
+4. capture a GET-only predeploy control-plane snapshot;
+5. fail closed unless active version, cron, full binding fingerprint, OAuth KV, protected exports and DO bindings exactly match the immutable baseline;
+6. derive the existing OAuth KV namespace from the live snapshot only;
+7. generate the deploy config with the sealed pure planner, resource provisioning disabled and trigger mutation intent none;
+8. run `wrangler deploy --dry-run` before mutation;
+9. permit exactly one real `wrangler deploy` when all prior gates pass;
+10. make no Cron/KV API mutation and introduce no DO migrations;
+11. capture a GET-only postdeploy snapshot and require cron/OAuth KV/full binding fingerprint/exports/DO bindings to be preserved;
+12. require a new 100% active Worker version;
+13. run the sealed read-only Production MCP probe;
+14. retain pre/post/plan/probe/deploy evidence even on workflow failure;
+15. never perform automatic rollback.
+
+If the future one-shot fails before the deploy step, Production mutation remains none. If it fails after the deploy step, the immutable evidence must be inspected before any manual exact-version rollback decision.
+
+Until GREEN and its seal both pass:
+
+- Production authorization file: `ABSENT`
 - Production deploy authorization: `false`
 - Production mutation: `NONE`
 - Production rollback: `NONE`
