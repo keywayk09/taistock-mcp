@@ -113,11 +113,49 @@ Disposition: `VERSION_UPLOAD_ISOLATION_RED_ACCEPTED_IMPLEMENTATION_ALLOWED`.
 
 The failure occurred only after every premise and frozen ABI check passed. Implementation is authorized only for the local planner and manual undeployed version-upload workflow described here; no Production execution is authorized.
 
+## GREEN implementation
+
+Implementation commit: `14e01d84b86169b26d764a9de5947ec16623ddc6`.
+
+Added only:
+
+- `scripts/research-vnext-version-upload-plan.mjs` — pure local config planner with no network/subprocess capability;
+- `.github/workflows/research-vnext-version-upload.yml` — `workflow_dispatch`-only future undeployed version uploader with exact branch/SHA/confirmation gates.
+
+The workflow was **not dispatched**. No Cloudflare version was created and no Production state changed.
+
+## GREEN attempt 1 — IMMUTABLE HARNESS FAILURE
+
+Implementation commit `14e01d84b86169b26d764a9de5947ec16623ddc6` triggered:
+
+- Incremental Run `33509147313`, Job `99860311032` — **FAILURE**
+- independent Type check Run `33509147495` — **SUCCESS**
+- Isolation Run `33509147421` — FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**, VNEXT **FAIL** from the same test assertion; isolation finalizer correctly failed closed.
+
+Before the failure, the Incremental run proved:
+
+- Change Note / protected-surface gate: **PASS**
+- Phase 10B bounded exception: **PASS**
+- Production Validation Preflight: **PASS**
+- public ABI snapshot: **PASS** — `123` tools / frozen digest
+- Switch Stability: **PASS**
+- Version Upload Isolation premise marker: `VERSION_UPLOAD_ISOLATION_RED_READY=PASS`
+- local planner assertions before workflow-negative checks: **PASS**
+- Production mutation: **NONE**
+
+Exact failure:
+
+- test assertion `assert.doesNotMatch(workflow, /wrangler\s+deploy/i)` incorrectly matched the legitimate read-only command `wrangler deployments list` because `deploy` is a prefix of `deployments`;
+- the workflow contains **no actual `wrangler deploy` command**;
+- this is a test-harness false positive, not runtime/workflow semantic failure.
+
+Disposition: `GREEN_ATTEMPT_1_HARNESS_FAILURE_IMMUTABLE_TEST_ONLY_CORRECTION_ALLOWED`.
+
+Authorized correction is limited to making the negative assertion token-boundary aware so it rejects the actual `wrangler deploy` command without rejecting `wrangler deployments list`. No planner/workflow/runtime behavior change is authorized.
+
 ## GREEN requirements
 
-After accepted RED, add only the local planner + manual workflow plus test-only adjustments if required.
-
-Local tests must prove:
+After the test-only correction, local tests must prove:
 
 - valid 32-hex existing KV ID is injected exactly once;
 - invalid/missing KV IDs fail closed;
@@ -128,7 +166,7 @@ Local tests must prove:
 - workflow requires `UPLOAD_UNDEPLOYED_VNEXT_VERSION`;
 - workflow invokes `wrangler versions upload` and read-only `versions list --json` only;
 - workflow disables Wrangler automatic provisioning/auto-create;
-- workflow has no `wrangler deploy`, `versions deploy`, `triggers deploy`, Cloudflare REST resource mutation, or Production MCP probe;
+- workflow has no actual `wrangler deploy`, `versions deploy`, `triggers deploy`, Cloudflare REST resource mutation, or Production MCP probe;
 - no Production workflow is dispatched by CI.
 
 Then require all VNext tests, frozen ABI, type-check, full `test:research`, Wrangler dry-run and six-domain Isolation Gate.
@@ -151,7 +189,7 @@ Then require all VNext tests, frozen ABI, type-check, full `test:research`, Wran
 
 ## GREEN evidence
 
-Pending.
+Pending corrected GREEN rerun.
 
 ## Next gate after GREEN
 
@@ -159,4 +197,4 @@ Even after this phase passes, actual `versions upload` remains a Production-acco
 
 ## Final disposition
 
-`VERSION_UPLOAD_ISOLATION_GREEN_IMPLEMENTATION_ALLOWED`
+`GREEN_ATTEMPT_1_HARNESS_FAILURE_TEST_ONLY_CORRECTION_ALLOWED`
