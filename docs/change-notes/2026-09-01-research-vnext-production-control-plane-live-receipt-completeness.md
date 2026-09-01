@@ -59,8 +59,46 @@ Allowed future GREEN implementation, only after accepted RED:
 
 ## PR-sync verification child
 
-The initial RED commit `dcf992b6cec19ecf702548226ab31028244e4d75` became PR #206 head successfully, but GitHub created no check-suite/status for that Git Data ref update. This docs-only child exists only to force a normal PR synchronize event. Test semantics and runtime remain unchanged.
+The initial RED commit `dcf992b6cec19ecf702548226ab31028244e4d75` became PR #206 head successfully, but GitHub created no check-suite/status for that Git Data ref update. Docs-only verification child `a770fbdf0e1aba0198076640f8d84ea253d3a63d` forced the normal PR synchronize event. Test semantics and runtime remained unchanged.
+
+## RED A — failed precondition, immutable, NOT ACCEPTED
+
+The first CI execution of the completeness test did not reach the intended RED marker. It failed earlier because the cleanup Change Note had not yet recorded the already-completed cleanup-seal run IDs.
+
+Evidence:
+
+- Verification child: `a770fbdf0e1aba0198076640f8d84ea253d3a63d`
+- Research VNext Incremental Gate Run `33529493454`: `FAILURE`
+- Incremental Job `99928698408`: `FAILURE`
+- Change Note / protected-surface scope gate: `SUCCESS`
+- failure step: `Run all Research VNext tests`
+- exact assertion: `The input did not match the regular expression /Research VNext Incremental Gate Run `33528997296`: `SUCCESS`/`
+- intended marker `PRODUCTION_CONTROL_PLANE_LIVE_RECEIPT_COMPLETENESS_RED_READY=PASS`: **NOT REACHED**
+- Type check Run `33529493382`: `SUCCESS`
+- Research VNext Isolation Gate Run `33529493373`: `FAILURE`
+- Isolation VNEXT: `FAILURE` on the same early precondition
+- Isolation FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE: `SUCCESS`
+- Production deploy authorized: `false`
+- Production mutation: `NONE`
+
+Root cause: evidence metadata omission only. Cleanup seal itself had already passed; the cleanup note had not yet been amended with those three seal run IDs.
+
+Disposition:
+
+`PRODUCTION_CONTROL_PLANE_LIVE_RECEIPT_COMPLETENESS_RED_A_PRECONDITION_FAILED_NOT_ACCEPTED`
+
+This failure remains immutable and is not relabeled as the formal completeness RED.
+
+## RED correction
+
+The cleanup Change Note is amended with the already-completed cleanup seal evidence:
+
+- Research VNext Incremental Gate Run `33528997296`: `SUCCESS`
+- Type check Run `33528997181`: `SUCCESS`
+- Research VNext Isolation Gate Run `33528997209`: `SUCCESS`
+
+No completeness-test semantics are relaxed. The next verification must still prove exactly three mock GETs, token sentinel absent from serialized receipt, deploy authorization false, mutation none, print the RED-ready marker, and then fail only on missing explicit `token_leak: false`.
 
 ## Current disposition
 
-`PRODUCTION_CONTROL_PLANE_LIVE_RECEIPT_COMPLETENESS_RED_PENDING`
+`PRODUCTION_CONTROL_PLANE_LIVE_RECEIPT_COMPLETENESS_FORMAL_RED_PENDING`

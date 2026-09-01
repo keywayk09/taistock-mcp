@@ -136,8 +136,18 @@ The required live receipt, exact cleanup commits, no-second-run condition, froze
 - Production deploy authorized: `false`
 - Production mutation: `NONE`
 
-## Cleanup seal requirement
+## Cleanup seal — PASS
 
-This docs-only cleanup seal commit must itself pass Research VNext Incremental Gate, Type check, and Research VNext Isolation Gate before cleanup is considered sealed. No Production operation is authorized by this seal.
+Cleanup seal commit:
+
+- `00f046995004ec65c1209e9664259e6a10fd85ce`
+
+Required seal verification completed successfully:
+
+- Research VNext Incremental Gate Run `33528997296`: `SUCCESS`
+- Type check Run `33528997181`: `SUCCESS`
+- Research VNext Isolation Gate Run `33528997209`: `SUCCESS`
+
+Therefore temporary one-shot cleanup is **SEALED**. This seal does not promote the earlier live receipt to a complete Production snapshot acceptance; receipt completeness is evaluated separately.
 
 PR #206 remains Draft/open/unmerged. Production deploy remains unauthorized. Production mutation remains `NONE`.
