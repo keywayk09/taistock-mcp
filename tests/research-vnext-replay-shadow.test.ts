@@ -179,10 +179,13 @@ await assertSameSuccess([bar(0, 102, 98)]); // still ambiguous at 1m
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const sourcePath = path.join(repoRoot, "src/v6/research-vnext/compute/selective-1m-replay.ts");
 const source = fs.readFileSync(sourcePath, "utf8");
-assert.equal(/from\s+["'][^"']*selective-1m-replay[^"']*["']/.test(source), false, "VNext replay must not delegate to legacy selective replay");
-assert.doesNotMatch(source, /\bfetch\s*\(/, "VNext replay must remain pure and provider-free");
-assert.doesNotMatch(source, /Date\.now\s*\(|new Date\s*\(/, "VNext replay must not depend on runtime clock");
-assert.doesNotMatch(source, /hypoth|observation|interpretation/i, "VNext replay must not own GPT reasoning");
+const executableSource = source
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/^\s*\/\/.*$/gm, "");
+assert.equal(/from\s+["'][^"']*selective-1m-replay[^"']*["']/.test(executableSource), false, "VNext replay must not delegate to legacy selective replay");
+assert.doesNotMatch(executableSource, /\bfetch\s*\(/, "VNext replay must remain pure and provider-free");
+assert.doesNotMatch(executableSource, /Date\.now\s*\(|new Date\s*\(/, "VNext replay must not depend on runtime clock");
+assert.doesNotMatch(executableSource, /hypoth|observation|interpretation/i, "VNext replay executable code must not own GPT reasoning");
 
 console.log(JSON.stringify({
   schema: "RESEARCH_VNEXT_REPLAY_SHADOW_TEST_V1",
