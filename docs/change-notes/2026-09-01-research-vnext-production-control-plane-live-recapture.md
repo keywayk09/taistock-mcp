@@ -86,6 +86,10 @@ Only after accepted RED may the new temporary bridge be implemented. Its future 
 
 No recapture authorization exists in this RED phase. No Production contact occurs in RED or bridge GREEN/seal.
 
+## PR-sync verification child
+
+Initial RED commit `02fc98cd9e851065e74102e57d38be007c7b401c` became PR #206 head successfully, but GitHub created no check-suite for the Git Data ref update. This docs-only child exists only to force a normal PR synchronize event. RED test semantics, runtime, workflow state, and Production state remain unchanged.
+
 ## Current disposition
 
 `PRODUCTION_CONTROL_PLANE_LIVE_RECAPTURE_BRIDGE_RED_PENDING`
