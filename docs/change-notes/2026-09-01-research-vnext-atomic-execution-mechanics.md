@@ -103,29 +103,83 @@ Disposition: `ATOMIC_EXECUTION_MECHANICS_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOW
 
 The RED failure remains immutable and is not rewritten as PASS.
 
-## GREEN implementation allowed
+## GREEN implementation
 
-Add only:
+Implementation commit:
+
+- `aac1b11a18af5914b89ea1c63924d190a95839c8`
+
+Added only:
 
 - `src/v6/research-vnext/atomic-execution-mechanics.ts`
 
-It must be pure/deterministic and have no imports or side effects.
+The implementation is pure/deterministic, has no imports, network access, subprocesses, Cloudflare calls, Production endpoints, Wrangler/curl commands, or mutation capability.
 
-Required APIs:
+Implemented APIs:
 
 - `RESEARCH_VNEXT_ATOMIC_EXECUTION_MECHANICS_VERSION`
 - `buildAtomicProductionExecutionMechanics(input)`
 - `assessAtomicRollbackEligibility(input)`
 
-The planner may only return operation intents / receipts. It must not contain executable Production commands.
+The planner validates exact confirmation, SHA, OAuth KV ID, pre-deploy version, Cron snapshot, protected exports, binding fingerprint, hard-blocker state and design-phase authorization state, then returns a frozen operation graph. Rollback assessment remains manual-only and fails closed on any lifecycle/binding/version/Cron uncertainty.
+
+The hard-blocked manual workflow was **not modified**.
+
+## GREEN evidence — PASS
+
+Research VNext Incremental Gate:
+
+- Run `33517140540`: **SUCCESS**
+- all Research VNext tests: **PASS**
+- incremental type check: **PASS**
+- full `test:research`: **PASS**
+- canonical Wrangler dry-run: **PASS**
+- atomic deploy config dry-run: **PASS**
+- evidence artifact ID: `9804092088`
+- evidence artifact digest: `sha256:df2ea76b5784cddab60f127fd7710b09fca848a22746e2b46504026b098c55bf`
+
+Independent Type check:
+
+- Run `33517140498`: **SUCCESS**
+- type-check: **PASS**
+- full `test:research`: **PASS**
+- canonical Wrangler dry-run: **PASS**
+
+Isolation Gate:
+
+- Run `33517140477`: **SUCCESS**
+- VNEXT: **PASS**
+- FAMILY: **PASS**
+- MARKET_DATA: **PASS**
+- FORMAL_BLIND: **PASS**
+- OWNER_OPS: **PASS**
+- BUNDLE: **PASS**
+- isolation evidence artifact ID: `9804087187`
+- isolation evidence digest: `sha256:99e68bf60b1a5fc02f030723ec5872faa1e020b155ea2286d2481a9bed9475c8`
+- isolation bundle artifact ID: `9804078748`
+- isolation bundle digest: `sha256:c3c154bedd75b11d1efffec65fc47a2cbdeb6d94b340390059f7dd77f0d5d341`
+
+Frozen public ABI remains:
+
+- Owner tool count: `123`
+- Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+
+Production status remains:
+
+- deploy authorization: **FALSE**
+- deploy: **NONE**
+- rollback: **NONE**
+- mutation: **NONE**
+- Legacy retirement: **BLOCKED**
+- PR #206: **Draft/open/unmerged**
 
 ## Explicitly forbidden
 
-- modifying the hard-blocked workflow in this phase;
+- modifying or removing the hard blocker as part of this phase;
 - wiring Cloudflare credentials;
 - network access;
 - subprocesses;
-- Wrangler/curl commands;
+- Wrangler/curl Production commands;
 - Production MCP contact;
 - real deploy or rollback;
 - OAuth KV mutation;
@@ -134,10 +188,6 @@ The planner may only return operation intents / receipts. It must not contain ex
 - Legacy deletion;
 - PR #206 merge.
 
-## GREEN evidence
-
-Pending.
-
 ## Final disposition
 
-`ATOMIC_EXECUTION_MECHANICS_GREEN_IMPLEMENTATION_ALLOWED`
+`PASS_ATOMIC_EXECUTION_MECHANICS_BEHIND_HARD_BLOCKER_PRODUCTION_UNCHANGED`
