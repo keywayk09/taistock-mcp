@@ -67,7 +67,7 @@ Formal RED evidence:
 Independent RED validation:
 
 - Type check Run `33530782077`: `SUCCESS`
-- Research VNext Isolation Gate Run `33530782208`: expected fail-closed with VNEXT failing on the same missing recapture bridge
+- Research VNext Isolation Gate Run `33530782208`: fail-closed on VNEXT only
 - Isolation FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE: `SUCCESS`
 - Isolation VNEXT: `FAILURE`
 
@@ -77,9 +77,15 @@ Disposition:
 
 The RED failure remains immutable and is not rewritten as PASS.
 
-## GREEN implementation bounds
+## GREEN bridge implementation
 
-The new temporary recapture workflow is now permitted, with all of these hard bounds:
+Implementation commit:
+
+- `ec648c126897951f067e93be48ee4af2af8fd02b`
+
+The implementation adds only the distinct temporary recapture workflow and updates this Change Note. No recapture authorization file exists, so this implementation cannot contact Production.
+
+The workflow contract is bounded to:
 
 - exact branch + exact recapture authorization path trigger;
 - triggering commit must change exactly one authorization file;
@@ -98,8 +104,38 @@ The new temporary recapture workflow is now permitted, with all of these hard bo
 - Production deploy authorization remains false;
 - Production mutation remains none.
 
-No recapture authorization file is created in this GREEN implementation. Therefore bridge GREEN/seal cannot contact Production.
+## GREEN bridge verification — PASS
 
-## Current disposition
+- Research VNext Incremental Gate Run `33530999040`: `SUCCESS`
+- Type check Run `33530999019`: `SUCCESS`
+- Research VNext Isolation Gate Run `33530999031`: `SUCCESS`
+- Change Note / protected-surface scope gate: `SUCCESS`
+- all Research VNext tests: `SUCCESS`
+- full existing research regression: `SUCCESS`
+- Wrangler dry-run only: `SUCCESS`
+- atomic deploy-config dry-run only: `SUCCESS`
+- Owner ABI remains `123` / frozen digest
+- Production deploy authorized: `false`
+- Production mutation: `NONE`
 
-`PRODUCTION_CONTROL_PLANE_LIVE_RECAPTURE_BRIDGE_GREEN_IMPLEMENTED_PENDING_VERIFICATION`
+Immutable-style GREEN evidence:
+
+- Artifact ID: `9809735087`
+- Artifact name: `research-vnext-evidence-33530999040`
+- Artifact digest: `sha256:415c4d5374116428f4fde5c8a7dc8015bbf6209398727e56a9354963d259df45`
+
+Disposition:
+
+`PASS_PRODUCTION_CONTROL_PLANE_LIVE_RECAPTURE_BRIDGE_GREEN_UNTRIGGERED`
+
+## Seal requirement
+
+This docs-only seal commit must itself pass:
+
+- Research VNext Incremental Gate;
+- Type check;
+- Research VNext Isolation Gate.
+
+Only after all three seal checks are `SUCCESS` may exactly one recapture authorization file be created. Until then, Production contact remains none for this recapture phase.
+
+PR #206 remains Draft/open/unmerged. Production deploy remains unauthorized. Production mutation remains `NONE`.
