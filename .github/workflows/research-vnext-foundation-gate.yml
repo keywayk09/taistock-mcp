@@ -1,4 +1,4 @@
-name: Research VNext Foundation Gate
+name: Research VNext Incremental Gate
 
 on:
   pull_request:
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 jobs:
-  foundation-gate:
+  vnext-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Change Note and Phase-1 scope gate
+      - name: Change Note and protected-surface scope gate
         shell: bash
         run: |
           set -euo pipefail
@@ -41,13 +41,24 @@ jobs:
 
           protected='^(src/v6/owner-content-handler\.ts|src/v6/research-tools\.ts|src/index-v6\.ts|src/v6/family-|src/v6/tw-market-data|src/v6/formal-blind|src/v6/mcp-runtime-composition\.ts|wrangler\.jsonc|\.github/workflows/deploy-cloudflare)'
           if grep -Eq "$protected" /tmp/research-vnext-changed.txt; then
-            echo 'FAIL: Phase 1 foundation must not modify protected/shared Production surfaces'
+            echo 'FAIL: Research VNext incremental work must not modify protected/shared Production surfaces'
             grep -E "$protected" /tmp/research-vnext-changed.txt
             exit 1
           fi
 
-      - name: Research VNext foundation boundary test
-        run: node --experimental-strip-types tests/research-vnext-boundary.test.ts
+      - name: Run all Research VNext tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(find tests -maxdepth 1 -type f -name 'research-vnext-*.test.ts' | sort)
+          if [ "${#tests[@]}" -eq 0 ]; then
+            echo 'FAIL: no Research VNext tests found'
+            exit 1
+          fi
+          for test_file in "${tests[@]}"; do
+            echo "==> ${test_file}"
+            node --experimental-strip-types "${test_file}"
+          done
 
       - name: Type check
         run: npm run type-check
@@ -65,25 +76,25 @@ jobs:
           set -euo pipefail
           mkdir -p evidence
           {
-            echo 'schema=RESEARCH_VNEXT_FOUNDATION_GATE_V1'
+            echo 'schema=RESEARCH_VNEXT_INCREMENTAL_GATE_V1'
             echo "base_ref=${{ github.base_ref }}"
             echo "head_sha=${{ github.event.pull_request.head.sha }}"
             echo "run_id=${{ github.run_id }}"
             echo 'change_note=PASS'
             echo 'scope_gate=PASS'
-            echo 'boundary_test=PASS'
+            echo 'all_vnext_tests=PASS'
             echo 'type_check=PASS'
             echo 'existing_research_regression=PASS'
             echo 'wrangler_dry_run=PASS'
             echo 'production_mutation=NONE'
-          } > evidence/research-vnext-foundation-gate.txt
-          sha256sum evidence/research-vnext-foundation-gate.txt > evidence/research-vnext-foundation-gate.sha256
+          } > evidence/research-vnext-incremental-gate.txt
+          sha256sum evidence/research-vnext-incremental-gate.txt > evidence/research-vnext-incremental-gate.sha256
 
       - name: Upload gate evidence
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: research-vnext-foundation-evidence-${{ github.run_id }}
+          name: research-vnext-evidence-${{ github.run_id }}
           path: evidence/
           retention-days: 30
           if-no-files-found: error

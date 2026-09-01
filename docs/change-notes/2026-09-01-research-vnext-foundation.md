@@ -45,7 +45,9 @@ This receipt proves the boundary test existed and failed before the VNext implem
 
 ## Phase 1 implementation
 
-The GREEN implementation adds only an **unregistered** `src/v6/research-vnext/` foundation:
+GREEN implementation commit: `3d710c8cbfd655bd5241e07daadc0c16627cd664`.
+
+Added only an **unregistered** `src/v6/research-vnext/` foundation:
 
 - `src/v6/research-vnext/contracts/research-contract.ts`
   - freezes the V1 request/evidence schema identity;
@@ -57,7 +59,29 @@ The GREEN implementation adds only an **unregistered** `src/v6/research-vnext/` 
 - `src/v6/research-vnext/README.md`
   - records authority, hard boundaries and migration phases.
 - `tests/research-vnext-boundary.test.ts`
-  - retains the RED assertions and changes the module import to the repository's explicit `.ts` import convention used by existing Node strip-types tests.
+  - retains the RED assertions and uses the repository's explicit `.ts` import convention for Node strip-types tests.
+
+## GREEN verification
+
+Dedicated VNext Run `33495611664`, job `99816968175`: **SUCCESS**.
+
+Passed:
+
+- Change Note / protected-surface scope gate
+- Research VNext boundary test
+- TypeScript type-check
+- full existing `test:research`
+- Wrangler deploy dry-run
+- receipt generation and artifact upload
+
+Independent repository CI Run `33495611858`, job `99816968999`: **SUCCESS** with type-check, full `test:research`, and Wrangler dry-run all passing.
+
+Evidence artifact:
+
+- Artifact ID: `9795593263`
+- Name: `research-vnext-foundation-evidence-33495611664`
+- Digest: `sha256:0e975bf0ed44eee1db1e727462e8203dce8c99f5051b356732167669be3f87f4`
+- Expiry: 2026-10-01
 
 ## Explicitly not changed
 
@@ -84,9 +108,11 @@ Delete the unregistered VNext foundation/test/workflow files on this branch. Bec
 |---|---|---|
 | Baseline | main `20a3579`, Run `33458763695` | PASS |
 | RED test | Run `33495236712`, job `99815763795` | EXPECTED FAIL — missing VNext contract |
-| Foundation implementation | GREEN validation pending | pending |
-| Full regression | GREEN validation pending | pending |
+| Foundation implementation | commit `3d710c8` | PASS |
+| VNext gate | Run `33495611664`, job `99816968175` | PASS |
+| Independent repo CI | Run `33495611858`, job `99816968999` | PASS |
+| Artifact | `9795593263`, digest `0e975b...f87f4` | STORED |
 
 ## Final disposition
 
-`IN_PROGRESS_GREEN_VALIDATION`
+`PHASE_1_PASS_UNREGISTERED`
