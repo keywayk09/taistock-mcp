@@ -13,14 +13,26 @@ Begin the first real Research VNext capability migration with a deterministic-on
 
 The VNext slice is allowed to compute only factual metrics such as counts, win/loss/flat totals, win rate, expectancy, profit factor, MFE/MAE summaries, 5m ambiguity rates and 1m replay-required counts.
 
-## Test-before-build plan
+## Test-before-build proof
 
-The shadow test is committed and executed **before** `src/v6/research-vnext/compute/review-metrics.ts` exists.
+RED commit: `92491635900371513e01b3ea25708e781aa77de8`.
 
-The frozen test compares the same inputs through:
+Research VNext Incremental Gate Run `33495962952`, job `99818105320`:
+
+- Change Note / protected-surface scope gate: **PASS**
+- Existing Research VNext foundation boundary test: **PASS**
+- New review metrics shadow test: **FAIL (EXPECTED RED)**
+- Failure: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/compute/review-metrics.ts`
+- Type-check / full existing research regression / Wrangler dry-run: correctly **SKIPPED** after RED
+
+The failed receipt is preserved. It is not rewritten or relabeled as a pass.
+
+## Frozen shadow contract
+
+The same inputs are evaluated through:
 
 - legacy `summarizeReviewRows()`;
-- future VNext `summarizeReviewMetrics()`.
+- VNext `summarizeReviewMetrics()`.
 
 Required shadow verdict: `STRICT_DEEP_EQUAL` for every frozen case. Approximate parity is not accepted.
 
@@ -35,9 +47,34 @@ Frozen cases cover:
 
 The test also requires the VNext implementation to be independent: it must not import/delegate to `review-orchestrator.ts`, and it must not absorb `buildReviewInterpretation()` or emit observations/hypotheses.
 
+## GREEN implementation
+
+Added `src/v6/research-vnext/compute/review-metrics.ts` only.
+
+Responsibilities:
+
+- deterministic normalization of TW-stock percentage units versus TXF point units;
+- count / evaluated count / wins / losses / flats;
+- win rate / expectancy / profit factor;
+- MFE / MAE descriptive statistics;
+- 5m ambiguity and 1m replay-required counts;
+- deterministic market/strategy/side breakdown sorting.
+
+Hard boundaries:
+
+- no network/provider access;
+- no persistence or OHLC writes;
+- no hypotheses, observations or strategy decisions;
+- no import/delegation to legacy review implementation;
+- no Production registration.
+
+### Intentional migration rule
+
+This architecture migration preserves current legacy numeric semantics exactly, including explicit-null behavior, because changing semantics while changing architecture would make failures ambiguous. Any future semantic correction must be a separate test-first change with its own Change Note and evidence.
+
 ## CI harness change
 
-The existing Research VNext workflow is generalized from a one-time Foundation Gate to an Incremental Gate that automatically executes every `tests/research-vnext-*.test.ts` file before type-check, existing full research regression and Wrangler dry-run.
+The Research VNext workflow was generalized from the one-time Foundation Gate to an Incremental Gate that automatically executes every `tests/research-vnext-*.test.ts` file before type-check, existing full research regression and Wrangler dry-run.
 
 This is an engineering-test harness change only. It does not deploy or register VNext.
 
@@ -62,14 +99,14 @@ This is an engineering-test harness change only. It does not deploy or register 
 | Stage | Evidence | Result |
 |---|---|---|
 | Foundation prerequisite | Run `33495611664` | PASS |
-| Review metrics RED shadow test | pending | pending |
-| Review metrics implementation | not created yet | pending |
-| Full regression | pending | pending |
+| Review metrics RED shadow test | Run `33495962952`, job `99818105320` | EXPECTED FAIL — missing VNext metrics module |
+| Review metrics implementation | GREEN validation pending | pending |
+| Full regression | GREEN validation pending | pending |
 
 ## Rollback
 
-Remove the shadow test / incremental harness change. No Production registration points to VNext, so this phase has no Production runtime dependency.
+Remove `src/v6/research-vnext/compute/review-metrics.ts` and the shadow-test/harness additions. No Production registration points to VNext, so rollback has no Production runtime dependency.
 
 ## Final disposition
 
-`IN_PROGRESS_TEST_FIRST`
+`IN_PROGRESS_GREEN_VALIDATION`
