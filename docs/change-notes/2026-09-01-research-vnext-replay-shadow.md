@@ -73,7 +73,39 @@ First GREEN validation after implementation:
 
 Correction commit: `754ed97ece6892e1914305905978f3476078c410`.
 
-The boundary gate was not removed or relaxed. It now strips comments before checking executable source for forbidden reasoning ownership, provider access, runtime-clock access, or legacy replay delegation. Therefore actual executable code remains fail-closed while documentation comments no longer create false positives.
+The boundary gate was not removed or relaxed. It strips comments before checking executable source for forbidden reasoning ownership, provider access, runtime-clock access, or legacy replay delegation. Therefore actual executable code remains fail-closed while documentation comments no longer create false positives.
+
+## Final GREEN evidence
+
+Branch head validated: `10d54619f14ee08dad7efffb38987f7fce038b86`.
+
+Research VNext Incremental Gate:
+
+- Run `33497884351`
+- Job `99824153457`
+- Change Note / protected-surface scope gate: **PASS**
+- All Research VNext tests: **PASS**
+- Replay success parity: **STRICT_DEEP_EQUAL** across 3 frozen success cases
+- Replay failure parity: **ERROR_CODE_EQUAL** across 3 frozen error cases
+- Type-check: **PASS**
+- Full existing `test:research`: **PASS**
+- Wrangler deploy dry-run: **PASS**
+- Receipt generation/upload: **PASS**
+
+Independent repository CI:
+
+- Run `33497884279`
+- Job `99824152872`
+- Type-check: **PASS**
+- Full existing `test:research`: **PASS**
+- Wrangler deploy dry-run: **PASS**
+
+Artifact:
+
+- ID `9796485762`
+- name `research-vnext-evidence-33497884351`
+- digest `sha256:0015a9f391f6ba0d301d5e7176a00c212f2ab86b67e0f006efda7e01c47eb99d`
+- expires `2026-10-01`
 
 ### Intentional migration rule
 
@@ -99,8 +131,9 @@ Public replay output semantics and version identity remain unchanged during arch
 | Replay RED | Run `33496955813`, job `99821231898` | EXPECTED FAIL — missing VNext replay module |
 | First replay GREEN validation | Run `33497120218`, job `99821757062` | FAIL — static-comment false positive; preserved |
 | Gate false-positive correction | Commit `754ed97ece6892e1914305905978f3476078c410` | executable-code-aware boundary check |
-| Replay implementation revalidation | pending | pending |
-| Full regression | pending | pending |
+| Replay GREEN | Run `33497884351`, job `99824153457` | PASS |
+| Independent repo regression | Run `33497884279`, job `99824152872` | PASS |
+| Immutable-style evidence | Artifact `9796485762` | PASS |
 
 ## Rollback
 
@@ -108,4 +141,4 @@ Remove the unregistered VNext replay module and replay shadow test. No Productio
 
 ## Final disposition
 
-`IN_PROGRESS_GREEN_REVALIDATION`
+`PASS_SHADOW_UNREGISTERED`
