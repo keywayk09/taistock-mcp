@@ -56,8 +56,9 @@ This phase must **not** solve the incompatibility by removing or hiding `exports
 RED test:
 
 - `tests/research-vnext-do-platform-compatibility.test.ts`
+- RED commit: `7a8ca894fa57cdc0cb47922c2e164f28a6a01e4f`
 
-A legal RED requires all of these to pass first:
+A legal RED required all of these to pass first:
 
 1. Version Upload Isolation remains historically sealed as `PASS_VERSION_UPLOAD_ISOLATION_PATH_READY_NOT_EXECUTED`;
 2. frozen Owner ABI remains exactly `123` / frozen digest;
@@ -68,7 +69,36 @@ A legal RED requires all of these to pass first:
 7. marker `DO_PLATFORM_COMPATIBILITY_RED_READY=PASS` prints;
 8. only then the test may fail because `src/v6/research-vnext/do-deployment-policy.ts` does not exist.
 
-Any earlier failure is a premise/harness failure and does not authorize implementation.
+## RED evidence — ACCEPTED
+
+Research VNext Incremental Gate:
+
+- Run `33510088942`
+- Job `99863378358`
+- Change Note / protected-surface scope gate: **PASS**
+- Phase 10B bounded exception: `PHASE10B_HANDLER_CUTOVER_EXCEPTION=PASS`
+- all earlier Research VNext tests before the new compatibility test: **PASS**
+- exact marker: `DO_PLATFORM_COMPATIBILITY_RED_READY=PASS`
+- Owner tool count: `123`
+- Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- protected Durable Object exports: `MyMCP`, `FamilyMCP`
+- `wrangler versions upload` present: `true`
+- platform blocker present before implementation: `false`
+- Legacy retirement: `BLOCKED_UNTIL_PRODUCTION_SWITCH_STABLE`
+- Production mutation: **NONE**
+- terminal result: **EXPECTED RED**
+- exact terminal error: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/do-deployment-policy.ts`
+- downstream incremental type-check / full `test:research` / Wrangler dry-run: correctly **SKIPPED**
+
+Independent validation on the same RED commit:
+
+- Type check Run `33510088974`: **SUCCESS**
+- Isolation Run `33510088975`: FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**; VNEXT failed only on the same expected missing policy module, therefore isolation finalizer failed closed as designed
+- P7 / P8 / P9 / P11 / P12 / P13 / P13b / P14 / P15 / P16 workflows: **SUCCESS**
+
+Disposition: `DO_PLATFORM_COMPATIBILITY_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWED`.
+
+The failed RED evidence is immutable and is not rewritten as PASS.
 
 ## GREEN implementation allowed after accepted RED
 
@@ -138,14 +168,10 @@ Do **not** proceed to zero-traffic version override deployment while `exports` b
 
 A later phase must design a Cloudflare-supported atomic `wrangler deploy` validation/cutover strategy that preserves declarative Durable Object lifecycle, isolates unrelated OAuth/Cron side effects, proves rollback boundaries, and receives explicit Production authorization before any mutation.
 
-## RED evidence
-
-Pending.
-
 ## GREEN evidence
 
 Pending.
 
 ## Final disposition
 
-`DO_PLATFORM_COMPATIBILITY_RED_PENDING`
+`DO_PLATFORM_COMPATIBILITY_GREEN_IMPLEMENTATION_ALLOWED`

@@ -36,6 +36,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Block incompatible Durable Object version workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Eq '"exports"[[:space:]]*:' wrangler.jsonc; then
+            echo 'DO_EXPORTS_VERSION_UPLOAD_BLOCKED'
+            echo 'PLATFORM_REAUTHORIZATION_REQUIRED'
+            exit 78
+          fi
+          echo 'PLATFORM_REAUTHORIZATION_REQUIRED'
+          echo 'Durable Object exports were not detected; a new tested authorization phase is required.'
+          exit 78
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
