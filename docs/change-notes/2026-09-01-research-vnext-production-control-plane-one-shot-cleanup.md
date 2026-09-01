@@ -117,4 +117,27 @@ The required live receipt, exact cleanup commits, no-second-run condition, froze
 
 `PASS_PRODUCTION_CONTROL_PLANE_ONE_SHOT_LIVE_SNAPSHOT_CAPTURED_AND_TEMPORARY_BRIDGE_CLEANED_PRODUCTION_UNCHANGED`
 
+## GREEN verification — PASS
+
+- GREEN implementation commit: `1a24f33bbe570fac40b3a369eb998ce7ceedd389`
+- Research VNext Incremental Gate Run `33528819105`: `SUCCESS`
+- Incremental Job `99926425337`: `SUCCESS`
+- Change Note / protected-surface scope gate: `PASS`
+- all Research VNext tests: `PASS`
+- Type check: `PASS`
+- full existing research regression: `PASS`
+- Cloudflare Wrangler dry-run only: `PASS`
+- atomic deploy-config dry-run only: `PASS`
+- Evidence Artifact ID: `9808859251`
+- Evidence Artifact name: `research-vnext-evidence-33528819105`
+- Evidence Artifact digest: `sha256:446573a4b4a0e111918f07ce92fe60191f09cf28a349c43d40963300ed6371f3`
+- Independent Type check Run `33528819075`: `SUCCESS`
+- Independent Research VNext Isolation Gate Run `33528819071`: `SUCCESS`
+- Production deploy authorized: `false`
+- Production mutation: `NONE`
+
+## Cleanup seal requirement
+
+This docs-only cleanup seal commit must itself pass Research VNext Incremental Gate, Type check, and Research VNext Isolation Gate before cleanup is considered sealed. No Production operation is authorized by this seal.
+
 PR #206 remains Draft/open/unmerged. Production deploy remains unauthorized. Production mutation remains `NONE`.
