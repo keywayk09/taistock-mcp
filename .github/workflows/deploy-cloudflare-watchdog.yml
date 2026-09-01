@@ -22,6 +22,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Evaluate bounded Production authority lease
+        id: authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/production-authority-lease.mjs runtime/taistock-mcp-production-authority.json
+
       - name: Detect stale or failed Production
         id: detect
         shell: bash
@@ -30,12 +37,37 @@ jobs:
           receipt='tmp/deploy-receipts/taistock-mcp-cloudflare.json'
           dispatch=false
           reason='up_to_date'
+          authority_policy='${{ steps.authority.outputs.policy }}'
+          authority_ref='${{ steps.authority.outputs.source_ref }}'
+          authority_sha='${{ steps.authority.outputs.source_sha }}'
 
-          if [ ! -f "$receipt" ]; then
-            dispatch=true
-            reason='missing_receipt'
-          else
-            readarray -t meta < <(python - <<'PY'
+          if [ "$authority_policy" = 'SUPPRESS_MAIN_RECOVERY' ]; then
+            # The lease is only a watchdog fence. It cannot authorize a deploy.
+            # Verify the exact external source before suppressing main recovery.
+            if [ -z "$authority_ref" ] || [ -z "$authority_sha" ] || [ "$authority_ref" = 'main' ]; then
+              echo 'invalid_external_cutover_lease:missing_or_main_source' >&2
+              exit 78
+            fi
+            if ! git fetch --no-tags origin "refs/heads/${authority_ref}:refs/remotes/origin/${authority_ref}"; then
+              echo 'invalid_external_cutover_lease:source_ref_unverifiable' >&2
+              exit 78
+            fi
+            if ! git cat-file -e "${authority_sha}^{commit}" 2>/dev/null; then
+              echo 'invalid_external_cutover_lease:source_sha_unverifiable' >&2
+              exit 78
+            fi
+            if ! git merge-base --is-ancestor "$authority_sha" "refs/remotes/origin/${authority_ref}"; then
+              echo 'invalid_external_cutover_lease:source_sha_not_on_source_ref' >&2
+              exit 78
+            fi
+            dispatch=false
+            reason='external_cutover_lease_active'
+          elif [ "$authority_policy" = 'EVALUATE_MAIN_RECEIPT' ]; then
+            if [ ! -f "$receipt" ]; then
+              dispatch=true
+              reason='missing_receipt'
+            else
+              readarray -t meta < <(python - <<'PY'
           import json
           from datetime import datetime, timezone
           from pathlib import Path
@@ -54,28 +86,32 @@ jobs:
           print(reason)
           print(age)
           PY
-            )
-            receipt_sha="${meta[0]:-}"
-            receipt_reason="${meta[1]:-}"
-            receipt_age="${meta[2]:-999999}"
+              )
+              receipt_sha="${meta[0]:-}"
+              receipt_reason="${meta[1]:-}"
+              receipt_age="${meta[2]:-999999}"
 
-            if [ -z "$receipt_sha" ] || ! git cat-file -e "${receipt_sha}^{commit}" 2>/dev/null; then
-              dispatch=true
-              reason='invalid_receipt_sha'
-            elif ! git diff --quiet "$receipt_sha" HEAD -- \
-              src \
-              wrangler.jsonc \
-              package.json \
-              package-lock.json \
-              .github/workflows/deploy-cloudflare-production.yml; then
-              dispatch=true
-              reason='production_source_stale'
-            elif [ "$receipt_reason" != 'DEPLOYED_CRON_AND_FULL_MARKET_SMOKE_VERIFIED' ] \
-              && [ "$receipt_reason" != 'DEPLOYED_OAUTH_KV_AND_CRON_VERIFIED' ] \
-              && [ "$receipt_age" -ge 900 ]; then
-              dispatch=true
-              reason='failed_receipt_retry_due'
+              if [ -z "$receipt_sha" ] || ! git cat-file -e "${receipt_sha}^{commit}" 2>/dev/null; then
+                dispatch=true
+                reason='invalid_receipt_sha'
+              elif ! git diff --quiet "$receipt_sha" HEAD -- \
+                src \
+                wrangler.jsonc \
+                package.json \
+                package-lock.json \
+                .github/workflows/deploy-cloudflare-production.yml; then
+                dispatch=true
+                reason='production_source_stale'
+              elif [ "$receipt_reason" != 'DEPLOYED_CRON_AND_FULL_MARKET_SMOKE_VERIFIED' ] \
+                && [ "$receipt_reason" != 'DEPLOYED_OAUTH_KV_AND_CRON_VERIFIED' ] \
+                && [ "$receipt_age" -ge 900 ]; then
+                dispatch=true
+                reason='failed_receipt_retry_due'
+              fi
             fi
+          else
+            echo "invalid_external_cutover_lease:unexpected_policy=${authority_policy}" >&2
+            exit 78
           fi
 
           echo "dispatch=${dispatch}" >> "$GITHUB_OUTPUT"
