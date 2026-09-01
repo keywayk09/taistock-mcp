@@ -72,8 +72,27 @@ Required live receipt includes:
 - `production_deploy_authorized=false`;
 - `production_mutation=NONE`.
 
-## TEST BEFORE BUILD
+## TEST BEFORE BUILD — formal RED accepted
 
-The formal RED must prove all preconditions above and then fail only because the distinct temporary workflow is absent. No authorization file exists during RED.
+Formal RED head: `3bde877be867f2a3da19d34143b895f13b6f8be6`.
 
-RED failures remain immutable and will not be rewritten as PASS.
+Evidence:
+
+- Research VNext Incremental Gate Run `33542255647`: `FAILURE`.
+- Incremental job `99971117810`: scope gate `SUCCESS`; all preceding VNext tests passed until the new bridge test.
+- RED marker: `POST_AUTHORITY_PRODUCTION_BASELINE_RED_READY=PASS`.
+- exact terminal assertion: `temporary post-authority GET-only baseline workflow must exist only after accepted RED`.
+- Type check Run `33542255730`: `SUCCESS`.
+- Research VNext Isolation Gate Run `33542255677`: `FAILURE` only because domain `VNEXT` failed on the same intended RED; `FAMILY`, `MARKET_DATA`, `FORMAL_BLIND`, `OWNER_OPS`, and `BUNDLE` all `SUCCESS`.
+- temporary workflow: `ABSENT`.
+- temporary authorization: `ABSENT`.
+- `token_leak=false`.
+- `production_deploy_authorized=false`.
+- `production_mutation=NONE`.
+- Production contact/mutation from RED: `NONE`.
+
+This RED is accepted and remains immutable; it will not be rewritten as PASS.
+
+Disposition:
+
+`POST_AUTHORITY_PRODUCTION_BASELINE_RED_ACCEPTED_GET_ONLY_GREEN_ALLOWED`
