@@ -17,132 +17,125 @@ Current Cloudflare Workers / Wrangler behavior verified for this design:
 1. `wrangler deploy` creates a new Worker version and immediately deploys it to 100% of traffic; it is not a zero-traffic candidate mechanism.
 2. Durable Object declarative `exports` lifecycle is atomic and requires `wrangler deploy`; `wrangler versions upload` / gradual deployment remain blocked for this Worker.
 3. Wrangler configuration is the deployment source of truth.
-4. For Cron Triggers, omitting `triggers.crons` does not disable an existing Cron Trigger; explicitly setting `crons: []` is the disabling operation.
+4. Omitting `triggers.crons` does not disable an existing Cron Trigger; explicitly setting `crons: []` is the disabling operation.
 5. Wrangler automatic provisioning / auto-create can be explicitly disabled.
 
-Therefore the only safe work in this phase is a **local atomic-deploy configuration planner plus CI dry-run**. No real deployment command may execute.
+Therefore this phase is limited to a **local atomic-deploy configuration planner plus CI dry-run**. No real deployment command may execute.
 
 ## Current repository constraints
 
-`wrangler.jsonc` currently contains:
+`wrangler.jsonc` contains:
 
-- Worker name `taistock-mcp`;
-- `OAUTH_KV` binding without an ID;
+- Worker `taistock-mcp`;
+- `OAUTH_KV` without an ID;
 - `triggers.crons = ["*/5 * * * *"]`;
-- declarative Durable Object `exports` for `MyMCP` and `FamilyMCP` with SQLite storage;
+- declarative live SQLite exports for `MyMCP` and `FamilyMCP`;
 - matching Durable Object bindings;
-- no legacy `migrations` block.
+- no legacy `migrations`.
 
-The canonical Production workflow currently performs unrelated control-plane work around deployment:
-
-- resolves or creates OAuth KV, including a possible KV namespace `POST`;
-- deploys with `wrangler deploy`;
-- explicitly `PUT`s the five-minute Cron schedule afterward.
-
-That canonical workflow is **not** reused in this phase.
+The canonical Production workflow performs unrelated control-plane work around deployment: it may create OAuth KV, performs `wrangler deploy`, and explicitly PUTs the five-minute Cron schedule afterward. It is not reused here.
 
 ## Purpose
 
-Prove that a future atomic Production deploy can be represented by a temporary Wrangler config which:
+Prove that a future atomic Production deploy can be represented by a temporary Wrangler config that:
 
-1. preserves the existing declarative Durable Object `exports` exactly;
+1. preserves protected Durable Object exports exactly;
 2. injects an already-existing OAuth KV namespace ID as immutable input;
-3. removes the `triggers` block from the temporary deploy config without touching source `wrangler.jsonc`;
+3. removes the `triggers` block from the temporary deploy config without changing source `wrangler.jsonc`;
 4. never emits `crons: []`;
-5. disables Wrangler automatic provisioning and auto-create;
-6. passes `wrangler deploy --dry-run` in CI;
-7. encodes that any eventual real deploy is an immediate 100% traffic switch and therefore requires a later explicit Production authorization and rollback gate.
+5. disables automatic provisioning / auto-create;
+6. passes only `wrangler deploy --dry-run` in CI;
+7. records that a real deploy would be an immediate 100% switch and remains unauthorized in this phase.
 
-## TEST BEFORE BUILD
+## TEST BEFORE BUILD — accepted RED
 
-RED test:
+RED test: `tests/research-vnext-atomic-deploy-preflight.test.ts`
 
-- `tests/research-vnext-atomic-deploy-preflight.test.ts`
+RED commit: `b9c3eb2b4a3e6ac851e276cb5955396d30edff2b`
 
-A legal RED must prove all premises first:
+Research VNext Incremental Gate:
 
-- DO Platform Compatibility is sealed `PASS_DO_PLATFORM_COMPATIBILITY_FAIL_CLOSED_PRODUCTION_UNCHANGED`;
-- public ABI remains exactly `123` / frozen digest;
-- DO policy still blocks versions upload / gradual deployment and requires `WRANGLER_DEPLOY_REQUIRED`;
-- source `wrangler.jsonc` still has exact protected exports, missing OAuth KV ID, and existing five-minute Cron;
-- canonical Production deploy still contains the unrelated KV-create and Cron-PUT side effects this phase is isolating;
-- blocked version-upload workflow remains fail-closed;
-- marker `ATOMIC_DEPLOY_PREFLIGHT_RED_READY=PASS` prints;
-- only then may the test fail because `scripts/research-vnext-atomic-deploy-plan.mjs` does not exist.
+- Run `33512232625`
+- Job `99870485509`
+- Change Note / protected-surface scope gate: **PASS**
+- Phase 10B bounded exception: `PHASE10B_HANDLER_CUTOVER_EXCEPTION=PASS`
+- exact marker: `ATOMIC_DEPLOY_PREFLIGHT_RED_READY=PASS`
+- Owner tool count: `123`
+- Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- protected exports: `MyMCP`, `FamilyMCP`
+- source OAuth KV ID present: `false`
+- source Cron present: `true`
+- canonical KV-create side effect: `true`
+- canonical Cron-PUT side effect: `true`
+- versions upload: `BLOCKED_WHILE_DURABLE_OBJECT_EXPORTS_PRESENT`
+- lifecycle deploy: `WRANGLER_DEPLOY_REQUIRED`
+- Production mutation: **NONE**
+- terminal result: **EXPECTED RED**
+- exact terminal error: `ERR_MODULE_NOT_FOUND` for `scripts/research-vnext-atomic-deploy-plan.mjs`
+- downstream incremental type-check / full `test:research` / Wrangler dry-run: correctly **SKIPPED**
 
-Any earlier failure is a premise/harness failure and does not authorize implementation.
+Independent validation on the RED commit:
 
-## GREEN implementation allowed after accepted RED
+- Type check Run `33512232567`: **SUCCESS**, including type-check, full `test:research`, and Wrangler dry-run
+- Isolation Run `33512232618`: FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**; VNEXT failed only on the same expected missing planner; finalizer failed closed
+
+Disposition: `ATOMIC_DEPLOY_PREFLIGHT_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWED`.
+
+The RED failure remains immutable and is not rewritten as PASS.
+
+## GREEN implementation allowed
 
 Add only:
 
-- `scripts/research-vnext-atomic-deploy-plan.mjs` — pure local planner / CLI; no network, Cloudflare API, subprocess, or deploy execution;
-- bounded test-only additions to `.github/workflows/research-vnext-foundation-gate.yml` so CI builds the temporary config with a fake 32-hex namespace ID and runs **only** `wrangler deploy --dry-run` against it.
+- `scripts/research-vnext-atomic-deploy-plan.mjs` — pure local planner / CLI; no network, Cloudflare API, subprocess or deploy execution;
+- bounded test-only additions to `.github/workflows/research-vnext-foundation-gate.yml` to build a temporary config using a fake 32-hex KV ID and execute **only** `wrangler deploy --dry-run` against it.
 
-The source `wrangler.jsonc` must remain byte-unchanged.
+Source `wrangler.jsonc` must remain unchanged.
 
 ### Planner contract
 
-The planner must fail closed unless:
+Fail closed unless:
 
 - Worker name is exactly `taistock-mcp`;
 - exactly one `OAUTH_KV` binding exists and source has no `id`;
 - source Cron is exactly `*/5 * * * *`;
-- `MyMCP` and `FamilyMCP` declarative exports are present as live SQLite Durable Objects;
+- `MyMCP` and `FamilyMCP` exports remain live SQLite Durable Objects;
 - matching Durable Object bindings remain present;
-- no `migrations` block exists;
-- supplied existing KV ID is exactly 32 hex characters.
+- no `migrations` exists;
+- supplied KV ID is exactly 32 hex characters.
 
-Generated temporary config must:
+Generated config must inject the ID exactly once, preserve protected exports/bindings, remove `triggers`, never emit empty Cron configuration, and leave source input unchanged.
 
-- inject the KV ID exactly once;
-- preserve the protected `exports` declaration;
-- preserve Durable Object bindings;
-- contain no `triggers` block and no `crons: []`;
-- not mutate the source string.
-
-Receipt must not contain the KV ID and must explicitly state:
-
-- dry-run only;
-- real deployment mode = atomic immediate 100% traffic;
-- Production deployment not authorized;
-- trigger mutation intent = none;
-- resource provisioning = disabled;
-- protected exports preserved.
+Receipt must not contain the KV ID and must state: dry-run only; real deployment mode = atomic immediate 100%; Production deployment unauthorized; trigger mutation intent none; resource provisioning disabled; Production mutation none.
 
 ### CI dry-run contract
 
-Incremental Gate may invoke only:
-
-`wrangler deploy --dry-run`
-
-against the generated temporary config, with:
+The new Incremental Gate step must use only `wrangler deploy --dry-run` with:
 
 - `--experimental-provision=false`
 - `--experimental-auto-create=false`
 
-No Cloudflare token/account secret is needed or allowed for this new step.
+No Cloudflare credentials may be used by that step.
 
 ## Explicitly forbidden
 
-- any real `wrangler deploy`;
-- dispatching any Production workflow;
-- `wrangler versions upload` execution;
-- gradual deployment;
-- modifying source `wrangler.jsonc`;
-- removing/changing `MyMCP` or `FamilyMCP` exports;
-- OAuth KV create/update/delete;
+- real `wrangler deploy`;
+- Production workflow dispatch;
+- versions upload / gradual deployment execution;
+- source `wrangler.jsonc` mutation;
+- protected export mutation;
+- OAuth KV mutation;
 - Cron mutation;
 - Production MCP contact;
 - traffic shift;
-- public ABI change;
+- ABI change;
 - Legacy deletion;
 - PR #206 merge.
 
 ## GREEN evidence
 
-Pending legal RED.
+Pending implementation.
 
 ## Final disposition
 
-`ATOMIC_DEPLOY_PREFLIGHT_RED_PENDING`
+`ATOMIC_DEPLOY_PREFLIGHT_GREEN_IMPLEMENTATION_ALLOWED`

@@ -5,6 +5,7 @@ on:
     paths:
       - "src/v6/research-vnext/**"
       - "src/v6/research-tools.ts"
+      - "scripts/research-vnext-*.mjs"
       - "tests/research-vnext-*.test.ts"
       - "docs/change-notes/**"
       - ".github/workflows/research-vnext-foundation-gate.yml"
@@ -87,6 +88,32 @@ jobs:
       - name: Cloudflare dry-run only
         run: npx wrangler deploy --dry-run --outdir dist
 
+      - name: Atomic deploy config dry-run only
+        env:
+          RESEARCH_VNEXT_OAUTH_KV_ID: 0123456789abcdef0123456789abcdef
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf tmp/research-vnext-atomic-deploy dist-atomic-preflight
+          mkdir -p tmp/research-vnext-atomic-deploy
+          node scripts/research-vnext-atomic-deploy-plan.mjs \
+            --source wrangler.jsonc \
+            --config-out tmp/research-vnext-atomic-deploy/wrangler.atomic.jsonc \
+            --receipt-out tmp/research-vnext-atomic-deploy/plan.json
+          npx wrangler deploy --dry-run --config tmp/research-vnext-atomic-deploy/wrangler.atomic.jsonc --outdir dist-atomic-preflight --experimental-provision=false --experimental-auto-create=false
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          receipt=json.loads(Path('tmp/research-vnext-atomic-deploy/plan.json').read_text())
+          if receipt.get('status') != 'READY_FOR_DRY_RUN_ONLY':
+              raise SystemExit(f"atomic_preflight_status={receipt.get('status')}")
+          if receipt.get('production_deploy_authorized') is not False:
+              raise SystemExit('production_deploy_must_remain_unauthorized')
+          if receipt.get('production_mutation') != 'NONE':
+              raise SystemExit('production_mutation_must_remain_none')
+          print('ATOMIC_DEPLOY_CONFIG_DRY_RUN=PASS')
+          PY
+
       - name: Write immutable-style gate receipt
         if: success()
         shell: bash
@@ -105,6 +132,7 @@ jobs:
             echo 'type_check=PASS'
             echo 'existing_research_regression=PASS'
             echo 'wrangler_dry_run=PASS'
+            echo 'atomic_deploy_preflight=PASS'
             echo 'production_mutation=NONE'
           } > evidence/research-vnext-incremental-gate.txt
           sha256sum evidence/research-vnext-incremental-gate.txt > evidence/research-vnext-incremental-gate.sha256
