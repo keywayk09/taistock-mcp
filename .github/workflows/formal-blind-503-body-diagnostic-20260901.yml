@@ -54,16 +54,26 @@ jobs:
                 headers: {
                   accept: 'application/json',
                   'cache-control': 'no-cache',
-                  'user-agent': 'formal-blind-503-diagnostic/post-pr380',
+                  'user-agent': 'formal-blind-503-diagnostic/post-pr381',
                 },
               });
               const text = await response.text();
+              let parsed = null;
+              try { parsed = JSON.parse(text); } catch {}
+              const cloudflare1102 = response.status === 503 && (
+                Number(parsed?.error_code || 0) === 1102 ||
+                String(parsed?.error_name || '') === 'worker_exceeded_resources' ||
+                parsed?.retryable === false && String(parsed?.title || '').includes('Error 1102') ||
+                text.includes('Error 1102') ||
+                text.includes('"error_code":1102')
+              );
               row = {
                 index: i + 1,
                 id: item.id,
                 symbol: item.symbol,
                 status: response.status,
                 ok: response.ok,
+                cloudflare_1102: cloudflare1102,
                 elapsed_ms: Math.round(performance.now() - started),
                 content_type: response.headers.get('content-type'),
                 content_length: response.headers.get('content-length'),
@@ -79,17 +89,19 @@ jobs:
                 symbol: item.symbol,
                 status: null,
                 ok: false,
+                cloudflare_1102: false,
                 elapsed_ms: Math.round(performance.now() - started),
                 error: String(error?.stack || error),
               };
             }
             rows.push(row);
-            const marker = row.status === 503 ? 'HTTP503' : row.status === 429 ? 'HTTP429' : row.ok ? 'PASS' : 'FAIL';
+            const marker = row.cloudflare_1102 ? 'CF1102' : row.status === 503 ? 'HTTP503' : row.status === 429 ? 'HTTP429' : row.ok ? 'PASS' : 'FAIL';
             console.log(JSON.stringify({
               marker,
               index: row.index,
               symbol: row.symbol,
               status: row.status,
+              cloudflare_1102: row.cloudflare_1102,
               elapsed_ms: row.elapsed_ms,
               content_type: row.content_type ?? null,
               cf_ray: row.cf_ray ?? null,
@@ -99,20 +111,24 @@ jobs:
             if (i < request.items.length - 1) await sleep(650);
           }
 
+          const first1102 = rows.find((x) => x.cloudflare_1102 === true);
           const summary = {
-            schema: 'FORMAL_BLIND_503_DIAGNOSTIC_V2_POST_PR380',
+            schema: 'FORMAL_BLIND_503_DIAGNOSTIC_V3_POST_PR381',
             generated_at: new Date().toISOString(),
-            target_merge_sha: 'ca8c577fc3d1d226d0caa7de4f328e85c3f12ebe',
-            target_production_version_id: '1556bd42-d831-48e0-a2d8-910f725e9a15',
-            cloudflare_build_id: '551af4b8-7575-4380-bcb9-1de5d5623701',
+            target_merge_sha: '0b72309dbcbaa67f112237a734d0ae53d2ac34a4',
+            target_production_version_id: '6bb87b9d-224b-47a5-bea3-65221fca7463',
+            cloudflare_build_id: '19f2755d-a331-4132-adfa-9cd28bc20e92',
             request_id: request.request_id,
             item_count: rows.length,
             http_200_count: rows.filter((x) => x.status === 200).length,
             http_503_count: rows.filter((x) => x.status === 503).length,
             http_429_count: rows.filter((x) => x.status === 429).length,
             network_error_count: rows.filter((x) => x.status == null).length,
+            cloudflare_1102_count: rows.filter((x) => x.cloudflare_1102 === true).length,
             first_503_index: rows.find((x) => x.status === 503)?.index ?? null,
             first_503_symbol: rows.find((x) => x.status === 503)?.symbol ?? null,
+            first_1102_index: first1102?.index ?? null,
+            first_1102_symbol: first1102?.symbol ?? null,
             rows,
           };
           await fs.writeFile('tmp/formal-blind-503-diagnostic/result.json', `${JSON.stringify(summary, null, 2)}\n`);
@@ -122,14 +138,17 @@ jobs:
             http_503_count: summary.http_503_count,
             http_429_count: summary.http_429_count,
             network_error_count: summary.network_error_count,
+            cloudflare_1102_count: summary.cloudflare_1102_count,
             first_503_index: summary.first_503_index,
             first_503_symbol: summary.first_503_symbol,
+            first_1102_index: summary.first_1102_index,
+            first_1102_symbol: summary.first_1102_symbol,
           }));
           NODE
 
       - name: Upload diagnostic artifact
         uses: actions/upload-artifact@v4
         with:
-          name: formal-blind-503-diagnostic-post-pr380-${{ github.run_id }}
+          name: formal-blind-503-diagnostic-post-pr381-${{ github.run_id }}
           path: tmp/formal-blind-503-diagnostic/result.json
           retention-days: 14
