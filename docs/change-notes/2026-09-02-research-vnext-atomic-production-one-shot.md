@@ -56,19 +56,45 @@ A distinct temporary one-shot workflow may be implemented only after accepted RE
 
 Rollback remains manual exact-version only and may be considered only if postdeploy validation fails while DO lifecycle and bindings remain safe.
 
-## TEST BEFORE BUILD — RED candidate
+## TEST BEFORE BUILD — RED-A immutable failure
+
+The first RED candidate was not accepted because a test precondition looked for `token_leak: false` in the live GET client instead of the deterministic snapshot builder that emits the receipt field.
+
+- RED-A head: `35073dfe244cb3772f665e2733cc07f4120e3bc4`
+- Research VNext Incremental Gate Run `33533821730`: `FAILURE`
+- Type check Run `33533821742`: `SUCCESS`
+- Research VNext Isolation Gate Run `33533821597`: `FAILURE`
+- Isolation FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE: `SUCCESS`
+- Isolation VNEXT: `FAILURE`
+- unexpected terminal assertion: live snapshot source did not match `/token_leak:\s*false/`
+- Production contact: `NONE`
+- Production mutation: `NONE`
+
+RED-A remains immutable and is not promoted to an accepted RED.
+
+Single-point test correction commit:
+
+- `06b1d347d1fbbffec915f1c989b185dd30671ab1`
+- correction only moves the `token_leak: false` source assertion to `src/v6/research-vnext/production-control-plane-snapshot.ts`
+- no workflow implementation
+- no authorization file
+- no Production contact or mutation
+
+## TEST BEFORE BUILD — formal RED candidate
 
 RED test:
 
 - `tests/research-vnext-atomic-production-one-shot.test.ts`
 
-No temporary execution workflow or authorization file is present in this RED candidate. Production contact and mutation remain none.
+No temporary execution workflow or authorization file is present. The accepted RED must reach marker:
 
-Expected accepted RED terminal condition:
+`ATOMIC_PRODUCTION_ONE_SHOT_RED_READY=PASS`
+
+and then fail only on:
 
 `temporary atomic Production one-shot workflow must exist only after accepted RED`
 
-Until GREEN + seal complete:
+Until formal RED is accepted and GREEN + seal complete:
 
 - Production deploy authorization: `false`
 - Production mutation: `NONE`
