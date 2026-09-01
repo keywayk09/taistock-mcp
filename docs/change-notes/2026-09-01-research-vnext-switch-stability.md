@@ -15,123 +15,159 @@
 
 Phase 10B completed the bounded Gateway switch for the strict-parity deterministic lanes. This phase proves branch-level switched-path stability and freezes the retirement policy before any Legacy deletion is allowed.
 
-## Purpose
+## Stability contract
 
-Prove that the switched compatibility path remains stable under repeated calls, bounded VNext failures and recovery while preserving:
+The actual Phase 10B compatibility adapter is exercised under repeated success, bounded VNext failure and recovery. Required invariants:
 
-- existing public MCP ABI;
-- Legacy fallback;
-- Owner/Family/Market Data/FORMAL/OHLC isolation;
-- GPT reasoning ownership;
-- no direct provider access;
-- no automatic strategy promotion;
-- no Production deployment or mutation.
+1. VNext-primary Replay success does not invoke Legacy fallback;
+2. Replay failure falls back exactly once per call;
+3. failure does not poison later successful calls;
+4. Review deterministic summary remains strict-compatible;
+5. Swing deterministic ranking remains strict-compatible;
+6. non-target handlers remain untouched;
+7. lazy Gateway remains cached;
+8. public ABI remains frozen;
+9. Owner has no direct VNext registration;
+10. Legacy fallback and unproven Legacy handlers remain present.
 
-This is a **pre-retirement readiness gate**, not Legacy retirement itself.
+## Retirement policy
 
-## Stability cases
-
-The test exercises the actual Phase 10B compatibility registration adapter and requires:
-
-1. repeated VNext-primary Replay calls do not invoke Legacy fallback;
-2. repeated VNext Replay failures fall back exactly once per call;
-3. a failed capability does not poison later successful calls;
-4. Review summary remains semantically compatible while deterministic summary is routed through VNext;
-5. Swing ranking remains semantically compatible while deterministic ranking is routed through VNext;
-6. non-target handlers pass through untouched;
-7. lazy Gateway loader remains cached across repeated calls;
-8. Phase 9 Owner ABI remains exactly `123` tools / frozen aggregate digest;
-9. Owner has no direct Research VNext registration;
-10. unproven Legacy handlers and Legacy fallback files remain present.
-
-## Retirement policy to freeze
-
-Expected new policy-only module after legal RED:
+Implementation added only:
 
 - `src/v6/research-vnext/retirement-readiness.ts`
+- implementation commit `ef3cf1f42cf7a7f633f42035ce793c2f438582a0`
 
-It must state, without performing runtime work:
+Policy:
 
-- Legacy retirement remains **BLOCKED** until Production switched-path stability is separately proven;
-- branch-level switch validation must have a GREEN receipt;
-- Legacy fallback must remain available for rollback;
-- public ABI drift is forbidden;
+- schema `RESEARCH_VNEXT_RETIREMENT_POLICY_V1`
 - GPT remains reasoning owner;
-- no Production deploy occurs in this phase.
+- branch switch validation requires GREEN receipt;
+- Production switched-path validation is required before Legacy retirement;
+- `legacy_retirement = BLOCKED_UNTIL_PRODUCTION_SWITCH_STABLE`;
+- `legacy_fallback = MUST_REMAIN_AVAILABLE`;
+- public ABI drift, direct market provider access, OHLC writes and automatic strategy promotion remain forbidden;
+- Production mutation/deploy in this phase = `NONE`.
 
-The module must not import Legacy handlers, providers, Owner, Family, Market Data, FORMAL or deployment control surfaces.
+The policy module has no imports and performs no runtime work.
 
-## TEST BEFORE BUILD
+## TEST BEFORE BUILD / RED evidence
 
 RED test:
 
 - `tests/research-vnext-switch-stability.test.ts`
-- commit `df414e7fcf64feb9471df13c55b53c9a66c84765`
-
-## RED evidence
-
-Research VNext Incremental Gate:
-
-- Run `33506603186`
+- RED commit `df414e7fcf64feb9471df13c55b53c9a66c84765`
+- Incremental Run `33506603186`
 - Job `99852020134`
-- Change Note / protected-surface gate: **PASS**
-- Phase 10B exception remains bounded: `PHASE10B_HANDLER_CUTOVER_EXCEPTION=PASS`
-- all previously completed VNext tests before stability test: **PASS**
-- actual Phase 9 ABI snapshot before stability test: **PASS** — `123` tools / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
-- switch stability runtime precheck: **PASS**
-- exact marker printed before failure: `SWITCH_STABILITY_PRECHECK=PASS`
+
+Before the expected failure:
+
+- protected-surface gate: **PASS**
+- `PHASE10B_HANDLER_CUTOVER_EXCEPTION=PASS`
+- all prior VNext tests: **PASS**
+- actual ABI snapshot: **PASS** — `123` tools / frozen digest
+- `SWITCH_STABILITY_PRECHECK=PASS`
 - success burst per migrated lane: `25`
 - failure burst per migrated lane: `25`
-- recovery after VNext failure: **PASS**
+- recovery after failure: **PASS**
 - Gateway loads across success/failure/recovery: `1`
 - Legacy fallback: **RETAINED**
 - Production mutation: **NONE**
-- final failure: **EXPECTED RED**
-- exact error: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/retirement-readiness.ts`
-- downstream incremental type-check / full `test:research` / Wrangler dry-run: correctly **SKIPPED**
+
+Final RED:
+
+- **EXPECTED FAIL**
+- `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/retirement-readiness.ts`
+- downstream type-check/full regression/Wrangler dry-run correctly **SKIPPED**
 
 Disposition: `SWITCH_STABILITY_RED_ACCEPTED_POLICY_IMPLEMENTATION_ALLOWED`.
 
-The failure occurred only after the switched-path stability precheck and ABI verification succeeded. Implementation is therefore authorized only for the policy module described above; no shared runtime change is authorized.
-
-## GREEN target
-
-Add only `src/v6/research-vnext/retirement-readiness.ts`. No shared Production runtime file should change.
-
-GREEN must pass:
-
-- switch stability test;
-- all Research VNext tests;
-- Phase 9 ABI snapshot;
-- type-check;
-- full `test:research`;
-- Wrangler dry-run;
-- full six-domain Isolation Gate.
-
-## Explicitly forbidden in this phase
-
-- deleting or bypassing Legacy fallback;
-- modifying `src/v6/owner-content-handler.ts`;
-- additional changes to `src/v6/research-tools.ts` unless a new RED proves a defect;
-- changing `src/index-v6.ts` or `src/v6/mcp-runtime-composition.ts`;
-- Family/OAuth/Market Data/FORMAL/OHLC changes;
-- Production deployment;
-- merging PR #206;
-- changing public MCP names/schemas/count;
-- automatic strategy promotion.
-
 ## GREEN evidence
 
-Pending.
+### Research VNext Incremental Gate
+
+- Run `33506757582`
+- Job `99852512602`
+- all Research VNext tests: **PASS**
+- switch stability test: **PASS**
+- Phase 9 ABI snapshot: **PASS**
+- type-check: **PASS**
+- full `test:research`: **PASS**
+- Wrangler deploy `--dry-run`: **PASS**
+- evidence upload: **PASS**
+- Production mutation: **NONE**
+
+### Independent Type check
+
+- Run `33506757475`
+- Job `99852511921`
+- type-check: **PASS**
+- full `test:research`: **PASS**
+- Wrangler deploy `--dry-run`: **PASS**
+
+### Research VNext Isolation Gate
+
+- Run `33506757502`: **SUCCESS**
+- BUNDLE `99852512137`: **PASS**
+- OWNER_OPS `99852512399`: **PASS**
+- MARKET_DATA `99852512401`: **PASS**
+- VNEXT `99852512435`: **PASS**
+- FAMILY `99852512517`: **PASS**
+- FORMAL_BLIND `99852512627`: **PASS**
+- isolation evidence `99852896189`: **PASS**
+
+### Additional shared-research regressions
+
+All triggered workflows on `ef3cf1f42cf7a7f633f42035ce793c2f438582a0` are **SUCCESS**:
+
+- P7 `33506757431`
+- P8 `33506757528`
+- P9 `33506757413`
+- P11 `33506757523`
+- P12 `33506757392`
+- P13 `33506757490`
+- P13b `33506757366`
+- P14 `33506757578`
+- P15 `33506757577`
+- P16 `33506757569`
 
 ## Artifact / hash
 
-Pending.
+Incremental evidence:
+
+- Artifact ID `9799948255`
+- digest `sha256:24ab48b8b0111a90ca11ac084fe412fd5a8e7e76a96d09d6b4072c011be3430b`
+
+Isolation evidence:
+
+- Artifact ID `9799943058`
+- digest `sha256:da362313ffec0832bd832ba869466383b4d0947090d8190264bfab8f73b7f34b`
+
+Isolation bundle:
+
+- Artifact ID `9799934488`
+- digest `sha256:245bb80c2bd3f06410b3d6a4f76fbedd6add73fc4d377446c380e219019477ee`
+
+## Explicitly not changed
+
+- Legacy fallback / Legacy handlers
+- `src/v6/owner-content-handler.ts`
+- `src/v6/research-tools.ts`
+- `src/index-v6.ts`
+- `src/v6/mcp-runtime-composition.ts`
+- Family / OAuth / Market Data / FORMAL Blind
+- OHLC Production `tv-fugle-1d`
+- `wrangler.jsonc`
+- deploy topology
+- public MCP ABI
 
 ## Rollback
 
-Remove the policy module/test/Change Note. Phase 10B remains the last sealed runtime state, with Legacy fallback intact.
+Remove `retirement-readiness.ts`, the stability test and this Change Note. Phase 10B remains the last switched runtime state, with Legacy fallback intact.
 
 ## Final disposition
 
-`GREEN_POLICY_IMPLEMENTATION_ALLOWED`
+`BRANCH_SWITCH_STABLE_PRODUCTION_VALIDATION_REQUIRED`
+
+Branch-level switched-path stability is proven. **Legacy retirement remains blocked** until a separate Production switched-path stability phase is explicitly executed and passes. PR #206 remains Draft/unmerged and Production remains untouched.
+
+The seal commit itself must pass Incremental / Type check / Isolation before this phase is formally closed.
