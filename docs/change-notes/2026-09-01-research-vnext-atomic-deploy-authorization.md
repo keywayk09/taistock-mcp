@@ -41,13 +41,14 @@ Therefore this cutover may treat rollback as eligible only if the pre-deploy act
 RED test:
 
 - `tests/research-vnext-atomic-deploy-authorization.test.ts`
+- RED commit: `317b74e546384f0d8af56e3f239d43e9a2b3a1b7`
 
 Legal RED requirements:
 
 1. prerequisite atomic deploy preflight seal present;
 2. Owner ABI remains exactly 123 / frozen digest;
 3. Legacy retirement remains blocked;
-4. DO lifecycle policy still requires atomic `wrangler deploy` and blocks versions upload;
+4. DO lifecycle policy still requires atomic deployment and blocks versions upload;
 5. protected exports remain `MyMCP`, `FamilyMCP`;
 6. sealed atomic planner remains dry-run-only and Production unauthorized;
 7. read-only Production validation remains manual;
@@ -56,9 +57,37 @@ Legal RED requirements:
 10. marker `ATOMIC_DEPLOY_AUTHORIZATION_PRECONDITIONS=PASS` prints;
 11. only then may the test fail because `src/v6/research-vnext/atomic-deploy-authorization.ts` does not exist.
 
-Any earlier failure is a premise/harness failure and does not authorize implementation.
+## RED evidence — ACCEPTED
 
-## GREEN implementation allowed after accepted RED
+Research VNext Incremental Gate:
+
+- Run `33514436647`
+- Job `99877788552`
+- Change Note / protected-surface scope gate: **PASS**
+- Phase 10B bounded exception: `PHASE10B_HANDLER_CUTOVER_EXCEPTION=PASS`
+- exact marker: `ATOMIC_DEPLOY_AUTHORIZATION_PRECONDITIONS=PASS`
+- Owner tool count: `123`
+- Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- protected exports: `MyMCP`, `FamilyMCP`
+- atomic preflight: `SEALED_DRY_RUN_ONLY`
+- canonical Production workflow: `UNSUITABLE_FOR_VNEXT_CUTOVER_DUE_TO_EXTRA_SIDE_EFFECTS`
+- versions upload: `BLOCKED_WHILE_DURABLE_OBJECT_EXPORTS_PRESENT`
+- Legacy retirement: `BLOCKED_UNTIL_PRODUCTION_SWITCH_STABLE`
+- Production mutation: **NONE**
+- terminal result: **EXPECTED RED**
+- exact terminal error: `ERR_MODULE_NOT_FOUND` for `src/v6/research-vnext/atomic-deploy-authorization.ts`
+- downstream incremental type-check / full `test:research` / canonical dry-run / atomic-config dry-run: correctly **SKIPPED**
+
+Independent validation on the RED commit:
+
+- Type check Run `33514436808`: **SUCCESS**, including type-check, full `test:research`, and canonical Wrangler dry-run
+- Isolation Run `33514436508`: FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**; VNEXT failed only on the same expected missing policy module; isolation finalizer failed closed
+
+Disposition: `ATOMIC_DEPLOY_AUTHORIZATION_POLICY_RED_ACCEPTED_GREEN_IMPLEMENTATION_ALLOWED`.
+
+The RED failure remains immutable and is not rewritten as PASS.
+
+## GREEN implementation allowed
 
 Add one policy-only module:
 
@@ -92,7 +121,7 @@ It must freeze at least:
 ## Explicitly forbidden
 
 - creating an executable Production deploy workflow in this phase;
-- real `wrangler deploy` or `wrangler rollback`;
+- real Production deploy or rollback;
 - Cloudflare API calls;
 - Production workflow dispatch;
 - Production MCP contact;
@@ -105,14 +134,10 @@ It must freeze at least:
 - Legacy deletion;
 - PR #206 merge.
 
-## RED evidence
-
-Pending.
-
 ## GREEN evidence
 
 Pending.
 
 ## Final disposition
 
-`ATOMIC_DEPLOY_AUTHORIZATION_POLICY_RED_PENDING`
+`ATOMIC_DEPLOY_AUTHORIZATION_POLICY_GREEN_IMPLEMENTATION_ALLOWED`
