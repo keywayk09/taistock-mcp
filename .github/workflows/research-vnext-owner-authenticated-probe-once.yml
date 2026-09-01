@@ -42,7 +42,8 @@ jobs:
           node <<'NODE'
           const fs = require('node:fs');
           const body = JSON.parse(fs.readFileSync('/tmp/health.json', 'utf8'));
-          if (body.ok !== true) throw new Error('PRODUCTION_HEALTH_NOT_OK');
+          if (body.status !== 'ok') throw new Error(`PRODUCTION_HEALTH_STATUS:${body.status}`);
+          if (body.mcp_endpoint !== '/my-mcp') throw new Error(`PRODUCTION_OWNER_MCP_ENDPOINT:${body.mcp_endpoint}`);
           const tools = Number(body.owner_tools ?? body.tools ?? body.tool_count ?? 0);
           if (tools && tools !== 123) throw new Error(`OWNER_TOOL_COUNT_DRIFT:${tools}`);
           console.log(`PRODUCTION_HEALTH=PASS${tools ? `:owner_tools=${tools}` : ''}`);
