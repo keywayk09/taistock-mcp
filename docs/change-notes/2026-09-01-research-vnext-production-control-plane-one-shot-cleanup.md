@@ -90,10 +90,31 @@ Expected marker before the deliberate terminal RED:
 
 `PRODUCTION_CONTROL_PLANE_ONE_SHOT_CLEANUP_RED_READY=PASS`
 
-The final cleanup disposition is intentionally absent from this RED Change Note. Therefore the new cleanup-aware test must fail closed until this RED is accepted.
+The final cleanup disposition is intentionally absent from the RED commit. Therefore the cleanup-aware test failed closed until this RED was accepted.
 
-## RED disposition
+## Formal cleanup lifecycle RED — ACCEPTED, IMMUTABLE
 
-`PRODUCTION_CONTROL_PLANE_ONE_SHOT_CLEANUP_EVIDENCE_RED_PENDING`
+- RED commit: `70db5fa5d486d7be52c3962bdfd7e1baaf394435`
+- Research VNext Incremental Gate Run `33528665575`: `FAILURE`
+- Incremental Job `99925908031`: `FAILURE`
+- Change Note / protected-surface scope gate: `PASS`
+- Marker before terminal RED: `PRODUCTION_CONTROL_PLANE_ONE_SHOT_CLEANUP_RED_READY=PASS`
+- Exact terminal assertion: `cleanup evidence disposition must be sealed only after accepted RED`
+- Type check Run `33528665464`: `SUCCESS`
+- Research VNext Isolation Gate Run `33528665510`: `FAILURE`
+- Isolation domains FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE: `SUCCESS`
+- Isolation domain VNEXT: `FAILURE` only because of the same expected cleanup disposition RED
+- Owner tool count remains: `123`
+- Owner ABI digest remains: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- Production deploy authorized: `false`
+- Production mutation: `NONE`
+
+Both the initial cleanup lifecycle mismatch failure and this formal cleanup RED remain immutable evidence and are not rewritten as PASS.
+
+## GREEN cleanup evidence disposition
+
+The required live receipt, exact cleanup commits, no-second-run condition, frozen ABI, and no-mutation constraints are now documented after the formal RED was accepted. No runtime, workflow, authorization, public ABI, Production resource, OAuth KV, Cron, Durable Object lifecycle, OHLC, or Legacy behavior is changed by this docs-only GREEN implementation.
+
+`PASS_PRODUCTION_CONTROL_PLANE_ONE_SHOT_LIVE_SNAPSHOT_CAPTURED_AND_TEMPORARY_BRIDGE_CLEANED_PRODUCTION_UNCHANGED`
 
 PR #206 remains Draft/open/unmerged. Production deploy remains unauthorized. Production mutation remains `NONE`.
