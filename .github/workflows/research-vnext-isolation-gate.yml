@@ -1,0 +1,143 @@
+name: Research VNext Isolation Gate
+
+on:
+  pull_request:
+    paths:
+      - "src/v6/research-vnext/**"
+      - "tests/research-vnext-*.test.ts"
+      - "docs/change-notes/**research-vnext**"
+      - ".github/workflows/research-vnext-isolation-gate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  domain-regression:
+    name: domain-${{ matrix.domain }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - domain: VNEXT
+            command: |
+              set -euo pipefail
+              mapfile -t tests < <(find tests -maxdepth 1 -type f -name 'research-vnext-*.test.ts' | sort)
+              test "${#tests[@]}" -gt 0
+              for test_file in "${tests[@]}"; do
+                echo "==> ${test_file}"
+                node --experimental-strip-types "${test_file}"
+              done
+          - domain: FAMILY
+            command: npm run test:family-selection
+          - domain: MARKET_DATA
+            command: npm run test:market-data
+          - domain: FORMAL_BLIND
+            command: npm run test:formal-blind-ohlc
+          - domain: OWNER_OPS
+            command: node --experimental-strip-types tests/owner-live-tool-exposure.test.ts && npm run test:ops-contracts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run ${{ matrix.domain }} regression
+        shell: bash
+        run: ${{ matrix.command }}
+
+  bundle:
+    name: domain-BUNDLE
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Cloudflare bundle dry-run only
+        run: npx wrangler deploy --dry-run --outdir dist-vnext-isolation
+
+      - name: Record bundle files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          find dist-vnext-isolation -type f -print0 | sort -z | xargs -0 sha256sum > evidence/bundle-files.sha256
+          du -sb dist-vnext-isolation > evidence/bundle-size.txt
+
+      - name: Upload bundle evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-vnext-isolation-bundle-${{ github.run_id }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: error
+
+  evidence:
+    name: isolation-evidence
+    if: always()
+    needs:
+      - domain-regression
+      - bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write isolation receipt
+        shell: bash
+        env:
+          DOMAIN_RESULT: ${{ needs.domain-regression.result }}
+          BUNDLE_RESULT: ${{ needs.bundle.result }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          cat > evidence/research-vnext-isolation.json <<EOF
+          {
+            "schema": "RESEARCH_VNEXT_ISOLATION_EVIDENCE_V1",
+            "run_id": "${RUN_ID}",
+            "head_sha": "${HEAD_SHA}",
+            "runtime_mode": "SHADOW_UNREGISTERED",
+            "production_registration": "DISABLED",
+            "owner_abi": "UNCHANGED",
+            "domain_regression": "${DOMAIN_RESULT}",
+            "bundle": "${BUNDLE_RESULT}",
+            "required_domains": ["VNEXT", "FAMILY", "MARKET_DATA", "FORMAL_BLIND", "OWNER_OPS", "BUNDLE"]
+          }
+          EOF
+          sha256sum evidence/research-vnext-isolation.json > evidence/research-vnext-isolation.sha256
+
+      - name: Upload isolation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-vnext-isolation-evidence-${{ github.run_id }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Fail closed on any domain failure
+        shell: bash
+        env:
+          DOMAIN_RESULT: ${{ needs.domain-regression.result }}
+          BUNDLE_RESULT: ${{ needs.bundle.result }}
+        run: |
+          set -euo pipefail
+          test "${DOMAIN_RESULT}" = "success"
+          test "${BUNDLE_RESULT}" = "success"
