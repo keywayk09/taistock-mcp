@@ -4,49 +4,73 @@
 - Branch: `refactor/research-vnext-foundation-20260901`
 - PR: `#206` (must remain Draft)
 - Prerequisite Phase 10A seal: `bec94f19d7d8632926b6d53161762a2840a47007`
-- Phase 10A implementation: `5a65d4e20afdc0eb7da9600a0488e6b73875800e`
-- Phase 10A CI: Incremental `33503555975` SUCCESS; Type check `33503555994` SUCCESS; Isolation `33503556025` SUCCESS
 - Phase 9 frozen ABI: `123` Owner tools / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
 - Production deploy: **NONE**
+- Production mutation: **NONE**
 
 ## Purpose
+
 Wire the already-GREEN Phase 10A compatibility bridge into the existing Legacy research registration graph without changing public tool names, schemas, count, Owner ingress, or unrelated research handlers. Only deterministic lanes with completed strict parity evidence may migrate; Legacy remains fallback and all unproven handlers remain Legacy.
 
 ## Allowed protected surface
-Exactly one previously protected runtime file may change in Phase 10B: `src/v6/research-tools.ts`. It may only route the existing Selective Replay and Review Orchestrator registrars through the VNext compatibility registration server.
 
-Still forbidden: `src/v6/owner-content-handler.ts`, `src/index-v6.ts`, `src/v6/mcp-runtime-composition.ts`, Family, OAuth, Market Data, FORMAL Blind, `wrangler.jsonc`, and deploy workflows/topology. The Incremental Gate exception must match this exact file and Phase 10B evidence; every other protected surface remains fail-closed.
+Exactly one previously protected runtime file changed in Phase 10B:
+
+- `src/v6/research-tools.ts`
+
+It only routes Selective Replay and Review Orchestrator registrars through the VNext compatibility registration server.
+
+Still unchanged / forbidden:
+
+- `src/v6/owner-content-handler.ts`
+- `src/index-v6.ts`
+- `src/v6/mcp-runtime-composition.ts`
+- Family
+- OAuth
+- Market Data
+- FORMAL Blind
+- `wrangler.jsonc`
+- deploy workflows/topology
+- OHLC Production `tv-fugle-1d`
+
+The Incremental Gate contains one exact `PHASE10B_HANDLER_CUTOVER_EXCEPTION`; all other protected surfaces remain fail-closed.
 
 ## Migrated public lanes
+
 ### `resolve_ambiguous_backtest_with_1m`
-- VNext `replay.resolve` primary.
+- VNext `replay.resolve` is primary.
 - Successful VNext compute uses the existing MCP response shape.
-- Bounded VNext/gateway failure falls back exactly once to the original Legacy handler and preserves Legacy domain-error payloads.
+- Any bounded VNext/gateway failure falls back exactly once to the original Legacy handler and preserves Legacy domain-error payloads.
 
 ### `finalize_daily_review_run` — deterministic summary only
-- Existing handler still owns ledger reads, backtest execution, TXF review, persistence and compatibility interpretation fields.
+- Legacy handler still owns ledger reads, backtest execution, TXF review, persistence and compatibility interpretation fields.
 - Stock/TXF metric summaries may use VNext `review.summary` only when strict semantic parity with Legacy is preserved.
-- VNext failure or unexpected parity drift keeps Legacy unchanged.
-- No interpretation/hypothesis generation is moved into VNext.
+- VNext failure or unexpected parity drift keeps the original Legacy response.
+- No interpretation/hypothesis generation moved into VNext.
 
 ### `prepare_swing_selection_run` — deterministic rank output
-- Existing handler still owns Signal Ledger access and snapshot orchestration.
+- Legacy handler still owns Signal Ledger access and snapshot orchestration.
 - VNext `swing.rank` may replace selected output only when strict semantic parity with Legacy is preserved.
 - VNext failure or unexpected drift keeps Legacy selected output.
-- `finalize_swing_review_run` remains Legacy because its local `swingSummary()` public shape has not been strict-parity frozen.
 
 ## Explicitly not migrated
-GPT Judgment Memory public tools; `finalize_swing_review_run` summary; backend-generated interpretation/hypothesis fields; strategy promotion/rule mutation; any new MCP tool.
+
+- GPT Judgment Memory public tools
+- `finalize_swing_review_run` outcome summary
+- backend-generated interpretation/hypothesis fields
+- strategy promotion/rule mutation
+- any new MCP tool
 
 ## TEST BEFORE BUILD / RED evidence
+
 ### RED A — shared registration wiring absent
 - Commit `e9c54dbad6be155a1273c70994fde774e561d4ba`
 - Incremental Run `33503942954`, Job `99843449610`
-- Change Note / protected-surface gate: **PASS**
+- protected-surface gate: **PASS**
 - Foundation / Phase 10A / Gateway / Memory Adapter before target test: **PASS**
-- Handler cutover test: **FAIL (EXPECTED RED)**
-- Exact assertion: `research-tools must import only the approved VNext compat-cutover surface`
-- Actual state: all registrars still used Legacy/original `server`
+- handler-cutover test: **FAIL (EXPECTED RED)**
+- exact assertion: `research-tools must import only the approved VNext compat-cutover surface`
+- actual state: all registrars still used Legacy/original `server`
 - downstream gates: **SKIPPED**
 - Production mutation: **NONE**
 - Disposition: `PHASE10B_RED_A_ACCEPTED`
@@ -54,82 +78,168 @@ GPT Judgment Memory public tools; `finalize_swing_review_run` summary; backend-g
 ### RED B — runtime registration wrapper absent
 - Commit `8df8bfede2450e7d0637c7b38b424c580c73bcc8`
 - Incremental Run `33504314943`, Job `99844627926`
-- Change Note / protected-surface gate: **PASS**
+- protected-surface gate: **PASS**
 - Foundation / Phase 10A before target test: **PASS**
-- Compat registration test: **FAIL (EXPECTED RED)**
-- Exact failure: `compat-cutover.ts does not provide an export named 'createResearchVNextCompatRegistrationServer'`
+- compat-registration test: **FAIL (EXPECTED RED)**
+- exact failure: `compat-cutover.ts does not provide an export named 'createResearchVNextCompatRegistrationServer'`
 - downstream gates: **SKIPPED**
 - Production mutation: **NONE**
 - Disposition: `PHASE10B_RED_B_ACCEPTED_IMPLEMENTATION_ALLOWED`
 
 ## GREEN implementation
-Atomic implementation commit: `95d2005df4e09a24e1453c92f1981ab4197dcac8`.
+
+Atomic implementation commit:
+
+- `95d2005df4e09a24e1453c92f1981ab4197dcac8`
 
 Runtime scope:
+
 - `src/v6/research-vnext/compat-cutover.ts`
 - `src/v6/research-tools.ts`
 
 Guard/test scope:
+
 - `tests/research-vnext-boundary.test.ts`
 - `tests/research-vnext-handler-cutover.test.ts`
 - `.github/workflows/research-vnext-foundation-gate.yml`
 
-Owner / Family / OAuth / Market Data / FORMAL / OHLC / deploy topology: **UNCHANGED**.
-
-### GREEN attempt 1 — preserved failure
+### Preserved GREEN attempt 1 — stale Phase 10A expectation
 - Run `33505459791`, Job `99848320267`
 - Phase 10B protected-surface exception: **PASS**
-- Foundation boundary: **PASS**
-- first failure: `tests/research-vnext-compat-cutover.test.ts`
+- Foundation: **PASS**
+- failure: `tests/research-vnext-compat-cutover.test.ts`
 - exact assertion: `Phase 10A bridge must remain unregistered until its own GREEN`
-- cause: stale Phase 10A source assertion still required `research-tools.ts` to contain no `compat-cutover` reference after the intentional Phase 10B cutover.
-- runtime implementation not implicated.
-- downstream gates: **SKIPPED**
+- cause: stale Phase 10A expectation after intentional Phase 10B integration
+- runtime not implicated
 - Production mutation: **NONE**
 - Disposition: `GREEN_ATTEMPT_1_IMMUTABLE_STALE_TEST_EXPECTATION`
 
-Test-only correction commit: `b33da6a76a3a627ee78ca6b2809975dd15ab863b` updates the Phase 10A test so Owner direct registration remains forbidden while the approved Phase 10B compat boundary is allowed.
+Test-only correction:
 
-### GREEN attempt 2 — preserved failure
+- `b33da6a76a3a627ee78ca6b2809975dd15ab863b`
+
+Owner direct registration remains forbidden; `research-tools.ts` may reference VNext only through `./research-vnext/compat-cutover`.
+
+### Preserved GREEN attempt 2 — stale isolation expectation
 - Run `33505623445`, Job `99848844628`
-- Phase 10B protected-surface exception: **PASS**
+- protected-surface exception: **PASS**
 - Foundation: **PASS**
 - Phase 10A compat-cutover: **PASS**
 - Phase 10B compat-registration runtime test: **PASS**
 - Phase 10B handler-cutover test: **PASS**
-- first failure: `tests/research-vnext-isolation-gate.test.ts`
+- failure: `tests/research-vnext-isolation-gate.test.ts`
 - exact assertion: `src/v6/research-vnext/compat-cutover.ts must remain unregistered`
-- cause: stale isolation expectation globally forbade registration symbols in every VNext file and VNext awareness in every Production research file, conflicting with the exact Phase 10B compat adapter boundary.
-- runtime wrapper and handler integration tests had passed before this assertion failed.
-- downstream incremental gates: **SKIPPED**
+- cause: stale isolation rule globally forbade the exact Phase 10B registration adapter boundary
+- runtime wrapper already passed before the stale assertion
 - Production mutation: **NONE**
 - Disposition: `GREEN_ATTEMPT_2_IMMUTABLE_STALE_ISOLATION_EXPECTATION`
 
-Test-only isolation correction commit: `01ce2c51e72d6ab9a3f9c5d0d4318941d8d5af8f` permits registration symbols only in `compat-cutover.ts`, permits VNext awareness only in `research-tools.ts` through `./research-vnext/compat-cutover`, and keeps Owner/composition/index direct VNext knowledge forbidden.
+Test-only isolation correction:
 
-### Independent Type check — preserved runtime compile failure
-On commit `b33da6a76a3a627ee78ca6b2809975dd15ab863b`, the independent Type check workflow reached compilation even though the Incremental gate was blocked earlier by the stale isolation assertion:
+- `01ce2c51e72d6ab9a3f9c5d0d4318941d8d5af8f`
 
-- Type check Run `33505623338`
-- Job `99848844658`
-- `npm install`: **PASS**
-- `npm run type-check`: **FAIL**
-- exact error: `src/v6/research-vnext/compat-cutover.ts(172,43): error TS2538: Type 'unique symbol' cannot be used as an index type.`
-- cause: `LEGACY_RESPONSE` is a unique symbol while helper type `JsonRecord` was declared as `Record<string, any>`; the runtime guard indexes the record by that symbol.
-- semantic impact: **NONE**; this is a TypeScript key-domain mismatch in the fallback marker guard.
-- `test:research` and Wrangler dry-run: correctly **SKIPPED** after compile failure.
+Registration symbols are permitted only in `compat-cutover.ts`; Owner/composition/index direct VNext knowledge remains forbidden.
+
+### Preserved runtime compile failure
+Independent Type check on the intermediate branch state:
+
+- Run `33505623338`, Job `99848844658`
+- exact compiler error: `src/v6/research-vnext/compat-cutover.ts(172,43): error TS2538: Type 'unique symbol' cannot be used as an index type.`
+- cause: internal `JsonRecord = Record<string, any>` did not admit the unique-symbol fallback marker key
+- semantic impact: **NONE**
+- Production mutation: **NONE**
+- Disposition: `GREEN_RUNTIME_TYPE_FIX_ALLOWED_MINIMAL`
+
+Minimal runtime type-only fix:
+
+- Commit `3dc8abc1ac598f2e30c995846afa45d4a32c200f`
+- exact semantic-neutral change: `Record<string, any>` → `Record<PropertyKey, any>`
+- handler behavior, public ABI, provider access, persistence and strategy semantics unchanged
+
+## Final GREEN evidence
+
+### Research VNext Incremental Gate
+- Run `33506039091`
+- Job `99850197275`
+- Change Note / Phase 10B protected-surface scope gate: **PASS**
+- `PHASE10B_HANDLER_CUTOVER_EXCEPTION=PASS`
+- all Research VNext tests: **PASS**
+- Phase 10A compat-cutover: **PASS**
+- Phase 10B compat-registration runtime test: **PASS**
+- Phase 10B handler-cutover: **PASS**
+- Phase 10B isolation source contract: **PASS**
+- actual Owner ABI snapshot: **PASS**
+- type-check: **PASS**
+- full `test:research`: **PASS**
+- Wrangler deploy `--dry-run`: **PASS**
+- evidence upload: **PASS**
 - Production mutation: **NONE**
 
-Disposition: `GREEN_RUNTIME_TYPE_FIX_ALLOWED_MINIMAL`. Authorized runtime correction is restricted to widening the internal JSON/object record key type to accept `PropertyKey` (or an equivalent type-only symbol-safe guard) without changing handler behavior, public ABI, provider access, persistence, or strategy semantics.
+Actual measured ABI on the GREEN commit:
 
-## GREEN evidence
-Pending after the minimal type correction and complete gates.
+- Owner identity: `Taiwan Stock + Crypto AI / 6.20.0`
+- Owner tool count: `123`
+- Owner ABI SHA-256: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- public ingress / OAuth guards: unchanged
+- `production_registration`: `LEGACY_UNCHANGED`
+
+### Independent Type check
+- Run `33506039166`
+- Job `99850197583`
+- `npm run type-check`: **PASS**
+- full `test:research`: **PASS**
+- Wrangler deploy `--dry-run`: **PASS**
+
+### Research VNext Isolation Gate
+- Run `33506039093`: **SUCCESS**
+- FAMILY job `99850197045`: **PASS**
+- BUNDLE job `99850197268`: **PASS**
+- VNEXT job `99850197301`: **PASS**
+- OWNER_OPS job `99850197480`: **PASS**
+- FORMAL_BLIND job `99850197482`: **PASS**
+- MARKET_DATA job `99850197568`: **PASS**
+- isolation evidence job `99850372857`: **PASS**
+
+### Additional shared-research regression workflows
+All triggered workflows on `3dc8abc1ac598f2e30c995846afa45d4a32c200f` are **SUCCESS**:
+
+- P7 Swing Outcome Path `33506039079`
+- P8 Experiment Memory `33506039128`
+- P9 Diamond Capability Registry `33506039111`
+- P11 Research Validation `33506039125`
+- P12 Strategy Lab Governance `33506039102`
+- P13 Cross-market Supply Chain Graph `33506039071`
+- P13b Supply Chain Data Plane `33506039086`
+- P14 TXF Dual-market Review `33506039136`
+- P15 Review Swing Orchestration `33506039100`
+- P16 GPT Judgment Memory `33506039076`
 
 ## Artifact / hash
-Pending.
+
+Incremental evidence:
+
+- Artifact ID `9799644873`
+- `research-vnext-evidence-33506039091`
+- digest `sha256:39d80d6b10858345d0e7202ce451eb8cc97945237d54c9f4a193dc8b7e3bf1ee`
+
+Isolation evidence:
+
+- Artifact ID `9799639274`
+- `research-vnext-isolation-evidence-33506039093`
+- digest `sha256:6773d5cf6c55b48a15a74b899c1618fbceae61009e4706bcaf2982d0dff15617`
+
+Isolation bundle:
+
+- Artifact ID `9799635293`
+- `research-vnext-isolation-bundle-33506039093`
+- digest `sha256:d3dd5d5903ea023b8a2f4925b979cd01a3fa5653cc20931e23cb20039c178bb0`
 
 ## Rollback
-Revert `src/v6/research-tools.ts` to pass the original server directly to Selective Replay and Review Orchestrator. The Phase 10A bridge remains harmless when unreferenced. No Production deployment exists to roll back.
+
+Revert `src/v6/research-tools.ts` to pass the original server directly to Selective Replay and Review Orchestrator. The VNext compatibility bridge is harmless when unreferenced. No Production deployment exists to roll back.
 
 ## Final disposition
-`GREEN_RUNTIME_TYPE_FIX_ALLOWED_MINIMAL`
+
+`PHASE10B_GREEN_SEALED`
+
+Phase 10B is accepted on branch evidence. PR `#206` remains Draft/unmerged and Production remains untouched. The seal commit itself must still pass Incremental / Type check / Isolation before moving to the next phase.
