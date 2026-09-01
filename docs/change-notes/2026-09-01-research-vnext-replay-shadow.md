@@ -60,6 +60,21 @@ Required invariants retained:
 - no import/delegation to legacy selective replay;
 - no Production registration.
 
+### GREEN validation false-positive receipt
+
+First GREEN validation after implementation:
+
+- Run `33497120218`, job `99821757062`: **FAIL**.
+- Scope gate and foundation boundary: **PASS**.
+- Failure occurred in the replay boundary assertion before downstream regression.
+- Root cause: the static test searched the raw source text for `hypoth|observation|interpretation`; the module comment correctly stated that GPT remains the sole `interpretation` owner, so the comment itself triggered the rule.
+- This was a **test false positive**, not replay-semantic drift.
+- The failed run remains preserved as a failed receipt.
+
+Correction commit: `754ed97ece6892e1914305905978f3476078c410`.
+
+The boundary gate was not removed or relaxed. It now strips comments before checking executable source for forbidden reasoning ownership, provider access, runtime-clock access, or legacy replay delegation. Therefore actual executable code remains fail-closed while documentation comments no longer create false positives.
+
 ### Intentional migration rule
 
 Public replay output semantics and version identity remain unchanged during architecture migration so GPT/tool consumers see strict parity. Any future replay-semantic or public-version change must be a separate test-first change with its own Change Note.
@@ -82,8 +97,10 @@ Public replay output semantics and version identity remain unchanged during arch
 |---|---|---|
 | Swing prerequisite | Run `33496676642` | PASS |
 | Replay RED | Run `33496955813`, job `99821231898` | EXPECTED FAIL — missing VNext replay module |
-| Replay implementation | GREEN validation pending | pending |
-| Full regression | GREEN validation pending | pending |
+| First replay GREEN validation | Run `33497120218`, job `99821757062` | FAIL — static-comment false positive; preserved |
+| Gate false-positive correction | Commit `754ed97ece6892e1914305905978f3476078c410` | executable-code-aware boundary check |
+| Replay implementation revalidation | pending | pending |
+| Full regression | pending | pending |
 
 ## Rollback
 
@@ -91,4 +108,4 @@ Remove the unregistered VNext replay module and replay shadow test. No Productio
 
 ## Final disposition
 
-`IN_PROGRESS_GREEN_VALIDATION`
+`IN_PROGRESS_GREEN_REVALIDATION`
