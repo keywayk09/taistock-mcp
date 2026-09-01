@@ -132,4 +132,29 @@ assert.match(invalid.stderr, /invalid_external_cutover_lease:lease_duration_exce
 fs.rmSync(tmp, { recursive: true, force: true });
 
 console.log("PRODUCTION_WATCHDOG_AUTHORITY_HANDOFF_EXECUTABLE_GREEN=PASS");
+console.log("PRODUCTION_WATCHDOG_ACTIONS_AUTHORITY_RED_READY=PASS");
+console.log(JSON.stringify({
+  schema: "TAISTOCK_MCP_PRODUCTION_WATCHDOG_ACTIONS_AUTHORITY_RED_V1",
+  status: "PASS",
+  committed_receipt_authority: /tmp\/deploy-receipts\/taistock-mcp-cloudflare\.json/.test(watchdog) ? "PRESENT" : "ABSENT",
+  desired_authority: "LATEST_CANONICAL_DEPLOY_ACTIONS_EVIDENCE",
+  production_mutation: "NONE",
+}, null, 2));
+
+// Formal second RED: the watchdog must stop treating a stale committed receipt
+// as live deployment authority. Canonical deployment truth is the latest GitHub
+// Actions deployment run for main; its per-run receipt remains an artifact.
+assert.doesNotMatch(
+  watchdog,
+  /tmp\/deploy-receipts\/taistock-mcp-cloudflare\.json/,
+  "watchdog must not use the stale committed deploy receipt as live Production authority",
+);
+
+assert.match(watchdog, /gh run list --workflow deploy-cloudflare-production\.yml --branch main/);
+assert.match(watchdog, /databaseId,headSha,status,conclusion,createdAt,event/);
+assert.match(watchdog, /canonical_deploy_in_progress/);
+assert.match(watchdog, /latest_successful_deploy/);
+assert.match(watchdog, /failed_deploy_retry_due/);
+
+console.log("PRODUCTION_WATCHDOG_ACTIONS_AUTHORITY_GREEN=PASS");
 console.log("deploy-cloudflare-workflow: PASS");
