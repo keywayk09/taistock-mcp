@@ -20,7 +20,7 @@ Current Cloudflare Workers/Wrangler documentation distinguishes Worker Versions 
 - KV bindings require a concrete namespace ID;
 - Wrangler exposes automatic provisioning / auto-create controls and both must be forced off for this path;
 - this Worker uses Durable Objects, so version Preview URLs cannot be relied upon for validation;
-- structured Wrangler output and `versions list --json` are available for machine-readable version evidence.
+- `versions list --json` is available for machine-readable version evidence.
 
 This phase freezes those constraints into repository tests and prepares a future manually authorized, undeployed version-upload path. It does **not** execute that path.
 
@@ -34,41 +34,27 @@ This phase freezes those constraints into repository tests and prepares a future
 
 The canonical Production workflow resolves/creates OAuth KV and separately PUTs Cron schedules. Reusing it would therefore mutate unrelated control-plane resources.
 
-A bounded version-upload path must instead treat the existing OAuth KV namespace ID as a pre-existing immutable input and must disable Wrangler automatic resource provisioning.
+A bounded version-upload path instead treats the existing OAuth KV namespace ID as a pre-existing immutable input and disables Wrangler automatic resource provisioning.
 
 ## Purpose
 
 Prepare and test a manual-only workflow that can, in a later explicitly authorized phase, upload a new `taistock-mcp` Worker **version without deploying it to traffic and without changing triggers or creating resources**.
 
-The future workflow must:
+The path must:
 
 1. require `workflow_dispatch` only;
 2. require exact confirmation `UPLOAD_UNDEPLOYED_VNEXT_VERSION`;
 3. accept the existing OAuth KV namespace ID only from dedicated secret `RESEARCH_VNEXT_OAUTH_KV_ID`;
 4. validate that ID is exactly 32 hex characters;
 5. generate a temporary Wrangler config that injects that existing ID;
-6. remove the `triggers` block from the temporary upload config so the artifact itself does not carry a Cron mutation intent;
+6. remove the `triggers` block from the temporary upload config;
 7. invoke only `wrangler versions upload` for the write step;
 8. force `--experimental-provision=false` and `--experimental-auto-create=false`;
 9. never invoke `wrangler deploy`, `wrangler versions deploy`, `wrangler triggers deploy`, Cloudflare REST resource creation, or Cron mutation;
 10. resolve the uploaded version ID via read-only `wrangler versions list --json` and store a receipt;
-11. not contact Production MCP and not shift traffic;
-12. leave Legacy fallback intact.
-
-## Planned artifacts after legal RED
-
-- `scripts/research-vnext-version-upload-plan.mjs`
-  - pure local config planner;
-  - no network calls or subprocesses;
-  - validates source config and existing KV ID;
-  - injects the KV ID and strips the Cron trigger block;
-  - returns a deterministic plan receipt.
-
-- `.github/workflows/research-vnext-version-upload.yml`
-  - manual-only;
-  - future Cloudflare version upload only;
-  - no deployment or trigger mutation;
-  - no automatic execution in this phase.
+11. prove active deployments are identical before/after upload;
+12. not contact Production MCP and not shift traffic;
+13. leave Legacy fallback intact.
 
 ## TEST BEFORE BUILD
 
@@ -111,18 +97,44 @@ Research VNext Incremental Gate:
 
 Disposition: `VERSION_UPLOAD_ISOLATION_RED_ACCEPTED_IMPLEMENTATION_ALLOWED`.
 
-The failure occurred only after every premise and frozen ABI check passed. Implementation is authorized only for the local planner and manual undeployed version-upload workflow described here; no Production execution is authorized.
-
 ## GREEN implementation
 
 Implementation commit: `14e01d84b86169b26d764a9de5947ec16623ddc6`.
 
 Added only:
 
-- `scripts/research-vnext-version-upload-plan.mjs` — pure local config planner with no network/subprocess capability;
-- `.github/workflows/research-vnext-version-upload.yml` — `workflow_dispatch`-only future undeployed version uploader with exact branch/SHA/confirmation gates.
+### `scripts/research-vnext-version-upload-plan.mjs`
 
-The workflow was **not dispatched**. No Cloudflare version was created and no Production state changed.
+- pure local planner;
+- Node built-ins only;
+- no network, Cloudflare API or subprocess capability;
+- validates worker name and exact source contract;
+- requires a pre-existing 32-hex OAuth KV namespace ID;
+- injects the ID exactly once into a generated temporary config;
+- fails closed if source `OAUTH_KV` already contains an ID;
+- removes the complete `triggers` block from the upload config;
+- preserves `MyMCP` / `FamilyMCP` Durable Object bindings;
+- receipt hashes source/upload config but does not store the KV ID;
+- receipt freezes `VERSIONS_UPLOAD_ONLY`, `traffic_shift=NONE`, `trigger_mutation=NONE`, `resource_provisioning=DISABLED`.
+
+### `.github/workflows/research-vnext-version-upload.yml`
+
+- `workflow_dispatch` only;
+- `permissions: contents: read`;
+- exact confirmation `UPLOAD_UNDEPLOYED_VNEXT_VERSION`;
+- exact branch gate `refactor/research-vnext-foundation-20260901`;
+- caller must provide exact checked-out 40-character SHA;
+- requires existing `RESEARCH_VNEXT_OAUTH_KV_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_ACCOUNT_ID` only when manually dispatched;
+- planner builds the bounded temporary config locally;
+- snapshots `wrangler deployments list --json` before the write;
+- only write command is `wrangler versions upload`;
+- forces `--experimental-provision=false --experimental-auto-create=false`;
+- reads `wrangler versions list --json` and deployments again after upload;
+- fails closed unless active deployment state is byte/JSON-equivalent before vs after;
+- execution receipt declares traffic shift NONE, trigger mutation NONE, Production MCP not contacted;
+- uploads only the receipt artifact.
+
+The workflow was **not dispatched** during this phase. No Cloudflare version was created and no Production state changed.
 
 ## GREEN attempt 1 — IMMUTABLE HARNESS FAILURE
 
@@ -130,7 +142,7 @@ Implementation commit `14e01d84b86169b26d764a9de5947ec16623ddc6` triggered:
 
 - Incremental Run `33509147313`, Job `99860311032` — **FAILURE**
 - independent Type check Run `33509147495` — **SUCCESS**
-- Isolation Run `33509147421` — FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**, VNEXT **FAIL** from the same test assertion; isolation finalizer correctly failed closed.
+- Isolation Run `33509147421` — FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE **PASS**, VNEXT **FAIL** from the same assertion; isolation finalizer correctly failed closed.
 
 Before the failure, the Incremental run proved:
 
@@ -145,35 +157,105 @@ Before the failure, the Incremental run proved:
 
 Exact failure:
 
-- test assertion `assert.doesNotMatch(workflow, /wrangler\s+deploy/i)` incorrectly matched the legitimate read-only command `wrangler deployments list` because `deploy` is a prefix of `deployments`;
-- the workflow contains **no actual `wrangler deploy` command**;
-- this is a test-harness false positive, not runtime/workflow semantic failure.
+- `assert.doesNotMatch(workflow, /wrangler\s+deploy/i)` incorrectly matched legitimate read-only `wrangler deployments list` because `deploy` is a prefix of `deployments`;
+- the workflow contains no actual `wrangler deploy` command;
+- this is a test-harness false positive, not workflow semantic failure.
 
 Disposition: `GREEN_ATTEMPT_1_HARNESS_FAILURE_IMMUTABLE_TEST_ONLY_CORRECTION_ALLOWED`.
 
-Authorized correction is limited to making the negative assertion token-boundary aware so it rejects the actual `wrangler deploy` command without rejecting `wrangler deployments list`. No planner/workflow/runtime behavior change is authorized.
+Failure evidence remains immutable.
 
-## GREEN requirements
+## Test-only correction
 
-After the test-only correction, local tests must prove:
+- evidence note commit: `8aa61d291e82c64995ccfe7bcd200320100e22a6`
+- test-only correction commit: `bd14e17a17f9fc8d1498e8b42db362a61f1500ab`
 
-- valid 32-hex existing KV ID is injected exactly once;
-- invalid/missing KV IDs fail closed;
-- generated upload config contains no `triggers` block;
-- source config is never modified;
-- planner source contains no `fetch`, `child_process`, `exec`, `spawn`, Cloudflare REST API or deployment command;
-- workflow is `workflow_dispatch` only and `contents: read`;
-- workflow requires `UPLOAD_UNDEPLOYED_VNEXT_VERSION`;
-- workflow invokes `wrangler versions upload` and read-only `versions list --json` only;
-- workflow disables Wrangler automatic provisioning/auto-create;
-- workflow has no actual `wrangler deploy`, `versions deploy`, `triggers deploy`, Cloudflare REST resource mutation, or Production MCP probe;
-- no Production workflow is dispatched by CI.
+Correction only made the forbidden-command expressions token-boundary aware:
 
-Then require all VNext tests, frozen ABI, type-check, full `test:research`, Wrangler dry-run and six-domain Isolation Gate.
+- actual `wrangler deploy` remains forbidden;
+- actual `wrangler versions deploy` remains forbidden;
+- actual `wrangler triggers deploy` remains forbidden;
+- read-only `wrangler deployments list` is no longer falsely rejected.
 
-## Explicitly forbidden in this phase
+No planner, workflow, runtime or public ABI behavior changed in the correction.
 
-- dispatching the new version-upload workflow;
+## Corrected GREEN evidence — PASS
+
+Research VNext Incremental Gate:
+
+- Run `33509476504` — **SUCCESS**
+- Job `99861387092` — **SUCCESS**
+- Change Note / protected-surface scope: **PASS**
+- Phase 10B bounded exception: **PASS**
+- all Research VNext tests: **PASS**
+- Version Upload Isolation test: **PASS**
+- public ABI snapshot: **PASS** — exactly `123` tools / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- Incremental type-check: **PASS**
+- full existing `test:research`: **PASS**
+- Wrangler deploy dry-run: **PASS**
+- immutable-style evidence upload: **PASS**
+
+Independent Type check:
+
+- Run `33509476500` — **SUCCESS**
+- `npm run type-check`: **PASS**
+- full `npm run test:research`: **PASS**
+- Wrangler deploy dry-run: **PASS**
+
+Isolation Gate:
+
+- Run `33509476486` — **SUCCESS**
+- VNEXT: **PASS**
+- FAMILY: **PASS**
+- MARKET_DATA: **PASS**
+- FORMAL_BLIND: **PASS**
+- OWNER_OPS: **PASS**
+- BUNDLE: **PASS**
+- isolation evidence finalizer: **PASS**
+
+Additional triggered research regressions also completed **SUCCESS**:
+
+- P7 Swing Outcome Path `33509476591`
+- P8 Experiment Memory `33509476495`
+- P9 Diamond Capability Registry `33509476634`
+- P11 Research Validation `33509476600`
+- P12 Strategy Lab Governance `33509476551`
+- P13 Cross-market Supply Chain Graph `33509476596`
+- P13b Supply Chain Data Plane `33509476510`
+- P14 TXF Dual-market Review `33509476557`
+- P15 Review Swing Orchestration `33509476493`
+- P16 GPT Judgment Memory `33509476672`
+
+Production version-upload workflow dispatched: **NO**.
+Cloudflare Worker version created: **NO**.
+Production MCP contacted: **NO**.
+Production traffic shifted: **NO**.
+OAuth KV mutation: **NONE**.
+Cron mutation: **NONE**.
+
+## Artifact / hash
+
+Incremental evidence:
+
+- Artifact ID: `9801027048`
+- Name: `research-vnext-evidence-33509476504`
+- Digest: `sha256:d162488c788950f19ea3ddc760980087565f07d0cfcec3d8098324212f830e6a`
+- Expiry: `2026-10-01`
+
+Isolation evidence:
+
+- Artifact ID: `9801027473`
+- Name: `research-vnext-isolation-evidence-33509476486`
+- Digest: `sha256:2e37783fec3b6cc2e8661f76a08dde72308e118a82f16037432ba9f9ff0f68a4`
+
+Isolation bundle:
+
+- Artifact ID: `9801012697`
+- Digest: `sha256:e2fb9ccca166265e0e6364aec0f62b2660c1ac46a1973cd8a57ec59d462c3061`
+
+## Explicitly not authorized by this PASS
+
+- dispatching `.github/workflows/research-vnext-version-upload.yml`;
 - creating a Cloudflare Worker version;
 - merging PR #206;
 - deploying any version to traffic;
@@ -184,17 +266,14 @@ Then require all VNext tests, frozen ABI, type-check, full `test:research`, Wran
 - Cron mutation;
 - Production MCP invocation;
 - Legacy deletion;
-- Owner/Family/OAuth/Market Data/FORMAL/OHLC runtime changes;
-- public ABI changes.
+- declaring Production switched-path stability from branch evidence alone.
 
-## GREEN evidence
+## Next gate after seal
 
-Pending corrected GREEN rerun.
+Even after this phase seals, actual `versions upload` remains a Production-account mutation and requires a separately authorized execution phase.
 
-## Next gate after GREEN
-
-Even after this phase passes, actual `versions upload` remains a Production-account mutation and requires a separately authorized execution phase. Because Durable Objects prevent relying on preview URLs, validation of the uploaded version will later require a separately tested zero-traffic deployment/version-override plan before any traffic shift.
+Because this Worker uses Durable Objects and cannot rely on ordinary version Preview URLs, a future Production validation design must first prove a **zero-ordinary-traffic** candidate deployment path: retain the existing version at 100%, place the new version at 0%, then route only explicit validation requests to the candidate version using the supported version-override mechanism, with a tested rollback to the original deployment. That design itself must go through a separate RED/GREEN gate before any Cloudflare mutation.
 
 ## Final disposition
 
-`GREEN_ATTEMPT_1_HARNESS_FAILURE_TEST_ONLY_CORRECTION_ALLOWED`
+`PASS_VERSION_UPLOAD_ISOLATION_PATH_READY_NOT_EXECUTED`
