@@ -1,8 +1,0 @@
-{
-  "schema": "RESEARCH_VNEXT_PRODUCTION_CONTROL_PLANE_ONE_SHOT_RECAPTURE_AUTH_V1",
-  "mode": "READ_ONLY_PRODUCTION_CONTROL_PLANE_SNAPSHOT",
-  "source_sha": "bc77effcee66c773fc529df864b1acd33641107f",
-  "production_deploy_authorized": false,
-  "production_mutation": "NONE",
-  "authorization_nonce": "vnext-live-recapture-20260901-bc77effc"
-}
