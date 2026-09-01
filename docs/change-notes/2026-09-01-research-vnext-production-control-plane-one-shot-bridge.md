@@ -10,6 +10,7 @@
 - GREEN implementation commit A: `176c4f4a1693bddcefb4698f54d13c9c3d420450`
 - GREEN verification child A: `b484d97881bc0fc8803af6b386872aee43d3cc5b`
 - GREEN correction B: `a876db07522ee00e90116311539a6a11687c2b26`
+- GREEN verification child B: `bc0de89c855e903a5ff1b03b4b4a7183abfaa740`
 - Frozen Owner ABI: `123` / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
 - Production deploy authorization: **FALSE**
 - Production mutation: **NONE**
@@ -112,20 +113,67 @@ GREEN verification A:
 
 This failure is preserved and is not relabeled PASS.
 
-## GREEN correction B — SINGLE-POINT FIX
+## GREEN correction B — PASS
 
 Correction commit:
 
 - `a876db07522ee00e90116311539a6a11687c2b26`
+- docs-only verification child: `bc0de89c855e903a5ff1b03b4b4a7183abfaa740`
 
-Only change:
+Only correction:
 
-- replace `cd sealed` + `scripts/...` invocation with direct `sealed/scripts/research-vnext-production-control-plane-live-snapshot.mjs` invocation;
-- all trigger, branch, authorization, secret, source-SHA, permissions, artifact, no-mutation, and no-authorization-file constraints remain unchanged.
+- replaced `cd sealed` + `scripts/...` invocation with direct `sealed/scripts/research-vnext-production-control-plane-live-snapshot.mjs` invocation;
+- all trigger, branch, authorization, secret, source-SHA, permissions, artifact, no-mutation, and no-authorization-file constraints remained unchanged.
 
-No authorization JSON exists at this point; Production contact remains **NONE**.
+Research VNext Incremental Gate:
 
-Correction B CI evidence: pending on this docs-only verification child; runtime is exactly `a876db07522ee00e90116311539a6a11687c2b26`.
+- Run `33525238638`: **SUCCESS**
+- Job `99914277240`: **SUCCESS**
+- scope gate: **PASS**
+- all Research VNext tests: **PASS**
+- one-shot bridge test: **PASS**
+- trigger scope: `EXACT_BRANCH_PLUS_AUTHORIZATION_PATH`
+- source execution: `PINNED_SEALED_SHA`
+- Cloudflare method surface: `SEALED_CLIENT_GET_ONLY`
+- canonical manual harness: `UNCHANGED`
+- canonical live snapshot mock GET calls: `3`
+- canonical token leak: `false`
+- canonical live dispatch executed: `false`
+- Owner tool count: `123`
+- Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- full `test:research`: **PASS**
+- canonical Wrangler dry-run: **PASS**
+- atomic deploy-config dry-run: **PASS**
+- hard blocker: **REQUIRED_ACTIVE**
+- Production deploy authorized: `false`
+- Production mutation: **NONE**
+
+Independent GREEN validation:
+
+- Type check Run `33525238397`: **SUCCESS**
+- Isolation Run `33525238450`: **SUCCESS** across VNEXT / FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE
+
+Immutable-style GREEN evidence:
+
+- Artifact ID: `9807409723`
+- Artifact name: `research-vnext-evidence-33525238638`
+- Artifact digest: `sha256:19b1eeb62d909fb59913e4af14f974a83d19b43018402ff285afa9399a831e99`
+
+Pre-seal run inventory confirmed there was **no** `Research VNext Production Control-Plane One-Shot` workflow run. The authorization JSON was still absent, therefore Production contact remained **NONE**.
+
+## Seal requirement
+
+This Change Note-only seal commit must itself pass:
+
+- Research VNext Incremental Gate;
+- Type check;
+- Research VNext Isolation Gate.
+
+Only after that three-green seal may a separate commit create exactly one file:
+
+- `runtime/research-vnext-production-control-plane-one-shot-authorization.json`
+
+The authorization commit must contain no other file change.
 
 ## Cleanup requirement
 
@@ -135,3 +183,7 @@ After the one live read-only snapshot attempt is captured, remove both:
 - `runtime/research-vnext-production-control-plane-one-shot-authorization.json`
 
 No Production deploy, rollback, Legacy retirement, OAuth KV/Cron mutation, OHLC mutation, or PR merge is authorized by this bridge.
+
+## Interim disposition
+
+`PASS_PRODUCTION_CONTROL_PLANE_ONE_SHOT_BRIDGE_READY_UNTRIGGERED_PRODUCTION_UNCHANGED`
