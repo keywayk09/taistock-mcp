@@ -9,6 +9,7 @@
 - Docs-only PR-sync trigger: `fc3048f8c230a455182602ec019f0aca4f169543`
 - GREEN implementation commit A: `176c4f4a1693bddcefb4698f54d13c9c3d420450`
 - GREEN verification child A: `b484d97881bc0fc8803af6b386872aee43d3cc5b`
+- GREEN correction B: `a876db07522ee00e90116311539a6a11687c2b26`
 - Frozen Owner ABI: `123` / `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
 - Production deploy authorization: **FALSE**
 - Production mutation: **NONE**
@@ -113,12 +114,18 @@ This failure is preserved and is not relabeled PASS.
 
 ## GREEN correction B — SINGLE-POINT FIX
 
-Only permitted correction:
+Correction commit:
+
+- `a876db07522ee00e90116311539a6a11687c2b26`
+
+Only change:
 
 - replace `cd sealed` + `scripts/...` invocation with direct `sealed/scripts/research-vnext-production-control-plane-live-snapshot.mjs` invocation;
-- retain all trigger, branch, authorization, secret, source-SHA, permissions, artifact, no-mutation, and no-authorization-file constraints unchanged.
+- all trigger, branch, authorization, secret, source-SHA, permissions, artifact, no-mutation, and no-authorization-file constraints remain unchanged.
 
-Correction B CI evidence: pending.
+No authorization JSON exists at this point; Production contact remains **NONE**.
+
+Correction B CI evidence: pending on this docs-only verification child; runtime is exactly `a876db07522ee00e90116311539a6a11687c2b26`.
 
 ## Cleanup requirement
 
