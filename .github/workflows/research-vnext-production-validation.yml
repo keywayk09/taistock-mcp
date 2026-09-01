@@ -1,0 +1,104 @@
+name: Research VNext Production Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      endpoint:
+        description: MCP endpoint to probe. Production requires the exact confirmation string below.
+        required: true
+        default: https://taistock-mcp.keywayk09.workers.dev/my-mcp
+        type: string
+      confirmation:
+        description: Type READ_ONLY_PRODUCTION_PROBE before contacting the default Production endpoint.
+        required: false
+        default: ""
+        type: string
+      call_replay:
+        description: Call deterministic synthetic selective 1m replay (read-only).
+        required: true
+        default: true
+        type: boolean
+      call_review:
+        description: Call daily review with empty cases and persist_experiment=false (read-only).
+        required: true
+        default: true
+        type: boolean
+      swing_trade_date:
+        description: Optional YYYY-MM-DD for read-only prepare_swing_selection_run. Leave blank to skip.
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-vnext-production-validation
+  cancel-in-progress: false
+
+jobs:
+  read-only-production-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RESEARCH_VNEXT_PROBE_ENDPOINT: ${{ inputs.endpoint }}
+      RESEARCH_VNEXT_PROBE_CONFIRMATION: ${{ inputs.confirmation }}
+      RESEARCH_VNEXT_PROBE_TOKEN: ${{ secrets.RESEARCH_VNEXT_PROBE_TOKEN }}
+      RESEARCH_VNEXT_CALL_REPLAY: ${{ inputs.call_replay }}
+      RESEARCH_VNEXT_CALL_REVIEW: ${{ inputs.call_review }}
+      RESEARCH_VNEXT_SWING_TRADE_DATE: ${{ inputs.swing_trade_date }}
+      RESEARCH_VNEXT_PROBE_MODE: READ_ONLY_PRODUCTION_PROBE
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enforce manual read-only safety contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          production='https://taistock-mcp.keywayk09.workers.dev/my-mcp'
+          if [ "${RESEARCH_VNEXT_PROBE_ENDPOINT}" = "$production" ] \
+            && [ "${RESEARCH_VNEXT_PROBE_CONFIRMATION}" != 'READ_ONLY_PRODUCTION_PROBE' ]; then
+            echo 'Refusing default Production contact without READ_ONLY_PRODUCTION_PROBE confirmation.' >&2
+            exit 78
+          fi
+          case "${RESEARCH_VNEXT_PROBE_ENDPOINT}" in
+            http://*|https://*) ;;
+            *) echo 'Probe endpoint must use http or https.' >&2; exit 64 ;;
+          esac
+          if [ -n "${RESEARCH_VNEXT_SWING_TRADE_DATE}" ] \
+            && ! [[ "${RESEARCH_VNEXT_SWING_TRADE_DATE}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+            echo 'swing_trade_date must be YYYY-MM-DD or blank.' >&2
+            exit 64
+          fi
+          echo 'READ_ONLY_PRODUCTION_PROBE=AUTHORIZED_BY_MANUAL_DISPATCH'
+
+      - name: Run read-only MCP validation probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/research-vnext-production-validation
+          node scripts/research-vnext-production-probe.mjs \
+            > tmp/research-vnext-production-validation/receipt.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = 'tmp/research-vnext-production-validation/receipt.json';
+          const receipt = JSON.parse(fs.readFileSync(path, 'utf8'));
+          if (receipt.status !== 'PASS') throw new Error('production_probe_not_pass');
+          if (receipt.production_mutation !== 'NONE') throw new Error('production_probe_mutation_contract_violation');
+          if ((receipt.missing_tools || []).length) throw new Error('production_probe_missing_tools');
+          console.log(`protocol_lane=${receipt.protocol_lane}`);
+          console.log('production_mutation=NONE');
+          NODE
+
+      - name: Upload immutable-style probe receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-vnext-production-validation-${{ github.run_id }}
+          path: tmp/research-vnext-production-validation/receipt.json
+          if-no-files-found: error
+          retention-days: 30

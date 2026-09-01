@@ -32,27 +32,29 @@ The probe must be capable of validating, after a future explicitly authorized de
 - bounded auth/protocol/tool failures;
 - machine-readable immutable-style receipt generation.
 
-## Planned artifacts after legal RED
+## GREEN implementation scope
+
+Authorized after legal RED:
 
 1. `scripts/research-vnext-production-probe.mjs`
    - Node built-ins only; no new runtime dependency;
-   - auto-negotiates modern stateless MCP first and legacy initialize/session fallback;
-   - supports JSON and Streamable HTTP SSE response bodies;
-   - supports optional bearer token through environment only;
-   - never logs the bearer token;
-   - performs no Cloudflare API requests and no deployment;
-   - exports testable client helpers and a CLI entry point.
+   - modern `2026-07-28` stateless `tools/list` attempted first;
+   - falls back to `2025-06-18` initialize + `Mcp-Session-Id` when required;
+   - parses JSON and Streamable HTTP SSE `data:` payloads;
+   - optional bearer token is propagated only in the request header and never serialized into the receipt;
+   - deterministic synthetic Replay input is generated locally with a reproducible frozen dataset hash;
+   - no Cloudflare API request, no deployment, no provider fetch, no storage mutation;
+   - exports testable helpers and a CLI entry point.
 
 2. `.github/workflows/research-vnext-production-validation.yml`
    - `workflow_dispatch` only;
    - `permissions: contents: read`;
    - no push/pull_request/schedule trigger;
-   - no `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` or other Cloudflare control-plane secret;
-   - no `wrangler deploy`;
-   - no Cloudflare API mutation;
+   - no `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`;
+   - no `wrangler deploy` or Cloudflare control-plane request;
    - optional dedicated `RESEARCH_VNEXT_PROBE_TOKEN` only for MCP read access;
-   - explicit manual confirmation required before the default Production URL may be contacted;
-   - uploads only a probe receipt artifact.
+   - default Production endpoint requires exact manual confirmation `READ_ONLY_PRODUCTION_PROBE`;
+   - uploads only the machine-readable probe receipt.
 
 ## Safe live-call scope
 
@@ -63,30 +65,48 @@ Future live validation may call only non-mutating operations.
 - `finalize_daily_review_run`: only with empty cases and `persist_experiment:false`, so no experiment write occurs.
 - `prepare_swing_selection_run`: optional read-only ledger query only after a known-safe trade date is explicitly supplied.
 
-The preflight harness itself will be tested only against local mock HTTP servers in CI. It must not contact Production automatically.
+The preflight harness itself is tested only against local mock HTTP servers in CI. It must not contact Production automatically.
 
 ## TEST BEFORE BUILD
 
 RED test:
 
 - `tests/research-vnext-production-validation-preflight.test.ts`
+- RED commit: `1732f79fcad321c214a18175e1521fe559f2a167`
 
-A legal RED requires:
+A legal RED required:
 
-1. verify Switch Stability policy still blocks Legacy retirement;
-2. verify frozen ABI remains `123` / frozen digest;
-3. verify canonical deploy contains real deploy + OAuth KV + Cron mutation capability;
-4. verify merge trigger would dispatch canonical Production deploy after merge;
-5. print `PRODUCTION_VALIDATION_PREFLIGHT_RED_READY=PASS`;
-6. only then fail precisely because `scripts/research-vnext-production-probe.mjs` does not yet exist.
+1. Switch Stability policy still blocks Legacy retirement;
+2. frozen ABI remains `123` / frozen digest;
+3. canonical deploy contains real deploy + OAuth KV + Cron mutation capability;
+4. merge trigger would dispatch canonical Production deploy after merge;
+5. marker `PRODUCTION_VALIDATION_PREFLIGHT_RED_READY=PASS` prints first;
+6. only then fail because `scripts/research-vnext-production-probe.mjs` does not yet exist.
 
-Any earlier failure is not an accepted RED.
+## RED evidence — ACCEPTED
+
+Research VNext Incremental Gate:
+
+- Run `33507603168`
+- Job `99855296342`
+- Change Note / protected-surface gate: **PASS**
+- Phase 10B bounded exception: `PHASE10B_HANDLER_CUTOVER_EXCEPTION=PASS`
+- all earlier Research VNext tests before this preflight: **PASS**
+- preflight marker: `PRODUCTION_VALIDATION_PREFLIGHT_RED_READY=PASS`
+- Owner tool count: `123`
+- Owner ABI digest: `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- canonical deploy isolated-read-only classification: `false`
+- Legacy retirement policy: `BLOCKED_UNTIL_PRODUCTION_SWITCH_STABLE`
+- Production mutation: **NONE**
+- terminal failure: **EXPECTED RED**
+- exact failure: `ERR_MODULE_NOT_FOUND` for `scripts/research-vnext-production-probe.mjs`
+- downstream incremental type-check / full `test:research` / Wrangler dry-run: correctly **SKIPPED**
+
+Disposition: `PRODUCTION_VALIDATION_PREFLIGHT_RED_ACCEPTED_IMPLEMENTATION_ALLOWED`.
 
 ## GREEN requirements
 
-After accepted RED, add only the probe script and manual validation workflow plus test-only adjustments if necessary.
-
-The test must use local mock HTTP servers to prove:
+The local mock harness must prove:
 
 - modern stateless negotiation and `tools/list`;
 - legacy initialize/session fallback and session propagation;
@@ -95,6 +115,7 @@ The test must use local mock HTTP servers to prove:
 - bearer header propagation without receipt/token leakage;
 - non-2xx / JSON-RPC errors fail closed;
 - expected migrated tool visibility checks;
+- synthetic Replay payload is accepted by the actual deterministic replay engine;
 - manual workflow safety contract.
 
 Then run:
@@ -110,20 +131,21 @@ Then run:
 
 - merge PR #206;
 - dispatch `deploy-cloudflare-production.yml`;
+- dispatch the new manual Production validation workflow during preflight CI;
 - real `wrangler deploy`;
 - Cloudflare API writes;
 - OAuth KV mutation;
 - Cron mutation;
-- Production MCP invocation from CI;
+- Production MCP invocation from automatic CI;
 - Legacy deletion;
 - Owner/Family/OAuth/Market Data/FORMAL/OHLC runtime changes;
 - public ABI changes.
 
-## RED evidence
+## GREEN evidence
 
 Pending.
 
-## GREEN evidence
+## Artifact / hash
 
 Pending.
 
@@ -132,7 +154,7 @@ Pending.
 Even if this preflight is GREEN, actual Production validation remains blocked until both are explicitly resolved:
 
 1. a deployment path that does not unexpectedly mutate unrelated OAuth/Cron resources, or explicit approval to use the canonical deployment side effects;
-2. a dedicated read-only MCP credential (if Production Owner MCP requires OAuth).
+2. a dedicated read-only MCP credential if Production Owner MCP requires OAuth.
 
 ## Rollback
 
@@ -140,4 +162,4 @@ Delete the probe script/manual workflow/test/Change Note. No Production state ex
 
 ## Final disposition
 
-`RED_PENDING`
+`PRODUCTION_VALIDATION_PREFLIGHT_GREEN_IMPLEMENTATION_ALLOWED`
