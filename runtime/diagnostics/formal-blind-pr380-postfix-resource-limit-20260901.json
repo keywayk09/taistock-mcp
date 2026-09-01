@@ -1,0 +1,32 @@
+{
+  "schema": "FORMAL_BLIND_RESOURCE_DIAGNOSTIC_V2_POST_PR380",
+  "generated_at": "2026-09-01T01:42:31Z",
+  "source_workflow_run_id": 33459710507,
+  "source_branch": "ops/formal-blind-503-diagnostic-20260901",
+  "request_id": "intraday-blind-20260831-0935-pr379-merged-final-v4",
+  "target_merge_sha": "ca8c577fc3d1d226d0caa7de4f328e85c3f12ebe",
+  "cloudflare_build_id": "551af4b8-7575-4380-bcb9-1de5d5623701",
+  "production_version_id": "1556bd42-d831-48e0-a2d8-910f725e9a15",
+  "item_count": 60,
+  "http_200_count": 9,
+  "http_503_count": 51,
+  "http_429_count": 0,
+  "network_error_count": 0,
+  "first_503_index": 10,
+  "first_503_symbol": "2406",
+  "first_503_cf_ray": "a3409326482dc105-IAD",
+  "cloudflare_error": {
+    "status": 503,
+    "error_code": 1102,
+    "error_name": "worker_exceeded_resources",
+    "retryable": false,
+    "owner_action_required": true
+  },
+  "observations": [
+    "PR #380 Cloudflare Workers Build completed successfully before this probe and deployed Production Version 1556bd42-d831-48e0-a2d8-910f725e9a15.",
+    "The first nine direct requests returned HTTP 200; item 10 / symbol 2406 returned the first Cloudflare Error 1102.",
+    "Every remaining item 10 through 60 returned HTTP 503 / Error 1102 with retryable=false in this no-retry direct probe.",
+    "PR #380 true streaming of canonical GitHub CSV bodies therefore did not eliminate the cumulative same-isolate resource failure.",
+    "This is new post-fix diagnostic evidence only and does not modify or reinterpret the immutable 2026-08-31 original research receipt or selection evidence."
+  ]
+}
