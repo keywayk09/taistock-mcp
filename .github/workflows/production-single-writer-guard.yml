@@ -1,0 +1,67 @@
+name: Production Single Writer Guard
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  single-writer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enforce taistock-mcp single-writer contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const dir = '.github/workflows';
+          const canonical = 'deploy-cloudflare-production.yml';
+          const files = fs.readdirSync(dir).filter((name) => /\.ya?ml$/i.test(name));
+          const violations = [];
+
+          for (const name of files) {
+            if (name === canonical) continue;
+            const text = fs.readFileSync(path.join(dir, name), 'utf8');
+            const lower = text.toLowerCase();
+
+            // Direct Wrangler writes to the taistock-mcp default/main config are forbidden.
+            const wranglerDeploy = /\bwrangler\s+deploy\b/i.test(text);
+            const defaultMainConfig = /--config\s+(?:\.\/)?wrangler\.jsonc\b/i.test(text);
+            const unifiedMainConfig = /--config\s+(?:\.\/)?wrangler\.unified(?:\.production)?\.jsonc\b/i.test(text);
+            const taistockEndpoint = lower.includes('taistock-mcp.keywayk09.workers.dev');
+            const unscopedWranglerDeploy = wranglerDeploy && !/--config\s+[^\s]+/i.test(text);
+
+            // Direct Cloudflare Workers API writes to the production script are forbidden.
+            const directScriptTarget = /workers\/scripts\/taistock-mcp\b/i.test(text);
+            const mutatingHttp = /(?:-x|--request)\s+(?:post|put|patch|delete)\b/i.test(text);
+
+            if ((wranglerDeploy && (defaultMainConfig || unifiedMainConfig || taistockEndpoint || unscopedWranglerDeploy)) ||
+                (directScriptTarget && mutatingHttp)) {
+              violations.push(name);
+            }
+          }
+
+          if (violations.length) {
+            console.error('PRODUCTION_SINGLE_WRITER_VIOLATION');
+            console.error(`Only ${canonical} may mutate taistock-mcp Production.`);
+            for (const name of violations) console.error(`- ${name}`);
+            process.exit(1);
+          }
+
+          console.log('PRODUCTION_SINGLE_WRITER=PASS');
+          console.log(`canonical_writer=${canonical}`);
+          NODE
