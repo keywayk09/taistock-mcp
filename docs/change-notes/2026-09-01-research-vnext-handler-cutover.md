@@ -48,15 +48,15 @@ The Incremental Gate must be updated narrowly so `research-tools.ts` is allowed 
 ### `finalize_daily_review_run` — deterministic summary only
 
 - Existing handler still owns ledger reads, deterministic backtest execution, TXF review execution, persistence and the existing compatibility interpretation fields.
-- After those factual results exist, stock/TXF metric summaries are recomputed through VNext `review.summary` and replace the public summary only when VNext succeeds.
-- If VNext fails, the Legacy summary remains unchanged.
+- After those factual results exist, stock/TXF metric summaries are recomputed through VNext `review.summary` and replace the public summary only when VNext succeeds and remains strict-parity with the Legacy summary.
+- If VNext fails or an unexpected parity drift is observed, the Legacy summary remains unchanged.
 - No interpretation/hypothesis generation is moved into VNext.
 
 ### `prepare_swing_selection_run` — deterministic rank output
 
 - Existing handler still owns Signal Ledger access and snapshot orchestration.
-- The emitted selected candidate list is re-ranked/canonicalized through VNext `swing.rank`; VNext output becomes authoritative when successful.
-- Legacy selected output is fallback.
+- The emitted selected candidate list is re-ranked/canonicalized through VNext `swing.rank`; VNext output becomes authoritative only when it is strict-parity with the Legacy selected list.
+- Legacy selected output is fallback on bounded VNext failure or unexpected parity drift.
 - `finalize_swing_review_run` remains Legacy because its current public `swingSummary()` has not been strict-parity frozen.
 
 ## Explicitly not migrated
@@ -69,27 +69,26 @@ The Incremental Gate must be updated narrowly so `research-tools.ts` is allowed 
 
 ## TEST BEFORE BUILD
 
-RED target:
+Two independent RED layers are required before implementation:
 
-- `tests/research-vnext-handler-cutover.test.ts`
+1. `tests/research-vnext-handler-cutover.test.ts`
+   - proves the shared registration graph is not wired yet;
+   - requires only Selective Replay and Review Orchestrator to use a compat server;
+   - locks all unrelated registrars to the original server;
+   - locks Owner direct VNext registration as forbidden;
+   - locks Phase 9 ABI count/digest.
 
-The RED test must prove the current branch is not wired yet by requiring:
+2. `tests/research-vnext-compat-registration.test.ts`
+   - requires the registration wrapper export before it exists;
+   - then, after GREEN, verifies target handler wrapping, non-target pass-through, config/schema identity, Replay Legacy fallback, Review deterministic metric mapping, Swing deterministic score mapping, and preservation of unproven Legacy handlers.
 
-1. `research-tools.ts` imports the compat registration server;
-2. Selective Replay registrar uses the compat server;
-3. Review Orchestrator registrar uses the compat server;
-4. all unrelated research registrars still use the original server;
-5. Owner remains free of Research VNext imports;
-6. Phase 9 snapshot fixture remains `123` / frozen digest;
-7. foundation boundary is updated only after implementation to permit this exact internal cutover, not direct VNext Owner registration.
-
-Expected RED is a source assertion failure showing the compat registration wiring is absent. No implementation file may be changed before that RED is observed.
+No implementation file may be changed before both RED layers are observed.
 
 ## GREEN target
 
 Expected changes after valid RED:
 
-- extend `src/v6/research-vnext/compat-cutover.ts` with a registration-server wrapper;
+- extend `src/v6/research-vnext/compat-cutover.ts` with `createResearchVNextCompatRegistrationServer()`;
 - modify only `src/v6/research-tools.ts` among protected runtime surfaces;
 - update the foundation boundary test from “no VNext anywhere in research-tools” to “only the approved compat-cutover import; Owner direct registration remains forbidden”;
 - narrow Phase 10B exception in `.github/workflows/research-vnext-foundation-gate.yml`;
@@ -100,6 +99,7 @@ Expected changes after valid RED:
 GREEN must pass:
 
 - Phase 10B integration test;
+- compat registration runtime test;
 - all Research VNext tests;
 - Phase 9 public ABI snapshot unchanged;
 - type-check;
@@ -113,6 +113,8 @@ GREEN must pass:
 Main risk is accidentally turning a compatibility cutover into a broad protected-surface exemption. The gate exception therefore must match one exact file and one exact phase marker; any Owner/Family/Market/FORMAL/deploy change remains BLOCK.
 
 ## RED evidence
+
+### RED A — shared registration wiring absent
 
 RED test commit: `e9c54dbad6be155a1273c70994fde774e561d4ba`.
 
@@ -131,7 +133,25 @@ Research VNext Incremental Gate:
 - downstream incremental type-check / full `test:research` / Wrangler dry-run: correctly **SKIPPED**
 - Production mutation: **NONE**
 
-Disposition: `PHASE10B_RED_ACCEPTED_IMPLEMENTATION_ALLOWED`.
+Disposition: `PHASE10B_RED_A_ACCEPTED`.
+
+### RED B — runtime registration wrapper absent
+
+Runtime RED test commit: `8df8bfede2450e7d0637c7b38b424c580c73bcc8`.
+
+Research VNext Incremental Gate:
+
+- Run `33504314943`
+- Job `99844627926`
+- Change Note / protected-surface scope gate: **PASS**
+- Foundation test: **PASS**
+- Phase 10A compat bridge test: **PASS**
+- new compat registration test: **FAIL (EXPECTED RED)**
+- exact failure: `SyntaxError: ... compat-cutover.ts does not provide an export named 'createResearchVNextCompatRegistrationServer'`
+- downstream incremental type-check / full `test:research` / Wrangler dry-run: correctly **SKIPPED**
+- Production mutation: **NONE**
+
+Disposition: `PHASE10B_RED_B_ACCEPTED_IMPLEMENTATION_ALLOWED`.
 
 ## GREEN evidence
 
