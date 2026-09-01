@@ -79,6 +79,71 @@ Initial internal capability names are frozen for the gateway layer only and do n
 
 Memory remains reachable through the loaded VNext facade, but no public registration change is permitted in this phase.
 
+## GREEN implementation
+
+Implementation commit: `3a1fb62b6f27542c83ac1203cde08f8272276aec`.
+
+Added only `src/v6/research-vnext/research-gateway.ts` after the expected RED was proven.
+
+The gateway now provides:
+
+- a dynamic `import("./shadow-facade.ts")` default loader instead of a static facade import;
+- one cached facade promise, created only on the first recognized capability invocation;
+- internal dispatch for `review.summary`, `swing.rank`, `swing.outcomes`, and `replay.resolve`;
+- bounded structured errors with `UNKNOWN_CAPABILITY`, `CAPABILITY_FAILED`, or `TIMEOUT`;
+- configurable per-call timeout and maximum error-message length;
+- per-call failure containment so one failed capability does not poison later calls;
+- strict object/array input guards at the gateway boundary;
+- a contract that remains `SHADOW_UNREGISTERED` with Production registration disabled.
+
+No public MCP registration is present.
+
+## GREEN evidence
+
+Research VNext Incremental Gate:
+
+- Run `33500666978`
+- Job `99832998326`
+- Change Note / protected-surface scope gate: **PASS**
+- all Research VNext tests including gateway lazy-load/failure/timeout checks: **PASS**
+- Type-check: **PASS**
+- Full existing `test:research`: **PASS**
+- Wrangler deploy dry-run: **PASS**
+- immutable-style receipt generation/upload: **PASS**
+
+Independent repository CI:
+
+- Run `33500667027`
+- Job `99832998492`
+- Type-check: **PASS**
+- Full existing `test:research`: **PASS**
+- Wrangler deploy dry-run: **PASS**
+
+Research VNext Isolation Gate:
+
+- Run `33500667154`
+- `domain-OWNER_OPS` job `99832998807`: **PASS**
+- `domain-VNEXT` job `99832999042`: **PASS**
+- `domain-MARKET_DATA` job `99832999072`: **PASS**
+- `domain-FORMAL_BLIND` job `99832999090`: **PASS**
+- `domain-BUNDLE` job `99832999130`: **PASS**
+- `domain-FAMILY` job `99832999284`: **PASS**
+- `isolation-evidence` job `99833215388`: **PASS**
+- fail-closed final assertion: **PASS**
+
+## Artifact / hash
+
+- Incremental evidence artifact ID `9797569514`
+  - name `research-vnext-evidence-33500666978`
+  - digest `sha256:7002fd1bb47ea4857ef5bf31df234429527c31e2f8ee76e8f49198de33f80573`
+  - expires `2026-10-01`
+- Isolation evidence artifact ID `9797572440`
+  - digest `sha256:5304931251fae7540d5b554218efefe2b5c5b3c8e3beafce666bac81e4c11050`
+  - expires `2026-10-01`
+- Isolation bundle artifact ID `9797561008`
+  - digest `sha256:3ded9f97828094bca6161817cafdc041179374ffd696397516e612ff1f591017`
+  - expires `2026-10-01`
+
 ## Explicitly not changed
 
 - `src/v6/research-tools.ts`
@@ -91,41 +156,39 @@ Memory remains reachable through the loaded VNext facade, but no public registra
 - public MCP tool names/count/schemas
 - Production deploy topology
 - legacy research runtime
+- Production deployment or registration
 
 ## Risk
 
-Primary risks are accidental eager coupling, unbounded error leakage, and introducing hidden registration or reasoning semantics. The RED/GREEN test plus existing isolation gate must fail closed on these classes.
+Primary risks were accidental eager coupling, unbounded error leakage, and introducing hidden registration or reasoning semantics. The gateway test plus the existing isolation fan-out gate passed without touching shared Production surfaces.
 
 ## Tests
 
-RED/GREEN test:
+- `tests/research-vnext-gateway.test.ts`: **PASS**
+- all Research VNext tests: **PASS**
+- type-check: **PASS**
+- full `test:research`: **PASS**
+- Wrangler dry-run: **PASS**
+- independent isolation fan-out: **PASS**
 
-- `tests/research-vnext-gateway.test.ts`
+## Evidence log
 
-After implementation, required validation remains:
-
-- all Research VNext tests
-- type-check
-- full `test:research`
-- Wrangler dry-run
-- Research VNext Isolation Gate across VNEXT / FAMILY / MARKET_DATA / FORMAL_BLIND / OWNER_OPS / BUNDLE
-
-## GREEN implementation
-
-Not built yet. RED is now formally proven; implementation may proceed.
-
-## GREEN evidence
-
-Pending.
-
-## Artifact / hash
-
-Pending GREEN.
+| Stage | Evidence | Result |
+|---|---|---|
+| Isolation prerequisite seal | Commit `160953b822de1f607045bc5905d052b36a50a395` | PASS |
+| Gateway Change Note RED | Commit `8e4b95d17c2cdcb00bd2a3cbf74d94612dd50c90` | scope frozen |
+| Gateway RED test | Commit `cf8fade56d6a9ed52254208f91b82835c0ce3e55` | test first |
+| Gateway RED | Run `33500497344`, job `99832461609` | EXPECTED FAIL — missing module |
+| Gateway implementation | Commit `3a1fb62b6f27542c83ac1203cde08f8272276aec` | built, unregistered |
+| Incremental GREEN | Run `33500666978`, job `99832998326` | PASS |
+| Independent repo CI | Run `33500667027`, job `99832998492` | PASS |
+| Isolation GREEN | Run `33500667154` | PASS — all six domains + evidence |
+| Immutable-style evidence | Artifacts `9797569514`, `9797572440`, `9797561008` | PASS |
 
 ## Rollback
 
-Remove the unregistered gateway and its test. No Production runtime may depend on it during this phase.
+Remove the unregistered gateway and its test. No Production runtime depends on it during this phase.
 
 ## Final disposition
 
-`RED_CONFIRMED_IMPLEMENTATION_ALLOWED`
+`PASS_GATEWAY_SHADOW_UNREGISTERED`
