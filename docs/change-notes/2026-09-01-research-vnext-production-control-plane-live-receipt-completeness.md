@@ -150,10 +150,47 @@ The implementation is intentionally minimal and additive:
 
 Production deploy remains unauthorized. Production mutation remains `NONE`.
 
-## GREEN verification synchronize child
+## GREEN verification — PASS
 
-The GREEN implementation was written through Git Data and produced no check-suite on its direct ref update. This docs-only child exists only to force a normal PR synchronize event. No runtime or test semantics are changed.
+GREEN verification child:
 
-## Current disposition
+- `5f63e7e1bfdef4165a259a7943c5726250dd2097`
 
-`PRODUCTION_CONTROL_PLANE_LIVE_RECEIPT_COMPLETENESS_GREEN_IMPLEMENTED_PENDING_VERIFICATION`
+Required verification:
+
+- Research VNext Incremental Gate Run `33530133237`: `SUCCESS`
+- Type check Run `33530133333`: `SUCCESS`
+- Research VNext Isolation Gate Run `33530133320`: `SUCCESS`
+- Change Note / protected-surface scope gate: `SUCCESS`
+- all Research VNext tests: `SUCCESS`
+- type check: `SUCCESS`
+- full existing research regression: `SUCCESS`
+- Cloudflare Wrangler dry-run only: `SUCCESS`
+- atomic deploy-config dry-run only: `SUCCESS`
+- completeness test proves exactly 3 mock GETs, sentinel token absent from serialized receipt, and explicit `token_leak: false`
+- Owner tool count remains `123`
+- Owner ABI digest remains `00cdcc742cf147263e138561a59003ed9c2e67b6c3ae115a38764dea58c2735d`
+- Production deploy authorized: `false`
+- Production mutation: `NONE`
+
+Immutable-style GREEN evidence:
+
+- Artifact ID: `9809398581`
+- Artifact name: `research-vnext-evidence-33530133237`
+- Artifact digest: `sha256:1e845bff6ec10ca7468e34ce99928aa31dccf4ee12d5047db6aba0c1011b162a`
+
+Disposition:
+
+`PASS_PRODUCTION_CONTROL_PLANE_LIVE_RECEIPT_COMPLETENESS_GREEN`
+
+## Seal requirement
+
+This docs-only seal commit must itself pass:
+
+- Research VNext Incremental Gate;
+- Type check;
+- Research VNext Isolation Gate.
+
+Only after all three seal checks are `SUCCESS` may the corrected GET-only source be considered sealed for a new independently authorized read-only Production snapshot attempt. No Production deploy authorization is granted by this seal.
+
+PR #206 remains Draft/open/unmerged. Production deploy remains unauthorized. Production mutation remains `NONE`.
