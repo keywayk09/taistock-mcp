@@ -1,3 +1,4 @@
+import { finmind as sharedFinmind } from "./common.ts";
 import { readGitHubJson } from "./github-data-store.ts";
 import {
   institutionalWindows,
@@ -13,8 +14,7 @@ import {
   type TwMarketDataKind,
 } from "./tw-market-data.ts";
 
-export const TW_MARKET_DATA_VERSION = "diamond-tw-market-data/v2.0.0-github";
-const FINMIND = "https://api.finmindtrade.com/api/v4/data";
+export const TW_MARKET_DATA_VERSION = "diamond-tw-market-data/v2.1.0-compact-first-finmind-fallback";
 
 export type MarketDataManifestLayer = {
   kind: TwMarketDataKind;
@@ -73,21 +73,21 @@ function manifestPath(date: string) {
   return `data/market-data/daily/${y}/${m}/${d}/manifest.json`;
 }
 
-function shardPath(month: string, symbol: string) {
+function shardPath(month: string, prefix: string) {
   const [year, mon] = month.split("-");
-  const prefix = symbol.slice(0,2);
   return `data/market-data/index/${year}/${mon}/${prefix}.json`;
 }
 
-async function finmind(env: Env, dataset: string, params: Record<string, string>) {
-  if (!env.FINMIND_TOKEN) throw new Error("FINMIND_TOKEN_not_configured");
-  const url = new URL(FINMIND);
-  url.searchParams.set("dataset", dataset);
-  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-  const response = await fetch(url, { headers: { Accept: "application/json", Authorization: `Bearer ${env.FINMIND_TOKEN}` } });
-  const body = await response.json<any>();
-  if (!response.ok || !Array.isArray(body?.data)) throw new Error(`FinMind_${dataset}_http_${response.status}`);
-  return body.data as Record<string, any>[];
+async function readMonthShard(env: Env, month: string, symbol: string) {
+  const compactPrefix = symbol.slice(0, 1);
+  const compact = await readGitHubJson<SymbolMonthShard>(env, shardPath(month, compactPrefix));
+  if (compact.value?.symbols?.[symbol]) {
+    return { read: compact, role: "PREFIX_MONTH_COMPACT" as const };
+  }
+
+  const legacyPrefix = symbol.slice(0, 2);
+  const legacy = await readGitHubJson<SymbolMonthShard>(env, shardPath(month, legacyPrefix));
+  return { read: legacy, role: "PREFIX_MONTH_LEGACY_FALLBACK" as const };
 }
 
 function nullableNumber(value: unknown): number | null {
@@ -147,17 +147,18 @@ function mergeByDate<T extends {trade_date:string;source_priority:"OFFICIAL"|"FA
 async function loadOfficialRows<T>(env: Env, kind: TwMarketDataKind, symbol: string, asOf: string, calendarDays = 90) {
   const start = subtractDays(asOf, calendarDays);
   const months = monthRange(start, asOf);
-  const reads = await Promise.all(months.map((month) => readGitHubJson<SymbolMonthShard>(env, shardPath(month, symbol))));
+  const monthReads = await Promise.all(months.map((month) => readMonthShard(env, month, symbol)));
   const rows:T[] = [];
   const datasets:any[] = [];
-  for (const read of reads) {
+  for (const monthRead of monthReads) {
+    const read = monthRead.read;
     const shard = read.value;
     const kindRows = shard?.symbols?.[symbol]?.[kind] ?? [];
     for (const row of kindRows) {
       const date = String((row as any).trade_date ?? "");
       if (date >= start && date <= asOf) rows.push(row as T);
     }
-    if (kindRows.length) datasets.push({ path:read.path, sha:read.sha, storage:"GITHUB_ONLY" });
+    if (kindRows.length) datasets.push({ path:read.path, sha:read.sha, storage:"GITHUB_ONLY", role:monthRead.role });
   }
   rows.sort((a:any,b:any)=>String(a.trade_date).localeCompare(String(b.trade_date)));
   return { rows, datasets };
@@ -169,7 +170,7 @@ export async function getTwInstitutionalFlow(env: Env, input: {symbol:string;as_
   const official = await loadOfficialRows<InstitutionalRow>(env,"institutional",input.symbol,asOf,calendarDays);
   let fallback:InstitutionalRow[] = [], fallbackError:string|null = null;
   try {
-    fallback = normalizeFinmindInstitutional(await finmind(env,"TaiwanStockInstitutionalInvestorsBuySell",{
+    fallback = normalizeFinmindInstitutional(await sharedFinmind(env,"TaiwanStockInstitutionalInvestorsBuySell",{
       data_id:input.symbol,start_date:subtractDays(asOf,calendarDays),end_date:asOf,
     }),input.symbol);
   } catch (error) { fallbackError=error instanceof Error?error.message:String(error); }
@@ -190,7 +191,7 @@ export async function getTwMarginShort(env: Env, input: {symbol:string;as_of?:st
   const official = await loadOfficialRows<MarginRow>(env,"margin",input.symbol,asOf,calendarDays);
   let fallback:MarginRow[] = [], fallbackError:string|null = null;
   try {
-    fallback = normalizeFinmindMargin(await finmind(env,"TaiwanStockMarginPurchaseShortSale",{
+    fallback = normalizeFinmindMargin(await sharedFinmind(env,"TaiwanStockMarginPurchaseShortSale",{
       data_id:input.symbol,start_date:subtractDays(asOf,calendarDays),end_date:asOf,
     }),input.symbol);
   } catch (error) { fallbackError=error instanceof Error?error.message:String(error); }
