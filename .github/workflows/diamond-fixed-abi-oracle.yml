@@ -13,19 +13,18 @@ permissions:
 jobs:
   oracle:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - name: Checkout repair branch with history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Capture 8/29 fixed ABI tool names
+      - name: Locate legacy ChatGPT facade generation
         shell: bash
         run: |
           set -euo pipefail
-          cp scripts/capture-owner-tool-names-oracle.ts /tmp/capture-owner-tool-names-oracle.ts
-          git checkout --detach 303fd50eeb7d39e5d6b6e9f40832fac1226a241b
-          cp /tmp/capture-owner-tool-names-oracle.ts scripts/capture-owner-tool-names-oracle.ts
-          npm install --ignore-scripts
-          node --experimental-strip-types scripts/capture-owner-tool-names-oracle.ts
+          echo '=== add_industry_evidence history ==='
+          git log --all --date=iso --format='%H %ad %s' -S'add_industry_evidence' -- src || true
+          echo '=== commits around first Owner OAuth cutover ==='
+          git log --all --date=iso --format='%H %ad %s' --before='2026-08-27T23:59:59+08:00' --after='2026-08-20T00:00:00+08:00' -- src/index.ts src/v6/owner-content-handler.ts | head -80
