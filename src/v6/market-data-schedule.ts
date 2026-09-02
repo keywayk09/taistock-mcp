@@ -38,15 +38,23 @@ function checkpointIso(date: string, hour: number, minute: number) {
   return new Date(`${date}T${hh}:${mm}:00+08:00`).toISOString();
 }
 
+function retryEpochCheckpointIso(date: string, hour: number, minute: number) {
+  // Late official data needs bounded retries, not an hour-long one-attempt fence.
+  // A 15-minute epoch still requires each layer's next_retry_at to be due and the
+  // global retry-attempt cap to remain open, so this cannot create a five-minute
+  // provider polling storm.
+  const bucketMinute = Math.floor(minute / 15) * 15;
+  return checkpointIso(date, hour, bucketMinute);
+}
+
 function inMinuteWindow(hour: number, minute: number, targetHour: number, startMinute: number, endMinute: number) {
   return hour === targetHour && minute >= startMinute && minute <= endMinute;
 }
 
 function inSameDayRecoveryWindow(hour: number, minute: number) {
-  // Keep one continuous recovery epoch from 22:15 through the final scheduled
-  // wake at 23:55. Official/relay layers can arrive after 22:55; ending the
-  // epoch at the hour boundary would strand an otherwise recoverable same-day
-  // manifest until the following morning. Midnight still closes the epoch.
+  // Keep same-day recovery available from 22:15 through the final scheduled
+  // wake at 23:55. Midnight still closes the epoch family so the prior trade
+  // date cannot keep mutating indefinitely.
   return (hour === 22 && minute >= 15) || hour === 23;
 }
 
@@ -100,27 +108,31 @@ export function decideExtendedMarketDataSchedule(now = new Date()): MarketDataSc
 
   // Margin / lending / SBL are intentionally delayed until 21:15 so the
   // Worker does not keep polling official endpoints before the data is ready.
+  // Within this late window, each 15-minute epoch may retry a still-missing
+  // layer only after its persisted next_retry_at is due. This lets a relay that
+  // becomes complete after an earlier attempt be consumed before 22:30.
   if (weekday && inMinuteWindow(hour, minute, 21, 15, 55)) {
     return {
       tradeDate: date,
       finalAudit: false,
       lane: "DAILY",
       allowedKinds: [...LATE_KINDS],
-      checkpointStartedAt: checkpointIso(date, 21, 15),
+      checkpointStartedAt: retryEpochCheckpointIso(date, hour, minute),
       reason: "DAILY_LATE",
     };
   }
 
-  // One missing-only recovery epoch later in the evening. Every continuation
-  // wake through 23:55 deliberately keeps the original 22:15 checkpoint so
-  // due-layer attempt fences remain monotonic instead of resetting at 23:00.
+  // Same-day missing-only recovery remains bounded through 23:55. Quarter-hour
+  // retry epochs reopen only the checkpoint fence; dueLayerKeys still enforces
+  // next_retry_at and MAX_AUTOMATIC_RETRY_ATTEMPTS for every actual provider
+  // request. This preserves fail-closed semantics without stranding late data.
   if (weekday && inSameDayRecoveryWindow(hour, minute)) {
     return {
       tradeDate: date,
       finalAudit: false,
       lane: "DAILY",
       allowedKinds: [...ALL_KINDS],
-      checkpointStartedAt: checkpointIso(date, 22, 15),
+      checkpointStartedAt: retryEpochCheckpointIso(date, hour, minute),
       reason: "DAILY_RECOVERY",
     };
   }

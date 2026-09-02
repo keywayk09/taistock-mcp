@@ -91,6 +91,21 @@ assert.equal(dueLayerKeys([attemptedThisCheckpoint], "2026-08-20T13:30:00Z").inc
 // A later recovery checkpoint is a new attempt epoch.
 setMarketDataCapturePolicy({ allowedKinds: ["margin"], checkpointStartedAt: "2026-08-20T14:15:00Z" });
 assert.equal(dueLayerKeys([attemptedThisCheckpoint], "2026-08-20T14:30:00Z").includes("margin-listed"), true);
+
+// 2026-09-02 regression model: OTC SBL failed at 21:25 Taipei and was given a
+// 21:35 next_retry_at. The same 21:15 epoch must still block a retry storm, but
+// a later 21:30 bounded epoch may retry once next_retry_at is due. This is what
+// lets a relay that becomes complete at 21:41 be consumed on the 21:45 wake.
+const lateSblFailure = makePendingLayer(
+  { kind: "sbl_short_sale", market: "otc" },
+  "2026-09-02T13:25:00Z",
+  { error: "TPEX_SHORT_SELL_all_transports_failed", status: "ERROR", retryMinutes: 10 },
+);
+assert.equal(lateSblFailure.next_retry_at, "2026-09-02T13:35:00.000Z");
+setMarketDataCapturePolicy({ allowedKinds: ["sbl_short_sale"], checkpointStartedAt: "2026-09-02T13:15:00Z" });
+assert.equal(dueLayerKeys([lateSblFailure], "2026-09-02T13:35:00Z").includes("sbl_short_sale-otc"), false);
+setMarketDataCapturePolicy({ allowedKinds: ["sbl_short_sale"], checkpointStartedAt: "2026-09-02T13:30:00Z" });
+assert.equal(dueLayerKeys([lateSblFailure], "2026-09-02T13:35:00Z").includes("sbl_short_sale-otc"), true);
 setMarketDataCapturePolicy(null);
 
 // Regression: an unavailable source can never create an unbounded retry storm.
@@ -117,4 +132,4 @@ const identities = [
 const layers = [ready, ...identities.map(([kind, market]) => makePendingLayer({ kind, market }, "2026-08-20T10:15:00Z"))];
 assert.equal(summarizeDay(layers).terminal, false);
 
-console.log("market-data incremental controller + placeholder continuation + retry-storm guard tests passed");
+console.log("market-data incremental controller + bounded retry epoch + placeholder continuation + retry-storm guard tests passed");
