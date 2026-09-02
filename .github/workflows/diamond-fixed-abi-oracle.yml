@@ -20,19 +20,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Scan historical fixed facade candidates
+      - name: Inspect legacy facade registration syntax
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== candidate generations ==='
-          while read -r sha; do
-            if ! git grep -q 'add_industry_evidence' "$sha" -- src 2>/dev/null; then
-              continue
-            fi
-            count="$(git grep -h -o -E 'registerTool\("[A-Za-z0-9_]+' "$sha" -- src 2>/dev/null \
-              | sed 's/.*registerTool("//' | sort -u | wc -l | tr -d ' ')"
-            if [ "$count" -ge 65 ] && [ "$count" -le 95 ]; then
-              meta="$(git show -s --date=iso --format='%ad %s' "$sha")"
-              echo "CANDIDATE sha=$sha literal_tools=$count $meta"
-            fi
-          done < <(git rev-list --first-parent --reverse --since='2026-08-02T00:00:00+08:00' --until='2026-08-27T23:59:59+08:00' origin/main)
+          echo '=== current add_industry_evidence ==='
+          git grep -n -C 8 'add_industry_evidence' origin/main -- src/index.ts src || true
+          echo '=== 8/2 introduction add_industry_evidence ==='
+          git grep -n -C 8 'add_industry_evidence' c37b780f46b4ee581c8d617cac1b15022b57104e -- src/index.ts src || true
+          echo '=== current MCP class/init markers ==='
+          git grep -n -E 'export class .*MCP|class .*MCP|async init\(|\.tool\(|registerTool\(' origin/main -- src/index.ts | tail -120 || true
+          echo '=== 8/2 MCP class/init markers ==='
+          git grep -n -E 'export class .*MCP|class .*MCP|async init\(|\.tool\(|registerTool\(' c37b780f46b4ee581c8d617cac1b15022b57104e -- src/index.ts | tail -120 || true
