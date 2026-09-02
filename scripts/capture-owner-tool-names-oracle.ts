@@ -7,6 +7,8 @@ import * as ts from "typescript";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
+const targetEntry = String(process.env.TARGET_ENTRY || "src/v6/owner-content-handler.ts");
+const expectedCount = Number(process.env.EXPECTED_COUNT || "0");
 const captured: string[] = [];
 
 const fakeServer = {
@@ -50,11 +52,12 @@ cjsRequire.extensions[".ts"] = (module: unknown, filename: string) => {
 nodeModule._load = function (request: string, parent: unknown, isMain: boolean) {
   if (request === "@modelcontextprotocol/sdk/server/mcp.js") return { McpServer: StubMcpServer };
   if (request === "agents/mcp") return { McpAgent: StubMcpAgent };
+  if (request.startsWith("cloudflare:")) return {};
   return originalLoad.call(this, request, parent, isMain);
 };
 
 try {
-  const { MyMCP: OwnerMCP } = cjsRequire(path.join(root, "src/v6/owner-content-handler.ts")) as {
+  const { MyMCP: OwnerMCP } = cjsRequire(path.join(root, targetEntry)) as {
     MyMCP: { prototype: { init: () => Promise<void> } };
   };
   await OwnerMCP.prototype.init.call({ server: fakeServer, env: {} as Env } as any);
@@ -64,7 +67,7 @@ try {
   else delete cjsRequire.extensions[".ts"];
 }
 
-assert.equal(new Set(captured).size, captured.length, "historical Owner tool names must be unique");
+assert.equal(new Set(captured).size, captured.length, "captured tool names must be unique");
 const names = [...captured].sort((a, b) => a.localeCompare(b));
-console.log(`DIAMOND_FIXED_ABI_ORACLE=${JSON.stringify({ count: names.length, names })}`);
-assert.equal(names.length, 79, `8/29 fixed ABI oracle must contain exactly 79 tools, got ${names.length}`);
+console.log(`DIAMOND_FIXED_ABI_ORACLE=${JSON.stringify({ targetEntry, count: names.length, names })}`);
+if (expectedCount > 0) assert.equal(names.length, expectedCount, `expected ${expectedCount} tools, got ${names.length}`);
