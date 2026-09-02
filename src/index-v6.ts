@@ -147,7 +147,9 @@ const publicAppHandler = {
 
     if (url.pathname === "/health/full-market" && request.method === "GET") {
       const { loadStableMarketUniverse, STABLE_MARKET_SOURCE_CONTRACT, STABLE_MARKET_TOOLS_VERSION } = await import("./v6/stable-market-tools");
-      const result = await loadStableMarketUniverse(true);
+      // Production smoke retries and concurrent health readers must share the
+      // same bounded external fan-out instead of starting a fresh MIS sweep.
+      const result = await loadStableMarketUniverse();
       return Response.json({
         status: result.usable ? "ok" : "degraded",
         usable: result.usable,

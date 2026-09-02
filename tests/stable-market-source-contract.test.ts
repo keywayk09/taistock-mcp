@@ -12,6 +12,8 @@ assert.match(stable, /exchangeReport\/STOCK_DAY_ALL/);
 assert.match(stable, /mopsfin\.twse\.com\.tw\/opendata\/t187ap03_O\.csv/);
 assert.match(stable, /mis\.twse\.com\.tw\/stock\/api\/getStockInfo\.jsp/);
 assert.match(stable, /MOPSFIN_COMPANY_MASTER_MIS_OTC/);
+assert.match(stable, /const MIS_MAX_CONCURRENCY = 5/);
+assert.match(stable, /Math\.min\(MIS_MAX_CONCURRENCY, batches\.length\)/);
 
 // Permanent regression guard: these historically blocked Cloudflare egress or
 // required a broken token. They may remain elsewhere for optional/individual
@@ -42,5 +44,15 @@ assert.match(ownerContent, /registerStableMarketTools\(this\.server, this\.env\)
 assert.match(ownerContent, /registerStableSwingScreenTool\(this\.server, this\.env\)/);
 assert.match(entry, /full_market_scan_policy: "FROZEN_TWSE_OPENAPI_PLUS_MOPSFIN_TWSE_MIS; NO_FUGLE_RANKING; NO_FINMIND_REQUIRED; NO_DIRECT_TPEX_QUOTES"/);
 assert.match(entry, /swing_screen_policy: "FROZEN_FULL_MARKET_PREFILTER_PLUS_FUGLE_PER_SYMBOL_HISTORY; NO_FINMIND_REQUIRED"/);
+
+// The live health endpoint is retried by the canonical Production smoke. It must
+// reuse the stable universe cache/in-flight request instead of forcing every
+// retry to fan out to all MIS batches again.
+const fullMarketHealthRoute = entry.slice(
+  entry.indexOf('url.pathname === "/health/full-market"'),
+  entry.indexOf('url.pathname === "/health/formal-blind"'),
+);
+assert.match(fullMarketHealthRoute, /loadStableMarketUniverse\(\)/);
+assert.doesNotMatch(fullMarketHealthRoute, /loadStableMarketUniverse\(true\)/);
 
 console.log("stable market + swing source contracts locked");
