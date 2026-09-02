@@ -128,6 +128,42 @@ test('semantic formal rejection is fail-closed and is not transport-retried', as
     assert.notEqual(result.index.status, 'PASS');
     assert.equal(calls.get('6'), 1, 'semantic/formal failures must never be retried as transport');
     assert.equal(calls.has('7'), false, 'fail closed before later prefixes after a semantic rejection');
+    assert.equal(result.index.retryable, false);
+    assert.equal(result.index.failed_prefix, '6');
+    assert.deepEqual(result.index.completed_prefixes, ['0','1','2','3','4','5']);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('exhausted transport retries persist the pinned revision and resume diagnostics', async () => {
+  const cwd = await tempRepo();
+  const request = { schema: REQUEST_SCHEMA, request_id: 'resilience-exhausted-503-01', kind: 'market_snapshot' };
+  const relative = await writeRequest(cwd, request);
+  const revision = 'e'.repeat(40);
+  const calls = new Map();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const value = String(url);
+    if (value === `${BRIDGE_BASE}/market-latest`) return new Response(latestHtml(revision), { status: 200 });
+    const parsed = new URL(value);
+    const prefix = parsed.searchParams.get('prefix');
+    calls.set(prefix, (calls.get(prefix) ?? 0) + 1);
+    if (prefix === '6') return new Response('still unavailable', { status: 503 });
+    return new Response(JSON.stringify(formalPrefix(prefix, revision)), { status: 200 });
+  };
+  try {
+    const result = await processRelayRequest(relative, cwd);
+    assert.equal(result.index.status, 'ERROR');
+    assert.equal(result.index.error_class, 'TRANSIENT_TRANSPORT');
+    assert.equal(result.index.retryable, true);
+    assert.equal(result.index.as_of, '2026-09-02');
+    assert.equal(result.index.source_revision, revision);
+    assert.equal(result.index.failed_prefix, '6');
+    assert.deepEqual(result.index.completed_prefixes, ['0','1','2','3','4','5']);
+    assert.equal(calls.get('6'), 4, 'transport retry remains strictly bounded');
+    assert.equal(calls.has('7'), false);
   } finally {
     globalThis.fetch = originalFetch;
     await fs.rm(cwd, { recursive: true, force: true });
@@ -141,4 +177,21 @@ test('immutable 40-char market revision must bypass moving-ref commit resolution
     /if\s*\(\/\^\[0-9a-f\]\{40\}\$\/i\.test\(branch\)\)\s*return\s+branch;/,
     'a pinned source_revision should not spend one GitHub /commits lookup per prefix',
   );
+});
+
+test('all automation read surfaces classify transient transport separately from semantic fail-closed gates', async () => {
+  const marketExport = await fs.readFile(new URL('../src/v6/automation-market-export-route.ts', import.meta.url), 'utf8');
+  const ohlc = await fs.readFile(new URL('../src/v6/automation-ohlc-1d-route.ts', import.meta.url), 'utf8');
+  const rest = await fs.readFile(new URL('../src/v6/automation-research-rest.ts', import.meta.url), 'utf8');
+  const blind = await fs.readFile(new URL('../src/v6/formal-blind-ohlc-reader.ts', import.meta.url), 'utf8');
+
+  assert.match(marketExport, /MARKET_EXPORT_TRANSPORT_UNAVAILABLE/);
+  assert.match(marketExport, /MARKET_DATA_NOT_FORMAL/);
+  assert.match(ohlc, /OHLC_1D_TRANSPORT_UNAVAILABLE/);
+  assert.match(ohlc, /OHLC_1D_NOT_FORMAL/);
+  assert.match(rest, /BRIDGE_TRANSPORT_UNAVAILABLE/);
+  assert.match(rest, /FORMAL_BLIND_TRANSPORT_UNAVAILABLE/);
+  assert.match(rest, /LATEST_MARKET_DATA_NOT_FORMAL/);
+  assert.match(blind, /retryable_transport_error/);
+  assert.match(blind, /CANONICAL_VERIFICATION_NOT_ELIGIBLE/);
 });
