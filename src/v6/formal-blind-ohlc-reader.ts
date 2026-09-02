@@ -1,8 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { readResearchBlindOhlcFallback } from "./research-blind-ohlc-fallback.ts";
+import { AUTOMATION_TRANSIENT_HTTP_STATUSES } from "./automation-transport-error.ts";
 
-export const FORMAL_BLIND_OHLC_READER_VERSION = "formal-blind-ohlc-reader/v1.0.0";
+export const FORMAL_BLIND_OHLC_READER_VERSION = "formal-blind-ohlc-reader/v1.1.0";
 const DEFAULT_OHLC_BASE_URL = "https://tv-fugle-1d.keikei99887.workers.dev";
 
 type FormalBlindArgs = {
@@ -20,7 +21,7 @@ function normalizeDecisionTime(value: string) {
   return raw.length === 5 ? `${raw}:00` : raw;
 }
 
-function blocked(base: Record<string, unknown>, reason: string, receipt: unknown = null) {
+function blocked(base: Record<string, unknown>, reason: string, receipt: unknown = null, extra: Record<string, unknown> = {}) {
   return {
     ...base,
     formal_blind_eligible: false,
@@ -29,6 +30,7 @@ function blocked(base: Record<string, unknown>, reason: string, receipt: unknown
     eligibility_reason: reason,
     canonical_verification_receipt: receipt,
     formal_reader_version: FORMAL_BLIND_OHLC_READER_VERSION,
+    ...extra,
   };
 }
 
@@ -72,16 +74,27 @@ export async function readFormalBlindOhlc(
       headers: {
         Accept: "application/json",
         "Cache-Control": "no-cache",
-        "User-Agent": "taistock-formal-blind-reader/1.0",
+        "User-Agent": "taistock-formal-blind-reader/1.1",
       },
     });
   } catch (error) {
-    return blocked(fallbackRecord, `CANONICAL_VERIFICATION_HTTP_FAILED:${String((error as Error)?.message || error)}`);
+    return blocked(
+      fallbackRecord,
+      `CANONICAL_VERIFICATION_HTTP_FAILED:${String((error as Error)?.message || error)}`,
+      null,
+      { retryable_transport_error: true, transport_error_class: "TRANSIENT_TRANSPORT" },
+    );
   }
 
   const receipt = await response.json().catch(() => null) as AnyRecord | null;
   if (!response.ok) {
-    return blocked(fallbackRecord, `CANONICAL_VERIFICATION_HTTP_${response.status}`, receipt);
+    const retryable = AUTOMATION_TRANSIENT_HTTP_STATUSES.has(response.status);
+    return blocked(
+      fallbackRecord,
+      `CANONICAL_VERIFICATION_HTTP_${response.status}`,
+      receipt,
+      retryable ? { retryable_transport_error: true, transport_error_class: "TRANSIENT_TRANSPORT" } : {},
+    );
   }
   if (!receiptMatches(receipt, input)) {
     return blocked(fallbackRecord, String(receipt?.eligibility_reason || receipt?.error || "CANONICAL_VERIFICATION_NOT_ELIGIBLE"), receipt);
@@ -96,6 +109,7 @@ export async function readFormalBlindOhlc(
     scorecard_eligible: true,
     eligibility_reason: "CANONICAL_OHLC_RESEARCH_GATE_VERIFIED",
     canonical_verification_receipt: receipt,
+    retryable_transport_error: false,
     formal_reader_version: FORMAL_BLIND_OHLC_READER_VERSION,
   };
 }
