@@ -1,0 +1,5 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "canary-market-snapshot-latest-20260902-v1",
+  "kind": "market_snapshot"
+}
