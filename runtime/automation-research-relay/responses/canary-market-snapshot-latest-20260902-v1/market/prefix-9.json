@@ -1,0 +1,4915 @@
+{
+  "ok": true,
+  "blocked": false,
+  "route_version": "automation-market-export/v1.0.0",
+  "reader_version": "diamond-market-data-cross-section/v1",
+  "read_only": true,
+  "writer_routes": false,
+  "formal_research_eligible": true,
+  "as_of": "2026-09-01",
+  "prefix": "9",
+  "source_revision": "51abce2769de962e177bb7133ae9bb43c35c6595",
+  "data_gate": {
+    "source_revision": "51abce2769de962e177bb7133ae9bb43c35c6595",
+    "manifest_path": "data/market-data/daily/2026/09/01/manifest.json",
+    "manifest_sha": "2150ab40d59af2199c092207b2cabc0d5ec581f5",
+    "manifest_valid": true,
+    "manifest_error": null,
+    "manifest_trade_date": "2026-09-01",
+    "day_status": "COMPLETE",
+    "ready_layers": 8,
+    "expected_layers": 8,
+    "missing_layers": [],
+    "index_status": "READY",
+    "completed_prefixes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9"
+    ],
+    "requested_prefixes_complete": true
+  },
+  "scan": {
+    "prefixes_requested": [
+      "9"
+    ],
+    "months_requested": [
+      "2026-08",
+      "2026-09"
+    ],
+    "shard_reads": 2,
+    "missing_shards": [],
+    "invalid_shards": [],
+    "symbols_discovered": 51,
+    "symbols_returned": 51,
+    "limit": 500
+  },
+  "datasets": [
+    {
+      "path": "data/market-data/index/2026/08/9.json",
+      "sha": "063a17863347067770825b1ef6c78d676704e1cc",
+      "month": "2026-08",
+      "prefix": "9"
+    },
+    {
+      "path": "data/market-data/index/2026/09/9.json",
+      "sha": "e3d6e4378875eecf3d699eae136933ea2a652f3e",
+      "month": "2026-09",
+      "prefix": "9"
+    }
+  ],
+  "symbol_count": 51,
+  "symbols": [
+    {
+      "symbol": "9103",
+      "name": "美德醫療-DR",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -100401,
+        "latest_foreign_net_shares": -99000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": -1401,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -100401,
+        "net_3d": -117001,
+        "net_5d": 123721
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 3533,
+        "short_balance_lots": 64,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -3,
+        "margin_change_3d": -50,
+        "margin_change_5d": -44,
+        "short_change_1d": -3,
+        "short_change_3d": 0,
+        "short_change_5d": -2
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 4273000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": -66000,
+        "net_borrowed_3d": -124000,
+        "net_borrowed_5d": -84000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 3689000,
+        "available_shares": 398202,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 12000,
+        "sold_3d": 12000,
+        "sold_5d": 12000
+      }
+    },
+    {
+      "symbol": "910322",
+      "name": "康師傅-DR",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": false,
+        "sbl_short_sale": true,
+        "ready_layers": 3,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -11000,
+        "latest_foreign_net_shares": -11000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -11000,
+        "net_3d": -10000,
+        "net_5d": 138000
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 0,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": 0,
+        "margin_change_5d": 0,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": null,
+        "balance_shares": null,
+        "window_days": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "window_observations": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "net_borrowed_1d": null,
+        "net_borrowed_3d": null,
+        "net_borrowed_5d": null
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 0,
+        "available_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "9105",
+      "name": "泰金寶-DR",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -1379576,
+        "latest_foreign_net_shares": -1392100,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 12524,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -1379576,
+        "net_3d": 5661549,
+        "net_5d": 8760745
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 47240,
+        "short_balance_lots": 136,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 933,
+        "margin_change_3d": -275,
+        "margin_change_5d": -319,
+        "short_change_1d": -35,
+        "short_change_3d": 136,
+        "short_change_5d": 136
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 45824000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": -77000,
+        "net_borrowed_3d": -137000,
+        "net_borrowed_5d": -399000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 44577094,
+        "available_shares": 5707084,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 22000,
+        "sold_5d": 528000
+      }
+    },
+    {
+      "symbol": "910861",
+      "name": "神州-DR",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": false,
+        "sbl_short_sale": true,
+        "ready_layers": 3,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-08-26",
+        "latest_total_net_shares": -3000,
+        "latest_foreign_net_shares": -3000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 2,
+          "5d": 2
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 2,
+          "5d": 2
+        },
+        "net_1d": -3000,
+        "net_3d": null,
+        "net_5d": null
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 0,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": 0,
+        "margin_change_5d": 0,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": null,
+        "balance_shares": null,
+        "window_days": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "window_observations": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "net_borrowed_1d": null,
+        "net_borrowed_3d": null,
+        "net_borrowed_5d": null
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 0,
+        "available_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "911608",
+      "name": "明輝-DR",
+      "market": "listed",
+      "data_as_of": "2026-08-28",
+      "coverage": {
+        "institutional": true,
+        "margin": false,
+        "securities_lending": false,
+        "sbl_short_sale": false,
+        "ready_layers": 1,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-08-28",
+        "latest_total_net_shares": -5000,
+        "latest_foreign_net_shares": -5000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -5000,
+        "net_3d": -9000,
+        "net_5d": -8000
+      },
+      "margin": {
+        "latest_trade_date": null,
+        "margin_balance_lots": null,
+        "short_balance_lots": null,
+        "window_days": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "margin_change_observations": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "short_change_observations": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "margin_change_1d": null,
+        "margin_change_3d": null,
+        "margin_change_5d": null,
+        "short_change_1d": null,
+        "short_change_3d": null,
+        "short_change_5d": null
+      },
+      "securities_lending": {
+        "latest_trade_date": null,
+        "balance_shares": null,
+        "window_days": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "window_observations": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "net_borrowed_1d": null,
+        "net_borrowed_3d": null,
+        "net_borrowed_5d": null
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": null,
+        "balance_shares": null,
+        "available_shares": null,
+        "window_days": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "window_observations": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "sold_1d": null,
+        "sold_3d": null,
+        "sold_5d": null
+      }
+    },
+    {
+      "symbol": "911868",
+      "name": "同方友友-DR",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -2000,
+        "latest_foreign_net_shares": -2000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -2000,
+        "net_3d": -5000,
+        "net_5d": 2000
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 0,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": 0,
+        "margin_change_5d": 0,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 183000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 0,
+        "net_borrowed_5d": 0
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 3000,
+        "available_shares": 85407,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "912000",
+      "name": "晨訊科-DR",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 48000,
+        "latest_foreign_net_shares": 48000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 48000,
+        "net_3d": 159000,
+        "net_5d": 293000
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 14546,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 232,
+        "margin_change_3d": -202,
+        "margin_change_5d": -1905,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1445000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 0,
+        "net_borrowed_5d": 0
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1274000,
+        "available_shares": 146933,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "9136",
+      "name": "巨騰-DR",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -11320,
+        "latest_foreign_net_shares": -12000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 680,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -11320,
+        "net_3d": 12232,
+        "net_5d": 79077
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 11539,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 27,
+        "margin_change_3d": 21,
+        "margin_change_5d": -51,
+        "short_change_1d": -10,
+        "short_change_3d": -56,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1314000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 9000,
+        "net_borrowed_3d": 25000,
+        "net_borrowed_5d": 42000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1313000,
+        "available_shares": 139438,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 11000,
+        "sold_3d": 24000,
+        "sold_5d": 41000
+      }
+    },
+    {
+      "symbol": "9802",
+      "name": "鈺齊-KY",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 38197,
+        "latest_foreign_net_shares": -228693,
+        "latest_trust_net_shares": 184000,
+        "latest_dealer_net_shares": 82890,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 38197,
+        "net_3d": -121362,
+        "net_5d": -129061
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 2026,
+        "short_balance_lots": 6,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -7,
+        "margin_change_3d": -5,
+        "margin_change_5d": -39,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 9186000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": -183000,
+        "net_borrowed_3d": -194000,
+        "net_borrowed_5d": -278000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 8585849,
+        "available_shares": 213964,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 29000,
+        "sold_3d": 83000,
+        "sold_5d": 100000
+      }
+    },
+    {
+      "symbol": "9902",
+      "name": "台火",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 9000,
+        "latest_foreign_net_shares": 8000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 1000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 9000,
+        "net_3d": 23000,
+        "net_5d": 27000
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 3207,
+        "short_balance_lots": 1,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 8,
+        "margin_change_3d": 19,
+        "margin_change_5d": 24,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 931000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 1000,
+        "net_borrowed_5d": -3000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 921000,
+        "available_shares": 32239,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 1000,
+        "sold_5d": 1000
+      }
+    },
+    {
+      "symbol": "9904",
+      "name": "寶成",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 275301,
+        "latest_foreign_net_shares": 81000,
+        "latest_trust_net_shares": 38566,
+        "latest_dealer_net_shares": 155735,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 275301,
+        "net_3d": -10046357,
+        "net_5d": -20322135
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 26269,
+        "short_balance_lots": 8,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -367,
+        "margin_change_3d": -440,
+        "margin_change_5d": -185,
+        "short_change_1d": -3,
+        "short_change_3d": 2,
+        "short_change_5d": -5
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 180314000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": -835000,
+        "net_borrowed_3d": 1161000,
+        "net_borrowed_5d": -1667000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 150841751,
+        "available_shares": 5532944,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 470000,
+        "sold_3d": 4192000,
+        "sold_5d": 5926000
+      }
+    },
+    {
+      "symbol": "9905",
+      "name": "大華",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 14000,
+        "latest_foreign_net_shares": 20000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": -6000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 14000,
+        "net_3d": 21000,
+        "net_5d": 33645
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 32,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": 0,
+        "margin_change_5d": 1,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 489000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 0,
+        "net_borrowed_5d": 0
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 180000,
+        "available_shares": 44412,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "9906",
+      "name": "欣巴巴",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 6000,
+        "latest_foreign_net_shares": 4000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 2000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 6000,
+        "net_3d": 3000,
+        "net_5d": 61000
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 401,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 2,
+        "margin_change_3d": -3,
+        "margin_change_5d": -3,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1172000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": -24000,
+        "net_borrowed_3d": -47000,
+        "net_borrowed_5d": -99000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1115386,
+        "available_shares": 16817,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 3000,
+        "sold_3d": 8000,
+        "sold_5d": 8000
+      }
+    },
+    {
+      "symbol": "9907",
+      "name": "統一實",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 931895,
+        "latest_foreign_net_shares": 945632,
+        "latest_trust_net_shares": -17737,
+        "latest_dealer_net_shares": 4000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 931895,
+        "net_3d": 194468,
+        "net_5d": 4881896
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 3874,
+        "short_balance_lots": 1,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -14,
+        "margin_change_3d": 12,
+        "margin_change_5d": 21,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 38287000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": -1611000,
+        "net_borrowed_3d": -2391000,
+        "net_borrowed_5d": -5532000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 35955000,
+        "available_shares": 888563,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 22000,
+        "sold_3d": 333000,
+        "sold_5d": 529000
+      }
+    },
+    {
+      "symbol": "9908",
+      "name": "大台北",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -35973,
+        "latest_foreign_net_shares": -36950,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 977,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -35973,
+        "net_3d": -95256,
+        "net_5d": -99735
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 115,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": 0,
+        "margin_change_5d": 0,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1768000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 0,
+        "net_borrowed_5d": -176000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1182000,
+        "available_shares": 47178,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 3000,
+        "sold_5d": 3000
+      }
+    },
+    {
+      "symbol": "9910",
+      "name": "豐泰",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 310609,
+        "latest_foreign_net_shares": 186433,
+        "latest_trust_net_shares": 120000,
+        "latest_dealer_net_shares": 4176,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 310609,
+        "net_3d": -70570,
+        "net_5d": -1391541
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 2050,
+        "short_balance_lots": 7,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 4,
+        "margin_change_3d": -27,
+        "margin_change_5d": 83,
+        "short_change_1d": 0,
+        "short_change_3d": -4,
+        "short_change_5d": 7
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 34657000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": -119000,
+        "net_borrowed_3d": 166000,
+        "net_borrowed_5d": 211000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 32705880,
+        "available_shares": 414955,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 52000,
+        "sold_3d": 246000,
+        "sold_5d": 604000
+      }
+    },
+    {
+      "symbol": "9911",
+      "name": "櫻花",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -117780,
+        "latest_foreign_net_shares": -118780,
+        "latest_trust_net_shares": 1000,
+        "latest_dealer_net_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -117780,
+        "net_3d": -232780,
+        "net_5d": -211885
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 376,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -4,
+        "margin_change_3d": -5,
+        "margin_change_5d": -14,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 2948000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 21000,
+        "net_borrowed_3d": 61000,
+        "net_borrowed_5d": 0
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1816000,
+        "available_shares": 81964,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 21000,
+        "sold_3d": 54000,
+        "sold_5d": 54000
+      }
+    },
+    {
+      "symbol": "9912",
+      "name": "偉聯",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": false,
+        "sbl_short_sale": true,
+        "ready_layers": 3,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 19000,
+        "latest_foreign_net_shares": 17000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 2000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 19000,
+        "net_3d": 5852,
+        "net_5d": 64852
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 0,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": 0,
+        "margin_change_5d": 0,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": null,
+        "balance_shares": null,
+        "window_days": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "window_observations": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "net_borrowed_1d": null,
+        "net_borrowed_3d": null,
+        "net_borrowed_5d": null
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 0,
+        "available_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "9914",
+      "name": "美利達",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -276700,
+        "latest_foreign_net_shares": -167666,
+        "latest_trust_net_shares": -152000,
+        "latest_dealer_net_shares": 42966,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -276700,
+        "net_3d": -1457297,
+        "net_5d": -2102787
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 2132,
+        "short_balance_lots": 7,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 36,
+        "margin_change_3d": 60,
+        "margin_change_5d": 151,
+        "short_change_1d": 0,
+        "short_change_3d": -8,
+        "short_change_5d": -12
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 17004000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 445000,
+        "net_borrowed_3d": 2147000,
+        "net_borrowed_5d": 3097000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 13084000,
+        "available_shares": 1132466,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 202000,
+        "sold_3d": 941000,
+        "sold_5d": 1834000
+      }
+    },
+    {
+      "symbol": "9917",
+      "name": "中保科",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -207070,
+        "latest_foreign_net_shares": -214070,
+        "latest_trust_net_shares": 7000,
+        "latest_dealer_net_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -207070,
+        "net_3d": -637174,
+        "net_5d": -297250
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 59,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": -5,
+        "margin_change_5d": -3,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 4307000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 16000,
+        "net_borrowed_3d": -445000,
+        "net_borrowed_5d": -629000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 3813425,
+        "available_shares": 125155,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 13000,
+        "sold_3d": 78000,
+        "sold_5d": 105000
+      }
+    },
+    {
+      "symbol": "9918",
+      "name": "欣天然",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -2000,
+        "latest_foreign_net_shares": -2000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -2000,
+        "net_3d": -3000,
+        "net_5d": -1000
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 49,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -1,
+        "margin_change_3d": -1,
+        "margin_change_5d": -1,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 71000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 0,
+        "net_borrowed_5d": 0
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 71000,
+        "available_shares": 9775,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "9919",
+      "name": "康那香",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 20000,
+        "latest_foreign_net_shares": 19000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 1000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 20000,
+        "net_3d": 191000,
+        "net_5d": 344000
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 8068,
+        "short_balance_lots": 1,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -3,
+        "margin_change_3d": -14,
+        "margin_change_5d": -32,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": -4
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 3809000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": -25000,
+        "net_borrowed_3d": -95000,
+        "net_borrowed_5d": -205000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 3804000,
+        "available_shares": 181702,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 1000,
+        "sold_5d": 1000
+      }
+    },
+    {
+      "symbol": "9921",
+      "name": "巨大",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 86221,
+        "latest_foreign_net_shares": 56456,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 29765,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 86221,
+        "net_3d": 202820,
+        "net_5d": 955954
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 1179,
+        "short_balance_lots": 4,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 20,
+        "margin_change_3d": -84,
+        "margin_change_5d": -105,
+        "short_change_1d": -1,
+        "short_change_3d": -7,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 14974000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 410000,
+        "net_borrowed_3d": 2252000,
+        "net_borrowed_5d": 2039000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 11536496,
+        "available_shares": 1123290,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 197000,
+        "sold_3d": 766000,
+        "sold_5d": 1144000
+      }
+    },
+    {
+      "symbol": "9924",
+      "name": "福興",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 2000,
+        "latest_foreign_net_shares": 1000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 1000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 2000,
+        "net_3d": -39734,
+        "net_5d": -61802
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 757,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": -1,
+        "margin_change_5d": -1,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 651000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 1000,
+        "net_borrowed_3d": 12000,
+        "net_borrowed_5d": 13000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 645000,
+        "available_shares": 64750,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 2000,
+        "sold_3d": 15000,
+        "sold_5d": 20000
+      }
+    },
+    {
+      "symbol": "9925",
+      "name": "新保",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 261332,
+        "latest_foreign_net_shares": 316000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": -54668,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 261332,
+        "net_3d": -1612398,
+        "net_5d": -2768469
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 11,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -53,
+        "margin_change_3d": 4,
+        "margin_change_5d": 2,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 6029000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": -183000,
+        "net_borrowed_3d": 12000,
+        "net_borrowed_5d": 122000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 5245151,
+        "available_shares": 318076,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 1000,
+        "sold_3d": 198000,
+        "sold_5d": 360000
+      }
+    },
+    {
+      "symbol": "9926",
+      "name": "新海",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -1000,
+        "latest_foreign_net_shares": -2000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 1000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -1000,
+        "net_3d": -6000,
+        "net_5d": 24000
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 6,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": 0,
+        "margin_change_5d": 0,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 184000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 0,
+        "net_borrowed_5d": 0
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 184000,
+        "available_shares": 5902,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "9927",
+      "name": "泰銘",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 6000,
+        "latest_foreign_net_shares": -35000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 41000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 6000,
+        "net_3d": 55000,
+        "net_5d": 115402
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 57,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": -5,
+        "margin_change_5d": -3,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 501000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 14000,
+        "net_borrowed_3d": 19000,
+        "net_borrowed_5d": 20000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 356000,
+        "available_shares": 27046,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 14000,
+        "sold_3d": 37000,
+        "sold_5d": 41000
+      }
+    },
+    {
+      "symbol": "9928",
+      "name": "中視",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-08-26",
+        "latest_total_net_shares": 2000,
+        "latest_foreign_net_shares": 0,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 2000,
+        "window_days": {
+          "1d": 1,
+          "3d": 2,
+          "5d": 2
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 2,
+          "5d": 2
+        },
+        "net_1d": 2000,
+        "net_3d": null,
+        "net_5d": null
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 432,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -4,
+        "margin_change_3d": -12,
+        "margin_change_5d": -52,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": -3
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 0,
+        "net_borrowed_5d": 0
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1000,
+        "available_shares": 14647,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "9929",
+      "name": "秋雨",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": false,
+        "sbl_short_sale": true,
+        "ready_layers": 3,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -1000,
+        "latest_foreign_net_shares": -2000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 1000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -1000,
+        "net_3d": -5000,
+        "net_5d": 0
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 0,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": 0,
+        "margin_change_5d": 0,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": null,
+        "balance_shares": null,
+        "window_days": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "window_observations": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "net_borrowed_1d": null,
+        "net_borrowed_3d": null,
+        "net_borrowed_5d": null
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 0,
+        "available_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "9930",
+      "name": "中聯資源",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -5182,
+        "latest_foreign_net_shares": -3000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": -2182,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -5182,
+        "net_3d": -26492,
+        "net_5d": -17806
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 19,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": 0,
+        "margin_change_5d": 0,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 867000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": -6000,
+        "net_borrowed_3d": -9000,
+        "net_borrowed_5d": -11000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 670000,
+        "available_shares": 37328,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 2000,
+        "sold_5d": 3000
+      }
+    },
+    {
+      "symbol": "9931",
+      "name": "欣高",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 0,
+        "latest_foreign_net_shares": -1000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 1000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 0,
+        "net_3d": -6890,
+        "net_5d": 9110
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 64,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": -1,
+        "margin_change_5d": 0,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 522000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 0,
+        "net_borrowed_5d": 0
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 351320,
+        "available_shares": 7076,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "9933",
+      "name": "中鼎",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 56067,
+        "latest_foreign_net_shares": -337449,
+        "latest_trust_net_shares": 403000,
+        "latest_dealer_net_shares": -9484,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 56067,
+        "net_3d": -2184345,
+        "net_5d": -2222031
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 4145,
+        "short_balance_lots": 4,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -1,
+        "margin_change_3d": 35,
+        "margin_change_5d": -72,
+        "short_change_1d": 1,
+        "short_change_3d": -31,
+        "short_change_5d": -30
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 29825000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": -2357000,
+        "net_borrowed_5d": -4069000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 8670299,
+        "available_shares": 758766,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 1000,
+        "sold_3d": 91000,
+        "sold_5d": 107000
+      }
+    },
+    {
+      "symbol": "9934",
+      "name": "成霖",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -85000,
+        "latest_foreign_net_shares": -87000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 2000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -85000,
+        "net_3d": -412510,
+        "net_5d": -503060
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 5783,
+        "short_balance_lots": 6,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -2,
+        "margin_change_3d": -136,
+        "margin_change_5d": -157,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 3548000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 20000,
+        "net_borrowed_5d": 18000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1567000,
+        "available_shares": 441735,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 4000,
+        "sold_3d": 24000,
+        "sold_5d": 24000
+      }
+    },
+    {
+      "symbol": "9935",
+      "name": "慶豐富",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 6999,
+        "latest_foreign_net_shares": 7999,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": -1000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 6999,
+        "net_3d": -66161,
+        "net_5d": 41249
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 1427,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -9,
+        "margin_change_3d": -4,
+        "margin_change_5d": 44,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1276000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 1000,
+        "net_borrowed_5d": -2000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 781824,
+        "available_shares": 116014,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 1000,
+        "sold_5d": 1000
+      }
+    },
+    {
+      "symbol": "9937",
+      "name": "全國",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -4000,
+        "latest_foreign_net_shares": -6000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 2000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -4000,
+        "net_3d": -34000,
+        "net_5d": -4000
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 142,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": 7,
+        "margin_change_5d": 7,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 252000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 0,
+        "net_borrowed_5d": 0
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 162000,
+        "available_shares": 9424,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "9938",
+      "name": "百和",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -461854,
+        "latest_foreign_net_shares": -181000,
+        "latest_trust_net_shares": -281099,
+        "latest_dealer_net_shares": 245,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -461854,
+        "net_3d": -1080255,
+        "net_5d": -1045405
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 3161,
+        "short_balance_lots": 2,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 78,
+        "margin_change_3d": 152,
+        "margin_change_5d": 111,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 21945000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 362000,
+        "net_borrowed_3d": 493000,
+        "net_borrowed_5d": -25000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 21689000,
+        "available_shares": 424251,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 151000,
+        "sold_3d": 567000,
+        "sold_5d": 712000
+      }
+    },
+    {
+      "symbol": "9939",
+      "name": "宏全",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -46660,
+        "latest_foreign_net_shares": 80000,
+        "latest_trust_net_shares": -126884,
+        "latest_dealer_net_shares": 224,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -46660,
+        "net_3d": -178201,
+        "net_5d": -371619
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 1198,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 27,
+        "margin_change_3d": 34,
+        "margin_change_5d": -34,
+        "short_change_1d": 0,
+        "short_change_3d": -1,
+        "short_change_5d": -1
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 7342000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": -238000,
+        "net_borrowed_3d": -239000,
+        "net_borrowed_5d": -220000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 6697410,
+        "available_shares": 485605,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 1000,
+        "sold_3d": 22000,
+        "sold_5d": 97000
+      }
+    },
+    {
+      "symbol": "9940",
+      "name": "信義",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -18231,
+        "latest_foreign_net_shares": -24000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 5769,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -18231,
+        "net_3d": -562257,
+        "net_5d": -592738
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 1244,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 10,
+        "margin_change_3d": 41,
+        "margin_change_5d": 12,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 2289000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 6000,
+        "net_borrowed_3d": 34000,
+        "net_borrowed_5d": 67000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1521000,
+        "available_shares": 132340,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 12000,
+        "sold_3d": 93000,
+        "sold_5d": 128000
+      }
+    },
+    {
+      "symbol": "9941",
+      "name": "裕融",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -489815,
+        "latest_foreign_net_shares": -705816,
+        "latest_trust_net_shares": 295329,
+        "latest_dealer_net_shares": -79328,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -489815,
+        "net_3d": -1099529,
+        "net_5d": -651130
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 781,
+        "short_balance_lots": 7,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 24,
+        "margin_change_3d": 13,
+        "margin_change_5d": -3,
+        "short_change_1d": 7,
+        "short_change_3d": 7,
+        "short_change_5d": 6
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 15447000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": -233000,
+        "net_borrowed_3d": -187000,
+        "net_borrowed_5d": -58000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 14983011,
+        "available_shares": 381485,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 156000,
+        "sold_3d": 547000,
+        "sold_5d": 961000
+      }
+    },
+    {
+      "symbol": "9942",
+      "name": "茂順",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -15220,
+        "latest_foreign_net_shares": -16220,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 1000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -15220,
+        "net_3d": -72963,
+        "net_5d": -119064
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 38,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 2,
+        "margin_change_3d": 9,
+        "margin_change_5d": 9,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 797000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": -10000,
+        "net_borrowed_5d": 0
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 531000,
+        "available_shares": 34655,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 2000,
+        "sold_3d": 2000,
+        "sold_5d": 20000
+      }
+    },
+    {
+      "symbol": "9943",
+      "name": "好樂迪",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 4000,
+        "latest_foreign_net_shares": 4000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 4000,
+        "net_3d": 20000,
+        "net_5d": 42000
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 78,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 1,
+        "margin_change_3d": 1,
+        "margin_change_5d": 2,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 780000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": -1000,
+        "net_borrowed_3d": -6000,
+        "net_borrowed_5d": -15000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 561000,
+        "available_shares": 25745,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 1000,
+        "sold_3d": 5000,
+        "sold_5d": 5000
+      }
+    },
+    {
+      "symbol": "9944",
+      "name": "新麗",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 2020,
+        "latest_foreign_net_shares": 9020,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": -7000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 2020,
+        "net_3d": -4980,
+        "net_5d": 2522
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 5541,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 2,
+        "margin_change_3d": 4,
+        "margin_change_5d": 5,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 91000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 0,
+        "net_borrowed_5d": -1000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 86000,
+        "available_shares": 11079,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 1000,
+        "sold_5d": 1000
+      }
+    },
+    {
+      "symbol": "9945",
+      "name": "潤泰新",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -1086055,
+        "latest_foreign_net_shares": -1185000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 98945,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -1086055,
+        "net_3d": -7651129,
+        "net_5d": -9889907
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 23353,
+        "short_balance_lots": 28,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -180,
+        "margin_change_3d": 483,
+        "margin_change_5d": 780,
+        "short_change_1d": 0,
+        "short_change_3d": 3,
+        "short_change_5d": 5
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 44257000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 663000,
+        "net_borrowed_3d": 2510000,
+        "net_borrowed_5d": -942000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 33358000,
+        "available_shares": 2395564,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 736000,
+        "sold_3d": 2014000,
+        "sold_5d": 3386000
+      }
+    },
+    {
+      "symbol": "9946",
+      "name": "三發地產",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -73000,
+        "latest_foreign_net_shares": -68000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": -5000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -73000,
+        "net_3d": -386998,
+        "net_5d": -793724
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 898,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 11,
+        "margin_change_3d": 27,
+        "margin_change_5d": 45,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1565000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 9000,
+        "net_borrowed_3d": -238000,
+        "net_borrowed_5d": -252000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1265150,
+        "available_shares": 106315,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 44000,
+        "sold_3d": 144000,
+        "sold_5d": 149000
+      }
+    },
+    {
+      "symbol": "9949",
+      "name": "琉園",
+      "market": "otc",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -11017,
+        "latest_foreign_net_shares": -11000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": -17,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -11017,
+        "net_3d": -22996,
+        "net_5d": -27242
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 4350,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -13,
+        "margin_change_3d": -9,
+        "margin_change_5d": -1632,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 24000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 0,
+        "net_borrowed_5d": 0
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 24000,
+        "available_shares": 41586,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "9950",
+      "name": "萬國通",
+      "market": "otc",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": false,
+        "sbl_short_sale": true,
+        "ready_layers": 3,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 200,
+        "latest_foreign_net_shares": 0,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 200,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 200,
+        "net_3d": -3811,
+        "net_5d": -3860
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 0,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 0,
+        "margin_change_3d": 0,
+        "margin_change_5d": 0,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": null,
+        "balance_shares": null,
+        "window_days": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "window_observations": {
+          "1d": 0,
+          "3d": 0,
+          "5d": 0
+        },
+        "net_borrowed_1d": null,
+        "net_borrowed_3d": null,
+        "net_borrowed_5d": null
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 0,
+        "available_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "9951",
+      "name": "皇田",
+      "market": "otc",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 67999,
+        "latest_foreign_net_shares": 28000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 39999,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 67999,
+        "net_3d": 65402,
+        "net_5d": 89421
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 192,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -2,
+        "margin_change_3d": -2,
+        "margin_change_5d": -5,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 211000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 0,
+        "net_borrowed_5d": 0
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 167000,
+        "available_shares": 14138,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "9955",
+      "name": "佳龍",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 17000,
+        "latest_foreign_net_shares": 16000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 1000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 17000,
+        "net_3d": -98742,
+        "net_5d": 114468
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 1288,
+        "short_balance_lots": 70,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -16,
+        "margin_change_3d": 30,
+        "margin_change_5d": 83,
+        "short_change_1d": -18,
+        "short_change_3d": -17,
+        "short_change_5d": -19
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1380000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 13000,
+        "net_borrowed_3d": 15000,
+        "net_borrowed_5d": 29000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 1290000,
+        "available_shares": 91559,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 4000,
+        "sold_5d": 4000
+      }
+    },
+    {
+      "symbol": "9958",
+      "name": "世紀鋼",
+      "market": "listed",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 27030,
+        "latest_foreign_net_shares": 56030,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": -29000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": 27030,
+        "net_3d": -516841,
+        "net_5d": -1423276
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 8518,
+        "short_balance_lots": 2660,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 25,
+        "margin_change_3d": 45,
+        "margin_change_5d": 47,
+        "short_change_1d": 335,
+        "short_change_3d": 774,
+        "short_change_5d": 894
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 18231000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 215000,
+        "net_borrowed_3d": 895000,
+        "net_borrowed_5d": 1330000
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 17981339,
+        "available_shares": 602091,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 176000,
+        "sold_3d": 1009000,
+        "sold_5d": 1705000
+      }
+    },
+    {
+      "symbol": "9960",
+      "name": "邁達康",
+      "market": "otc",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": 40,
+        "latest_foreign_net_shares": 0,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 40,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 4
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 4
+        },
+        "net_1d": 40,
+        "net_3d": 45,
+        "net_5d": null
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 795,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": 5,
+        "margin_change_3d": 4,
+        "margin_change_5d": 4,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 44000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 0,
+        "net_borrowed_5d": 0
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 41000,
+        "available_shares": 9190,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    },
+    {
+      "symbol": "9962",
+      "name": "有益",
+      "market": "otc",
+      "data_as_of": "2026-09-01",
+      "coverage": {
+        "institutional": true,
+        "margin": true,
+        "securities_lending": true,
+        "sbl_short_sale": true,
+        "ready_layers": 4,
+        "expected_layers": 4
+      },
+      "institutional": {
+        "latest_trade_date": "2026-09-01",
+        "latest_total_net_shares": -1000,
+        "latest_foreign_net_shares": -1000,
+        "latest_trust_net_shares": 0,
+        "latest_dealer_net_shares": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_1d": -1000,
+        "net_3d": -47,
+        "net_5d": -4947
+      },
+      "margin": {
+        "latest_trade_date": "2026-09-01",
+        "margin_balance_lots": 358,
+        "short_balance_lots": 0,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "short_change_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "margin_change_1d": -2,
+        "margin_change_3d": -16,
+        "margin_change_5d": -16,
+        "short_change_1d": 0,
+        "short_change_3d": 0,
+        "short_change_5d": 0
+      },
+      "securities_lending": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 255000,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "net_borrowed_1d": 0,
+        "net_borrowed_3d": 0,
+        "net_borrowed_5d": 0
+      },
+      "sbl_short_sale": {
+        "latest_trade_date": "2026-09-01",
+        "balance_shares": 253000,
+        "available_shares": 14793,
+        "window_days": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "window_observations": {
+          "1d": 1,
+          "3d": 3,
+          "5d": 5
+        },
+        "sold_1d": 0,
+        "sold_3d": 0,
+        "sold_5d": 0
+      }
+    }
+  ]
+}
