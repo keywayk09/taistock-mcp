@@ -1,0 +1,15 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "postrollout-blind-v21-20260903-0132-v2",
+  "kind": "formal_blind_batch",
+  "items": [
+    {
+      "id": "1303-20260902-1000",
+      "symbol": "1303",
+      "trade_date": "2026-09-02",
+      "timeframe": "1m",
+      "decision_time": "10:00:00",
+      "limit": 300
+    }
+  ]
+}
