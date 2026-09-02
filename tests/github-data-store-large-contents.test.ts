@@ -23,9 +23,12 @@ const logicalValue = {
       ],
     },
   },
+  _fixture_padding: "x".repeat(1_100_000),
 };
 const logicalText = stableJson(logicalValue);
+const logicalBytes = Buffer.byteLength(logicalText, "utf8");
 const blobContent = Buffer.from(logicalText, "utf8").toString("base64");
+assert.ok(logicalBytes > 1_000_000, "fixture must model a GitHub Contents API large file");
 
 const originalFetch = globalThis.fetch;
 const calls: string[] = [];
@@ -39,7 +42,7 @@ try {
       return Response.json({
         type: "file",
         sha: blobSha,
-        size: 3_000_000,
+        size: logicalBytes,
         encoding: "none",
         content: "",
         git_url: `https://api.github.com/repos/keywayk09/tv-papertrader/git/blobs/${blobSha}`,
@@ -49,7 +52,7 @@ try {
     if (url.endsWith(`/git/blobs/${blobSha}`)) {
       return Response.json({
         sha: blobSha,
-        size: Buffer.byteLength(logicalText, "utf8"),
+        size: logicalBytes,
         encoding: "base64",
         content: blobContent,
       });
@@ -69,7 +72,7 @@ try {
   assert.equal(calls.length, 2, "large Contents API payload must resolve through the Git blob endpoint");
   assert.match(calls[1] ?? "", /\/git\/blobs\//);
 
-  console.log("PASS github data store reads large Contents API files through blob fallback");
+  console.log("PASS github data store reads large Contents API files through verified blob fallback");
 } finally {
   globalThis.fetch = originalFetch;
 }
