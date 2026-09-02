@@ -1,0 +1,31 @@
+name: Diamond Fixed ABI Oracle
+
+on:
+  push:
+    branches:
+      - fix/diamond-public-79-abi-20260902
+    paths:
+      - '.github/workflows/diamond-fixed-abi-oracle.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  oracle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repair branch with history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Capture 8/29 fixed ABI tool names
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp scripts/capture-owner-tool-names-oracle.ts /tmp/capture-owner-tool-names-oracle.ts
+          git checkout --detach 303fd50eeb7d39e5d6b6e9f40832fac1226a241b
+          cp /tmp/capture-owner-tool-names-oracle.ts scripts/capture-owner-tool-names-oracle.ts
+          npm install --ignore-scripts
+          node --experimental-strip-types scripts/capture-owner-tool-names-oracle.ts
