@@ -1,0 +1,69 @@
+name: Diagnostic Full Market Latency One Shot
+
+on:
+  push:
+    branches:
+      - diag/full-market-latency-20260902
+    paths:
+      - .github/workflows/diag-full-market-latency-one-shot.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: GET-only Production latency probe
+        shell: bash
+        run: |
+          set -u
+          base='https://taistock-mcp.keywayk09.workers.dev'
+          rm -f /tmp/health.json /tmp/full-market.json
+
+          echo '=== /health ==='
+          set +e
+          health_meta="$(curl --silent --show-error --location --max-time 30 -o /tmp/health.json -w 'http=%{http_code} total=%{time_total} start=%{time_starttransfer} bytes=%{size_download}' "${base}/health")"
+          health_rc=$?
+          set -e
+          echo "curl_rc=${health_rc} ${health_meta}"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('/tmp/health.json')
+          if not p.exists() or not p.read_text(errors='replace').strip():
+              print('health_body=EMPTY')
+          else:
+              try:
+                  body=json.loads(p.read_text())
+                  print('health_status='+str(body.get('status')))
+                  print('health_mcp_endpoint='+str(body.get('mcp_endpoint')))
+              except Exception as e:
+                  print('health_parse_error='+repr(e))
+          PY
+
+          echo '=== /health/full-market ==='
+          set +e
+          full_meta="$(curl --silent --show-error --location --max-time 180 -o /tmp/full-market.json -w 'http=%{http_code} total=%{time_total} start=%{time_starttransfer} bytes=%{size_download}' "${base}/health/full-market")"
+          full_rc=$?
+          set -e
+          echo "curl_rc=${full_rc} ${full_meta}"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('/tmp/full-market.json')
+          if not p.exists() or not p.read_text(errors='replace').strip():
+              print('full_market_body=EMPTY')
+          else:
+              try:
+                  body=json.loads(p.read_text())
+                  print('full_market_source_contract='+str(body.get('source_contract')))
+                  print('full_market_usable='+str(body.get('usable')))
+                  print('full_market_listed_rows='+str((body.get('listed') or {}).get('rows')))
+                  print('full_market_otc_rows='+str((body.get('otc') or {}).get('rows')))
+              except Exception as e:
+                  print('full_market_parse_error='+repr(e))
+          PY
+
+          echo 'GET_ONLY_PRODUCTION_PROBE_COMPLETE=true'
