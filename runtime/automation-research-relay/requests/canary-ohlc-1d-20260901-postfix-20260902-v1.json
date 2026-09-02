@@ -1,0 +1,9 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "canary-ohlc-1d-20260901-postfix-20260902-v1",
+  "kind": "ohlc_1d_batch",
+  "as_of": "2026-09-01",
+  "source_revision": "51abce2769de962e177bb7133ae9bb43c35c6595",
+  "symbols": ["2330", "2408", "1815"],
+  "limit": 220
+}
