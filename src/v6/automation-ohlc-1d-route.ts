@@ -1,5 +1,9 @@
 import { createCrossAccountReadService, CROSS_ACCOUNT_READ_SERVICE_VERSION } from "./cross-account-read-service.ts";
 import { AUTOMATION_RESEARCH_REST_VERSION } from "./automation-research-rest.ts";
+import {
+  isRetryableAutomationTransportError,
+  retryableAutomationTransportBody,
+} from "./automation-transport-error.ts";
 
 const PATH = "/research/automation/ohlc-1d";
 
@@ -32,6 +36,14 @@ function json(value: unknown, status = 200) {
 }
 function blocked(error: string, extra: AnyRecord = {}) {
   return json({ ok: false, blocked: true, bridge_version: AUTOMATION_RESEARCH_REST_VERSION, error, ...extra });
+}
+function transportUnavailable(detail: unknown, extra: AnyRecord = {}) {
+  return json({
+    bridge_version: AUTOMATION_RESEARCH_REST_VERSION,
+    read_only: true,
+    writer_routes: false,
+    ...retryableAutomationTransportBody("OHLC_1D_TRANSPORT_UNAVAILABLE", detail, extra),
+  }, 503);
 }
 function pinnedEnv(env: Env, revision: string): Env {
   return { ...(env as any), GITHUB_DATA_BRANCH: revision } as Env;
@@ -84,7 +96,11 @@ export async function handleAutomationOhlc1dRoute(request: Request, env: Env, ur
     const service = createCrossAccountReadService(pinnedEnv(env, revision));
     const result = await service.readOhlc({ symbol, timeframe: "1d", from: subtractDays(asOf, 560), to: asOf, limit }) as AnyRecord;
     if (result.ok !== true || result.formal_research_eligible !== true) {
-      return blocked("OHLC_1D_NOT_FORMAL", { symbol, as_of: asOf, source_revision: revision, reader_error: result.error ?? result.data_status ?? null });
+      const readerError = result.error ?? result.data_status ?? null;
+      if (isRetryableAutomationTransportError(readerError)) {
+        return transportUnavailable(readerError, { symbol, as_of: asOf, source_revision: revision });
+      }
+      return blocked("OHLC_1D_NOT_FORMAL", { symbol, as_of: asOf, source_revision: revision, reader_error: readerError });
     }
     const provenanceRevision = String(result.provenance?.branch ?? "");
     if (provenanceRevision.toLowerCase() !== revision.toLowerCase()) {
@@ -114,6 +130,10 @@ export async function handleAutomationOhlc1dRoute(request: Request, env: Env, ur
     if (request.method === "HEAD") return new Response(null, { status: response.status, headers: response.headers });
     return response;
   } catch (error) {
-    return blocked("OHLC_1D_BRIDGE_FAIL_CLOSED", { detail: error instanceof Error ? error.message : String(error) });
+    const detail = error instanceof Error ? error.message : String(error);
+    if (isRetryableAutomationTransportError(detail)) {
+      return transportUnavailable(detail, { symbol, as_of: asOf, source_revision: revision });
+    }
+    return blocked("OHLC_1D_BRIDGE_FAIL_CLOSED", { detail });
   }
 }
