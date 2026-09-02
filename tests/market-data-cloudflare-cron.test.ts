@@ -71,6 +71,8 @@ assert.match(schedule, /DAILY_LATE/);
 assert.match(schedule, /DAILY_RECOVERY/);
 assert.match(schedule, /PREVIOUS_DAY_FINAL_AUDIT/);
 assert.match(schedule, /HISTORY_BOOTSTRAP/);
+assert.match(schedule, /retryEpochCheckpointIso/);
+assert.match(schedule, /Math\.floor\(minute \/ 15\) \* 15/);
 assert.doesNotMatch(schedule, /TRADING_EVENING_EXTENDED/);
 assert.doesNotMatch(schedule, /PREVIOUS_DAY_OVERNIGHT_CATCHUP/);
 assert.match(wrangler, /"crons": \["\*\/5 \* \* \* \*"\]/);
@@ -105,41 +107,97 @@ assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T20:00:00"))
   reason: "HISTORY_BOOTSTRAP",
 });
 
-assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T21:15:00")), {
-  tradeDate: "2026-08-21",
-  finalAudit: false,
-  lane: "DAILY",
-  allowedKinds: ["margin", "securities_lending", "sbl_short_sale"],
-  checkpointStartedAt: "2026-08-21T13:15:00.000Z",
-  reason: "DAILY_LATE",
-});
-
-assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T21:20:00")), {
-  tradeDate: "2026-08-21",
-  finalAudit: false,
-  lane: "DAILY",
-  allowedKinds: ["margin", "securities_lending", "sbl_short_sale"],
-  checkpointStartedAt: "2026-08-21T13:15:00.000Z",
-  reason: "DAILY_LATE",
-});
-
-const recoveryDecision = {
+const lateDecision = (checkpointStartedAt: string) => ({
   tradeDate: "2026-08-21",
   finalAudit: false,
   lane: "DAILY" as const,
-  allowedKinds: ["institutional", "margin", "securities_lending", "sbl_short_sale"],
-  checkpointStartedAt: "2026-08-21T14:15:00.000Z",
+  allowedKinds: ["margin", "securities_lending", "sbl_short_sale"] as const,
+  checkpointStartedAt,
+  reason: "DAILY_LATE" as const,
+});
+
+assert.deepEqual(
+  decideExtendedMarketDataSchedule(taipei("2026-08-21T21:15:00")),
+  lateDecision("2026-08-21T13:15:00.000Z"),
+);
+assert.deepEqual(
+  decideExtendedMarketDataSchedule(taipei("2026-08-21T21:20:00")),
+  lateDecision("2026-08-21T13:15:00.000Z"),
+);
+assert.deepEqual(
+  decideExtendedMarketDataSchedule(taipei("2026-08-21T21:25:00")),
+  lateDecision("2026-08-21T13:15:00.000Z"),
+);
+assert.deepEqual(
+  decideExtendedMarketDataSchedule(taipei("2026-08-21T21:30:00")),
+  lateDecision("2026-08-21T13:30:00.000Z"),
+);
+assert.deepEqual(
+  decideExtendedMarketDataSchedule(taipei("2026-08-21T21:35:00")),
+  lateDecision("2026-08-21T13:30:00.000Z"),
+);
+assert.deepEqual(
+  decideExtendedMarketDataSchedule(taipei("2026-08-21T21:45:00")),
+  lateDecision("2026-08-21T13:45:00.000Z"),
+);
+
+// 2026-09-02 regression: OTC SBL failed at 21:25 with a 21:35 next_retry_at,
+// then the immutable TPEx relay became complete at 21:41. A new 21:45 epoch
+// must be able to consume that now-valid same-day source instead of waiting for
+// a single fixed 22:15 recovery checkpoint. next_retry_at and the max-attempt
+// guard still decide whether an actual provider request is allowed.
+assert.deepEqual(
+  decideExtendedMarketDataSchedule(taipei("2026-09-02T21:45:00")),
+  {
+    tradeDate: "2026-09-02",
+    finalAudit: false,
+    lane: "DAILY",
+    allowedKinds: ["margin", "securities_lending", "sbl_short_sale"],
+    checkpointStartedAt: "2026-09-02T13:45:00.000Z",
+    reason: "DAILY_LATE",
+  },
+);
+
+const recoveryDecision = (checkpointStartedAt: string) => ({
+  tradeDate: "2026-08-21",
+  finalAudit: false,
+  lane: "DAILY" as const,
+  allowedKinds: ["institutional", "margin", "securities_lending", "sbl_short_sale"] as const,
+  checkpointStartedAt,
   reason: "DAILY_RECOVERY" as const,
-};
+});
 
-assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T22:15:00")), recoveryDecision);
-assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T22:55:00")), recoveryDecision);
-assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T23:00:00")), recoveryDecision);
-assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T23:40:00")), recoveryDecision);
-assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-21T23:55:00")), recoveryDecision);
+assert.deepEqual(
+  decideExtendedMarketDataSchedule(taipei("2026-08-21T22:15:00")),
+  recoveryDecision("2026-08-21T14:15:00.000Z"),
+);
+assert.deepEqual(
+  decideExtendedMarketDataSchedule(taipei("2026-08-21T22:20:00")),
+  recoveryDecision("2026-08-21T14:15:00.000Z"),
+);
+assert.deepEqual(
+  decideExtendedMarketDataSchedule(taipei("2026-08-21T22:30:00")),
+  recoveryDecision("2026-08-21T14:30:00.000Z"),
+);
+assert.deepEqual(
+  decideExtendedMarketDataSchedule(taipei("2026-08-21T22:55:00")),
+  recoveryDecision("2026-08-21T14:45:00.000Z"),
+);
+assert.deepEqual(
+  decideExtendedMarketDataSchedule(taipei("2026-08-21T23:00:00")),
+  recoveryDecision("2026-08-21T15:00:00.000Z"),
+);
+assert.deepEqual(
+  decideExtendedMarketDataSchedule(taipei("2026-08-21T23:40:00")),
+  recoveryDecision("2026-08-21T15:30:00.000Z"),
+);
+assert.deepEqual(
+  decideExtendedMarketDataSchedule(taipei("2026-08-21T23:55:00")),
+  recoveryDecision("2026-08-21T15:45:00.000Z"),
+);
 
-// Midnight closes the same-day recovery epoch. A new calendar day must not
-// continue mutating the prior day under the old 22:15 checkpoint.
+// Midnight closes same-day recovery. A new calendar day must not continue
+// mutating the prior day under one of the old evening checkpoint epochs.
 assert.deepEqual(decideExtendedMarketDataSchedule(taipei("2026-08-22T00:00:00")), {
   tradeDate: "2026-08-21",
   finalAudit: false,
@@ -178,4 +236,4 @@ assert.equal(parsed[0]?.open, false);
 assert.equal(parsed[1]?.date, "2026-02-23");
 assert.equal(parsed[1]?.open, true);
 
-console.log("market-data staged checkpoints + official calendar fail-closed scheduler contract passed");
+console.log("market-data staged checkpoints + bounded late retry epochs + official calendar fail-closed scheduler contract passed");
