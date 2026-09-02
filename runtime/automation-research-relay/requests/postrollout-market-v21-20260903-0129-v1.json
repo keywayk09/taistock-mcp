@@ -1,0 +1,5 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "postrollout-market-v21-20260903-0129-v1",
+  "kind": "market_snapshot"
+}
