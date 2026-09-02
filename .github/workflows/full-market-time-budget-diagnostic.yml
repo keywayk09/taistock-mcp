@@ -1,0 +1,92 @@
+name: Full Market Time Budget Diagnostic
+
+on:
+  push:
+    branches:
+      - diag/full-market-time-budget-20260902
+    paths:
+      - .github/workflows/full-market-time-budget-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install
+      - name: GET Production health
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 20 \
+            -o /tmp/health.json \
+            -w 'HEALTH_HTTP=%{http_code} HEALTH_TIME=%{time_total} HEALTH_BYTES=%{size_download}\n' \
+            'https://taistock-mcp.keywayk09.workers.dev/health'
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('/tmp/health.json').read_text())
+          print('HEALTH_STATUS='+str(x.get('status')))
+          print('HEALTH_VERSION='+str(x.get('version')))
+          PY
+      - name: GET Production full-market with 90s budget
+        shell: bash
+        run: |
+          set +e
+          curl --silent --show-error --max-time 90 \
+            -o /tmp/full-market.json \
+            -w 'FULL_HTTP=%{http_code} FULL_TIME=%{time_total} FULL_BYTES=%{size_download}\n' \
+            'https://taistock-mcp.keywayk09.workers.dev/health/full-market'
+          rc=$?
+          echo "FULL_CURL_EXIT=$rc"
+          if [ -s /tmp/full-market.json ]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          try:
+              x=json.loads(Path('/tmp/full-market.json').read_text())
+          except Exception as e:
+              print('FULL_JSON_ERROR='+repr(e))
+          else:
+              print('FULL_STATUS='+str(x.get('status')))
+              print('FULL_USABLE='+str(x.get('usable')))
+              print('FULL_LISTED_ROWS='+str((x.get('listed') or {}).get('rows')))
+              print('FULL_OTC_ROWS='+str((x.get('otc') or {}).get('rows')))
+              print('FULL_LISTED_ERRORS='+json.dumps((x.get('listed') or {}).get('errors') or [], ensure_ascii=False))
+              print('FULL_OTC_ERRORS='+json.dumps((x.get('otc') or {}).get('errors') or [], ensure_ascii=False))
+              print('FULL_METADATA_ERRORS='+json.dumps(x.get('optional_metadata_errors') or [], ensure_ascii=False))
+          PY
+          fi
+          exit 0
+      - name: Execute stable universe directly on runner
+        shell: bash
+        run: |
+          set +e
+          timeout 120 node --experimental-strip-types --input-type=module <<'NODE'
+          const started = Date.now();
+          try {
+            const { loadStableMarketUniverse } = await import('./src/v6/stable-market-tools.ts');
+            const result = await loadStableMarketUniverse(true);
+            console.log('DIRECT_ELAPSED_MS=' + (Date.now() - started));
+            console.log('DIRECT_USABLE=' + result.usable);
+            console.log('DIRECT_LISTED_PROVIDER=' + result.TWSE.provider);
+            console.log('DIRECT_LISTED_ROWS=' + result.TWSE.normalized_count);
+            console.log('DIRECT_LISTED_ERRORS=' + JSON.stringify(result.TWSE.errors));
+            console.log('DIRECT_OTC_PROVIDER=' + result.TPEx.provider);
+            console.log('DIRECT_OTC_ROWS=' + result.TPEx.normalized_count);
+            console.log('DIRECT_OTC_ERRORS=' + JSON.stringify(result.TPEx.errors));
+            console.log('DIRECT_METADATA_ERRORS=' + JSON.stringify(result.optional_metadata_errors));
+          } catch (error) {
+            console.log('DIRECT_FATAL=' + (error?.stack || String(error)));
+            process.exitCode = 1;
+          }
+          NODE
+          rc=$?
+          echo "DIRECT_EXIT=$rc"
+          exit 0
