@@ -1,0 +1,25 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_RESPONSE_V1",
+  "relay_version": "automation-research-github-relay/v2.1.0",
+  "request_schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "postrollout-blind-v21-20260903-0132-v2",
+  "request_kind": "formal_blind_batch",
+  "request_sha256": "0fd7b60a32badccdc6f51fd52d5a2146ab7121a8405e2b2cbb65311ca01c3df5",
+  "generated_at_utc": "2026-09-02T17:31:21.324Z",
+  "bridge_base_id": "taistock-mcp-production-automation-research",
+  "read_only": true,
+  "writer_routes": false,
+  "status": "PASS",
+  "item_count": 1,
+  "items": [
+    {
+      "id": "1303-20260902-1000",
+      "symbol": "1303",
+      "trade_date": "2026-09-02",
+      "decision_time": "10:00:00",
+      "status": "PASS",
+      "returned": 60,
+      "file": "blind/1303-20260902-1000.json"
+    }
+  ]
+}
