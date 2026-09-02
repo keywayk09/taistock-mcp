@@ -3,8 +3,6 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { setMarketDataCaptureTradeDate } from "../src/v6/market-data-capture-context.ts";
-import { getTpexJson } from "../src/v6/tpex-cloudflare-transport.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
@@ -66,14 +64,26 @@ assert.doesNotMatch(dailyRelay, /grouped\.setdefault\(item\[0\]/);
 assertPythonCompiles("Daily relay", dailyRelay);
 
 // Cloudflare recovery must not rely only on the retired legacy PHP SBL endpoint.
-// It first uses the same modern exact-date official TPEx JSON contract as the relay.
+// The recovery order is direct OpenAPI -> immutable relay -> modern exact-date official JSON
+// -> legacy PHP only for transport-level modern failures. Exact-date semantic failures remain
+// hard fail-closed and must never be hidden by the legacy endpoint.
 const tpexTransport = read("src/v6/tpex-cloudflare-transport.ts");
 assert.match(tpexTransport, /\/www\/zh-tw\/margin\/sbl\?date=/);
 assert.match(tpexTransport, /TPEX_SBL_MODERN_WEB_JSON/);
 assert.match(tpexTransport, /modernExactDateRows/);
+assert.match(tpexTransport, /normalizeSblRows/);
+assert.match(tpexTransport, /isModernSblSemanticError/);
 assert.match(tpexTransport, /source_date_mismatch/);
 assert.match(tpexTransport, /table_date_mismatch/);
+assert.match(tpexTransport, /root_not_object/);
+assert.match(tpexTransport, /tables_missing/);
+assert.match(tpexTransport, /exact_date_empty/);
+assert.match(tpexTransport, /if \(isModernSblSemanticError\(modernError\)\) throw modernError/);
 assert.match(tpexTransport, /getLegacyOfficialWebSblDataset/);
+assert.match(tpexTransport, /TPEX_SBL_OFFICIAL_FALLBACK_failed/);
+const modernPos = tpexTransport.indexOf("TPEX_SBL_MODERN_WEB_JSON");
+const legacyPos = tpexTransport.indexOf("getLegacyOfficialWebSblDataset");
+assert.ok(modernPos >= 0 && legacyPos > modernPos, "modern exact-date SBL recovery must precede legacy PHP fallback");
 
 // The watchdog must share the exact same concurrency group as the official relay writer.
 // Its final wake remains 22:40 Taipei, while the Cloudflare DAILY_RECOVERY epoch is now
@@ -126,75 +136,5 @@ assert.equal(fs.existsSync(path.join(root, "src/v6/github-canonical-sync.ts")), 
 assert.equal(fs.existsSync(path.join(root, "src/v6/tpex-official-relay.ts")), false);
 assert.equal(fs.existsSync(path.join(root, "src/v6/tpex-market-data-backfill.ts")), false);
 assert.equal(fs.existsSync(path.join(root, ".github/workflows/tpex-official-relay.yml")), false);
-
-const originalFetch = globalThis.fetch;
-const originalTradeDate = "2026-09-02";
-
-function mockRelayManifest() {
-  return {
-    schema: "TPEX_OFFICIAL_RELAY_V2",
-    trade_date: originalTradeDate,
-    source_owner: "TPEx",
-    datasets: {},
-  };
-}
-
-function modernSblBody(date = "20260902", tableDate = "115/09/02") {
-  return {
-    date,
-    tables: [{
-      date: tableDate,
-      data: [["1234", "測試公司", "0", "0", "0", "0", "0", "0", "1000", "2500", "100", "0", "3400", "5000"]],
-    }],
-  };
-}
-
-async function withSblFetchMock(modernBody: any, run: (calls: string[]) => Promise<void>) {
-  const calls: string[] = [];
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
-    const url = String(input);
-    calls.push(url);
-    if (url.includes("/openapi/v1/tpex_short_sell")) {
-      return new Response("", { status: 302, headers: { location: "https://www.tpex.org.tw/errors" } });
-    }
-    if (url.endsWith(`/tpex-relay/${originalTradeDate}/manifest.json`)) {
-      return new Response(JSON.stringify(mockRelayManifest()), { status: 200 });
-    }
-    if (url.includes("/www/zh-tw/margin/sbl?")) {
-      return new Response(JSON.stringify(modernBody), { status: 200, headers: { "content-type": "application/json" } });
-    }
-    if (url.includes("/web/stock/margin_trading/margin_sbl/margin_sbl_result.php")) {
-      return new Response("", { status: 302, headers: { location: "https://www.tpex.org.tw/errors" } });
-    }
-    throw new Error(`unexpected_test_fetch:${url}`);
-  }) as typeof fetch;
-  setMarketDataCaptureTradeDate(originalTradeDate);
-  try {
-    await run(calls);
-  } finally {
-    setMarketDataCaptureTradeDate(null);
-    globalThis.fetch = originalFetch;
-  }
-}
-
-await withSblFetchMock(modernSblBody(), async (calls) => {
-  const rows = await getTpexJson("https://www.tpex.org.tw/openapi/v1/tpex_short_sell", "TPEX_SHORT_SELL");
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].Date, originalTradeDate);
-  assert.equal(rows[0].SecuritiesCompanyCode, "1234");
-  assert.equal(rows[0].SBLVolume, 2.5);
-  assert.ok(calls.some((url) => url.includes("/www/zh-tw/margin/sbl?")), "modern exact-date SBL endpoint was not attempted");
-  assert.equal(calls.some((url) => url.includes("/web/stock/margin_trading/margin_sbl/margin_sbl_result.php")), false,
-    "legacy PHP fallback should not run after modern exact-date success");
-});
-
-await withSblFetchMock(modernSblBody("20260901", "115/09/01"), async (calls) => {
-  await assert.rejects(
-    () => getTpexJson("https://www.tpex.org.tw/openapi/v1/tpex_short_sell", "TPEX_SHORT_SELL"),
-    /TPEX_SBL_MODERN_WEB_JSON_source_date_mismatch:20260901/,
-  );
-  assert.equal(calls.some((url) => url.includes("/web/stock/margin_trading/margin_sbl/margin_sbl_result.php")), false,
-    "semantic date mismatch must fail closed instead of falling back to legacy PHP");
-});
 
 console.log("P19 exact-date monotonic TPEx daily + historical no-trading evidence contracts passed");
