@@ -173,8 +173,10 @@ async function readLargeGitHubBlobText(env: Env, normalized: string, body: any):
   const gitUrl = String(body?.git_url ?? "");
   const expectedBytes = Number(body?.size);
 
-  if (!/^[0-9a-f]{40}$/i.test(expectedSha) || !gitUrl.startsWith("https://api.github.com/repos/")) {
-    throw new GitHubDataStoreError("GITHUB_INVALID_LARGE_CONTENT", "GitHub large-file metadata is incomplete", undefined, { path: normalized });
+  const { repo } = config(env);
+  const expectedGitUrl = `https://api.github.com/repos/${repo}/git/blobs/${expectedSha}`;
+  if (!/^[0-9a-f]{40}$/i.test(expectedSha) || gitUrl !== expectedGitUrl) {
+    throw new GitHubDataStoreError("GITHUB_INVALID_LARGE_CONTENT", "GitHub large-file metadata is incomplete or crosses repository boundary", undefined, { path: normalized });
   }
   if (!Number.isSafeInteger(expectedBytes) || expectedBytes <= 0 || expectedBytes > GITHUB_LARGE_READ_MAX_BYTES) {
     throw new GitHubDataStoreError("GITHUB_LARGE_CONTENT_LIMIT", "GitHub file exceeds the bounded large-read limit", undefined, {
