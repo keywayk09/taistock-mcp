@@ -28,6 +28,7 @@ declare global {
 export const GITHUB_DATA_STORE_VERSION = "diamond-github-store/v1";
 export const DEFAULT_GITHUB_DATA_REPO = "keywayk09/tv-papertrader";
 export const DEFAULT_GITHUB_DATA_BRANCH = "main";
+const GITHUB_LARGE_READ_MAX_BYTES = 16 * 1024 * 1024;
 
 export class GitHubDataStoreError extends Error {
   readonly code: string;
@@ -167,6 +168,54 @@ async function logicalStoredHash(text: string) {
 
 async function memorySha(text: string) { return await sha256Hex(`memory:${text}`); }
 
+async function readLargeGitHubBlobText(env: Env, normalized: string, body: any): Promise<string> {
+  const expectedSha = String(body?.sha ?? "");
+  const gitUrl = String(body?.git_url ?? "");
+  const expectedBytes = Number(body?.size);
+
+  const { repo } = config(env);
+  const expectedGitUrl = `https://api.github.com/repos/${repo}/git/blobs/${expectedSha}`;
+  if (!/^[0-9a-f]{40}$/i.test(expectedSha) || gitUrl !== expectedGitUrl) {
+    throw new GitHubDataStoreError("GITHUB_INVALID_LARGE_CONTENT", "GitHub large-file metadata is incomplete or crosses repository boundary", undefined, { path: normalized });
+  }
+  if (!Number.isSafeInteger(expectedBytes) || expectedBytes <= 0 || expectedBytes > GITHUB_LARGE_READ_MAX_BYTES) {
+    throw new GitHubDataStoreError("GITHUB_LARGE_CONTENT_LIMIT", "GitHub file exceeds the bounded large-read limit", undefined, {
+      path: normalized,
+      size: Number.isFinite(expectedBytes) ? expectedBytes : null,
+      max_bytes: GITHUB_LARGE_READ_MAX_BYTES,
+    });
+  }
+
+  const blobResponse = await fetch(gitUrl, {
+    method: "GET",
+    headers: githubHeaders(env),
+    cache: "no-store",
+  });
+  const blob = await blobResponse.json<any>().catch(() => null);
+  if (!blobResponse.ok) {
+    throw new GitHubDataStoreError("GITHUB_BLOB_READ_FAILED", `GitHub blob read failed (${blobResponse.status})`, blobResponse.status, { path: normalized });
+  }
+  if (
+    !blob
+    || String(blob.sha ?? "") !== expectedSha
+    || blob.encoding !== "base64"
+    || typeof blob.content !== "string"
+  ) {
+    throw new GitHubDataStoreError("GITHUB_INVALID_BLOB_CONTENT", "GitHub blob response failed identity or encoding verification", blobResponse.status, { path: normalized });
+  }
+
+  const text = base64ToUtf8(blob.content);
+  const actualBytes = new TextEncoder().encode(text).byteLength;
+  if (actualBytes !== expectedBytes) {
+    throw new GitHubDataStoreError("GITHUB_BLOB_SIZE_MISMATCH", "GitHub blob byte size does not match Contents metadata", blobResponse.status, {
+      path: normalized,
+      expected_bytes: expectedBytes,
+      actual_bytes: actualBytes,
+    });
+  }
+  return text;
+}
+
 export async function readGitHubText(env: Env, path: string): Promise<GitHubJsonRead<string>> {
   const normalized = normalizePath(path);
   const mem = memory(env);
@@ -187,8 +236,17 @@ export async function readGitHubText(env: Env, path: string): Promise<GitHubJson
   if (!response.ok) {
     throw new GitHubDataStoreError("GITHUB_READ_FAILED", `GitHub read failed (${response.status})`, response.status, { path: normalized, body });
   }
-  if (!body || Array.isArray(body) || typeof body.content !== "string" || typeof body.sha !== "string") {
+  if (!body || Array.isArray(body) || typeof body.sha !== "string") {
     throw new GitHubDataStoreError("GITHUB_INVALID_CONTENT", "GitHub contents response is not a file", response.status, { path: normalized });
+  }
+
+  if (body.encoding === "none" && Number(body.size) > 0) {
+    const value = await readLargeGitHubBlobText(env, normalized, body);
+    return { exists: true, path: normalized, sha: body.sha, value };
+  }
+
+  if (typeof body.content !== "string") {
+    throw new GitHubDataStoreError("GITHUB_INVALID_CONTENT", "GitHub contents response has no decodable content", response.status, { path: normalized });
   }
   return { exists: true, path: normalized, sha: body.sha, value: base64ToUtf8(body.content) };
 }
