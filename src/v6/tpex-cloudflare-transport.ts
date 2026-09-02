@@ -157,6 +157,10 @@ function rocDate(tradeDate: string) {
   return `${Number(year) - 1911}/${month}/${day}`;
 }
 
+function adSlashDate(tradeDate: string) {
+  return tradeDate.replace(/-/g, "/");
+}
+
 function clean(value: unknown) {
   return String(value ?? "").replace(/<[^>]*>/g, "").replace(/&nbsp;/gi, " ").trim();
 }
@@ -172,13 +176,26 @@ function legacyRows(body: any, label: string) {
   return rows as any[][];
 }
 
-async function getOfficialWebSblDataset(dataset: "sbl_balance" | "sbl_volume", tradeDate: string) {
-  const date = encodeURIComponent(rocDate(tradeDate));
-  const url = `https://www.tpex.org.tw/web/stock/margin_trading/margin_sbl/margin_sbl_result.php?l=zh-tw&o=json&d=${date}`;
-  const body = await getTpexJsonAny(url, "TPEX_MARGIN_SBL_WEB_JSON");
-  const rows = legacyRows(body, "TPEX_MARGIN_SBL_WEB_JSON");
+function modernExactDateRows(body: any, tradeDate: string, label: string) {
+  const expectedAd = tradeDate.replace(/-/g, "");
+  const expectedRoc = rocDate(tradeDate);
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error(`${label}_root_not_object`);
+  if (String(body.date ?? "") !== expectedAd) throw new Error(`${label}_source_date_mismatch:${String(body.date ?? "missing")}`);
+  const tables = body.tables;
+  if (!Array.isArray(tables) || !tables.length || !tables[0] || typeof tables[0] !== "object") {
+    throw new Error(`${label}_tables_missing`);
+  }
+  const table = tables[0];
+  const tableDate = String(table.date ?? "");
+  if (tableDate && tableDate !== expectedRoc) throw new Error(`${label}_table_date_mismatch:${tableDate}`);
+  const rows = Array.isArray(table.data) ? table.data.filter(Array.isArray) : [];
+  if (!rows.length) throw new Error(`${label}_exact_date_empty`);
+  return rows as any[][];
+}
+
+function normalizeSblRows(dataset: "sbl_balance" | "sbl_volume", rows: any[][], tradeDate: string) {
   if (dataset === "sbl_balance") {
-    return rows.map((row) => ({
+    return rows.filter((row) => row.length > 13 && clean(row[0])).map((row) => ({
       Date: tradeDate,
       SecuritiesCompanyCode: clean(row[0]),
       CompanyName: clean(row[1]),
@@ -190,13 +207,47 @@ async function getOfficialWebSblDataset(dataset: "sbl_balance" | "sbl_volume", t
       AvailableVolumesForSBLShortSale: row[13],
     }));
   }
-  return rows.map((row) => ({
+  return rows.filter((row) => row.length > 9 && clean(row[0])).map((row) => ({
     Date: tradeDate,
     SecuritiesCompanyCode: clean(row[0]),
     CompanyName: clean(row[1]),
     SBLVolume: numeric(row[9]) / 1000,
     SBLAmount: null,
   }));
+}
+
+function isModernSblSemanticError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /_(?:root_not_object|source_date_mismatch|tables_missing|table_date_mismatch|exact_date_empty)$|_(?:source_date_mismatch|table_date_mismatch):/.test(message);
+}
+
+async function getLegacyOfficialWebSblDataset(dataset: "sbl_balance" | "sbl_volume", tradeDate: string) {
+  const date = encodeURIComponent(rocDate(tradeDate));
+  const url = `https://www.tpex.org.tw/web/stock/margin_trading/margin_sbl/margin_sbl_result.php?l=zh-tw&o=json&d=${date}`;
+  const body = await getTpexJsonAny(url, "TPEX_MARGIN_SBL_WEB_JSON");
+  const rows = legacyRows(body, "TPEX_MARGIN_SBL_WEB_JSON");
+  return normalizeSblRows(dataset, rows, tradeDate);
+}
+
+async function getOfficialWebSblDataset(dataset: "sbl_balance" | "sbl_volume", tradeDate: string) {
+  const date = encodeURIComponent(adSlashDate(tradeDate));
+  const modernUrl = `https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=${date}&id=&response=json`;
+  try {
+    const body = await getTpexJsonAny(modernUrl, "TPEX_SBL_MODERN_WEB_JSON");
+    const rows = modernExactDateRows(body, tradeDate, "TPEX_SBL_MODERN_WEB_JSON");
+    const normalized = normalizeSblRows(dataset, rows, tradeDate);
+    if (!normalized.length) throw new Error("TPEX_SBL_MODERN_WEB_JSON_exact_date_empty");
+    return normalized;
+  } catch (modernError) {
+    if (isModernSblSemanticError(modernError)) throw modernError;
+    try {
+      return await getLegacyOfficialWebSblDataset(dataset, tradeDate);
+    } catch (legacyError) {
+      const modern = modernError instanceof Error ? modernError.message : String(modernError);
+      const legacy = legacyError instanceof Error ? legacyError.message : String(legacyError);
+      throw new Error(`TPEX_SBL_OFFICIAL_FALLBACK_failed:modern=${modern.slice(0, 160)};legacy=${legacy.slice(0, 160)}`);
+    }
+  }
 }
 
 export async function getTpexJson(url: string, label: string) {
