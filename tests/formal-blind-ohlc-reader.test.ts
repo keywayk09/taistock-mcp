@@ -32,12 +32,15 @@ assert.equal(pass.ok, true);
 assert.equal(pass.formal_blind_eligible, true);
 assert.equal(pass.formal_research_eligible, true);
 assert.equal(pass.scorecard_eligible, true);
+assert.equal(pass.retryable_transport_error, false);
 assert.equal(pass.rows.length, 3);
 assert.deepEqual(pass.rows.map((x:any) => x.bar_time_tw), [
   `${date} 09:00:00`, `${date} 09:01:00`, `${date} 09:02:00`
 ]);
 assert.equal(pass.canonical_verification_receipt.formal_blind_eligible, true);
 
+// Semantic verification rejection stays fail-closed and must not be advertised
+// as retryable transport.
 const rejectFetch = async () => new Response(JSON.stringify({
   ok:true,
   formal_blind_eligible:false,
@@ -53,6 +56,7 @@ const rejected = await readFormalBlindOhlc(env, input, rejectFetch as any);
 assert.equal(rejected.formal_blind_eligible, false);
 assert.equal(rejected.scorecard_eligible, false);
 assert.equal(rejected.eligibility_reason, "OFFICIAL_NOT_VERIFIED");
+assert.notEqual(rejected.retryable_transport_error, true);
 
 const mismatchFetch = async () => new Response(JSON.stringify({
   ok:true,
@@ -67,9 +71,28 @@ const mismatchFetch = async () => new Response(JSON.stringify({
 const mismatch = await readFormalBlindOhlc(env, input, mismatchFetch as any);
 assert.equal(mismatch.formal_blind_eligible, false);
 assert.equal(mismatch.scorecard_eligible, false);
+assert.notEqual(mismatch.retryable_transport_error, true);
 
+// Verification 503 is an availability/transport failure, not evidence that the
+// immutable receipt is semantically ineligible. It remains blocked for this
+// attempt but is explicitly safe for bounded same-input retry.
 const httpFail = await readFormalBlindOhlc(env, input, (async () => new Response("down", { status:503 })) as any);
 assert.equal(httpFail.formal_blind_eligible, false);
 assert.equal(httpFail.scorecard_eligible, false);
+assert.equal(httpFail.retryable_transport_error, true);
+assert.equal(httpFail.transport_error_class, "TRANSIENT_TRANSPORT");
+assert.equal(httpFail.eligibility_reason, "CANONICAL_VERIFICATION_HTTP_503");
+
+// A non-transient client/contract HTTP failure is not retryable.
+const badRequest = await readFormalBlindOhlc(env, input, (async () => new Response("bad", { status:404 })) as any);
+assert.equal(badRequest.formal_blind_eligible, false);
+assert.notEqual(badRequest.retryable_transport_error, true);
+assert.equal(badRequest.eligibility_reason, "CANONICAL_VERIFICATION_HTTP_404");
+
+// Network exception is retryable, while still returning no formal eligibility.
+const networkFail = await readFormalBlindOhlc(env, input, (async () => { throw new Error("fetch failed: ECONNRESET"); }) as any);
+assert.equal(networkFail.formal_blind_eligible, false);
+assert.equal(networkFail.retryable_transport_error, true);
+assert.equal(networkFail.transport_error_class, "TRANSIENT_TRANSPORT");
 
 console.log("formal-blind-ohlc-reader: PASS");
