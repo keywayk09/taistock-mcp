@@ -1,0 +1,5 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "run-2230-market-20260902-manual-20260903-v1",
+  "kind": "market_snapshot"
+}
