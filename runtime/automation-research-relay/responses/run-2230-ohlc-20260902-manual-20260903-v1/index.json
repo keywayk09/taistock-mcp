@@ -1,0 +1,377 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_RESPONSE_V1",
+  "relay_version": "automation-research-github-relay/v2.0.0",
+  "request_schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "run-2230-ohlc-20260902-manual-20260903-v1",
+  "request_kind": "ohlc_1d_batch",
+  "request_sha256": "bacefd46df0b04b4d2ef16b992b8d8e8f57936eecfc07873355b638db9595ba5",
+  "generated_at_utc": "2026-09-02T16:45:32.899Z",
+  "bridge_base_id": "taistock-mcp-production-automation-research",
+  "read_only": true,
+  "writer_routes": false,
+  "status": "PASS",
+  "as_of": "2026-09-02",
+  "source_revision": "f251a63cae8ce4110a04f1cf717e152684c5bf02",
+  "symbols": [
+    {
+      "symbol": "8240",
+      "status": "PASS",
+      "returned": 186,
+      "file": "ohlc-1d/8240.json"
+    },
+    {
+      "symbol": "3535",
+      "status": "PASS",
+      "returned": 204,
+      "file": "ohlc-1d/3535.json"
+    },
+    {
+      "symbol": "8064",
+      "status": "PASS",
+      "returned": 187,
+      "file": "ohlc-1d/8064.json"
+    },
+    {
+      "symbol": "3624",
+      "status": "PASS",
+      "returned": 202,
+      "file": "ohlc-1d/3624.json"
+    },
+    {
+      "symbol": "2367",
+      "status": "PASS",
+      "returned": 205,
+      "file": "ohlc-1d/2367.json"
+    },
+    {
+      "symbol": "2329",
+      "status": "PASS",
+      "returned": 206,
+      "file": "ohlc-1d/2329.json"
+    },
+    {
+      "symbol": "5498",
+      "status": "PASS",
+      "returned": 204,
+      "file": "ohlc-1d/5498.json"
+    },
+    {
+      "symbol": "2481",
+      "status": "PASS",
+      "returned": 206,
+      "file": "ohlc-1d/2481.json"
+    },
+    {
+      "symbol": "6182",
+      "status": "PASS",
+      "returned": 109,
+      "file": "ohlc-1d/6182.json"
+    },
+    {
+      "symbol": "4903",
+      "status": "PASS",
+      "returned": 200,
+      "file": "ohlc-1d/4903.json"
+    },
+    {
+      "symbol": "5340",
+      "status": "PASS",
+      "returned": 204,
+      "file": "ohlc-1d/5340.json"
+    },
+    {
+      "symbol": "3441",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/3441.json"
+    },
+    {
+      "symbol": "2478",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/2478.json"
+    },
+    {
+      "symbol": "6505",
+      "status": "PASS",
+      "returned": 203,
+      "file": "ohlc-1d/6505.json"
+    },
+    {
+      "symbol": "5371",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/5371.json"
+    },
+    {
+      "symbol": "8033",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/8033.json"
+    },
+    {
+      "symbol": "2355",
+      "status": "PASS",
+      "returned": 205,
+      "file": "ohlc-1d/2355.json"
+    },
+    {
+      "symbol": "8110",
+      "status": "PASS",
+      "returned": 201,
+      "file": "ohlc-1d/8110.json"
+    },
+    {
+      "symbol": "6770",
+      "status": "PASS",
+      "returned": 204,
+      "file": "ohlc-1d/6770.json"
+    },
+    {
+      "symbol": "8043",
+      "status": "PASS",
+      "returned": 17,
+      "file": "ohlc-1d/8043.json"
+    },
+    {
+      "symbol": "8039",
+      "status": "PASS",
+      "returned": 204,
+      "file": "ohlc-1d/8039.json"
+    },
+    {
+      "symbol": "4938",
+      "status": "PASS",
+      "returned": 110,
+      "file": "ohlc-1d/4938.json"
+    },
+    {
+      "symbol": "2634",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/2634.json"
+    },
+    {
+      "symbol": "1605",
+      "status": "PASS",
+      "returned": 206,
+      "file": "ohlc-1d/1605.json"
+    },
+    {
+      "symbol": "3645",
+      "status": "PASS",
+      "returned": 204,
+      "file": "ohlc-1d/3645.json"
+    },
+    {
+      "symbol": "6239",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/6239.json"
+    },
+    {
+      "symbol": "8112",
+      "status": "PASS",
+      "returned": 200,
+      "file": "ohlc-1d/8112.json"
+    },
+    {
+      "symbol": "6207",
+      "status": "PASS",
+      "returned": 18,
+      "file": "ohlc-1d/6207.json"
+    },
+    {
+      "symbol": "2006",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/2006.json"
+    },
+    {
+      "symbol": "8021",
+      "status": "PASS",
+      "returned": 203,
+      "file": "ohlc-1d/8021.json"
+    },
+    {
+      "symbol": "3715",
+      "status": "PASS",
+      "returned": 204,
+      "file": "ohlc-1d/3715.json"
+    },
+    {
+      "symbol": "5483",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/5483.json"
+    },
+    {
+      "symbol": "2356",
+      "status": "PASS",
+      "returned": 205,
+      "file": "ohlc-1d/2356.json"
+    },
+    {
+      "symbol": "4916",
+      "status": "PASS",
+      "returned": 202,
+      "file": "ohlc-1d/4916.json"
+    },
+    {
+      "symbol": "8150",
+      "status": "PASS",
+      "returned": 200,
+      "file": "ohlc-1d/8150.json"
+    },
+    {
+      "symbol": "6282",
+      "status": "PASS",
+      "returned": 204,
+      "file": "ohlc-1d/6282.json"
+    },
+    {
+      "symbol": "6190",
+      "status": "PASS",
+      "returned": 197,
+      "file": "ohlc-1d/6190.json"
+    },
+    {
+      "symbol": "2413",
+      "status": "PASS",
+      "returned": 206,
+      "file": "ohlc-1d/2413.json"
+    },
+    {
+      "symbol": "3189",
+      "status": "PASS",
+      "returned": 204,
+      "file": "ohlc-1d/3189.json"
+    },
+    {
+      "symbol": "5425",
+      "status": "PASS",
+      "returned": 18,
+      "file": "ohlc-1d/5425.json"
+    },
+    {
+      "symbol": "5314",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/5314.json"
+    },
+    {
+      "symbol": "8074",
+      "status": "PASS",
+      "returned": 110,
+      "file": "ohlc-1d/8074.json"
+    },
+    {
+      "symbol": "2375",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/2375.json"
+    },
+    {
+      "symbol": "6147",
+      "status": "PASS",
+      "returned": 203,
+      "file": "ohlc-1d/6147.json"
+    },
+    {
+      "symbol": "2352",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/2352.json"
+    },
+    {
+      "symbol": "2324",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/2324.json"
+    },
+    {
+      "symbol": "6127",
+      "status": "PASS",
+      "returned": 201,
+      "file": "ohlc-1d/6127.json"
+    },
+    {
+      "symbol": "1717",
+      "status": "PASS",
+      "returned": 206,
+      "file": "ohlc-1d/1717.json"
+    },
+    {
+      "symbol": "6202",
+      "status": "PASS",
+      "returned": 203,
+      "file": "ohlc-1d/6202.json"
+    },
+    {
+      "symbol": "2337",
+      "status": "PASS",
+      "returned": 206,
+      "file": "ohlc-1d/2337.json"
+    },
+    {
+      "symbol": "2426",
+      "status": "PASS",
+      "returned": 200,
+      "file": "ohlc-1d/2426.json"
+    },
+    {
+      "symbol": "2363",
+      "status": "PASS",
+      "returned": 183,
+      "file": "ohlc-1d/2363.json"
+    },
+    {
+      "symbol": "1303",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/1303.json"
+    },
+    {
+      "symbol": "3714",
+      "status": "PASS",
+      "returned": 204,
+      "file": "ohlc-1d/3714.json"
+    },
+    {
+      "symbol": "2377",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/2377.json"
+    },
+    {
+      "symbol": "2419",
+      "status": "PASS",
+      "returned": 146,
+      "file": "ohlc-1d/2419.json"
+    },
+    {
+      "symbol": "4566",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/4566.json"
+    },
+    {
+      "symbol": "2489",
+      "status": "PASS",
+      "returned": 199,
+      "file": "ohlc-1d/2489.json"
+    },
+    {
+      "symbol": "8096",
+      "status": "PASS",
+      "returned": 201,
+      "file": "ohlc-1d/8096.json"
+    },
+    {
+      "symbol": "8111",
+      "status": "PASS",
+      "returned": 109,
+      "file": "ohlc-1d/8111.json"
+    }
+  ]
+}
