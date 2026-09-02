@@ -1,0 +1,76 @@
+name: Diagnostic 2330 Shard Routing One Shot
+
+on:
+  push:
+    branches:
+      - diag/full-market-latency-20260902
+    paths:
+      - .github/workflows/diag-2330-shard-routing-one-shot.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Inspect canonical shard routing
+        shell: bash
+        run: |
+          node --experimental-strip-types --input-type=module <<'NODE'
+          import { readGitHubJson } from './src/v6/github-data-store.ts';
+
+          const nativeFetch = globalThis.fetch;
+          const calls = [];
+          globalThis.fetch = async (input, init) => {
+            const url = new URL(String(input));
+            if (url.hostname !== 'api.github.com') throw new Error(`NON_GITHUB_NETWORK_BLOCKED:${url.hostname}`);
+            const response = await nativeFetch(input, init);
+            calls.push({ path: url.pathname, status: response.status });
+            return response;
+          };
+
+          const env = {
+            GITHUB_DATA_REPO: 'keywayk09/tv-papertrader',
+            GITHUB_DATA_BRANCH: 'main',
+            GITHUB_DATA_TOKEN: '',
+            GITHUB_TOKEN: '',
+          };
+
+          const paths = [
+            'data/market-data/index/2026/08/2.json',
+            'data/market-data/index/2026/08/23.json',
+            'data/market-data/index/2026/09/2.json',
+            'data/market-data/index/2026/09/23.json',
+          ];
+
+          for (const path of paths) {
+            try {
+              const read = await readGitHubJson(env, path);
+              const symbol = read.value?.symbols?.['2330'] ?? null;
+              const kinds = symbol && typeof symbol === 'object' ? Object.keys(symbol).sort() : [];
+              console.log(`PATH=${path}`);
+              console.log(`  EXISTS=${read.exists}`);
+              console.log(`  SHA=${read.sha ?? 'NONE'}`);
+              console.log(`  HAS_2330=${Boolean(symbol)}`);
+              console.log(`  KINDS=${kinds.join(',') || 'NONE'}`);
+              for (const kind of ['institutional','margin','securities_lending','sbl_short_sale']) {
+                console.log(`  ${kind.toUpperCase()}_ROWS=${Array.isArray(symbol?.[kind]) ? symbol[kind].length : 0}`);
+              }
+            } catch (error) {
+              console.log(`PATH=${path}`);
+              console.log(`  ERROR_CODE=${error?.code ?? 'NONE'}`);
+              console.log(`  ERROR=${error instanceof Error ? error.message : String(error)}`);
+            }
+          }
+
+          console.log('HTTP_CALLS_BEGIN');
+          for (const call of calls) console.log(`${call.status} ${call.path}`);
+          console.log('HTTP_CALLS_END');
+          console.log('SHARD_ROUTING_PROBE_COMPLETE=true');
+          NODE
