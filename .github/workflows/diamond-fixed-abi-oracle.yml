@@ -20,11 +20,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Locate legacy ChatGPT facade generation
+      - name: Scan historical fixed facade candidates
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== add_industry_evidence history ==='
-          git log --all --date=iso --format='%H %ad %s' -S'add_industry_evidence' -- src || true
-          echo '=== commits around first Owner OAuth cutover ==='
-          git log --all --date=iso --format='%H %ad %s' --before='2026-08-27T23:59:59+08:00' --after='2026-08-20T00:00:00+08:00' -- src/index.ts src/v6/owner-content-handler.ts | head -80
+          echo '=== candidate generations ==='
+          while read -r sha; do
+            if ! git grep -q 'add_industry_evidence' "$sha" -- src 2>/dev/null; then
+              continue
+            fi
+            count="$(git grep -h -o -E 'registerTool\("[A-Za-z0-9_]+' "$sha" -- src 2>/dev/null \
+              | sed 's/.*registerTool("//' | sort -u | wc -l | tr -d ' ')"
+            if [ "$count" -ge 65 ] && [ "$count" -le 95 ]; then
+              meta="$(git show -s --date=iso --format='%ad %s' "$sha")"
+              echo "CANDIDATE sha=$sha literal_tools=$count $meta"
+            fi
+          done < <(git rev-list --first-parent --reverse --since='2026-08-02T00:00:00+08:00' --until='2026-08-27T23:59:59+08:00' origin/main)
