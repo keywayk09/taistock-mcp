@@ -1,0 +1,17 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "canary-formal-blind-20260901-postfix-20260902-v1",
+  "kind": "formal_blind_batch",
+  "items": [
+    {"id":"s3006","symbol":"3006","trade_date":"2026-09-01","timeframe":"5m","decision_time":"09:35:00","limit":300},
+    {"id":"s5351","symbol":"5351","trade_date":"2026-09-01","timeframe":"5m","decision_time":"09:35:00","limit":300},
+    {"id":"s2352","symbol":"2352","trade_date":"2026-09-01","timeframe":"5m","decision_time":"09:35:00","limit":300},
+    {"id":"s2408","symbol":"2408","trade_date":"2026-09-01","timeframe":"5m","decision_time":"09:35:00","limit":300},
+    {"id":"s2303","symbol":"2303","trade_date":"2026-09-01","timeframe":"5m","decision_time":"09:35:00","limit":300},
+    {"id":"s3535","symbol":"3535","trade_date":"2026-09-01","timeframe":"5m","decision_time":"09:35:00","limit":300},
+    {"id":"s1815","symbol":"1815","trade_date":"2026-09-01","timeframe":"5m","decision_time":"09:35:00","limit":300},
+    {"id":"s8110","symbol":"8110","trade_date":"2026-09-01","timeframe":"5m","decision_time":"09:35:00","limit":300},
+    {"id":"s6205","symbol":"6205","trade_date":"2026-09-01","timeframe":"5m","decision_time":"09:35:00","limit":300},
+    {"id":"s8240","symbol":"8240","trade_date":"2026-09-01","timeframe":"5m","decision_time":"09:35:00","limit":300}
+  ]
+}
