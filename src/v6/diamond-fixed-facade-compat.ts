@@ -1,5 +1,3 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
 import { readFamilyStockMarketContext } from "./family-ohlc-read-bridge";
 import { getTwMarketCrossSection } from "./market-data-cross-section";
 import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
@@ -13,13 +11,13 @@ import {
 export const DIAMOND_CHATGPT_FIXED_FACADE_VERSION = "diamond-chatgpt-fixed-facade/v1";
 
 /**
- * These are the names present in the frozen 79-tool ChatGPT App snapshot but
- * no longer registered by the modern Owner composition root. They MUST remain
- * callable because ChatGPT may keep the old tool schema even after reconnect.
+ * Names that exist in the frozen 79-tool ChatGPT App snapshot but are absent
+ * from the modern Owner tools/list inventory.
  *
- * Do not restore the historical D1-backed implementations. This adapter keeps
- * the public name stable and routes safe reads to the current GitHub/read-only
- * plane. Retired writes fail closed with an explicit structured result.
+ * Do NOT register these names into modern tools/list. ChatGPT may continue to
+ * call them from its cached schema, so the authenticated Owner content handler
+ * intercepts only tools/call for these legacy names. This preserves the modern
+ * runtime inventory while keeping the historical App callable.
  */
 export const DIAMOND_FIXED_FACADE_COMPAT_TOOL_NAMES = Object.freeze([
   "add_industry_evidence",
@@ -62,6 +60,8 @@ export const DIAMOND_FIXED_FACADE_COMPAT_TOOL_NAMES = Object.freeze([
   "upsert_industry_theme",
   "upsert_taiwan_stock_analysis_kpi",
 ] as const);
+
+const compatNames = new Set<string>(DIAMOND_FIXED_FACADE_COMPAT_TOOL_NAMES);
 
 const retiredWrites = new Set<string>([
   "add_industry_evidence",
@@ -112,23 +112,16 @@ const analysis12Reads = new Set<string>([
   "get_taiwan_stock_analysis_template_12",
 ]);
 
-const permissiveCompatSchema = {
-  symbol: z.string().trim().max(32).optional(),
-  stock_id: z.string().trim().max(32).optional(),
-  stock: z.string().trim().max(32).optional(),
-  code: z.string().trim().max(32).optional(),
-  date: z.string().trim().max(32).optional(),
-  as_of: z.string().trim().max(32).optional(),
-  as_of_date: z.string().trim().max(32).optional(),
-  start_date: z.string().trim().max(32).optional(),
-  end_date: z.string().trim().max(32).optional(),
-  query: z.string().trim().max(4000).optional(),
-  keyword: z.string().trim().max(1000).optional(),
-  market: z.string().trim().max(64).optional(),
-  limit: z.number().int().min(1).max(2500).optional(),
+type CompatInput = Record<string, unknown>;
+type RpcRequest = {
+  jsonrpc?: unknown;
+  id?: unknown;
+  method?: unknown;
+  params?: {
+    name?: unknown;
+    arguments?: unknown;
+  };
 };
-
-type CompatInput = z.infer<z.ZodObject<typeof permissiveCompatSchema>>;
 
 const out = (value: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
@@ -142,6 +135,11 @@ function symbolOf(input: CompatInput) {
 function asOfOf(input: CompatInput) {
   const value = String(input.as_of ?? input.as_of_date ?? input.date ?? "").trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
+}
+
+function limitOf(input: CompatInput) {
+  const value = Number(input.limit);
+  return Number.isInteger(value) && value >= 1 && value <= 2500 ? value : undefined;
 }
 
 function retired(tool: string, modernCapability: string, detail: string) {
@@ -165,40 +163,21 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
 
   if (tool === "get_official_stock_institutional") {
     if (!symbol) return retired(tool, "get_tw_institutional_flow", "legacy call requires a 4-6 digit Taiwan stock symbol");
-    return out({
-      compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
-      legacy_tool: tool,
-      modern_tool: "get_tw_institutional_flow",
-      data: await getTwInstitutionalFlow(env, { symbol, as_of, calendar_days: 60 }),
-    });
+    return out({ compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION, legacy_tool: tool, modern_tool: "get_tw_institutional_flow", data: await getTwInstitutionalFlow(env, { symbol, as_of, calendar_days: 60 }) });
   }
 
   if (tool === "get_official_stock_margin") {
     if (!symbol) return retired(tool, "get_tw_margin_short", "legacy call requires a 4-6 digit Taiwan stock symbol");
-    return out({
-      compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
-      legacy_tool: tool,
-      modern_tool: "get_tw_margin_short",
-      data: await getTwMarginShort(env, { symbol, as_of, calendar_days: 60 }),
-    });
+    return out({ compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION, legacy_tool: tool, modern_tool: "get_tw_margin_short", data: await getTwMarginShort(env, { symbol, as_of, calendar_days: 60 }) });
   }
 
   if (tool === "get_daily_chip_report") {
     if (!symbol) return retired(tool, "get_tw_market_data_bundle", "legacy call requires a 4-6 digit Taiwan stock symbol");
-    return out({
-      compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
-      legacy_tool: tool,
-      modern_tool: "get_tw_market_data_bundle",
-      data: await getTwMarketDataBundle(env, { symbol, as_of, calendar_days: 60 }),
-    });
+    return out({ compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION, legacy_tool: tool, modern_tool: "get_tw_market_data_bundle", data: await getTwMarketDataBundle(env, { symbol, as_of, calendar_days: 60 }) });
   }
 
   if (tool === "get_official_market_institutional" || tool === "get_official_market_margin") {
-    const data = await getTwMarketCrossSection(env, {
-      ...(as_of ? { as_of } : {}),
-      calendar_days: 20,
-      limit: input.limit,
-    });
+    const data = await getTwMarketCrossSection(env, { ...(as_of ? { as_of } : {}), calendar_days: 20, limit: limitOf(input) });
     return out({
       compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
       legacy_tool: tool,
@@ -252,7 +231,7 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
   }
 
   if (etfReads.has(tool)) {
-    return retired(tool, "current read-only market/research plane", "舊Active ETF獨立資料面已退役；保留名稱避免ChatGPT frozen schema出現 unknown tool，但不重啟舊D1/舊來源寫入。");
+    return retired(tool, "current read-only market/research plane", "舊Active ETF獨立資料面已退役；保留舊呼叫名稱但不重啟舊D1/舊來源寫入。");
   }
 
   if (taifexReads.has(tool)) {
@@ -262,23 +241,62 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
   return retired(tool, "modern Diamond runtime", "legacy compatibility surface retained without unsafe historical persistence");
 }
 
-export function registerDiamondFixedFacadeCompat(server: McpServer, env: Env) {
-  for (const tool of DIAMOND_FIXED_FACADE_COMPAT_TOOL_NAMES) {
-    const isRetiredWrite = retiredWrites.has(tool);
-    server.registerTool(tool, {
-      description: `鑽石引擎固定79-tool facade相容入口：${tool}。保留舊ChatGPT App名稱；底層只走現代唯讀/GitHub canonical能力，禁止復活舊D1/R2 app persistence。`,
-      inputSchema: permissiveCompatSchema,
-      annotations: {
-        readOnlyHint: true,
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false,
-      },
-    }, async (input) => {
-      if (isRetiredWrite) {
-        return retired(tool, "modern deterministic/GitHub-only capability", "此舊名稱原本具有D1/管理型寫入語義；現在永久fail-closed，不允許為相容而恢復舊app persistence。");
-      }
-      return handleLegacyRead(tool, env, input as CompatInput);
-    });
+function rpcResponse(id: unknown, result: unknown, request: Request) {
+  const headers = new Headers({
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+  });
+  const session = request.headers.get("mcp-session-id");
+  if (session) headers.set("mcp-session-id", session);
+  return new Response(JSON.stringify({ jsonrpc: "2.0", id: id ?? null, result }), { status: 200, headers });
+}
+
+/**
+ * Intercept only authenticated Owner tools/call requests for the 39 names that
+ * disappeared from the modern server inventory. tools/list is intentionally
+ * untouched, so no new public schema is added and the 123 modern inventory
+ * remains stable. The access broker calls this only after Owner authorization.
+ */
+export async function tryHandleDiamondFixedFacadeCompatCall(request: Request, env: Env): Promise<Response | null> {
+  if (request.method !== "POST") return null;
+  const contentType = request.headers.get("content-type") || "";
+  if (!contentType.toLowerCase().includes("application/json")) return null;
+
+  let body: RpcRequest;
+  try {
+    const parsed = await request.clone().json();
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") return null;
+    body = parsed as RpcRequest;
+  } catch {
+    return null;
+  }
+
+  if (body.method !== "tools/call") return null;
+  const tool = String(body.params?.name ?? "");
+  if (!compatNames.has(tool)) return null;
+  const args = body.params?.arguments && typeof body.params.arguments === "object" && !Array.isArray(body.params.arguments)
+    ? body.params.arguments as CompatInput
+    : {};
+
+  try {
+    const result = retiredWrites.has(tool)
+      ? retired(tool, "modern deterministic/GitHub-only capability", "此舊名稱原本具有D1/管理型寫入語義；現在永久fail-closed，不允許為相容而恢復舊app persistence。")
+      : await handleLegacyRead(tool, env, args);
+    return rpcResponse(body.id, result, request);
+  } catch (error) {
+    return rpcResponse(body.id, {
+      isError: true,
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          ok: false,
+          status: "LEGACY_COMPATIBILITY_RUNTIME_ERROR",
+          facade_version: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
+          legacy_tool: tool,
+          error: error instanceof Error ? error.message : String(error),
+          production_mutation: "NONE",
+        }, null, 2),
+      }],
+    }, request);
   }
 }
