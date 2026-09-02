@@ -1,0 +1,47 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_RESPONSE_V1",
+  "relay_version": "automation-research-github-relay/v2.0.0",
+  "request_schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "run-2230-swing-existing-20260902-manual-20260903-v1",
+  "request_kind": "ohlc_1d_batch",
+  "request_sha256": "b78d6c3393759cfe353caf5d9f6c9f9d7afb8e9149d823c6e8816b610501cf5d",
+  "generated_at_utc": "2026-09-02T17:02:52.648Z",
+  "bridge_base_id": "taistock-mcp-production-automation-research",
+  "read_only": true,
+  "writer_routes": false,
+  "status": "PASS",
+  "as_of": "2026-09-02",
+  "source_revision": "f251a63cae8ce4110a04f1cf717e152684c5bf02",
+  "symbols": [
+    {
+      "symbol": "1815",
+      "status": "PASS",
+      "returned": 20,
+      "file": "ohlc-1d/1815.json"
+    },
+    {
+      "symbol": "2408",
+      "status": "PASS",
+      "returned": 20,
+      "file": "ohlc-1d/2408.json"
+    },
+    {
+      "symbol": "2609",
+      "status": "PASS",
+      "returned": 20,
+      "file": "ohlc-1d/2609.json"
+    },
+    {
+      "symbol": "3260",
+      "status": "PASS",
+      "returned": 20,
+      "file": "ohlc-1d/3260.json"
+    },
+    {
+      "symbol": "3090",
+      "status": "PASS",
+      "returned": 20,
+      "file": "ohlc-1d/3090.json"
+    }
+  ]
+}
