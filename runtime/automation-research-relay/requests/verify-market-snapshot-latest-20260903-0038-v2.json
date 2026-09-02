@@ -1,0 +1,5 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "verify-market-snapshot-latest-20260903-0038-v2",
+  "kind": "market_snapshot"
+}
