@@ -2,8 +2,12 @@ import { readFormalBlindOhlc, FORMAL_BLIND_OHLC_READER_VERSION } from "./formal-
 import { getTwMarketCrossSection, MARKET_DATA_CROSS_SECTION_VERSION } from "./market-data-cross-section.ts";
 import { createCrossAccountReadService, CROSS_ACCOUNT_READ_SERVICE_VERSION } from "./cross-account-read-service.ts";
 import { readGitHubJson } from "./github-data-store.ts";
+import {
+  isRetryableAutomationTransportError,
+  retryableAutomationTransportBody,
+} from "./automation-transport-error.ts";
 
-export const AUTOMATION_RESEARCH_REST_VERSION = "automation-research-rest/v1.0.0";
+export const AUTOMATION_RESEARCH_REST_VERSION = "automation-research-rest/v1.1.0";
 const ROOT = "/research/automation";
 const PAGE_SIZE = 80;
 const MAX_MARKET_LOOKBACK_DAYS = 14;
@@ -87,6 +91,14 @@ function html(title: string, body: string, status = 200) {
 function blocked(error: string, extra: AnyRecord = {}) {
   return json({ ok: false, blocked: true, bridge_version: AUTOMATION_RESEARCH_REST_VERSION, error, ...extra });
 }
+function transportUnavailable(error: string, detail: unknown, extra: AnyRecord = {}) {
+  return json({
+    bridge_version: AUTOMATION_RESEARCH_REST_VERSION,
+    read_only: true,
+    writer_routes: false,
+    ...retryableAutomationTransportBody(error, detail, extra),
+  }, 503);
+}
 function queryHref(path: string, params: Record<string, string | number | null | undefined>) {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) if (value !== null && value !== undefined) query.set(key, String(value));
@@ -127,6 +139,8 @@ function compactBlindResult(result: AnyRecord) {
     scorecard_eligible: result.scorecard_eligible === true,
     eligibility_reason: result.eligibility_reason ?? result.error ?? null,
     canonical_verification_receipt: result.canonical_verification_receipt ?? null,
+    retryable_transport_error: result.retryable_transport_error === true,
+    transport_error_class: result.transport_error_class ?? null,
     rows: Array.isArray(result.rows) ? result.rows : [],
   };
 }
@@ -143,14 +157,19 @@ async function routeFormalBlind(env: Env, url: URL) {
   if (!validDecisionTime(decisionTime)) return blocked("INVALID_DECISION_TIME");
   const result = await readFormalBlindOhlc(env, {
     symbol, trade_date: tradeDate, timeframe: timeframe as "1m" | "5m", decision_time: decisionTime, limit,
-  });
-  return json(compactBlindResult(result as AnyRecord));
+  }) as AnyRecord;
+  const compact = compactBlindResult(result);
+  if (result.retryable_transport_error === true) {
+    return json({ ...compact, error: "FORMAL_BLIND_TRANSPORT_UNAVAILABLE" }, 503);
+  }
+  return json(compact);
 }
 
 async function routeFormalBlindCanary(env: Env) {
-  const result = await readFormalBlindOhlc(env, FORMAL_BLIND_CANARY);
-  const compact = compactBlindResult(result as AnyRecord);
-  return json({ ...compact, canary: true, policy: "NO_MODEL_SIDE_SLICE;SERVER_SIDE_CUTOFF_ONLY" });
+  const result = await readFormalBlindOhlc(env, FORMAL_BLIND_CANARY) as AnyRecord;
+  const compact = compactBlindResult(result);
+  const body = { ...compact, canary: true, policy: "NO_MODEL_SIDE_SLICE;SERVER_SIDE_CUTOFF_ONLY" };
+  return json(body, result.retryable_transport_error === true ? 503 : 200);
 }
 
 async function routeMarketLatest(env: Env) {
@@ -159,6 +178,14 @@ async function routeMarketLatest(env: Env) {
   const probe = await getTwMarketCrossSection(env, { as_of: latest.date, prefix: "0", limit: 1, calendar_days: 20 }) as AnyRecord;
   const revision = String(probe.source_revision ?? "");
   if (probe.formal_research_eligible !== true || !validRevision(revision)) {
+    const transientDetail = probe.scan?.invalid_shards ?? null;
+    if (isRetryableAutomationTransportError(transientDetail)) {
+      return transportUnavailable("MARKET_LATEST_TRANSPORT_UNAVAILABLE", transientDetail, {
+        as_of: latest.date,
+        source_revision: revision || null,
+        probe_gate: probe.data_gate ?? null,
+      });
+    }
     return blocked("LATEST_MARKET_DATA_NOT_FORMAL", { as_of: latest.date, source_revision: revision || null, probe_gate: probe.data_gate ?? null });
   }
   const links = ["0","1","2","3","4","5","6","7","8","9"].map((prefix) => {
@@ -190,6 +217,12 @@ async function routeMarket(env: Env, url: URL) {
     return blocked("SOURCE_REVISION_MISMATCH", { requested: revision, actual: result.source_revision ?? null });
   }
   if (result.formal_research_eligible !== true) {
+    const transientDetail = result.scan?.invalid_shards ?? null;
+    if (isRetryableAutomationTransportError(transientDetail)) {
+      return transportUnavailable("MARKET_TRANSPORT_UNAVAILABLE", transientDetail, {
+        as_of: asOf, source_revision: revision, prefix, data_gate: result.data_gate ?? null, scan: result.scan ?? null,
+      });
+    }
     return blocked("MARKET_DATA_NOT_FORMAL", { as_of: asOf, source_revision: revision, prefix, data_gate: result.data_gate ?? null, scan: result.scan ?? null });
   }
 
@@ -217,7 +250,11 @@ async function routeOhlc1d(env: Env, url: URL) {
   const service = createCrossAccountReadService(pinnedEnv(env, revision));
   const result = await service.readOhlc({ symbol, timeframe: "1d", from: subtractDays(asOf, 560), to: asOf, limit }) as AnyRecord;
   if (result.ok !== true || result.formal_research_eligible !== true) {
-    return blocked("OHLC_1D_NOT_FORMAL", { symbol, as_of: asOf, source_revision: revision, reader_error: result.error ?? result.data_status ?? null });
+    const readerError = result.error ?? result.data_status ?? null;
+    if (isRetryableAutomationTransportError(readerError)) {
+      return transportUnavailable("OHLC_1D_TRANSPORT_UNAVAILABLE", readerError, { symbol, as_of: asOf, source_revision: revision });
+    }
+    return blocked("OHLC_1D_NOT_FORMAL", { symbol, as_of: asOf, source_revision: revision, reader_error: readerError });
   }
   const provenanceRevision = String(result.provenance?.branch ?? "");
   if (provenanceRevision.toLowerCase() !== revision.toLowerCase()) {
@@ -284,7 +321,10 @@ export async function handleAutomationResearchRest(request: Request, env: Env, u
     else if (url.pathname === `${ROOT}/ohlc-1d`) response = await routeOhlc1d(env, url);
     else response = json({ ok: false, blocked: true, error: "NOT_FOUND" }, 404);
   } catch (error) {
-    response = blocked("BRIDGE_INTERNAL_FAIL_CLOSED", { detail: error instanceof Error ? error.message : String(error) });
+    const detail = error instanceof Error ? error.message : String(error);
+    response = isRetryableAutomationTransportError(detail)
+      ? transportUnavailable("BRIDGE_TRANSPORT_UNAVAILABLE", detail)
+      : blocked("BRIDGE_INTERNAL_FAIL_CLOSED", { detail });
   }
 
   if (request.method === "HEAD") return new Response(null, { status: response.status, headers: response.headers });

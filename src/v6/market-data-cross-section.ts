@@ -136,6 +136,10 @@ async function resolveCanonicalRevision(env: Env) {
   const memory = (env as MemoryEnv).__GITHUB_DATA_MEMORY;
   const { repo, branch } = canonicalConfig(env);
   if (memory) return `memory:${branch}`;
+  // Automation market-export already supplies an immutable 40-char revision.
+  // Do not spend an extra GitHub /commits lookup (and another transient failure
+  // surface) merely to resolve a SHA to itself on every prefix request.
+  if (/^[0-9a-f]{40}$/i.test(branch)) return branch;
 
   const response = await fetch(`https://api.github.com/repos/${repo}/commits/${encodeURIComponent(branch)}`, {
     method: "GET",

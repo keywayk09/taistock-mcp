@@ -44,11 +44,18 @@ const REV = "a".repeat(40);
 }
 
 // Static contract: this route must remain a thin read-only facade over the
-// canonical cross-section reader, never a second shard implementation.
+// canonical cross-section reader, never a second shard implementation. Transient
+// reader failures are explicitly surfaced as HTTP 503 so the relay can retry,
+// while semantic formal failures remain the ordinary fail-closed BLOCKED path.
 const source = await readFile(new URL("../src/v6/automation-market-export-route.ts", import.meta.url), "utf8");
 assert.match(source, /getTwMarketCrossSection\(pinnedEnv\(env, revision\)/);
 assert.match(source, /formal_research_eligible !== true/);
 assert.match(source, /SOURCE_REVISION_MISMATCH/);
+assert.match(source, /MARKET_EXPORT_TRANSPORT_UNAVAILABLE/);
+assert.match(source, /isRetryableAutomationTransportError/);
+assert.match(source, /retryableAutomationTransportBody/);
+assert.match(source, /},\s*503\);/);
+assert.match(source, /MARKET_DATA_NOT_FORMAL/);
 assert.match(source, /limit:\s*500/);
 assert.doesNotMatch(source, /putImmutableGitHubJson|updateGitHubJson|createGitHub|DELETE|POST[^\n]*fetch/);
 assert.doesNotMatch(source, /url\.searchParams\.get\("url"\)|url\.searchParams\.get\("path"\)/);
