@@ -1,0 +1,6 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "canary-market-snapshot-20260901-postfix-20260902-v1",
+  "request_kind": "market_snapshot",
+  "as_of": "2026-09-01"
+}
