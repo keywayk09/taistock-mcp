@@ -14,7 +14,7 @@ import {
   type TwMarketDataKind,
 } from "./tw-market-data.ts";
 
-export const TW_MARKET_DATA_VERSION = "diamond-tw-market-data/v2.1.0-compact-first-finmind-fallback";
+export const TW_MARKET_DATA_VERSION = "diamond-tw-market-data/v2.0.0-github";
 
 export type MarketDataManifestLayer = {
   kind: TwMarketDataKind;
