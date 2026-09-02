@@ -63,6 +63,32 @@ assert.match(dailyRelay, /group: tpex-official-relay-v2/);
 assert.doesNotMatch(dailyRelay, /grouped\.setdefault\(item\[0\]/);
 assertPythonCompiles("Daily relay", dailyRelay);
 
+// Cloudflare recovery must not rely only on the retired legacy PHP SBL endpoint.
+// The recovery order is direct OpenAPI -> immutable relay -> modern exact-date official JSON
+// -> legacy PHP only for transport-level modern failures. Exact-date semantic failures remain
+// hard fail-closed and must never be hidden by the legacy endpoint.
+const tpexTransport = read("src/v6/tpex-cloudflare-transport.ts");
+assert.match(tpexTransport, /\/www\/zh-tw\/margin\/sbl\?date=/);
+assert.match(tpexTransport, /TPEX_SBL_MODERN_WEB_JSON/);
+assert.match(tpexTransport, /modernExactDateRows/);
+assert.match(tpexTransport, /normalizeSblRows/);
+assert.match(tpexTransport, /isModernSblSemanticError/);
+assert.match(tpexTransport, /source_date_mismatch/);
+assert.match(tpexTransport, /table_date_mismatch/);
+assert.match(tpexTransport, /root_not_object/);
+assert.match(tpexTransport, /tables_missing/);
+assert.match(tpexTransport, /exact_date_empty/);
+assert.match(tpexTransport, /if \(isModernSblSemanticError\(modernError\)\) throw modernError/);
+assert.match(tpexTransport, /getLegacyOfficialWebSblDataset/);
+assert.match(tpexTransport, /TPEX_SBL_OFFICIAL_FALLBACK_failed/);
+const sblRecoveryStart = tpexTransport.indexOf("async function getOfficialWebSblDataset");
+const sblRecoveryEnd = tpexTransport.indexOf("export async function getTpexJson", sblRecoveryStart);
+assert.ok(sblRecoveryStart >= 0 && sblRecoveryEnd > sblRecoveryStart, "SBL recovery wrapper missing");
+const sblRecoveryBlock = tpexTransport.slice(sblRecoveryStart, sblRecoveryEnd);
+const modernPos = sblRecoveryBlock.indexOf("TPEX_SBL_MODERN_WEB_JSON");
+const legacyPos = sblRecoveryBlock.indexOf("getLegacyOfficialWebSblDataset");
+assert.ok(modernPos >= 0 && legacyPos > modernPos, "modern exact-date SBL recovery must precede legacy PHP fallback");
+
 // The watchdog must share the exact same concurrency group as the official relay writer.
 // Its final wake remains 22:40 Taipei, while the Cloudflare DAILY_RECOVERY epoch is now
 // intentionally allowed to continue through 23:55. This gives late official/relay data a
