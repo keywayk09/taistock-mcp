@@ -34,6 +34,9 @@ const TWSE_MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp";
 const CBC_FX_DAILY = "https://cpx.cbc.gov.tw/api/OpenData/FTDOpenData_Day";
 const USER_AGENT = "taistock-mcp-stable-market/1.0 (+https://github.com/keywayk09/taistock-mcp)";
 const MIS_BATCH_SIZE = 100;
+// Keep one of Cloudflare's six simultaneous outbound connections available for
+// the parallel TWSE quote request while reducing nine OTC batches to two waves.
+const MIS_MAX_CONCURRENCY = 5;
 const MIN_COVERAGE = { TWSE: 400, TPEx: 250 } as const;
 const CACHE_TTL_MS = 15_000;
 
@@ -333,7 +336,7 @@ async function loadTpexMopsMis(universe: CompanyMeta[]): Promise<MarketSnapshot>
     const batches = chunked(universe.map((item) => item.symbol), MIS_BATCH_SIZE);
     const results: PromiseSettledResult<Obj[]>[] = new Array(batches.length);
     let cursor = 0;
-    const workers = Array.from({ length: Math.min(4, batches.length) }, async () => {
+    const workers = Array.from({ length: Math.min(MIS_MAX_CONCURRENCY, batches.length) }, async () => {
       while (true) {
         const index = cursor++;
         if (index >= batches.length) return;
