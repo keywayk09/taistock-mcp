@@ -1,3 +1,4 @@
+// Regression: large-file fallback must remain same-repository, SHA-bound, size-bounded, and fail-closed.
 import assert from "node:assert/strict";
 import { readGitHubJson, stableJson } from "../src/v6/github-data-store.ts";
 
