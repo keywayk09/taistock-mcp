@@ -1,0 +1,79 @@
+name: Diagnostic 2330 Institutional Base GitHub Only One Shot
+
+on:
+  push:
+    branches:
+      - diag/full-market-latency-20260902
+    paths:
+      - .github/workflows/diag-2330-institutional-base-github-only-one-shot.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install
+      - name: Run canonical GitHub-only 2330 institutional base-reader probe
+        shell: bash
+        run: |
+          node --experimental-strip-types --input-type=module <<'NODE'
+          import { getTwInstitutionalFlow } from './src/v6/tw-market-data-github.ts';
+
+          const nativeFetch = globalThis.fetch;
+          const calls = [];
+          globalThis.fetch = async (input, init) => {
+            const url = new URL(String(input));
+            calls.push(url.hostname + url.pathname);
+            if (url.hostname !== 'api.github.com') {
+              throw new Error(`NON_GITHUB_NETWORK_BLOCKED:${url.hostname}`);
+            }
+            return nativeFetch(input, init);
+          };
+
+          const env = {
+            GITHUB_DATA_REPO: 'keywayk09/tv-papertrader',
+            GITHUB_DATA_BRANCH: 'main',
+            GITHUB_DATA_TOKEN: '',
+            GITHUB_TOKEN: '',
+            FINMIND_TOKEN: '',
+          };
+
+          const result = await getTwInstitutionalFlow(env, {
+            symbol: '2330',
+            as_of: '2026-09-01',
+            calendar_days: 60,
+          });
+
+          const rows = Array.isArray(result.rows) ? result.rows : [];
+          const latest = rows.at(-1) ?? null;
+          const datasets = Array.isArray(result.datasets) ? result.datasets : [];
+          const augustCompact = datasets.find((x) => String(x.path || '') === 'data/market-data/index/2026/08/2.json');
+          const githubBlobCalls = calls.filter((x) => x.includes('/git/blobs/'));
+
+          console.log('PROBE_STATUS=' + String(result.status));
+          console.log('PROBE_SYMBOL=' + String(result.symbol));
+          console.log('PROBE_AS_OF=' + String(result.as_of));
+          console.log('PROBE_ROWS=' + rows.length);
+          console.log('PROBE_LATEST_DATE=' + String(latest?.trade_date ?? 'NONE'));
+          console.log('PROBE_LATEST_FOREIGN_NET_SHARES=' + String(latest?.foreign_net_shares ?? 'NONE'));
+          console.log('PROBE_LATEST_TRUST_NET_SHARES=' + String(latest?.trust_net_shares ?? 'NONE'));
+          console.log('PROBE_LATEST_DEALER_NET_SHARES=' + String(latest?.dealer_net_shares ?? 'NONE'));
+          console.log('PROBE_LATEST_TOTAL_NET_SHARES=' + String(latest?.total_net_shares ?? 'NONE'));
+          console.log('PROBE_AUGUST_COMPACT_PRESENT=' + String(Boolean(augustCompact)));
+          console.log('PROBE_AUGUST_COMPACT_ROLE=' + String(augustCompact?.role ?? 'NONE'));
+          console.log('PROBE_GITHUB_BLOB_CALLS=' + githubBlobCalls.length);
+          console.log('PROBE_FALLBACK_ERROR=' + String(result.data_quality?.fallback_error ?? 'NONE'));
+
+          if (!rows.length) throw new Error('NO_INSTITUTIONAL_ROWS');
+          if (!augustCompact) throw new Error('AUGUST_COMPACT_SHARD_NOT_READ');
+          if (!githubBlobCalls.length) throw new Error('LARGE_GITHUB_BLOB_FALLBACK_NOT_EXERCISED');
+          if (latest?.trade_date !== '2026-09-01') throw new Error(`LATEST_DATE_MISMATCH:${latest?.trade_date}`);
+          console.log('GITHUB_ONLY_2330_INSTITUTIONAL_BASE_PROBE=PASS');
+          NODE
