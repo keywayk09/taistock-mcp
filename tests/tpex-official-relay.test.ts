@@ -3,8 +3,8 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { setMarketDataCaptureTradeDate } from "../src/v6/market-data-capture-context";
-import { getTpexJson } from "../src/v6/tpex-cloudflare-transport";
+import { setMarketDataCaptureTradeDate } from "../src/v6/market-data-capture-context.ts";
+import { getTpexJson } from "../src/v6/tpex-cloudflare-transport.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
