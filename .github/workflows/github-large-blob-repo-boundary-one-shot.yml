@@ -21,21 +21,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "41d54b505992733d7caf55635d19fb4b352a31ab"
+          test "$(git rev-parse HEAD^)" = "fc09d91116bd1f08cd0355930fd4b7569d6e2893"
           python - <<'PY'
           from pathlib import Path
           p = Path('src/v6/github-data-store.ts')
           text = p.read_text()
-          old = '''  if (!/^[0-9a-f]{40}$/i.test(expectedSha) || !gitUrl.startsWith("https://api.github.com/repos/")) {
-    throw new GitHubDataStoreError("GITHUB_INVALID_LARGE_CONTENT", "GitHub large-file metadata is incomplete", undefined, { path: normalized });
-  }
-'''
-          new = '''  const { repo } = config(env);
-  const expectedGitUrl = `https://api.github.com/repos/${repo}/git/blobs/${expectedSha}`;
-  if (!/^[0-9a-f]{40}$/i.test(expectedSha) || gitUrl !== expectedGitUrl) {
-    throw new GitHubDataStoreError("GITHUB_INVALID_LARGE_CONTENT", "GitHub large-file metadata is incomplete or crosses repository boundary", undefined, { path: normalized });
-  }
-'''
+          old = '  if (!/^[0-9a-f]{40}$/i.test(expectedSha) || !gitUrl.startsWith("https://api.github.com/repos/")) {\n    throw new GitHubDataStoreError("GITHUB_INVALID_LARGE_CONTENT", "GitHub large-file metadata is incomplete", undefined, { path: normalized });\n  }\n'
+          new = '  const { repo } = config(env);\n  const expectedGitUrl = `https://api.github.com/repos/${repo}/git/blobs/${expectedSha}`;\n  if (!/^[0-9a-f]{40}$/i.test(expectedSha) || gitUrl !== expectedGitUrl) {\n    throw new GitHubDataStoreError("GITHUB_INVALID_LARGE_CONTENT", "GitHub large-file metadata is incomplete or crosses repository boundary", undefined, { path: normalized });\n  }\n'
           if text.count(old) != 1:
               raise SystemExit('expected trust-boundary pattern not found exactly once')
           p.write_text(text.replace(old, new))
