@@ -1,0 +1,68 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_RESPONSE_V1",
+  "relay_version": "automation-research-github-relay/v2.0.0",
+  "request_schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "market-20260903-sbl-e2e-01",
+  "request_kind": "market_snapshot",
+  "request_sha256": "2c709ac4cd908d3b5abc080e92bc20240e7ea811da1250ae3ca223eeb7bb9ddc",
+  "generated_at_utc": "2026-09-02T16:29:54.245Z",
+  "bridge_base_id": "taistock-mcp-production-automation-research",
+  "read_only": true,
+  "writer_routes": false,
+  "status": "PASS",
+  "as_of": "2026-09-02",
+  "source_revision": "f251a63cae8ce4110a04f1cf717e152684c5bf02",
+  "manifest_sha": "253bc63cf4fb0d5dd074e1c81341c34824811534",
+  "prefixes": [
+    {
+      "prefix": "0",
+      "symbol_count": 179,
+      "file": "market/prefix-0.json"
+    },
+    {
+      "prefix": "1",
+      "symbol_count": 231,
+      "file": "market/prefix-1.json"
+    },
+    {
+      "prefix": "2",
+      "symbol_count": 343,
+      "file": "market/prefix-2.json"
+    },
+    {
+      "prefix": "3",
+      "symbol_count": 307,
+      "file": "market/prefix-3.json"
+    },
+    {
+      "prefix": "4",
+      "symbol_count": 211,
+      "file": "market/prefix-4.json"
+    },
+    {
+      "prefix": "5",
+      "symbol_count": 147,
+      "file": "market/prefix-5.json"
+    },
+    {
+      "prefix": "6",
+      "symbol_count": 438,
+      "file": "market/prefix-6.json"
+    },
+    {
+      "prefix": "7",
+      "symbol_count": 73,
+      "file": "market/prefix-7.json"
+    },
+    {
+      "prefix": "8",
+      "symbol_count": 165,
+      "file": "market/prefix-8.json"
+    },
+    {
+      "prefix": "9",
+      "symbol_count": 51,
+      "file": "market/prefix-9.json"
+    }
+  ]
+}
