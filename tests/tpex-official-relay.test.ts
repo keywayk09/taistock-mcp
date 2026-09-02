@@ -81,8 +81,12 @@ assert.match(tpexTransport, /exact_date_empty/);
 assert.match(tpexTransport, /if \(isModernSblSemanticError\(modernError\)\) throw modernError/);
 assert.match(tpexTransport, /getLegacyOfficialWebSblDataset/);
 assert.match(tpexTransport, /TPEX_SBL_OFFICIAL_FALLBACK_failed/);
-const modernPos = tpexTransport.indexOf("TPEX_SBL_MODERN_WEB_JSON");
-const legacyPos = tpexTransport.indexOf("getLegacyOfficialWebSblDataset");
+const sblRecoveryStart = tpexTransport.indexOf("async function getOfficialWebSblDataset");
+const sblRecoveryEnd = tpexTransport.indexOf("export async function getTpexJson", sblRecoveryStart);
+assert.ok(sblRecoveryStart >= 0 && sblRecoveryEnd > sblRecoveryStart, "SBL recovery wrapper missing");
+const sblRecoveryBlock = tpexTransport.slice(sblRecoveryStart, sblRecoveryEnd);
+const modernPos = sblRecoveryBlock.indexOf("TPEX_SBL_MODERN_WEB_JSON");
+const legacyPos = sblRecoveryBlock.indexOf("getLegacyOfficialWebSblDataset");
 assert.ok(modernPos >= 0 && legacyPos > modernPos, "modern exact-date SBL recovery must precede legacy PHP fallback");
 
 // The watchdog must share the exact same concurrency group as the official relay writer.
