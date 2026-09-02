@@ -90,15 +90,16 @@ const legacyPos = sblRecoveryBlock.indexOf("getLegacyOfficialWebSblDataset");
 assert.ok(modernPos >= 0 && legacyPos > modernPos, "modern exact-date SBL recovery must precede legacy PHP fallback");
 
 // The watchdog must share the exact same concurrency group as the official relay writer.
-// Its final wake remains 22:40 Taipei, while the Cloudflare DAILY_RECOVERY epoch is now
-// intentionally allowed to continue through 23:55. This gives late official/relay data a
-// bounded same-day self-heal window without reopening the checkpoint after midnight.
+// Its final wake remains 22:40 Taipei, while Cloudflare keeps bounded quarter-hour retry
+// epochs available through 23:55. This lets newly complete immutable relay data be consumed
+// on the same date without removing next_retry_at or retry-attempt fences.
 const watchdogRelay = read(".github/workflows/tpex-relay-watchdog-v1.yml");
 const marketSchedule = read("src/v6/market-data-schedule.ts");
 assert.match(marketSchedule, /inSameDayRecoveryWindow/);
 assert.match(marketSchedule, /hour === 23/);
 assert.match(marketSchedule, /23:55/);
-assert.match(marketSchedule, /checkpointIso\(date, 22, 15\)/);
+assert.match(marketSchedule, /retryEpochCheckpointIso/);
+assert.match(marketSchedule, /Math\.floor\(minute \/ 15\) \* 15/);
 assert.match(watchdogRelay, /22:40/);
 assert.match(watchdogRelay, /cron: '40 14 \* \* 1-5'/);
 assert.match(watchdogRelay, /group: tpex-official-relay-v2/);
@@ -141,4 +142,4 @@ assert.equal(fs.existsSync(path.join(root, "src/v6/tpex-official-relay.ts")), fa
 assert.equal(fs.existsSync(path.join(root, "src/v6/tpex-market-data-backfill.ts")), false);
 assert.equal(fs.existsSync(path.join(root, ".github/workflows/tpex-official-relay.yml")), false);
 
-console.log("P19 exact-date monotonic TPEx daily + historical no-trading evidence contracts passed");
+console.log("P19 exact-date monotonic TPEx daily + bounded retry epochs + historical no-trading evidence contracts passed");
