@@ -1,0 +1,9 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "run-2230-ohlc-backup-20260902-manual-20260903-v1",
+  "kind": "ohlc_1d_batch",
+  "as_of": "2026-09-02",
+  "source_revision": "f251a63cae8ce4110a04f1cf717e152684c5bf02",
+  "symbols": ["8240","3535","3624","8064","2329"],
+  "limit": 20
+}
