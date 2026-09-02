@@ -13,24 +13,19 @@ permissions:
 jobs:
   oracle:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout repair branch with history
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Locate exact 79 tool facade generation
+      - name: Capture exact frozen 79 facade names
         shell: bash
         run: |
           set -euo pipefail
-          echo '=== history introducing/removing static 79 count ==='
-          git log --all --date=iso --format='%H %ad %s' -S'tools: 79' -- src wrangler.jsonc || true
-          echo '=== every historical occurrence of tools: 79 on first-parent main ==='
-          while read -r sha; do
-            hit="$(git grep -n -E 'tools["'"']?[[:space:]]*:[[:space:]]*79|owner_tools["'"']?[[:space:]]*:[[:space:]]*79' "$sha" -- src 2>/dev/null || true)"
-            if [ -n "$hit" ]; then
-              echo "MATCH sha=$sha $(git show -s --date=iso --format='%ad %s' "$sha")"
-              printf '%s\n' "$hit"
-            fi
-          done < <(git rev-list --first-parent --reverse --since='2026-08-02T00:00:00+08:00' --until='2026-08-30T23:59:59+08:00' origin/main)
+          cp scripts/capture-owner-tool-names-oracle.ts /tmp/capture-owner-tool-names-oracle.ts
+          git checkout --detach 9e85592aa8e78a9afbbb246ee1fee2553c2d8187
+          cp /tmp/capture-owner-tool-names-oracle.ts scripts/capture-owner-tool-names-oracle.ts
+          npm install --ignore-scripts
+          TARGET_ENTRY=src/index-v7.ts EXPECTED_COUNT=79 node --experimental-strip-types scripts/capture-owner-tool-names-oracle.ts
