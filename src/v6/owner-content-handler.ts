@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MyMCP as BaseMCP } from "../index";
 import { registerDailyReportFormatTool } from "./daily-report-format";
-import { registerDiamondFixedFacadeCompat } from "./diamond-fixed-facade-compat";
+import { tryHandleDiamondFixedFacadeCompatCall } from "./diamond-fixed-facade-compat";
 import { registerToolThroughJin10Facade } from "./jin10-facade-middleware.ts";
 import { registerResearchTools } from "./research-tools";
 import { registerAdvancedTools } from "./register";
@@ -73,19 +73,17 @@ export class MyMCP extends BaseMCP {
     registerSharedStockMarketContextTools(this.server, this.env);
     registerSharedCryptoMarketTools(this.server, this.env);
 
-    // ChatGPT Personal Apps may retain the historical 79-tool schema even after
-    // reconnect. Restore only the names missing from the modern Owner runtime.
-    // The adapter never revives historical D1/R2 app persistence: safe legacy
-    // reads route to current read planes and retired write surfaces fail closed.
-    registerDiamondFixedFacadeCompat(this.server, this.env);
-
-    // Deliberately do not register standalone jin10_* tools. Jin10 stays behind
-    // the fixed Diamond facade ABI to avoid tool-snapshot/version churn.
+    // Deliberately do not register standalone Jin10 or legacy compatibility
+    // aliases into tools/list. ChatGPT's historical 79-tool App schema is served
+    // by the authenticated tools/call interceptor below, while modern tools/list
+    // remains the current Owner runtime inventory.
   }
 }
 
 export const ownerContentHandler: McpContentHandler = {
-  fetch(request, env, ctx) {
+  async fetch(request, env, ctx) {
+    const compat = await tryHandleDiamondFixedFacadeCompatCall(request, env);
+    if (compat) return compat;
     const pathname = new URL(request.url).pathname;
     return MyMCP.serve(pathname).fetch(request, env, ctx);
   },
