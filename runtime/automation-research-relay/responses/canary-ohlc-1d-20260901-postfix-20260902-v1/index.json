@@ -1,0 +1,35 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_RESPONSE_V1",
+  "relay_version": "automation-research-github-relay/v2.0.0",
+  "request_schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "canary-ohlc-1d-20260901-postfix-20260902-v1",
+  "request_kind": "ohlc_1d_batch",
+  "request_sha256": "d65a32b3e68090d6c36d2e89c64ef3cd71403274684122e331cd03c9c1723ac8",
+  "generated_at_utc": "2026-09-02T09:08:33.636Z",
+  "bridge_base_id": "taistock-mcp-production-automation-research",
+  "read_only": true,
+  "writer_routes": false,
+  "status": "PASS",
+  "as_of": "2026-09-01",
+  "source_revision": "51abce2769de962e177bb7133ae9bb43c35c6595",
+  "symbols": [
+    {
+      "symbol": "2330",
+      "status": "PASS",
+      "returned": 220,
+      "file": "ohlc-1d/2330.json"
+    },
+    {
+      "symbol": "2408",
+      "status": "PASS",
+      "returned": 204,
+      "file": "ohlc-1d/2408.json"
+    },
+    {
+      "symbol": "1815",
+      "status": "PASS",
+      "returned": 205,
+      "file": "ohlc-1d/1815.json"
+    }
+  ]
+}
