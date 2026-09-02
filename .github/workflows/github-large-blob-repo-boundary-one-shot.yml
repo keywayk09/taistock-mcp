@@ -1,0 +1,56 @@
+name: GitHub Large Blob Repo Boundary One Shot
+
+on:
+  push:
+    branches:
+      - fix/github-large-contents-read-final-20260902
+    paths:
+      - .github/workflows/github-large-blob-repo-boundary-one-shot.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Verify one-shot parent and patch exact trust boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "41d54b505992733d7caf55635d19fb4b352a31ab"
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/v6/github-data-store.ts')
+          text = p.read_text()
+          old = '''  if (!/^[0-9a-f]{40}$/i.test(expectedSha) || !gitUrl.startsWith("https://api.github.com/repos/")) {
+    throw new GitHubDataStoreError("GITHUB_INVALID_LARGE_CONTENT", "GitHub large-file metadata is incomplete", undefined, { path: normalized });
+  }
+'''
+          new = '''  const { repo } = config(env);
+  const expectedGitUrl = `https://api.github.com/repos/${repo}/git/blobs/${expectedSha}`;
+  if (!/^[0-9a-f]{40}$/i.test(expectedSha) || gitUrl !== expectedGitUrl) {
+    throw new GitHubDataStoreError("GITHUB_INVALID_LARGE_CONTENT", "GitHub large-file metadata is incomplete or crosses repository boundary", undefined, { path: normalized });
+  }
+'''
+          if text.count(old) != 1:
+              raise SystemExit('expected trust-boundary pattern not found exactly once')
+          p.write_text(text.replace(old, new))
+          PY
+          rm .github/workflows/github-large-blob-repo-boundary-one-shot.yml
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected=$'.github/workflows/github-large-blob-repo-boundary-one-shot.yml\nsrc/v6/github-data-store.ts'
+          test "$changed" = "$expected"
+      - name: Commit bounded branch-only fix and self-delete
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: bind large GitHub blob fallback to configured repo'
+          git push origin HEAD:fix/github-large-contents-read-final-20260902
