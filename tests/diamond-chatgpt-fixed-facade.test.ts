@@ -45,8 +45,16 @@ nodeModule._load = function(request:string,parent:unknown,isMain:boolean){
   return originalLoad.call(this, request, parent, isMain);
 };
 
+let compatNames:string[] = [];
+let tryCompat:((request:Request,env:Env)=>Promise<Response|null>) | null = null;
 try {
   const { MyMCP } = cjsRequire("../src/v6/owner-content-handler.ts") as { MyMCP:{prototype:{init:()=>Promise<void>}} };
+  const compat = cjsRequire("../src/v6/diamond-fixed-facade-compat.ts") as {
+    DIAMOND_FIXED_FACADE_COMPAT_TOOL_NAMES:readonly string[];
+    tryHandleDiamondFixedFacadeCompatCall:(request:Request,env:Env)=>Promise<Response|null>;
+  };
+  compatNames = [...compat.DIAMOND_FIXED_FACADE_COMPAT_TOOL_NAMES];
+  tryCompat = compat.tryHandleDiamondFixedFacadeCompatCall;
   await MyMCP.prototype.init.call({ server:fakeServer, env:{} as Env } as any);
 } finally {
   nodeModule._load = originalLoad;
@@ -54,15 +62,53 @@ try {
   else delete cjsRequire.extensions[".ts"];
 }
 
+assert.equal(captured.length, 123, "modern Owner tools/list inventory must remain 123; compatibility aliases must not be registered");
 assert.equal(new Set(captured).size, captured.length, "Owner runtime must never double-register a tool name");
+assert.equal(compatNames.length, 39, "frozen facade interceptor must contain exactly the 39 names absent from modern runtime");
+assert.equal(new Set(compatNames).size, 39, "compatibility names must be unique");
+
 const live = new Set(captured);
 const missing = fixture.tool_names.filter((name) => !live.has(name));
-assert.deepEqual(missing, [], `frozen ChatGPT 79 facade has missing runtime names: ${missing.join(",")}`);
+assert.deepEqual([...missing].sort(), [...compatNames].sort(), "historical 79 facade gap must be covered exactly by the compatibility interceptor");
+assert.ok(fixture.tool_names.every((name) => live.has(name) || compatNames.includes(name)), "every frozen ChatGPT tool must be callable through modern registration or compatibility interception");
+
+assert.ok(tryCompat, "compatibility tools/call interceptor must be exported");
+const legacyCall = new Request("https://taistock-mcp.example/my-mcp", {
+  method:"POST",
+  headers:{ "content-type":"application/json", "mcp-session-id":"compat-test-session" },
+  body:JSON.stringify({ jsonrpc:"2.0", id:79, method:"tools/call", params:{ name:"add_industry_evidence", arguments:{ evidence_id:"legacy" } } }),
+});
+const legacyResponse = await tryCompat!(legacyCall, {} as Env);
+assert.ok(legacyResponse, "missing frozen tool call must be intercepted before modern MCP runtime");
+assert.equal(legacyResponse!.status, 200);
+assert.equal(legacyResponse!.headers.get("mcp-session-id"), "compat-test-session");
+const legacyRpc = await legacyResponse!.json() as any;
+assert.equal(legacyRpc.jsonrpc, "2.0");
+assert.equal(legacyRpc.id, 79);
+assert.equal(legacyRpc.result?.content?.[0]?.type, "text");
+const legacyPayload = JSON.parse(String(legacyRpc.result.content[0].text));
+assert.equal(legacyPayload.status, "LEGACY_COMPATIBILITY_RETAINED_FAIL_CLOSED");
+assert.equal(legacyPayload.legacy_tool, "add_industry_evidence");
+assert.equal(legacyPayload.production_mutation, "NONE");
+
+const modernCall = new Request("https://taistock-mcp.example/my-mcp", {
+  method:"POST",
+  headers:{ "content-type":"application/json" },
+  body:JSON.stringify({ jsonrpc:"2.0", id:80, method:"tools/call", params:{ name:"get_quote", arguments:{ symbol:"2330" } } }),
+});
+assert.equal(await tryCompat!(modernCall, {} as Env), null, "modern registered tools must bypass legacy interceptor");
 
 const compatPath = path.join(root, "src/v6/diamond-fixed-facade-compat.ts");
-assert.ok(fs.existsSync(compatPath), "fixed facade compatibility adapter must exist after GREEN");
 const compatSource = fs.readFileSync(compatPath, "utf8");
 assert.doesNotMatch(compatSource, /\bD1Database\b|env\.DB\b|\.prepare\(/, "fixed facade compat must not restore D1 app persistence");
 assert.doesNotMatch(compatSource, /\bR2Bucket\b/, "fixed facade compat must not introduce R2 app persistence");
+assert.match(compatSource, /method !== "tools\/call"/, "compatibility adapter must intercept only tools/call");
 
-console.log(JSON.stringify({ schema:"DIAMOND_CHATGPT_FIXED_FACADE_TEST_V1", status:"PASS", frozen_tools:79, owner_runtime_tools:captured.length }, null, 2));
+console.log(JSON.stringify({
+  schema:"DIAMOND_CHATGPT_FIXED_FACADE_TEST_V1",
+  status:"PASS",
+  frozen_tools:79,
+  modern_owner_tools:123,
+  compatibility_intercepts:39,
+  production_mutation:"NONE",
+}, null, 2));
