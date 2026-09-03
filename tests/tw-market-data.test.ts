@@ -7,25 +7,117 @@ import {
   normalizeTradeDate, normalizeTwseInstitutional, normalizeTwseMargin, normalizeTwseSecuritiesLending, normalizeTwseSblShortSale,
   securitiesLendingWindows, sblShortSaleWindows, type InstitutionalRow, type MarginRow,
 } from "../src/v6/tw-market-data.ts";
-assert.equal(normalizeTradeDate("115/08/19"),"2026-08-19");assert.equal(normalizeTradeDate("1150819"),"2026-08-19");assert.equal(normalizeTradeDate("20260819"),"2026-08-19");
-const ti=normalizeTwseInstitutional({stat:"OK",date:"20260819",fields:["證券代號","證券名稱","外陸資買賣超股數(不含外資自營商)","投信買賣超股數","自營商買賣超股數","三大法人買賣超股數"],data:[["2330","台積電","1,000","200","-50","1,150"]]},"2026-08-19");assert.equal(ti[0].total_net_shares,1150);
-const oi=normalizeTpexInstitutional([{Date:"1150819",SecuritiesCompanyCode:"6488",CompanyName:"環球晶","ForeignInvestorsInclude MainlandAreaInvestors-Difference":"2,000","SecuritiesInvestmentTrustCompanies-Difference":"-100","Dealers-Difference":"50",TotalDifference:"1,950"}],"2026-08-19");assert.equal(oi[0].market,"otc");assert.equal(oi[0].total_net_shares,1950);
-const tm=normalizeTwseMargin({stat:"OK",date:"20260819",tables:[{title:"融資融券彙總",fields:["證券代號","證券名稱","融資前日餘額","融資今日餘額","融券前日餘額","融券今日餘額"],data:[["2330","台積電","10,000","10,500","800","750"]]}]},"2026-08-19");assert.equal(tm[0].margin_balance_change_lots,500);assert.equal(tm[0].short_balance_change_lots,-50);
-const om=normalizeTpexMargin([{Date:"1150819",SecuritiesCompanyCode:"6488",CompanyName:"環球晶",MarginPurchaseBalancePreviousDay:"1,000",MarginPurchaseBalance:"1,100",ShortSaleBalancePreviousDay:"90",ShortSaleBalance:"120"}],"2026-08-19");assert.equal(om[0].margin_balance_change_lots,100);assert.equal(om[0].short_balance_change_lots,30);
-const lend=normalizeTwseSecuritiesLending({date:"20260819",fields:["證券代號","證券名稱","前日借券餘額(1)股","本日異動股借券(2)","本日異動股還券(3)","本日借券餘額股(4)=(1)+(2)-(3)","本日收盤價(5)單位：元","借券餘額市值單位：元(6)=(4)*(5)","市場別"],data:[["2330","台積電","1,000","300","100","1,200","1000","1,200,000","集中市場"],["6488","環球晶","500","100","20","580","500","290,000","櫃買市場"]]},"2026-08-19");assert.equal(lend[0].borrowed_shares,300);assert.equal(lend[0].returned_shares,100);assert.equal(lend[1].market,"otc");
-const twSbl=normalizeTwseSblShortSale({date:"20260819",fields:["代號","名稱","前日餘額","賣出","買進","現券","今日餘額","次一營業日限額","前日餘額","當日賣出","當日還券","當日調整","當日餘額","次一營業日可限額","備註"],data:[["2330","台積電","0","0","0","0","0","0","10,000","2,000","500","100","11,600","20,000",""]]},"2026-08-19");assert.equal(twSbl[0].sold_shares,2000);assert.equal(twSbl[0].returned_shares,500);assert.equal(twSbl[0].balance_shares,11600);
-const otcSbl=normalizeTpexSblShortSale([{Date:"1150819",SecuritiesCompanyCode:"6488",CompanyName:"環球晶",SecuritiesBorrowingBalancePreviousDay:"10000",SecuritiesBorrowingSale:"2000",SecuritiesBorrowingReturn:"500",SecuritiesBorrowingAdjustment:"100",SecuritiesBorrowingBalanceOfTheMarketDay:"11600",AvailableVolumesForSBLShortSale:"20000"}],[{Date:"1150819",SecuritiesCompanyCode:"6488",CompanyName:"環球晶",SBLVolume:"3",SBLAmount:"1500000"}],"2026-08-19");assert.equal(otcSbl[0].sold_volume_shares,3000);assert.equal(otcSbl[0].sold_amount,1500000);
-const instRows:InstitutionalRow[]=Array.from({length:20},(_,i)=>({trade_date:`2026-07-${String(i+1).padStart(2,"0")}`,symbol:"2330",name:"台積電",market:"listed",foreign_net_shares:i+1,trust_net_shares:2,dealer_net_shares:-1,total_net_shares:i+2,source:"fixture",source_priority:"OFFICIAL"}));assert.equal((institutionalWindows(instRows) as any)["3d"].foreign_net_shares,57);
-const marginRows:MarginRow[]=Array.from({length:20},(_,i)=>({trade_date:`2026-07-${String(i+1).padStart(2,"0")}`,symbol:"2330",name:"台積電",market:"listed",margin_previous_balance_lots:1000+i,margin_balance_lots:1001+i,margin_balance_change_lots:1,short_previous_balance_lots:100+i,short_balance_lots:102+i,short_balance_change_lots:2,source:"fixture",source_priority:"OFFICIAL"}));assert.equal((marginWindows(marginRows) as any).windows["10d"].short_balance_change_lots,20);
-assert.equal((securitiesLendingWindows(lend) as any).windows["1d"].net_borrowed_shares,80);assert.equal((sblShortSaleWindows(otcSbl) as any).windows["1d"].sold_volume_shares,3000);
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");const read=(p:string)=>fs.readFileSync(path.join(root,p),"utf8");
-const source=read("src/v6/tw-market-data-github.ts");assert.match(source,/diamond-tw-market-data\/v2\.0\.0-github/);assert.match(source,/TaiwanStockInstitutionalInvestorsBuySell/);assert.match(source,/TaiwanStockMarginPurchaseShortSale/);assert.doesNotMatch(source,/TaiwanStockPrice/);assert.match(source,/GITHUB_ONLY/);assert.doesNotMatch(source,/D1Database|RESEARCH_DB|tw_market_data_snapshot_d1/);
-const tools=read("src/v6/tw-market-data-tools.ts");for(const name of ["get_tw_market_data_contract","get_tw_institutional_flow","get_tw_margin_short","get_tw_securities_lending","get_tw_sbl_short_sale","get_tw_market_data_bundle","get_tw_market_data_status"])assert.match(tools,new RegExp(`registerTool\\(\\"${name}\\"`));assert.match(tools,/D1\/R2 forbidden/);assert.match(tools,/r2_usage: "FORBIDDEN"/);
-const index=read("src/index-v6.ts");assert.match(index,/version: "6\.19\.0"/);assert.match(index,/tools: 118/);assert.match(index,/GITHUB_ONLY_NO_D1_NO_R2/);assert.doesNotMatch(index,/syncDiamondCanonicalBatch|CANONICAL_SYNC_VERSION|source_transport_branch|diamond-data/);assert.match(index,/expected_layers: 8/);assert.match(index,/incremental_ready_monotonic_missing_only_retry/);assert.match(index,/keywayk09\/tv-papertrader/);assert.match(index,/CLOUDFLARE_CRON_CANONICAL_WRITER/);assert.match(index,/RECENT_3_MINUTES_MAX_300_NORMALIZED_PRINTS_NOT_PERSISTED/);assert.match(index,/CENTRAL_TV_CRYPTO_ENGINE_READ_ONLY_NO_DUPLICATE_FAMILY_ENGINE/);
-const wrangler=read("wrangler.jsonc");assert.doesNotMatch(wrangler,/d1_databases|r2_buckets|RESEARCH_DB/);assert.match(wrangler,/GITHUB_DATA_REPO/);assert.match(wrangler,/keywayk09\/tv-papertrader/);assert.match(wrangler,/GITHUB_DATA_BRANCH/);assert.match(wrangler,/"main"/);assert.match(wrangler,/"triggers"/);assert.match(wrangler,/"crons": \["\*\/5 \* \* \* \*"\]/);assert.match(wrangler,/CRYPTO_ENGINE_BASE_URL/);
-const store=read("src/v6/github-data-store.ts");assert.match(store,/DEFAULT_GITHUB_DATA_REPO = "keywayk09\/tv-papertrader"/);assert.match(store,/DEFAULT_GITHUB_DATA_BRANCH = "main"/);assert.doesNotMatch(store,/DEFAULT_GITHUB_DATA_REPO = "keywayk09\/taistock-mcp"|DEFAULT_GITHUB_DATA_BRANCH = "diamond-data"/);
+
+// Existing normalizers remain regression-protected. The migration changes how
+// current data is acquired/persisted, not the official field semantics.
+assert.equal(normalizeTradeDate("115/08/19"),"2026-08-19");
+assert.equal(normalizeTradeDate("1150819"),"2026-08-19");
+assert.equal(normalizeTradeDate("20260819"),"2026-08-19");
+
+const ti=normalizeTwseInstitutional({stat:"OK",date:"20260819",fields:["證券代號","證券名稱","外陸資買賣超股數(不含外資自營商)","投信買賣超股數","自營商買賣超股數","三大法人買賣超股數"],data:[["2330","台積電","1,000","200","-50","1,150"]]},"2026-08-19");
+assert.equal(ti[0].total_net_shares,1150);
+const oi=normalizeTpexInstitutional([{Date:"1150819",SecuritiesCompanyCode:"6488",CompanyName:"環球晶","ForeignInvestorsInclude MainlandAreaInvestors-Difference":"2,000","SecuritiesInvestmentTrustCompanies-Difference":"-100","Dealers-Difference":"50",TotalDifference:"1,950"}],"2026-08-19");
+assert.equal(oi[0].market,"otc");
+assert.equal(oi[0].total_net_shares,1950);
+const tm=normalizeTwseMargin({stat:"OK",date:"20260819",tables:[{title:"融資融券彙總",fields:["證券代號","證券名稱","融資前日餘額","融資今日餘額","融券前日餘額","融券今日餘額"],data:[["2330","台積電","10,000","10,500","800","750"]]}]},"2026-08-19");
+assert.equal(tm[0].margin_balance_change_lots,500);
+assert.equal(tm[0].short_balance_change_lots,-50);
+const om=normalizeTpexMargin([{Date:"1150819",SecuritiesCompanyCode:"6488",CompanyName:"環球晶",MarginPurchaseBalancePreviousDay:"1,000",MarginPurchaseBalance:"1,100",ShortSaleBalancePreviousDay:"90",ShortSaleBalance:"120"}],"2026-08-19");
+assert.equal(om[0].margin_balance_change_lots,100);
+assert.equal(om[0].short_balance_change_lots,30);
+const lend=normalizeTwseSecuritiesLending({date:"20260819",fields:["證券代號","證券名稱","前日借券餘額(1)股","本日異動股借券(2)","本日異動股還券(3)","本日借券餘額股(4)=(1)+(2)-(3)","本日收盤價(5)單位：元","借券餘額市值單位：元(6)=(4)*(5)","市場別"],data:[["2330","台積電","1,000","300","100","1,200","1000","1,200,000","集中市場"],["6488","環球晶","500","100","20","580","500","290,000","櫃買市場"]]},"2026-08-19");
+assert.equal(lend[0].borrowed_shares,300);
+assert.equal(lend[0].returned_shares,100);
+assert.equal(lend[1].market,"otc");
+const twSbl=normalizeTwseSblShortSale({date:"20260819",fields:["代號","名稱","前日餘額","賣出","買進","現券","今日餘額","次一營業日限額","前日餘額","當日賣出","當日還券","當日調整","當日餘額","次一營業日可限額","備註"],data:[["2330","台積電","0","0","0","0","0","0","10,000","2,000","500","100","11,600","20,000",""]]},"2026-08-19");
+assert.equal(twSbl[0].sold_shares,2000);
+assert.equal(twSbl[0].returned_shares,500);
+assert.equal(twSbl[0].balance_shares,11600);
+const otcSbl=normalizeTpexSblShortSale([{Date:"1150819",SecuritiesCompanyCode:"6488",CompanyName:"環球晶",SecuritiesBorrowingBalancePreviousDay:"10000",SecuritiesBorrowingSale:"2000",SecuritiesBorrowingReturn:"500",SecuritiesBorrowingAdjustment:"100",SecuritiesBorrowingBalanceOfTheMarketDay:"11600",AvailableVolumesForSBLShortSale:"20000"}],[{Date:"1150819",SecuritiesCompanyCode:"6488",CompanyName:"環球晶",SBLVolume:"3",SBLAmount:"1500000"}],"2026-08-19");
+assert.equal(otcSbl[0].sold_volume_shares,3000);
+assert.equal(otcSbl[0].sold_amount,1500000);
+
+const instRows:InstitutionalRow[]=Array.from({length:20},(_,i)=>({trade_date:`2026-07-${String(i+1).padStart(2,"0")}`,symbol:"2330",name:"台積電",market:"listed",foreign_net_shares:i+1,trust_net_shares:2,dealer_net_shares:-1,total_net_shares:i+2,source:"fixture",source_priority:"OFFICIAL"}));
+assert.equal((institutionalWindows(instRows) as any)["3d"].foreign_net_shares,57);
+const marginRows:MarginRow[]=Array.from({length:20},(_,i)=>({trade_date:`2026-07-${String(i+1).padStart(2,"0")}`,symbol:"2330",name:"台積電",market:"listed",margin_previous_balance_lots:1000+i,margin_balance_lots:1001+i,margin_balance_change_lots:1,short_previous_balance_lots:100+i,short_balance_lots:102+i,short_balance_change_lots:2,source:"fixture",source_priority:"OFFICIAL"}));
+assert.equal((marginWindows(marginRows) as any).windows["10d"].short_balance_change_lots,20);
+assert.equal((securitiesLendingWindows(lend) as any).windows["1d"].net_borrowed_shares,80);
+assert.equal((sblShortSaleWindows(otcSbl) as any).windows["1d"].sold_volume_shares,3000);
+
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"..");
+const read=(p:string)=>fs.readFileSync(path.join(root,p),"utf8");
+
+// Historical archive implementation remains present/readable during migration.
+const legacySource=read("src/v6/tw-market-data-github.ts");
+assert.match(legacySource,/diamond-tw-market-data\/v2\.0\.0-github/);
+assert.match(legacySource,/TaiwanStockInstitutionalInvestorsBuySell/);
+assert.match(legacySource,/TaiwanStockMarginPurchaseShortSale/);
+assert.doesNotMatch(legacySource,/TaiwanStockPrice/);
+assert.match(legacySource,/GITHUB_ONLY/);
+assert.doesNotMatch(legacySource,/D1Database|RESEARCH_DB|tw_market_data_snapshot_d1/);
+
+// Public tool names stay frozen; current evidence moves behind them to the
+// exact-date on-demand provider. D1/R2 remain forbidden for app market data.
+const tools=read("src/v6/tw-market-data-tools.ts");
+for(const name of ["get_tw_market_data_contract","get_tw_institutional_flow","get_tw_margin_short","get_tw_securities_lending","get_tw_sbl_short_sale","get_tw_market_data_bundle","get_tw_market_data_status"]){
+  assert.match(tools,new RegExp(`registerTool\\(\\"${name}\\"`));
+}
+assert.match(tools,/EXACT_DATE_OFFICIAL_ON_DEMAND_READ_ONLY/);
+assert.match(tools,/current_raw:\s*"NONE"/);
+assert.match(tools,/current_normalized:\s*"NONE"/);
+assert.match(tools,/legacy_archive:\s*"READ_ONLY"/);
+assert.match(tools,/previous_day_substitution:\s*"FORBIDDEN"/);
+assert.match(tools,/official_account_maintenance_ratio_reconstruction:\s*"FORBIDDEN_WITHOUT_BROKER_ACCOUNT_DATA"/);
+assert.match(tools,/family_market_data_write:\s*"FORBIDDEN"/);
+
+// The old V6 implementation remains internally available for compatibility,
+// while the production wrapper advertises/guards the new on-demand behavior.
+const index=read("src/index-v6.ts");
+assert.match(index,/version: "6\.19\.0"/);
+assert.match(index,/tools: 118/);
+assert.match(index,/GITHUB_ONLY_NO_D1_NO_R2/);
+assert.doesNotMatch(index,/syncDiamondCanonicalBatch|CANONICAL_SYNC_VERSION|source_transport_branch|diamond-data/);
+assert.match(index,/expected_layers: 8/);
+assert.match(index,/keywayk09\/tv-papertrader/);
+assert.match(index,/RECENT_3_MINUTES_MAX_300_NORMALIZED_PRINTS_NOT_PERSISTED/);
+assert.match(index,/CENTRAL_TV_CRYPTO_ENGINE_READ_ONLY_NO_DUPLICATE_FAMILY_ENGINE/);
+
+const bridge=read("src/index-automation-bridge.ts");
+assert.match(bridge,/current_chip_read_mode:\s*"OFFICIAL_EXACT_DATE_ON_DEMAND"/);
+assert.match(bridge,/scheduled_chip_capture:\s*"DISABLED"/);
+assert.match(bridge,/status:\s*"RETIRED_NOOP"/);
+assert.match(bridge,/ohlc_policy:\s*"UNCHANGED_CANONICAL_PIPELINE"/);
+
+// Critical migration switch: no Cloudflare automatic chip cron remains. Public
+// Worker/Durable Object/OAuth variables and crypto routing stay unchanged.
+const wrangler=read("wrangler.jsonc");
+assert.doesNotMatch(wrangler,/d1_databases|r2_buckets|RESEARCH_DB/);
+assert.match(wrangler,/GITHUB_DATA_REPO/);
+assert.match(wrangler,/keywayk09\/tv-papertrader/);
+assert.match(wrangler,/GITHUB_DATA_BRANCH/);
+assert.match(wrangler,/"main"/);
+assert.doesNotMatch(wrangler,/"triggers"\s*:/);
+assert.doesNotMatch(wrangler,/"crons"\s*:/);
+assert.match(wrangler,/CRYPTO_ENGINE_BASE_URL/);
+assert.match(wrangler,/MyMCP/);
+assert.match(wrangler,/FamilyMCP/);
+
+const store=read("src/v6/github-data-store.ts");
+assert.match(store,/DEFAULT_GITHUB_DATA_REPO = "keywayk09\/tv-papertrader"/);
+assert.match(store,/DEFAULT_GITHUB_DATA_BRANCH = "main"/);
+assert.doesNotMatch(store,/DEFAULT_GITHUB_DATA_REPO = "keywayk09\/taistock-mcp"|DEFAULT_GITHUB_DATA_BRANCH = "diamond-data"/);
 assert.equal(fs.existsSync(path.join(root,"src/v6/github-canonical-sync.ts")),false);
 assert.equal(fs.existsSync(path.join(root,".github/workflows/market-data-github-archive.yml")),false);
-const capture=read("scripts/capture-tw-market-data.ts");assert.match(capture,/market-data-incremental-controller/);assert.match(capture,/dueLayerKeys/);assert.match(capture,/mergeReadyMonotonic/);assert.match(capture,/TWSE_HOLIDAY_SCHEDULE/);assert.match(capture,/NO_TRADING_DAY/);assert.match(capture,/MARKET_DATA_FINAL_AUDIT/);assert.doesNotMatch(capture,/if\(ready<expected\.length\)process\.exitCode=2/);
-for(const marker of ["TWT72U","TWT93U","tpex_margin_sbl","tpex_short_sell","T86","MI_MARGN"])assert.match(capture,new RegExp(marker));assert.match(capture,/data\/market-data\/raw/);assert.match(capture,/data\/market-data\/daily/);assert.match(capture,/data\/market-data\/index/);assert.match(capture,/data\/market-calendar/);
-console.log("P19.3 incremental official-first GitHub-only Taiwan market data + unified crypto gateway contract tests passed");
+
+// Dormant capture code is intentionally retained for historical decoding and
+// rollback. It no longer has a Production cron binding.
+const capture=read("scripts/capture-tw-market-data.ts");
+assert.match(capture,/market-data-incremental-controller/);
+assert.match(capture,/dueLayerKeys/);
+assert.match(capture,/mergeReadyMonotonic/);
+assert.match(capture,/TWSE_HOLIDAY_SCHEDULE/);
+assert.match(capture,/NO_TRADING_DAY/);
+assert.match(capture,/MARKET_DATA_FINAL_AUDIT/);
+for(const marker of ["TWT72U","TWT93U","tpex_margin_sbl","tpex_short_sell","T86","MI_MARGN"]) assert.match(capture,new RegExp(marker));
+
+console.log("P19 migration: official parsers preserved, current chip reads on-demand, legacy archive read-only, automatic chip cron retired");
