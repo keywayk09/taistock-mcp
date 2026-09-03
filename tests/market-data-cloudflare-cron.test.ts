@@ -19,6 +19,9 @@ function taipei(isoLocal: string) {
   return new Date(`${isoLocal}+08:00`);
 }
 
+// The old capture/publish/backfill implementation is intentionally retained as
+// dormant compatibility/history code during migration. Its deterministic tests
+// remain valuable, but Production must no longer schedule it automatically.
 assert.match(legacyRunner, /dueLayerKeys/);
 assert.match(runner, /dueLayerKeys/);
 assert.match(runner, /mergeReadyMonotonic/);
@@ -73,7 +76,12 @@ assert.match(schedule, /PREVIOUS_DAY_FINAL_AUDIT/);
 assert.match(schedule, /HISTORY_BOOTSTRAP/);
 assert.doesNotMatch(schedule, /TRADING_EVENING_EXTENDED/);
 assert.doesNotMatch(schedule, /PREVIOUS_DAY_OVERNIGHT_CATCHUP/);
-assert.match(wrangler, /"crons": \["\*\/5 \* \* \* \*"\]/);
+
+// Migration contract: the scheduler implementation can remain callable for
+// diagnostics/history tests, but wrangler must not bind an automatic cron. This
+// is the actual Production switch that stops future bulk chip capture.
+assert.doesNotMatch(wrangler, /"triggers"\s*:/);
+assert.doesNotMatch(wrangler, /"crons"\s*:/);
 assert.match(entrypoint, /async scheduled\(controller: ScheduledController/);
 assert.match(entrypoint, /runExtendedScheduledMarketDataController/);
 assert.match(deployWorkflow, /npx wrangler deploy/);
@@ -178,4 +186,4 @@ assert.equal(parsed[0]?.open, false);
 assert.equal(parsed[1]?.date, "2026-02-23");
 assert.equal(parsed[1]?.open, true);
 
-console.log("market-data staged checkpoints + official calendar fail-closed scheduler contract passed");
+console.log("market-data legacy scheduler retained but automatic Cloudflare cron retirement contract passed");
