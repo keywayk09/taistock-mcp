@@ -1,0 +1,556 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_RESPONSE_V1",
+  "relay_version": "automation-research-github-relay/v2.1.0",
+  "request_schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "manual-verify-20260903-1930-v1",
+  "request_kind": "formal_blind_batch",
+  "request_sha256": "45ac64ddbb67876be981ecc878418cbb1095cb75ff92ad489924a3b35fcfdd47",
+  "generated_at_utc": "2026-09-03T11:31:04.284Z",
+  "bridge_base_id": "taistock-mcp-production-automation-research",
+  "read_only": true,
+  "writer_routes": false,
+  "status": "PARTIAL_OR_BLOCKED",
+  "item_count": 60,
+  "items": [
+    {
+      "id": "3441-0935",
+      "symbol": "3441",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/3441-0935.json"
+    },
+    {
+      "id": "8021-0935",
+      "symbol": "8021",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/8021-0935.json"
+    },
+    {
+      "id": "8110-0935",
+      "symbol": "8110",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/8110-0935.json"
+    },
+    {
+      "id": "2329-0935",
+      "symbol": "2329",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2329-0935.json"
+    },
+    {
+      "id": "4916-0935",
+      "symbol": "4916",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/4916-0935.json"
+    },
+    {
+      "id": "8096-0935",
+      "symbol": "8096",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/8096-0935.json"
+    },
+    {
+      "id": "2485-0935",
+      "symbol": "2485",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2485-0935.json"
+    },
+    {
+      "id": "8358-0935",
+      "symbol": "8358",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/8358-0935.json"
+    },
+    {
+      "id": "3055-0935",
+      "symbol": "3055",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/3055-0935.json"
+    },
+    {
+      "id": "2478-0935",
+      "symbol": "2478",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2478-0935.json"
+    },
+    {
+      "id": "2337-0935",
+      "symbol": "2337",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2337-0935.json"
+    },
+    {
+      "id": "2634-0935",
+      "symbol": "2634",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2634-0935.json"
+    },
+    {
+      "id": "5425-0935",
+      "symbol": "5425",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/5425-0935.json"
+    },
+    {
+      "id": "8150-0935",
+      "symbol": "8150",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/8150-0935.json"
+    },
+    {
+      "id": "3189-0935",
+      "symbol": "3189",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/3189-0935.json"
+    },
+    {
+      "id": "6275-0935",
+      "symbol": "6275",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/6275-0935.json"
+    },
+    {
+      "id": "2332-0935",
+      "symbol": "2332",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2332-0935.json"
+    },
+    {
+      "id": "4958-0935",
+      "symbol": "4958",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/4958-0935.json"
+    },
+    {
+      "id": "3707-0935",
+      "symbol": "3707",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/3707-0935.json"
+    },
+    {
+      "id": "3016-0935",
+      "symbol": "3016",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/3016-0935.json"
+    },
+    {
+      "id": "6205-0935",
+      "symbol": "6205",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/6205-0935.json"
+    },
+    {
+      "id": "2408-0935",
+      "symbol": "2408",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2408-0935.json"
+    },
+    {
+      "id": "2481-0935",
+      "symbol": "2481",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2481-0935.json"
+    },
+    {
+      "id": "5328-0935",
+      "symbol": "5328",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/5328-0935.json"
+    },
+    {
+      "id": "4903-0935",
+      "symbol": "4903",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/4903-0935.json"
+    },
+    {
+      "id": "2409-0935",
+      "symbol": "2409",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2409-0935.json"
+    },
+    {
+      "id": "3714-0935",
+      "symbol": "3714",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/3714-0935.json"
+    },
+    {
+      "id": "2313-0935",
+      "symbol": "2313",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2313-0935.json"
+    },
+    {
+      "id": "2399-0935",
+      "symbol": "2399",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2399-0935.json"
+    },
+    {
+      "id": "2324-0935",
+      "symbol": "2324",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2324-0935.json"
+    },
+    {
+      "id": "8064-0935",
+      "symbol": "8064",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/8064-0935.json"
+    },
+    {
+      "id": "1785-0935",
+      "symbol": "1785",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/1785-0935.json"
+    },
+    {
+      "id": "3028-0935",
+      "symbol": "3028",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/3028-0935.json"
+    },
+    {
+      "id": "3338-0935",
+      "symbol": "3338",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/3338-0935.json"
+    },
+    {
+      "id": "6182-0935",
+      "symbol": "6182",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/6182-0935.json"
+    },
+    {
+      "id": "6443-0935",
+      "symbol": "6443",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/6443-0935.json"
+    },
+    {
+      "id": "2484-0935",
+      "symbol": "2484",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2484-0935.json"
+    },
+    {
+      "id": "8074-0935",
+      "symbol": "8074",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/8074-0935.json"
+    },
+    {
+      "id": "8088-0935",
+      "symbol": "8088",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/8088-0935.json"
+    },
+    {
+      "id": "1815-0935",
+      "symbol": "1815",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/1815-0935.json"
+    },
+    {
+      "id": "4979-0935",
+      "symbol": "4979",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/4979-0935.json"
+    },
+    {
+      "id": "2303-0935",
+      "symbol": "2303",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2303-0935.json"
+    },
+    {
+      "id": "5351-0935",
+      "symbol": "5351",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/5351-0935.json"
+    },
+    {
+      "id": "2413-0935",
+      "symbol": "2413",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2413-0935.json"
+    },
+    {
+      "id": "4123-0935",
+      "symbol": "4123",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/4123-0935.json"
+    },
+    {
+      "id": "5371-0935",
+      "symbol": "5371",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "BLOCKED",
+      "returned": 0,
+      "file": "blind/5371-0935.json"
+    },
+    {
+      "id": "6770-0935",
+      "symbol": "6770",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/6770-0935.json"
+    },
+    {
+      "id": "4919-0935",
+      "symbol": "4919",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/4919-0935.json"
+    },
+    {
+      "id": "5309-0935",
+      "symbol": "5309",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/5309-0935.json"
+    },
+    {
+      "id": "3481-0935",
+      "symbol": "3481",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/3481-0935.json"
+    },
+    {
+      "id": "1326-0935",
+      "symbol": "1326",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/1326-0935.json"
+    },
+    {
+      "id": "8043-0935",
+      "symbol": "8043",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/8043-0935.json"
+    },
+    {
+      "id": "2363-0935",
+      "symbol": "2363",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2363-0935.json"
+    },
+    {
+      "id": "4533-0935",
+      "symbol": "4533",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/4533-0935.json"
+    },
+    {
+      "id": "2455-0935",
+      "symbol": "2455",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2455-0935.json"
+    },
+    {
+      "id": "3605-0935",
+      "symbol": "3605",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/3605-0935.json"
+    },
+    {
+      "id": "2375-0935",
+      "symbol": "2375",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2375-0935.json"
+    },
+    {
+      "id": "6207-0935",
+      "symbol": "6207",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/6207-0935.json"
+    },
+    {
+      "id": "8033-0935",
+      "symbol": "8033",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/8033-0935.json"
+    },
+    {
+      "id": "2406-0935",
+      "symbol": "2406",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "PASS",
+      "returned": 7,
+      "file": "blind/2406-0935.json"
+    }
+  ]
+}
