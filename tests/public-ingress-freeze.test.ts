@@ -13,7 +13,7 @@ const indexV6 = read("src/index-v6.ts");
 const broker = read("src/v6/mcp-access-broker.ts");
 const familyContent = read("src/v6/family-content-handler.ts");
 const familyMcp = read("src/v6/family-mcp.ts");
-const ownerContent = read("src/v6/owner-content-handler.ts");
+const twMarketTools = read("src/v6/tw-market-data-tools.ts");
 const ORIGIN = "https://taistock-mcp.keywayk09.workers.dev";
 const ctx = {} as ExecutionContext;
 const env = {} as Env;
@@ -95,7 +95,7 @@ for (const tool of TW_CHIP_INTELLIGENCE_REGISTRY.integration_contract.family_exi
   assert.match(familyMcp, new RegExp(`registerTool\\(\\"${tool}\\"`), `Family must keep existing tool ${tool}`);
 }
 for (const tool of TW_CHIP_INTELLIGENCE_REGISTRY.integration_contract.owner_existing_tools) {
-  assert.match(ownerContent, new RegExp(`\\"${tool}\\"|registerTool\\(\\"${tool}\\"`), `Owner must keep existing tool ${tool}`);
+  assert.match(twMarketTools, new RegExp(`registerTool\\(\\"${tool}\\"`), `Owner must keep existing tool ${tool}`);
 }
 
 const readySources = TW_CHIP_INTELLIGENCE_REGISTRY.sources.filter((source) => source.status === "READY");
