@@ -6,6 +6,7 @@ import {
 } from "./market-data-published-gateway-v2.ts";
 import { getTwBrokerRankedOnDemand, TW_BROKER_RANKED_ON_DEMAND_VERSION } from "./tw-broker-ranked-on-demand.ts";
 import { getTwChipOnDemandSnapshot, TW_CHIP_ON_DEMAND_VERSION } from "./tw-chip-on-demand.ts";
+import type { MarginRow } from "./tw-market-data.ts";
 
 export { MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS, type PublishedGatewayInput };
 
@@ -20,6 +21,51 @@ function taipeiToday() {
   }).format(new Date());
 }
 
+function buildCurrentMaintenanceRisk(
+  input: PublishedGatewayInput,
+  latestMargin: MarginRow | null,
+  currentMarginStatus: string,
+) {
+  const price = Number(input.reference_price);
+  const estimatedCost = Number(input.estimated_financing_cost);
+  const financingRatio = Number.isFinite(Number(input.financing_ratio))
+    ? Math.max(0.1, Math.min(0.9, Number(input.financing_ratio)))
+    : 0.6;
+
+  if (!(price > 0) || !(estimatedCost > 0)) {
+    return {
+      status: "NEEDS_OHLC_JOIN" as const,
+      metric: "ESTIMATED_POSITION_MAINTENANCE_PROXY",
+      official_account_maintenance_ratio: false,
+      requires: ["reference_price_from_OHLC_MCP", "estimated_financing_cost"],
+      financing_ratio_assumption: financingRatio,
+      official_margin_context: latestMargin,
+      official_margin_context_status: currentMarginStatus,
+      source_scope: "CURRENT_EXACT_DATE_ON_DEMAND",
+      note: "公開個股資料無法還原券商整戶擔保維持率；此層只計算部位維持率代理值，不得標示為官方整戶維持率。",
+    };
+  }
+
+  const ratio = (price / (estimatedCost * financingRatio)) * 100;
+  const distance130 = ratio - 130;
+  const riskZone = ratio < 130 ? "CRITICAL" : ratio < 140 ? "HIGH" : ratio < 160 ? "ELEVATED" : ratio < 180 ? "NORMAL" : "LOW";
+  return {
+    status: "READY" as const,
+    metric: "ESTIMATED_POSITION_MAINTENANCE_PROXY",
+    official_account_maintenance_ratio: false,
+    estimated_maintenance_ratio_pct: Number(ratio.toFixed(2)),
+    distance_to_130_pct_points: Number(distance130.toFixed(2)),
+    risk_zone: riskZone,
+    reference_price: price,
+    estimated_financing_cost: estimatedCost,
+    financing_ratio_assumption: financingRatio,
+    official_margin_context: latestMargin,
+    official_margin_context_status: currentMarginStatus,
+    source_scope: "CURRENT_EXACT_DATE_ON_DEMAND",
+    note: "估算部位代理值，不等同券商整戶擔保維持率。",
+  };
+}
+
 /**
  * Compatibility facade for the existing Owner/Family tool surface.
  *
@@ -27,6 +73,10 @@ function taipeiToday() {
  * evidence is fetched directly from TWSE/TPEx. Broker-branch evidence is a
  * fail-soft PUBLIC_SECONDARY ranked page and can never block or downgrade the
  * official layers. Nothing fetched here is persisted.
+ *
+ * `consistency: PUBLISHED` is retained as a frozen response ABI label for old
+ * callers/tests. The actual current-day provider is disclosed separately by
+ * `current_consistency` and `preferred_current_evidence`.
  */
 export async function getTwMarketChipSummaryPublished(env: Env, input: PublishedGatewayInput) {
   const requestedAsOf = input.as_of ?? taipeiToday();
@@ -41,6 +91,14 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
   const legacyQuality = legacyRecord.data_quality && typeof legacyRecord.data_quality === "object"
     ? legacyRecord.data_quality
     : {};
+  const currentMaintenanceRisk = buildCurrentMaintenanceRisk(
+    input,
+    onDemand.layers.margin_short.latest,
+    onDemand.layers.margin_short.status,
+  );
+  const legacyLayers = legacyRecord.layers && typeof legacyRecord.layers === "object"
+    ? legacyRecord.layers as Record<string, any>
+    : {};
 
   return {
     ...legacyRecord,
@@ -52,7 +110,8 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
       legacy_archive: LEGACY_PUBLISHED_GATEWAY_VERSION,
     },
     storage: "ON_DEMAND_CURRENT+LEGACY_ARCHIVE_READ_ONLY",
-    consistency: "ON_DEMAND_CURRENT_WITH_LEGACY_CONTEXT",
+    consistency: "PUBLISHED" as const,
+    current_consistency: "EXACT_DATE_ON_DEMAND" as const,
     read_strategy: "OFFICIAL_EXACT_DATE_ON_DEMAND_FIRST; BROKER_RANKED_FAIL_SOFT; LEGACY_GITHUB_HISTORY_CONTEXT_ONLY",
     symbol: input.symbol,
     requested_as_of: onDemand.requested_as_of,
@@ -69,6 +128,11 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
       missing_branch_means_zero: false,
       persistence: "NONE",
     },
+    layers: {
+      ...legacyLayers,
+      maintenance_risk: currentMaintenanceRisk,
+    },
+    current_maintenance_risk: currentMaintenanceRisk,
     legacy_archive_context: {
       role: "HISTORY_CONTEXT_ONLY",
       frozen_daily_capture_dependency: false,
@@ -85,6 +149,7 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
       broker_ranked_status: brokerRanked.status,
       broker_ranked_source_date_verified: brokerRanked.source_date_verified,
       broker_ranked_completeness: "RANKED_ONLY",
+      maintenance_ratio_kind: "ESTIMATED_POSITION_MAINTENANCE_PROXY_NOT_OFFICIAL_ACCOUNT_RATIO",
       previous_day_substitution: false,
       current_raw_persistence: "NONE",
       current_normalized_persistence: "NONE",
