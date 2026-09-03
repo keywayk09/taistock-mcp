@@ -11,7 +11,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-export const RELAY_VERSION = 'automation-research-github-relay/v2.1.0';
+export const RELAY_VERSION = 'automation-research-github-relay/v2.2.0';
 export const REQUEST_SCHEMA = 'AUTOMATION_RESEARCH_RELAY_REQUEST_V1';
 export const BRIDGE_BASE = 'https://taistock-mcp.keywayk09.workers.dev/research/automation';
 
@@ -236,11 +236,30 @@ async function handleBlindBatch(request, outDir) {
     try {
       const body = await fetchBridge('/formal-blind', item);
       await writeJson(path.join(outDir, file), body, false);
+      const tradablePass = body?.formal_blind_eligible === true
+        && body?.formal_research_eligible === true
+        && body?.leakage_validated === true
+        && body?.scorecard_eligible === true;
+      const accountedNoTrade = body?.ok === true
+        && body?.blocked !== true
+        && body?.data_status === 'NO_TRADE_CONFIRMED'
+        && body?.research_disposition === 'NO_TRADE_CONFIRMED'
+        && body?.research_sample_resolved === true
+        && body?.sample_accounted === true
+        && body?.tradable === false
+        && body?.formal_blind_eligible === false
+        && body?.scorecard_eligible === false
+        && body?.leakage_validated === true;
       return {
-        id: item.id, symbol: item.symbol, trade_date: item.trade_date, decision_time: item.decision_time,
-        status: body?.formal_blind_eligible === true && body?.formal_research_eligible === true
-          && body?.leakage_validated === true && body?.scorecard_eligible === true ? 'PASS' : 'BLOCKED',
-        returned: Number(body?.returned ?? 0), file,
+        id: item.id,
+        symbol: item.symbol,
+        trade_date: item.trade_date,
+        decision_time: item.decision_time,
+        status: accountedNoTrade ? 'ACCOUNTED_NO_TRADE' : (tradablePass ? 'PASS' : 'BLOCKED'),
+        research_disposition: body?.research_disposition ?? null,
+        sample_accounted: body?.sample_accounted === true,
+        returned: Number(body?.returned ?? 0),
+        file,
       };
     } catch (error) {
       const body = { ok: false, blocked: true, relay_error: String(error?.message ?? error) };
@@ -258,7 +277,14 @@ async function handleBlindBatch(request, outDir) {
       };
     }
   });
-  return { status: results.every((item) => item.status === 'PASS') ? 'PASS' : 'PARTIAL_OR_BLOCKED', item_count: results.length, items: results };
+  const accounted = (item) => item.status === 'PASS' || item.status === 'ACCOUNTED_NO_TRADE';
+  return {
+    status: results.every(accounted) ? 'PASS' : 'PARTIAL_OR_BLOCKED',
+    item_count: results.length,
+    accounted_count: results.filter(accounted).length,
+    no_trade_count: results.filter((item) => item.status === 'ACCOUNTED_NO_TRADE').length,
+    items: results,
+  };
 }
 
 async function handleMarketSnapshot(request, outDir) {
