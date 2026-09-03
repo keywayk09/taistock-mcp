@@ -21,13 +21,17 @@ assert.equal(fixture.tool_names.length, 79);
 assert.equal(new Set(fixture.tool_names).size, 79);
 
 const captured:string[] = [];
-const fakeServer = { registerTool(name:string){ captured.push(name); } };
+const capturedResources:{name:string;uri:string}[] = [];
+const fakeServer = {
+  registerTool(name:string){ captured.push(name); },
+  registerResource(name:string, uri:string){ capturedResources.push({ name, uri }); },
+};
 const cjsRequire = createRequire(import.meta.url) as NodeJS.Require & { extensions:Record<string,(module:unknown,filename:string)=>void> };
 const nodeModule = cjsRequire("node:module") as { _load:(request:string,parent:unknown,isMain:boolean)=>unknown };
 const previousTsLoader = cjsRequire.extensions[".ts"];
 const originalLoad = nodeModule._load;
 class StubMcpAgent {}
-class StubMcpServer { registerTool(){} }
+class StubMcpServer { registerTool(){} registerResource(){} }
 
 cjsRequire.extensions[".ts"] = (module:unknown, filename:string) => {
   const source = fs.readFileSync(filename, "utf8");
@@ -64,6 +68,7 @@ try {
 
 assert.equal(captured.length, 123, "modern Owner tools/list inventory must remain 123; compatibility aliases must not be registered");
 assert.equal(new Set(captured).size, captured.length, "Owner runtime must never double-register a tool name");
+assert.deepEqual(capturedResources, [{ name:"first_party_intelligence_registry", uri:"first-party-intelligence://registry" }], "static first-party metadata must be an MCP resource, not a 124th tool");
 assert.equal(compatNames.length, 39, "frozen facade interceptor must contain exactly the 39 names absent from modern runtime");
 assert.equal(new Set(compatNames).size, 39, "compatibility names must be unique");
 
@@ -109,6 +114,7 @@ console.log(JSON.stringify({
   status:"PASS",
   frozen_tools:79,
   modern_owner_tools:123,
+  static_resources:capturedResources.length,
   compatibility_intercepts:39,
   production_mutation:"NONE",
 }, null, 2));
