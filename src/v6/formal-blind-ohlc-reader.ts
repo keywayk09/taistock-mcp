@@ -3,7 +3,7 @@ import { z } from "zod";
 import { readResearchBlindOhlcFallback } from "./research-blind-ohlc-fallback.ts";
 import { AUTOMATION_TRANSIENT_HTTP_STATUSES } from "./automation-transport-error.ts";
 
-export const FORMAL_BLIND_OHLC_READER_VERSION = "formal-blind-ohlc-reader/v1.1.0";
+export const FORMAL_BLIND_OHLC_READER_VERSION = "formal-blind-ohlc-reader/v1.2.0";
 const DEFAULT_OHLC_BASE_URL = "https://tv-fugle-1d.keikei99887.workers.dev";
 
 type FormalBlindArgs = {
@@ -21,6 +21,14 @@ function normalizeDecisionTime(value: string) {
   return raw.length === 5 ? `${raw}:00` : raw;
 }
 
+function identityMatches(receipt: AnyRecord | null, args: FormalBlindArgs) {
+  return receipt?.ok === true
+    && String(receipt?.symbol || "") === String(args.symbol)
+    && String(receipt?.timeframe || "") === String(args.timeframe)
+    && String(receipt?.trade_date || "") === String(args.trade_date)
+    && normalizeDecisionTime(String(receipt?.decision_time || "")) === normalizeDecisionTime(args.decision_time);
+}
+
 function blocked(base: Record<string, unknown>, reason: string, receipt: unknown = null, extra: Record<string, unknown> = {}) {
   return {
     ...base,
@@ -34,16 +42,44 @@ function blocked(base: Record<string, unknown>, reason: string, receipt: unknown
   };
 }
 
-function receiptMatches(receipt: AnyRecord | null, args: FormalBlindArgs) {
-  return receipt?.ok === true
+function tradableReceiptMatches(receipt: AnyRecord | null, args: FormalBlindArgs) {
+  return identityMatches(receipt, args)
     && receipt?.formal_blind_eligible === true
-    && String(receipt?.symbol || "") === String(args.symbol)
-    && String(receipt?.timeframe || "") === String(args.timeframe)
-    && String(receipt?.trade_date || "") === String(args.trade_date)
-    && normalizeDecisionTime(String(receipt?.decision_time || "")) === normalizeDecisionTime(args.decision_time)
+    && receipt?.tradable !== false
     && receipt?.cutoff?.leakage_validated === true
     && receipt?.cutoff?.prefix_completeness === true
     && receipt?.verification?.accepted_for_research === true;
+}
+
+function noTradeReceiptMatches(receipt: AnyRecord | null, args: FormalBlindArgs) {
+  return identityMatches(receipt, args)
+    && String(receipt?.data_status || "") === "NO_TRADE_CONFIRMED"
+    && String(receipt?.research_disposition || "") === "NO_TRADE_CONFIRMED"
+    && receipt?.research_sample_resolved === true
+    && receipt?.sample_accounted === true
+    && receipt?.tradable === false
+    && receipt?.formal_blind_eligible === false
+    && receipt?.cutoff?.leakage_validated === true
+    && receipt?.verification?.accepted_for_research === true
+    && receipt?.verification?.official_verified === true
+    && receipt?.verification?.runtime_official_fetch === false;
+}
+
+function requestBase(input: FormalBlindArgs) {
+  return {
+    ok: false,
+    blocked: true,
+    read_only: true,
+    market: "tw-stock",
+    symbol: String(input.symbol),
+    trade_date: String(input.trade_date),
+    timeframe: String(input.timeframe),
+    rows: [],
+    bars: [],
+    row_count: 0,
+    returned: 0,
+    leakage_validated: false,
+  };
 }
 
 export async function readFormalBlindOhlc(
@@ -51,14 +87,6 @@ export async function readFormalBlindOhlc(
   input: FormalBlindArgs,
   fetchImpl: typeof fetch = fetch,
 ) {
-  const fallback = await readResearchBlindOhlcFallback(env, input);
-  const fallbackRecord = fallback as AnyRecord;
-  if (fallbackRecord.ok !== true
-      || fallbackRecord.leakage_validated !== true
-      || fallbackRecord.cutoff?.prefix_completeness !== true) {
-    return blocked(fallbackRecord, "LOCAL_CANONICAL_CUTOFF_NOT_ELIGIBLE");
-  }
-
   const baseUrl = String((env as any).OHLC_FORMAL_VERIFICATION_BASE_URL || DEFAULT_OHLC_BASE_URL).replace(/\/+$/, "");
   const params = new URLSearchParams({
     symbol: String(input.symbol),
@@ -67,6 +95,10 @@ export async function readFormalBlindOhlc(
     decision_time: normalizeDecisionTime(input.decision_time),
   });
 
+  // Query the immutable canonical verification disposition first. This ordering
+  // is required because a VERIFIED_NO_TRADE frozen member legitimately has no
+  // canonical 1m/5m file to read locally. Tradable members still must pass the
+  // independent GitHub server-side cutoff gate before they become FORMAL.
   let response: Response;
   try {
     response = await fetchImpl(`${baseUrl}/research/formal-blind-verification?${params.toString()}`, {
@@ -74,12 +106,12 @@ export async function readFormalBlindOhlc(
       headers: {
         Accept: "application/json",
         "Cache-Control": "no-cache",
-        "User-Agent": "taistock-formal-blind-reader/1.1",
+        "User-Agent": "taistock-formal-blind-reader/1.2",
       },
     });
   } catch (error) {
     return blocked(
-      fallbackRecord,
+      requestBase(input),
       `CANONICAL_VERIFICATION_HTTP_FAILED:${String((error as Error)?.message || error)}`,
       null,
       { retryable_transport_error: true, transport_error_class: "TRANSIENT_TRANSPORT" },
@@ -90,20 +122,74 @@ export async function readFormalBlindOhlc(
   if (!response.ok) {
     const retryable = AUTOMATION_TRANSIENT_HTTP_STATUSES.has(response.status);
     return blocked(
-      fallbackRecord,
+      requestBase(input),
       `CANONICAL_VERIFICATION_HTTP_${response.status}`,
       receipt,
       retryable ? { retryable_transport_error: true, transport_error_class: "TRANSIENT_TRANSPORT" } : {},
     );
   }
-  if (!receiptMatches(receipt, input)) {
-    return blocked(fallbackRecord, String(receipt?.eligibility_reason || receipt?.error || "CANONICAL_VERIFICATION_NOT_ELIGIBLE"), receipt);
+
+  if (noTradeReceiptMatches(receipt, input)) {
+    return {
+      ok: true,
+      blocked: false,
+      read_only: true,
+      data_status: "NO_TRADE_CONFIRMED",
+      market: "tw-stock",
+      symbol: String(input.symbol),
+      trade_date: String(input.trade_date),
+      timeframe: String(input.timeframe),
+      mode: "formal_research_blind_no_trade",
+      source: "OHLC_IMMUTABLE_NO_TRADE_VERIFICATION_RECEIPT",
+      source_sha: null,
+      dataset_id: null,
+      dataset_version: null,
+      dataset_hash: null,
+      row_count: 0,
+      returned: 0,
+      cutoff: receipt?.cutoff ?? null,
+      leakage_validated: receipt?.cutoff?.leakage_validated === true,
+      research_disposition: "NO_TRADE_CONFIRMED",
+      research_sample_resolved: true,
+      sample_accounted: true,
+      tradable: false,
+      formal_blind_eligible: false,
+      formal_research_eligible: false,
+      scorecard_eligible: false,
+      eligibility_reason: "OFFICIAL_NO_TRADE_CONFIRMED",
+      canonical_verification_receipt: receipt,
+      retryable_transport_error: false,
+      rows: [],
+      bars: [],
+      formal_reader_version: FORMAL_BLIND_OHLC_READER_VERSION,
+    };
+  }
+
+  if (!tradableReceiptMatches(receipt, input)) {
+    return blocked(
+      requestBase(input),
+      String(receipt?.eligibility_reason || receipt?.error || "CANONICAL_VERIFICATION_NOT_ELIGIBLE"),
+      receipt,
+    );
+  }
+
+  const fallback = await readResearchBlindOhlcFallback(env, input);
+  const fallbackRecord = fallback as AnyRecord;
+  if (fallbackRecord.ok !== true
+      || fallbackRecord.leakage_validated !== true
+      || fallbackRecord.cutoff?.prefix_completeness !== true) {
+    const localReason = String(fallbackRecord.error || "LOCAL_CANONICAL_CUTOFF_NOT_ELIGIBLE");
+    return blocked(fallbackRecord, localReason, receipt, { local_cutoff_error: localReason });
   }
 
   return {
     ...fallbackRecord,
     mode: "formal_research_blind",
     source: "GITHUB_CANONICAL_SERVER_SIDE_CUTOFF_PLUS_OHLC_CANONICAL_VERIFICATION",
+    research_disposition: "TRADABLE_VERIFIED",
+    research_sample_resolved: true,
+    sample_accounted: true,
+    tradable: true,
     formal_blind_eligible: true,
     formal_research_eligible: true,
     scorecard_eligible: true,
@@ -118,7 +204,7 @@ const ok = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.
 
 export function registerFormalBlindOhlcReaderTool(server: McpServer, env: Env) {
   server.registerTool("read_formal_blind_ohlc", {
-    description: "正式 Blind OHLC 唯讀入口。先以 canonical GitHub 1m/5m 做 server-side decision_time cutoff 與 prefix 完整性驗證，再向 OHLC canonical read_ohlc 取得不含 bars 的 official verification receipt；兩邊全部一致且 PASS 才具 FORMAL/scorecard 資格。",
+    description: "正式 Blind OHLC 唯讀入口。先讀 immutable canonical verification disposition：VERIFIED_NO_TRADE 以 accounted/no-trade 語意保留樣本且不產生交易；可交易樣本再以 canonical GitHub 1m/5m 做 server-side decision_time cutoff 與稀疏事件 prefix 結構驗證。只有可交易且兩邊全部一致才具 FORMAL/scorecard 資格。",
     inputSchema: {
       symbol: z.string().trim().regex(/^\d{4,6}$/),
       trade_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
