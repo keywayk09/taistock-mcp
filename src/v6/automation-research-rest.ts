@@ -7,7 +7,7 @@ import {
   retryableAutomationTransportBody,
 } from "./automation-transport-error.ts";
 
-export const AUTOMATION_RESEARCH_REST_VERSION = "automation-research-rest/v1.1.0";
+export const AUTOMATION_RESEARCH_REST_VERSION = "automation-research-rest/v1.2.0";
 const ROOT = "/research/automation";
 const PAGE_SIZE = 80;
 const MAX_MARKET_LOOKBACK_DAYS = 14;
@@ -130,6 +130,11 @@ function compactBlindResult(result: AnyRecord) {
     dataset_id: result.dataset_id ?? null,
     dataset_version: result.dataset_version ?? null,
     dataset_hash: result.dataset_hash ?? null,
+    data_status: result.data_status ?? null,
+    research_disposition: result.research_disposition ?? null,
+    research_sample_resolved: result.research_sample_resolved === true,
+    sample_accounted: result.sample_accounted === true,
+    tradable: result.tradable === true ? true : (result.tradable === false ? false : null),
     row_count: result.row_count ?? 0,
     returned: result.returned ?? 0,
     cutoff: result.cutoff ?? null,
@@ -138,6 +143,7 @@ function compactBlindResult(result: AnyRecord) {
     formal_research_eligible: result.formal_research_eligible === true,
     scorecard_eligible: result.scorecard_eligible === true,
     eligibility_reason: result.eligibility_reason ?? result.error ?? null,
+    local_cutoff_error: result.local_cutoff_error ?? null,
     canonical_verification_receipt: result.canonical_verification_receipt ?? null,
     retryable_transport_error: result.retryable_transport_error === true,
     transport_error_class: result.transport_error_class ?? null,

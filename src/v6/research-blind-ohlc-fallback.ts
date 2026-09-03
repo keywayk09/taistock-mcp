@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { readGitHubText, sha256Hex } from "./github-data-store.ts";
 
-export const RESEARCH_BLIND_OHLC_FALLBACK_VERSION = "research-blind-ohlc-fallback/v1.0.1";
+export const RESEARCH_BLIND_OHLC_FALLBACK_VERSION = "research-blind-ohlc-fallback/v1.1.0";
 
 type Row = Record<string, string | number | null>;
 
@@ -43,7 +43,7 @@ function parseCsv(text: string) {
   return { headers, rows };
 }
 
-function expectedSlots(timeframe: "1m" | "5m", tradeDate: string) {
+function legalSlots(timeframe: "1m" | "5m", tradeDate: string) {
   const step = timeframe === "5m" ? 5 : 1;
   const end = timeframe === "5m" ? 13 * 60 + 20 : 13 * 60 + 24;
   const slots: Array<{ label: string; ts: number; closeTs: number }> = [];
@@ -123,9 +123,16 @@ export async function readResearchBlindOhlcFallback(env: Env, input: {
   if (missingHeaders.length) return fail("SCHEMA_MISMATCH", { path, missing_headers: missingHeaders });
 
   const sourceRows = parsed.rows.filter((row) => String(row.symbol ?? "") === symbol && rowTradeDate(row) === tradeDate);
-  const slots = expectedSlots(timeframe, tradeDate);
+  if (!sourceRows.length) return fail("CANONICAL_OHLC_EMPTY", { path });
+
+  // TW stock minute data is event based: a legal clock slot has a bar only when
+  // at least one trade occurred in that interval. Sparse names therefore must
+  // not be rejected merely because clock slots are absent. The immutable OHLC
+  // verification receipt binds the canonical file/fingerprint; this local gate
+  // is responsible for structural validity plus exact server-side cutoff, not
+  // for fabricating zero-volume bars or assuming every clock slot traded.
+  const slots = legalSlots(timeframe, tradeDate);
   const slotByTs = new Map(slots.map((slot) => [slot.ts, slot]));
-  const closedExpected = slots.filter((slot) => slot.closeTs <= cutoffTs);
 
   let invalid = 0;
   let duplicates = 0;
@@ -146,19 +153,6 @@ export async function readResearchBlindOhlcFallback(env: Env, input: {
 
   if (invalid || duplicates || nonMonotonic) {
     return fail("CORRUPTED_PREFIX_SOURCE", { path, invalid_ohlc_or_slot_count: invalid, duplicate_count: duplicates, non_monotonic_count: nonMonotonic });
-  }
-
-  const prefixTs = new Set(prefix.map(rowTs));
-  const missing = closedExpected.filter((slot) => !prefixTs.has(slot.ts));
-  if (missing.length) {
-    return fail("CUTOFF_PREFIX_INCOMPLETE", {
-      path,
-      cutoff: { trade_date: tradeDate, decision_time: decisionTime, cutoff_ts_ms: cutoffTs, timezone: "Asia/Taipei" },
-      expected_bar_count: closedExpected.length,
-      actual_expected_bar_count: closedExpected.filter((slot) => prefixTs.has(slot.ts)).length,
-      missing_slot_count: missing.length,
-      missing_slots: missing.slice(0, 80).map((slot) => slot.label),
-    });
   }
 
   const maxReturnedTs = prefix.length ? Math.max(...prefix.map(rowTs)) : null;
@@ -195,13 +189,15 @@ export async function readResearchBlindOhlcFallback(env: Env, input: {
       decision_time: decisionTime,
       cutoff_ts_ms: cutoffTs,
       timezone: "Asia/Taipei",
-      expected_bar_count: closedExpected.length,
-      actual_expected_bar_count: closedExpected.length,
+      expected_bar_count: prefix.length,
+      actual_expected_bar_count: prefix.length,
       missing_slot_count: 0,
       max_returned_ts_ms: maxReturnedTs,
       max_returned_close_ts_ms: maxReturnedCloseTs,
       leakage_validated: true,
       prefix_completeness: true,
+      prefix_completeness_basis: "SPARSE_CANONICAL_EVENT_PREFIX",
+      sparse_clock_slots_allowed: true,
     },
     leakage_validated: true,
     // Important: the cross-account fallback cannot read OHLC STATE_KV official_verified receipts.
@@ -220,7 +216,7 @@ const ok = (value: unknown) => ({ content: [{ type: "text" as const, text: JSON.
 
 export function registerResearchBlindOhlcFallbackTool(server: McpServer, env: Env) {
   server.registerTool("read_blind_ohlc_fallback", {
-    description: "研究備援唯讀工具。伺服器直接讀 canonical GitHub 1m/5m OHLC，回傳前依 decision_time 硬切且驗證已關閉 prefix 完整性；不具 OHLC STATE_KV official_verified 證據，因此永遠不自動取得 FORMAL/scorecard 資格。",
+    description: "研究備援唯讀工具。伺服器直接讀 canonical GitHub 1m/5m OHLC，依 decision_time 硬切並驗證合法時槽、OHLC 結構、唯一性、排序與無未來資料；允許真實無成交造成的稀疏 clock slots。不具 OHLC immutable official verification receipt，因此永遠不自動取得 FORMAL/scorecard 資格。",
     inputSchema: {
       symbol: z.string().trim().regex(/^\d{4,6}$/),
       trade_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
