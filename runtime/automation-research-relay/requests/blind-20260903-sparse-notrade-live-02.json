@@ -1,0 +1,23 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "blind-20260903-sparse-notrade-live-02",
+  "kind": "formal_blind_batch",
+  "items": [
+    {
+      "id": "s6275-0935-v2",
+      "symbol": "6275",
+      "trade_date": "2026-09-03",
+      "timeframe": "5m",
+      "decision_time": "09:35:00",
+      "limit": 300
+    },
+    {
+      "id": "s5371-0935-v2",
+      "symbol": "5371",
+      "trade_date": "2026-09-03",
+      "timeframe": "5m",
+      "decision_time": "09:35:00",
+      "limit": 300
+    }
+  ]
+}
