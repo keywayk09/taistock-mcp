@@ -1,26 +1,28 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import {
+  FIRST_PARTY_INTELLIGENCE_REGISTRY,
+  queryFirstPartyIntelligenceSources,
+} from "../src/v6/first-party-intelligence-sources.ts";
 
-// Red/green contract for the unified, on-demand first-party source layer.
-// This intentionally reads the implementation file so the test fails before
-// the registry exists.
 const source = readFileSync("src/v6/first-party-intelligence-sources.ts", "utf8");
 const owner = readFileSync("src/v6/owner-content-handler.ts", "utf8");
 
-assert.match(source, /FIRST_PARTY_INTELLIGENCE_REGISTRY_V1/);
-assert.match(source, /first-party-intelligence\/v1\.0\.0/);
-assert.match(source, /ON_DEMAND_ONLY/);
-assert.match(source, /monitoring_enabled:\s*false/);
-assert.match(source, /persistence_enabled:\s*false/);
-assert.match(source, /read_only:\s*true/);
+assert.equal(FIRST_PARTY_INTELLIGENCE_REGISTRY.schema, "FIRST_PARTY_INTELLIGENCE_REGISTRY_V1");
+assert.equal(FIRST_PARTY_INTELLIGENCE_REGISTRY.registry_version, "first-party-intelligence/v1.0.0");
+assert.equal(FIRST_PARTY_INTELLIGENCE_REGISTRY.mode, "ON_DEMAND_ONLY");
+assert.equal(FIRST_PARTY_INTELLIGENCE_REGISTRY.monitoring_enabled, false);
+assert.equal(FIRST_PARTY_INTELLIGENCE_REGISTRY.persistence_enabled, false);
+assert.equal(FIRST_PARTY_INTELLIGENCE_REGISTRY.read_only, true);
 
 // Trump and technology leaders share one registry but remain separately grouped.
-assert.match(source, /political_macro/);
-assert.match(source, /technology/);
-assert.match(source, /donald_trump/);
-assert.match(source, /realDonaldTrump/);
-assert.match(source, /truthsocial\.com\/\@realDonaldTrump/);
+const trump = queryFirstPartyIntelligenceSources({ entity_id: "donald_trump" });
+assert.equal(trump.count, 1);
+assert.equal(trump.entities[0]?.group, "political_macro");
+assert.ok(trump.entities[0]?.sources.some((item) => item.url === "https://x.com/realDonaldTrump"));
+assert.ok(trump.entities[0]?.sources.some((item) => item.url === "https://truthsocial.com/@realDonaldTrump"));
 
+const p0Tech = queryFirstPartyIntelligenceSources({ group: "technology", priority: "P0" });
 for (const [id, handle] of [
   ["jensen_huang", "JensenHuang"],
   ["lisa_su", "LisaSu"],
@@ -32,9 +34,22 @@ for (const [id, handle] of [
   ["michael_dell", "MichaelDell"],
   ["tim_cook", "tim_cook"],
 ] as const) {
-  assert.ok(source.includes(id), `${id} must be in the registry`);
-  assert.ok(source.includes(handle), `${handle} must be an official X source`);
+  const entity = p0Tech.entities.find((item) => item.id === id);
+  assert.ok(entity, `${id} must be in the P0 technology registry`);
+  assert.ok(entity.sources.some((item) => item.platform === "x" && item.handle === handle), `${handle} must be the pinned X source`);
 }
+
+assert.ok(queryFirstPartyIntelligenceSources({ topic: "cpo" }).entities.some((item) => item.id === "jensen_huang"));
+assert.equal(queryFirstPartyIntelligenceSources({ group: "political_macro" }).entities.every((item) => item.group === "political_macro"), true);
+
+// Static registry belongs in MCP resources, not a new model-invokable action.
+// This keeps the frozen modern Owner tools/list inventory at 123.
+assert.match(source, /registerFirstPartyIntelligenceSourceResource/);
+assert.match(source, /server\.registerResource\(/);
+assert.match(source, /first-party-intelligence:\/\/registry/);
+assert.doesNotMatch(source, /registerTool\(/);
+assert.doesNotMatch(source, /get_first_party_intelligence_sources/);
+assert.match(owner, /registerFirstPartyIntelligenceSourceResource\(this\.server\)/);
 
 // The source layer is metadata/query only: no polling, timers, cron, writes,
 // secrets, order execution, or OHLC mutation paths.
@@ -55,8 +70,4 @@ for (const forbidden of [
   assert.ok(!source.includes(forbidden), `forbidden active behavior in source registry: ${forbidden}`);
 }
 
-assert.match(source, /registerFirstPartyIntelligenceSourceTool/);
-assert.match(source, /get_first_party_intelligence_sources/);
-assert.match(owner, /registerFirstPartyIntelligenceSourceTool/);
-
-console.log("first-party intelligence source contract locked");
+console.log("first-party intelligence source resource contract locked");
