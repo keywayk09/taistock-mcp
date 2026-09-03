@@ -1,15 +1,21 @@
 {
   "canonical_storage": "keywayk09/tv-papertrader main/data",
   "capture_errors": {
-    "institutional": "RuntimeError: TPEX_INSTI_MODERN_exact_date_empty",
-    "margin": "RuntimeError: TPEX_MARGIN_MODERN_exact_date_empty",
-    "sbl_balance": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty",
-    "sbl_volume": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty"
+    "margin": "HTTPError: HTTP Error 520: <none>",
+    "sbl_balance": "HTTPError: HTTP Error 520: <none>",
+    "sbl_volume": "HTTPError: HTTP Error 520: <none>"
   },
-  "captured_at_utc": "2026-09-02T16:31:20.240624Z",
-  "datasets": {},
+  "captured_at_utc": "2026-09-03T13:35:50.071655Z",
+  "datasets": {
+    "institutional": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date=115%2F09%2F03&id=&response=json",
+      "file": "institutional.json",
+      "row_count": 900,
+      "sha256": "421e32d9c17dcd0f5bf25e28d1a290c9de1d042cae094142330fcd823416c9c4",
+      "source_date": "2026-09-03"
+    }
+  },
   "missing_datasets": [
-    "institutional",
     "margin",
     "sbl_balance",
     "sbl_volume"
