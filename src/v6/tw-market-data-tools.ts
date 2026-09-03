@@ -94,11 +94,12 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
     preferred_symbol_read_tool: "get_tw_market_chip_summary",
     preferred_cross_sectional_read_tool: null,
     family_symbol_read_tool: "get_family_market_chip_summary",
-    // Frozen compatibility label retained because Family public-read tests and
-    // external clients treat it as part of the long-lived contract. Provider
-    // implementation changes behind this label without changing Family rights.
+    // Frozen compatibility labels stay stable while implementation changes
+    // behind the facade. Family permissions and history-retention semantics do
+    // not change just because current-day evidence is fetched on demand.
     family_access: "READ_ONLY_PUBLISHED_GENERATION",
     family_current_provider: "EXACT_DATE_OFFICIAL_ON_DEMAND_READ_ONLY",
+    history_window_calendar_days: 180,
     current_read_model: "exact-date official on-demand; no previous-day substitution; no current raw/normalized persistence",
     legacy_history_model: "existing GitHub archive is read-only context only and is not required to continue daily capture",
     official_sources: {
@@ -139,7 +140,7 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
   }));
 
   server.registerTool("get_tw_market_chip_summary", {
-    description: "Owner 個股籌碼主入口。公開名稱不變；內部已改為 TWSE/TPEx 官方 exact-date on-demand current evidence，法人、融資融券、借券與借券賣出不做每日 raw 保存。舊 GitHub generation 只作歷史背景。若當日尚未公布，回 PENDING，禁止拿前一日冒充。",
+    description: "Owner 個股籌碼主入口。公開名稱不變；內部已改為 TWSE/TPEx 官方 exact-date on-demand current evidence，法人、融資融券、借券與借券賣出不做每日 raw 保存。舊 GitHub generation 只作最多180自然日歷史背景。若當日尚未公布，回 PENDING，禁止拿前一日冒充。",
     inputSchema: fastSummarySchema,
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:true },
   }, async (input) => out({
@@ -149,7 +150,7 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
   }));
 
   server.registerTool("get_family_market_chip_summary", {
-    description: "家人版唯讀個股籌碼入口。公開名稱與 /family-mcp 入口不變；與 Owner 共用 TWSE/TPEx exact-date on-demand current evidence，但 Family 永遠唯讀、不寫 GitHub、不下單。舊 archive 僅作歷史背景。",
+    description: "家人版唯讀個股籌碼入口。公開名稱與 /family-mcp 入口不變；與 Owner 共用 TWSE/TPEx exact-date on-demand current evidence，但 Family 永遠唯讀、不寫 GitHub、不下單；既有 Published generation 保留作最多180自然日歷史背景。",
     inputSchema: familyChipSchema,
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:true },
   }, async (input) => out(await getTwMarketChipSummaryPublished(env, input)));
