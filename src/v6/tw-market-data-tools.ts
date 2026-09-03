@@ -94,7 +94,11 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
     preferred_symbol_read_tool: "get_tw_market_chip_summary",
     preferred_cross_sectional_read_tool: null,
     family_symbol_read_tool: "get_family_market_chip_summary",
-    family_access: "READ_ONLY_SAME_PROVIDER",
+    // Frozen compatibility label retained because Family public-read tests and
+    // external clients treat it as part of the long-lived contract. Provider
+    // implementation changes behind this label without changing Family rights.
+    family_access: "READ_ONLY_PUBLISHED_GENERATION",
+    family_current_provider: "EXACT_DATE_OFFICIAL_ON_DEMAND_READ_ONLY",
     current_read_model: "exact-date official on-demand; no previous-day substitution; no current raw/normalized persistence",
     legacy_history_model: "existing GitHub archive is read-only context only and is not required to continue daily capture",
     official_sources: {
