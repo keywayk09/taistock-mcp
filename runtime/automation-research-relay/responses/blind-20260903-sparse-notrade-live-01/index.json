@@ -1,0 +1,40 @@
+{
+  "schema": "AUTOMATION_RESEARCH_RELAY_RESPONSE_V1",
+  "relay_version": "automation-research-github-relay/v2.2.0",
+  "request_schema": "AUTOMATION_RESEARCH_RELAY_REQUEST_V1",
+  "request_id": "blind-20260903-sparse-notrade-live-01",
+  "request_kind": "formal_blind_batch",
+  "request_sha256": "3c20907e879c2cdebcde3be880c798057df1727168254b6081da57f48e0c390f",
+  "generated_at_utc": "2026-09-03T12:19:00.770Z",
+  "bridge_base_id": "taistock-mcp-production-automation-research",
+  "read_only": true,
+  "writer_routes": false,
+  "status": "PARTIAL_OR_BLOCKED",
+  "item_count": 2,
+  "accounted_count": 1,
+  "no_trade_count": 1,
+  "items": [
+    {
+      "id": "s6275-0935",
+      "symbol": "6275",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "BLOCKED",
+      "research_disposition": null,
+      "sample_accounted": false,
+      "returned": 0,
+      "file": "blind/s6275-0935.json"
+    },
+    {
+      "id": "s5371-0935",
+      "symbol": "5371",
+      "trade_date": "2026-09-03",
+      "decision_time": "09:35:00",
+      "status": "ACCOUNTED_NO_TRADE",
+      "research_disposition": "NO_TRADE_CONFIRMED",
+      "sample_accounted": true,
+      "returned": 0,
+      "file": "blind/s5371-0935.json"
+    }
+  ]
+}
