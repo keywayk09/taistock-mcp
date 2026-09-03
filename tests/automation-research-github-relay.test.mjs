@@ -66,6 +66,10 @@ test('formal blind batch stays bounded and ignores arbitrary URL fields', async 
       formal_research_eligible: true,
       leakage_validated: true,
       scorecard_eligible: true,
+      research_disposition: 'TRADABLE_VERIFIED',
+      research_sample_resolved: true,
+      sample_accounted: true,
+      tradable: true,
       returned: 60,
       rows: [{ ts: 1 }],
     }), { status: 200 });
@@ -74,9 +78,53 @@ test('formal blind batch stays bounded and ignores arbitrary URL fields', async 
     const result = await processRelayRequest(relative, cwd);
     assert.equal(result.index.status, 'PASS');
     assert.equal(result.index.item_count, 1);
+    assert.equal(result.index.accounted_count, 1);
+    assert.equal(result.index.no_trade_count, 0);
     assert.equal(seen.length, 1);
     assert.match(seen[0], /^https:\/\/taistock-mcp\.keywayk09\.workers\.dev\/research\/automation\/formal-blind\?/);
     assert.doesNotMatch(seen[0], /example\.com/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(cwd, { recursive: true, force: true });
+  }
+});
+
+test('verified no-trade Blind member is accounted without becoming tradable or scorecard eligible', async () => {
+  const cwd = await tempRepo();
+  const request = {
+    schema: REQUEST_SCHEMA,
+    request_id: 'blind-no-trade-0001',
+    kind: 'formal_blind_batch',
+    items: [{ id: 's5371-0935', symbol: '5371', trade_date: '2026-09-03', timeframe: '5m', decision_time: '09:35:00', limit: 300 }],
+  };
+  const relative = await writeRequest(cwd, request);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    ok: true,
+    blocked: false,
+    data_status: 'NO_TRADE_CONFIRMED',
+    research_disposition: 'NO_TRADE_CONFIRMED',
+    research_sample_resolved: true,
+    sample_accounted: true,
+    tradable: false,
+    leakage_validated: true,
+    formal_blind_eligible: false,
+    formal_research_eligible: false,
+    scorecard_eligible: false,
+    eligibility_reason: 'OFFICIAL_NO_TRADE_CONFIRMED',
+    returned: 0,
+    rows: [],
+  }), { status: 200 });
+  try {
+    const result = await processRelayRequest(relative, cwd);
+    assert.equal(result.index.status, 'PASS');
+    assert.equal(result.index.item_count, 1);
+    assert.equal(result.index.accounted_count, 1);
+    assert.equal(result.index.no_trade_count, 1);
+    assert.equal(result.index.items[0].status, 'ACCOUNTED_NO_TRADE');
+    assert.equal(result.index.items[0].sample_accounted, true);
+    assert.equal(result.index.items[0].research_disposition, 'NO_TRADE_CONFIRMED');
+    assert.equal(result.index.items[0].returned, 0);
   } finally {
     globalThis.fetch = originalFetch;
     await fs.rm(cwd, { recursive: true, force: true });
