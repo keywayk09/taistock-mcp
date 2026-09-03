@@ -7,6 +7,7 @@ import {
 import { getTwBrokerRankedOnDemand, TW_BROKER_RANKED_ON_DEMAND_VERSION } from "./tw-broker-ranked-on-demand.ts";
 import { getTwChipOnDemandSnapshot, TW_CHIP_ON_DEMAND_VERSION } from "./tw-chip-on-demand.ts";
 import type { MarginRow } from "./tw-market-data.ts";
+import { getTwWarrantActivityOnDemand, TW_WARRANT_ACTIVITY_ON_DEMAND_VERSION } from "./tw-warrant-activity-on-demand.ts";
 
 export { MARKET_DATA_PUBLISHED_MAX_CALENDAR_DAYS, type PublishedGatewayInput };
 
@@ -72,7 +73,8 @@ function buildCurrentMaintenanceRisk(
  * Public tool names and MCP ingress stay frozen. Current-day official chip
  * evidence is fetched directly from TWSE/TPEx. Broker-branch evidence is a
  * fail-soft PUBLIC_SECONDARY ranked page and can never block or downgrade the
- * official layers. Nothing fetched here is persisted.
+ * official layers. Warrant turnover is official free activity evidence but is
+ * explicitly non-directional. Nothing fetched here is persisted.
  *
  * `consistency: PUBLISHED` is retained as a frozen response ABI label for old
  * callers/tests. The actual current-day provider is disclosed separately by
@@ -80,9 +82,10 @@ function buildCurrentMaintenanceRisk(
  */
 export async function getTwMarketChipSummaryPublished(env: Env, input: PublishedGatewayInput) {
   const requestedAsOf = input.as_of ?? taipeiToday();
-  const [onDemand, brokerRanked, legacy] = await Promise.all([
+  const [onDemand, brokerRanked, warrantActivity, legacy] = await Promise.all([
     getTwChipOnDemandSnapshot({ symbol: input.symbol, as_of: requestedAsOf }),
     getTwBrokerRankedOnDemand({ symbol: input.symbol, as_of: requestedAsOf }),
+    getTwWarrantActivityOnDemand({ symbol: input.symbol, as_of: requestedAsOf }),
     getLegacyPublishedSummary(env, input),
   ]);
 
@@ -107,18 +110,29 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
     provider_versions: {
       on_demand: TW_CHIP_ON_DEMAND_VERSION,
       broker_ranked: TW_BROKER_RANKED_ON_DEMAND_VERSION,
+      warrant_activity: TW_WARRANT_ACTIVITY_ON_DEMAND_VERSION,
       legacy_archive: LEGACY_PUBLISHED_GATEWAY_VERSION,
     },
     storage: "ON_DEMAND_CURRENT+LEGACY_ARCHIVE_READ_ONLY",
     consistency: "PUBLISHED" as const,
     current_consistency: "EXACT_DATE_ON_DEMAND" as const,
-    read_strategy: "OFFICIAL_EXACT_DATE_ON_DEMAND_FIRST; BROKER_RANKED_FAIL_SOFT; LEGACY_GITHUB_HISTORY_CONTEXT_ONLY",
+    read_strategy: "OFFICIAL_EXACT_DATE_ON_DEMAND_FIRST; WARRANT_ACTIVITY_OFFICIAL_NON_DIRECTIONAL; BROKER_RANKED_FAIL_SOFT; LEGACY_GITHUB_HISTORY_CONTEXT_ONLY",
     symbol: input.symbol,
     requested_as_of: onDemand.requested_as_of,
     data_as_of: currentUsable ? onDemand.requested_as_of : (legacyRecord.data_as_of ?? null),
     status: currentUsable ? onDemand.status : (legacyRecord.status ?? "UNAVAILABLE"),
     preferred_current_evidence: "on_demand_current",
     on_demand_current: onDemand,
+    warrant_activity: warrantActivity,
+    warrant_policy: {
+      tier: "OFFICIAL_PRIMARY",
+      measures: "TURNOVER_AND_VOLUME_ACTIVITY",
+      directionality: "NOT_AVAILABLE_FROM_TURNOVER_ONLY",
+      may_call_it_buying: false,
+      dealer_hedge_direction_included: false,
+      persistence: "NONE",
+      fail_soft: true,
+    },
     broker_branch_ranked: brokerRanked,
     broker_branch_policy: {
       tier: "PUBLIC_SECONDARY",
@@ -146,6 +160,8 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
       current_exact_date_source: "TWSE_TPEX_OFFICIAL_ON_DEMAND",
       current_exact_date_status: onDemand.status,
       current_exact_date_verified: Object.values(onDemand.layers).every((layer) => layer.source_date_verified),
+      warrant_activity_status: warrantActivity.status,
+      warrant_activity_directionality: "NON_DIRECTIONAL_TURNOVER_ONLY",
       broker_ranked_status: brokerRanked.status,
       broker_ranked_source_date_verified: brokerRanked.source_date_verified,
       broker_ranked_completeness: "RANKED_ONLY",
@@ -155,6 +171,6 @@ export async function getTwMarketChipSummaryPublished(env: Env, input: Published
       current_normalized_persistence: "NONE",
       legacy_archive_is_decision_source_for_current_day: false,
     },
-    migration_note: "Current chip data is fetched on demand. Ranked broker evidence is secondary/fail-soft. Legacy GitHub chip data remains read-only historical context and is not required to continue daily capture.",
+    migration_note: "Current chip data is fetched on demand. Warrant activity is official but non-directional. Ranked broker evidence is secondary/fail-soft. Legacy GitHub chip data remains read-only historical context and is not required to continue daily capture.",
   };
 }
