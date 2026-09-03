@@ -32,12 +32,61 @@ assert.equal(pass.ok, true);
 assert.equal(pass.formal_blind_eligible, true);
 assert.equal(pass.formal_research_eligible, true);
 assert.equal(pass.scorecard_eligible, true);
+assert.equal(pass.research_disposition, "TRADABLE_VERIFIED");
+assert.equal(pass.research_sample_resolved, true);
+assert.equal(pass.sample_accounted, true);
+assert.equal(pass.tradable, true);
 assert.equal(pass.retryable_transport_error, false);
 assert.equal(pass.rows.length, 3);
 assert.deepEqual(pass.rows.map((x:any) => x.bar_time_tw), [
   `${date} 09:00:00`, `${date} 09:01:00`, `${date} 09:02:00`
 ]);
 assert.equal(pass.canonical_verification_receipt.formal_blind_eligible, true);
+
+// VERIFIED_NO_TRADE must resolve before any local OHLC file read. The frozen
+// member remains accounted, but is never tradable or scorecard eligible.
+const noTradeInput = { symbol: "5371", trade_date: "2026-09-03", timeframe: "5m" as const, decision_time: "09:35", limit: 300 };
+const noTradeEnv = {
+  GITHUB_DATA_REPO: "keywayk09/tv-papertrader",
+  GITHUB_DATA_BRANCH: "main",
+  __GITHUB_DATA_MEMORY: new Map(),
+} as any;
+const noTradeFetch = async () => new Response(JSON.stringify({
+  ok:true,
+  symbol:"5371",
+  timeframe:"5m",
+  trade_date:"2026-09-03",
+  decision_time:"09:35:00",
+  data_status:"NO_TRADE_CONFIRMED",
+  research_disposition:"NO_TRADE_CONFIRMED",
+  research_sample_resolved:true,
+  sample_accounted:true,
+  tradable:false,
+  formal_blind_eligible:false,
+  cutoff:{ leakage_validated:true, prefix_completeness:false, no_trade:true },
+  verification:{
+    accepted_for_research:true,
+    official_verified:true,
+    runtime_official_fetch:false,
+    verification_mode:"github_immutable_no_trade_receipt"
+  },
+  eligibility_reason:"OFFICIAL_NO_TRADE_CONFIRMED"
+}), { status:200, headers:{ "content-type":"application/json" } });
+const noTrade = await readFormalBlindOhlc(noTradeEnv, noTradeInput, noTradeFetch as any);
+assert.equal(noTrade.ok, true);
+assert.equal(noTrade.blocked, false);
+assert.equal(noTrade.data_status, "NO_TRADE_CONFIRMED");
+assert.equal(noTrade.research_disposition, "NO_TRADE_CONFIRMED");
+assert.equal(noTrade.research_sample_resolved, true);
+assert.equal(noTrade.sample_accounted, true);
+assert.equal(noTrade.tradable, false);
+assert.equal(noTrade.formal_blind_eligible, false);
+assert.equal(noTrade.formal_research_eligible, false);
+assert.equal(noTrade.scorecard_eligible, false);
+assert.equal(noTrade.eligibility_reason, "OFFICIAL_NO_TRADE_CONFIRMED");
+assert.equal(noTrade.returned, 0);
+assert.deepEqual(noTrade.rows, []);
+assert.equal(noTrade.retryable_transport_error, false);
 
 // Semantic verification rejection stays fail-closed and must not be advertised
 // as retryable transport.
