@@ -1,9 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getTwMarketCrossSection } from "./market-data-cross-section";
-import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
 import { getTwMarketDataDayStatus } from "./market-data-day-status";
 import { getTwChipOnDemandSnapshot, TW_CHIP_ON_DEMAND_VERSION } from "./tw-chip-on-demand.ts";
+import { getTwMarketChipSummaryOnDemand } from "./tw-market-chip-on-demand-facade.ts";
 import {
   TW_MARKET_DATA_VERSION,
   getTwInstitutionalFlow,
@@ -25,8 +25,8 @@ const querySchema = {
 };
 const fastSummarySchema = {
   ...querySchema,
-  // Compatibility only. Both values now resolve current-day evidence through
-  // the same exact-date on-demand provider; the public schema is frozen.
+  // Frozen input schema: kept for older callers. Current evidence always uses
+  // exact-date on-demand official reads regardless of this legacy selector.
   consistency: z.enum(["published", "live"]).optional().default("published"),
   reference_price: z.number().positive().optional(),
   estimated_financing_cost: z.number().positive().optional(),
@@ -84,7 +84,7 @@ async function currentWithLegacyHistory(
 
 export function registerTwMarketDataTools(server: McpServer, env: Env) {
   server.registerTool("get_tw_market_data_contract", {
-    description: "台股籌碼資料契約。OHLC/K線維持既有 canonical pipeline；法人、融資融券、借券/還券、借券賣出改為需要時直接讀 TWSE/TPEx 官方來源，不做每日 raw capture。舊 GitHub 籌碼資料僅保留唯讀歷史背景。",
+    description: "台股籌碼資料契約。OHLC/K線維持既有 canonical pipeline；法人、融資融券、借券/還券、借券賣出與權證活動改為需要時直接讀官方來源，不做每日 raw capture。舊 GitHub 籌碼資料僅保留唯讀歷史背景。",
     inputSchema: {},
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
   }, async () => out({
@@ -102,6 +102,7 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
     history_window_calendar_days: 180,
     current_read_model: "exact-date official on-demand; no previous-day substitution; no current raw/normalized persistence",
     legacy_history_model: "existing GitHub archive is read-only context only and is not required to continue daily capture",
+    formal_replay_model: "DETERMINISTIC_PUBLISHED_GATEWAY_UNCHANGED",
     official_sources: {
       listed_institutional: "TWSE T86",
       otc_institutional: "TPEx tpex_3insti_daily_trading",
@@ -110,8 +111,10 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
       securities_lending: "TWSE TWT72U (listed + OTC market label)",
       listed_sbl_short_sale: "TWSE TWT93U",
       otc_sbl_short_sale: "TPEx tpex_margin_sbl + tpex_short_sell",
+      listed_warrant_activity: "TWSE t187ap37_L + t187ap42_L",
+      otc_warrant_activity: "TPEx tpex_warrant + tpex_warrant_quts",
     },
-    semantic_layers: ["institutional", "margin", "securities_lending", "sbl_short_sale", "broker_branch_experimental", "warrant_planned", "maintenance_ratio_proxy_only"],
+    semantic_layers: ["institutional", "margin", "securities_lending", "sbl_short_sale", "broker_branch_ranked", "warrant_activity_non_directional", "maintenance_ratio_proxy_only"],
     persistence: {
       current_raw: "NONE",
       current_normalized: "NONE",
@@ -123,6 +126,7 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
       ohlc_gateway: "OHLC_MCP_ONLY",
       market_data_ohlc_write: "FORBIDDEN",
       previous_day_substitution: "FORBIDDEN",
+      warrant_turnover_as_directional_buying: "FORBIDDEN",
       official_account_maintenance_ratio_reconstruction: "FORBIDDEN_WITHOUT_BROKER_ACCOUNT_DATA",
       family_market_data_write: "FORBIDDEN",
       broker_branch_ranked_output_as_complete_inventory: "FORBIDDEN",
@@ -140,20 +144,20 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
   }));
 
   server.registerTool("get_tw_market_chip_summary", {
-    description: "Owner 個股籌碼主入口。公開名稱不變；內部已改為 TWSE/TPEx 官方 exact-date on-demand current evidence，法人、融資融券、借券與借券賣出不做每日 raw 保存。舊 GitHub generation 只作最多180自然日歷史背景。若當日尚未公布，回 PENDING，禁止拿前一日冒充。",
+    description: "Owner 個股籌碼主入口。公開名稱不變；內部使用官方 exact-date on-demand 法人、融資融券、借券、借券賣出、權證活動，再補 MoneyDJ ranked-only 分點。舊 GitHub generation 只作最多180自然日歷史背景。當日尚未公布就回 PENDING，禁止拿前一日冒充。",
     inputSchema: fastSummarySchema,
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:true },
   }, async (input) => out({
-    ...(await getTwMarketChipSummaryPublished(env, input)),
+    ...(await getTwMarketChipSummaryOnDemand(env, input)),
     requested_legacy_consistency: input.consistency,
-    consistency_compatibility_note: "published/live input retained for ABI compatibility; current evidence always prefers exact-date on-demand official sources.",
+    consistency_compatibility_note: "published/live input retained for ABI compatibility; current user-facing evidence always prefers exact-date on-demand sources while formal replay keeps the deterministic published gateway.",
   }));
 
   server.registerTool("get_family_market_chip_summary", {
-    description: "家人版唯讀個股籌碼入口。公開名稱與 /family-mcp 入口不變；與 Owner 共用 TWSE/TPEx exact-date on-demand current evidence，但 Family 永遠唯讀、不寫 GitHub、不下單；既有 Published generation 保留作最多180自然日歷史背景。",
+    description: "家人版唯讀個股籌碼入口。公開名稱與 /family-mcp 入口不變；與 Owner 共用 exact-date on-demand current evidence，但 Family 永遠唯讀、不寫 GitHub、不下單；既有 Published generation 保留作最多180自然日歷史背景。",
     inputSchema: familyChipSchema,
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:true },
-  }, async (input) => out(await getTwMarketChipSummaryPublished(env, input)));
+  }, async (input) => out(await getTwMarketChipSummaryOnDemand(env, input)));
 
   server.registerTool("get_tw_institutional_flow", {
     description: "查詢個股法人籌碼。當日資料優先直接讀 TWSE/TPEx 官方 exact-date on-demand；既有 GitHub/FinMind 歷史只標為背景，不得覆蓋或冒充當日。",
@@ -180,10 +184,10 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
   }, async (input) => out(await currentWithLegacyHistory(env, input, "sbl_short_sale", getTwSblShortSale)));
 
   server.registerTool("get_tw_market_data_bundle", {
-    description: "相容型個股籌碼 bundle。公開名稱保留；目前直接回傳與 get_tw_market_chip_summary 相同的 on-demand current evidence + 唯讀歷史背景，不再啟動每日 capture/publish。",
+    description: "相容型個股籌碼 bundle。公開名稱保留；目前回傳 on-demand current evidence + 唯讀歷史背景，不再啟動每日 capture/publish。",
     inputSchema: querySchema,
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:true },
-  }, async (input) => out(await getTwMarketChipSummaryPublished(env, input)));
+  }, async (input) => out(await getTwMarketChipSummaryOnDemand(env, input)));
 
   server.registerTool("get_tw_market_data_status", {
     description: "舊 GitHub market-data archive 狀態查詢，僅供歷史/遷移診斷。它不代表目前 on-demand 官方來源是否可用；目前選股請看各個股工具回傳的 on_demand_source_health。",
