@@ -1,4 +1,5 @@
 import "./finmind-auth-fallback.test.ts";
+import "./first-party-intelligence-sources.test.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
