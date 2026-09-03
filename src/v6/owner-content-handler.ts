@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MyMCP as BaseMCP } from "../index";
 import { registerDailyReportFormatTool } from "./daily-report-format";
 import { tryHandleDiamondFixedFacadeCompatCall } from "./diamond-fixed-facade-compat";
+import { registerFirstPartyIntelligenceSourceTool } from "./first-party-intelligence-sources";
 import { registerToolThroughJin10Facade } from "./jin10-facade-middleware.ts";
 import { registerResearchTools } from "./research-tools";
 import { registerAdvancedTools } from "./register";
@@ -72,6 +73,7 @@ export class MyMCP extends BaseMCP {
     registerStableSwingScreenTool(this.server, this.env);
     registerSharedStockMarketContextTools(this.server, this.env);
     registerSharedCryptoMarketTools(this.server, this.env);
+    registerFirstPartyIntelligenceSourceTool(this.server);
 
     // Deliberately do not register standalone Jin10 or legacy compatibility
     // aliases into tools/list. ChatGPT's historical 79-tool App schema is served
