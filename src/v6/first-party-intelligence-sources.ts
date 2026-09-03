@@ -1,6 +1,4 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
-import { ok } from "./common";
 
 type SourceGroup = "political_macro" | "technology";
 type SourcePriority = "P0" | "P1";
@@ -246,19 +244,21 @@ export function queryFirstPartyIntelligenceSources(input: {
   };
 }
 
-export function registerFirstPartyIntelligenceSourceTool(server: McpServer) {
-  server.registerTool(
-    "get_first_party_intelligence_sources",
+export function registerFirstPartyIntelligenceSourceResource(server: McpServer) {
+  server.registerResource(
+    "first_party_intelligence_registry",
+    "first-party-intelligence://registry",
     {
-      description:
-        "Read-only, on-demand registry of pinned first-party public-figure and official-company sources. Use it to resolve trusted source endpoints for Trump/political-macro or technology leaders before looking up current posts or market-sensitive statements. It does not monitor, persist, trade, or mutate market/OHLC data.",
-      inputSchema: {
-        group: z.enum(["political_macro", "technology"]).optional(),
-        entity_id: z.string().trim().min(1).max(80).optional(),
-        topic: z.string().trim().min(1).max(80).optional(),
-        priority: z.enum(["P0", "P1"]).optional(),
-      },
+      title: "First-Party Intelligence Source Registry",
+      description: "Read-only, on-demand routing allowlist for Trump/political-macro and technology-leader first-party sources. No monitoring, persistence, trading, or OHLC mutation.",
+      mimeType: "application/json",
     },
-    async (input) => ok(queryFirstPartyIntelligenceSources(input)),
+    async (uri) => ({
+      contents: [{
+        uri: uri.href,
+        mimeType: "application/json",
+        text: JSON.stringify(FIRST_PARTY_INTELLIGENCE_REGISTRY, null, 2),
+      }],
+    }),
   );
 }
