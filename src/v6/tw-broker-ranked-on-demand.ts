@@ -1,4 +1,4 @@
-export const TW_BROKER_RANKED_ON_DEMAND_VERSION = "tw-broker-ranked-on-demand/v1.0.0";
+export const TW_BROKER_RANKED_ON_DEMAND_VERSION = "tw-broker-ranked-on-demand/v1.1.0";
 
 type FetchLike = typeof fetch;
 
@@ -12,8 +12,17 @@ type RankedBrokerRow = {
   turnover_share_pct: number | null;
 };
 
-type CacheEntry = { expires_at: number; promise: Promise<string> };
+type DecodedPage = {
+  text: string;
+  charset: string;
+  attempts: number;
+  http_status: number;
+};
+
+type CacheEntry = { expires_at: number; promise: Promise<DecodedPage> };
 const CACHE_TTL_MS = 10 * 60 * 1000;
+const MAX_TRANSPORT_ATTEMPTS = 2;
+const TRANSIENT_HTTP_STATUSES = new Set([502, 503, 504, 520]);
 const cache = new Map<string, CacheEntry>();
 
 function decodeHtml(value: string) {
@@ -104,21 +113,59 @@ function parseRows(html: string) {
   return { buys, sells };
 }
 
-async function fetchTextCached(url: string, fetcher: FetchLike) {
+function normalizeCharset(contentType: string | null) {
+  const match = contentType?.match(/charset\s*=\s*["']?([^;\s"']+)/i);
+  const raw = match?.[1]?.trim().toLowerCase() ?? "utf-8";
+  if (raw === "cp950" || raw === "950" || raw === "big-5") return "big5";
+  if (raw === "utf8") return "utf-8";
+  return raw;
+}
+
+async function decodeResponse(response: Response) {
+  const charset = normalizeCharset(response.headers.get("content-type"));
+  const bytes = await response.arrayBuffer();
+  let decoder: TextDecoder;
+  try {
+    decoder = new TextDecoder(charset);
+  } catch {
+    throw new Error(`unsupported_charset:${charset}`);
+  }
+  return { text: decoder.decode(bytes), charset };
+}
+
+async function fetchPageCached(url: string, fetcher: FetchLike) {
   const now = Date.now();
   const existing = cache.get(url);
   if (existing && existing.expires_at > now) return existing.promise;
-  const promise = (async () => {
-    const response = await fetcher(url, {
-      headers: {
-        Accept: "text/html,application/xhtml+xml,*/*",
-        "User-Agent": "Diamond-Broker-Ranked-ReadOnly/1.0",
-      },
-    });
-    const text = await response.text();
-    if (!response.ok) throw new Error(`http_${response.status}:${text.slice(0, 120)}`);
-    return text;
+
+  const promise = (async (): Promise<DecodedPage> => {
+    let lastError = "transport_failed";
+    for (let attempt = 1; attempt <= MAX_TRANSPORT_ATTEMPTS; attempt += 1) {
+      const response = await fetcher(url, {
+        cache: "no-store",
+        headers: {
+          Accept: "text/html,application/xhtml+xml,*/*",
+          "User-Agent": "Diamond-Broker-Ranked-ReadOnly/1.0",
+        },
+      });
+      const decoded = await decodeResponse(response);
+      if (response.ok) {
+        return {
+          text: decoded.text,
+          charset: decoded.charset,
+          attempts: attempt,
+          http_status: response.status,
+        };
+      }
+
+      lastError = `http_${response.status}:${textOf(decoded.text).slice(0, 120)}`;
+      if (!TRANSIENT_HTTP_STATUSES.has(response.status) || attempt >= MAX_TRANSPORT_ATTEMPTS) {
+        throw new Error(lastError);
+      }
+    }
+    throw new Error(lastError);
   })();
+
   cache.set(url, { expires_at: now + CACHE_TTL_MS, promise });
   try {
     return await promise;
@@ -147,8 +194,8 @@ export async function getTwBrokerRankedOnDemand(input: {
   const retrievedAt = new Date().toISOString();
 
   try {
-    const html = await fetchTextCached(url, fetcher);
-    const pageDate = parseUpdatedDate(html, input.as_of);
+    const page = await fetchPageCached(url, fetcher);
+    const pageDate = parseUpdatedDate(page.text, input.as_of);
     if (!pageDate) {
       return {
         ok: false,
@@ -160,6 +207,8 @@ export async function getTwBrokerRankedOnDemand(input: {
         source_date_verified: false,
         source: "MoneyDJ broker ranked public page",
         source_url: url,
+        source_charset: page.charset,
+        transport_attempts: page.attempts,
         tier: "PUBLIC_SECONDARY" as const,
         completeness: "RANKED_ONLY" as const,
         persistence: "NONE" as const,
@@ -180,6 +229,8 @@ export async function getTwBrokerRankedOnDemand(input: {
         source_date_verified: false,
         source: "MoneyDJ broker ranked public page",
         source_url: url,
+        source_charset: page.charset,
+        transport_attempts: page.attempts,
         tier: "PUBLIC_SECONDARY" as const,
         completeness: "RANKED_ONLY" as const,
         persistence: "NONE" as const,
@@ -190,9 +241,9 @@ export async function getTwBrokerRankedOnDemand(input: {
       };
     }
 
-    const { buys, sells } = parseRows(html);
+    const { buys, sells } = parseRows(page.text);
     if (!buys.length && !sells.length) {
-      const noData = /查無[^<\n]*券商分點|查無.*進出明細/i.test(textOf(html));
+      const noData = /查無[^<\n]*券商分點|查無.*進出明細/i.test(textOf(page.text));
       return {
         ok: noData,
         version: TW_BROKER_RANKED_ON_DEMAND_VERSION,
@@ -203,6 +254,8 @@ export async function getTwBrokerRankedOnDemand(input: {
         source_date_verified: true,
         source: "MoneyDJ broker ranked public page",
         source_url: url,
+        source_charset: page.charset,
+        transport_attempts: page.attempts,
         tier: "PUBLIC_SECONDARY" as const,
         completeness: "RANKED_ONLY" as const,
         persistence: "NONE" as const,
@@ -223,6 +276,8 @@ export async function getTwBrokerRankedOnDemand(input: {
       source_date_verified: true,
       source: "MoneyDJ broker ranked public page",
       source_url: url,
+      source_charset: page.charset,
+      transport_attempts: page.attempts,
       tier: "PUBLIC_SECONDARY" as const,
       completeness: "RANKED_ONLY" as const,
       persistence: "NONE" as const,
