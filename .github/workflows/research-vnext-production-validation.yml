@@ -28,6 +28,20 @@ on:
         required: false
         default: ""
         type: string
+      broker_symbol:
+        description: Taiwan stock symbol for strict read-only broker bundle validation.
+        required: true
+        default: "2317"
+        type: string
+      broker_date:
+        description: Historical exact trading date for strict 1/5/10/20/60D broker validation.
+        required: true
+        default: "2026-09-04"
+        type: string
+  workflow_run:
+    workflows: ["Deploy taistock-mcp to Cloudflare"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
@@ -38,6 +52,7 @@ concurrency:
 
 jobs:
   read-only-production-probe:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -100,5 +115,73 @@ jobs:
         with:
           name: research-vnext-production-validation-${{ github.run_id }}
           path: tmp/research-vnext-production-validation/receipt.json
+          if-no-files-found: error
+          retention-days: 30
+
+  broker-production-probe:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BROKER_PROBE_TOKEN: ${{ secrets.RESEARCH_VNEXT_PROBE_TOKEN }}
+      BROKER_PROBE_SYMBOL_INPUT: ${{ inputs.broker_symbol }}
+      BROKER_PROBE_DATE_INPUT: ${{ inputs.broker_date }}
+      BROKER_PROBE_ENDPOINT_INPUT: ${{ inputs.endpoint }}
+      BROKER_PROBE_CONFIRMATION_INPUT: ${{ inputs.confirmation }}
+      BROKER_PROBE_EVENT_NAME: ${{ github.event_name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run strict read-only broker bundle probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          production='https://taistock-mcp.keywayk09.workers.dev/my-mcp'
+          if [ "${BROKER_PROBE_EVENT_NAME}" = 'workflow_run' ]; then
+            export BROKER_PROBE_ENDPOINT="$production"
+            export BROKER_PROBE_CONFIRMATION='READ_ONLY_PRODUCTION_PROBE'
+            export BROKER_PROBE_SYMBOL='2317'
+            export BROKER_PROBE_DATE='2026-09-04'
+            echo 'BROKER_PRODUCTION_PROBE=AUTHORIZED_BY_SUCCESSFUL_MAIN_DEPLOY'
+          else
+            export BROKER_PROBE_ENDPOINT="${BROKER_PROBE_ENDPOINT_INPUT}"
+            export BROKER_PROBE_CONFIRMATION="${BROKER_PROBE_CONFIRMATION_INPUT}"
+            export BROKER_PROBE_SYMBOL="${BROKER_PROBE_SYMBOL_INPUT:-2317}"
+            export BROKER_PROBE_DATE="${BROKER_PROBE_DATE_INPUT:-2026-09-04}"
+            echo 'BROKER_PRODUCTION_PROBE=AUTHORIZED_BY_MANUAL_DISPATCH'
+          fi
+          mkdir -p tmp/research-vnext-production-validation
+          node scripts/broker-production-readonly-probe.mjs \
+            > tmp/research-vnext-production-validation/broker-receipt.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const path = 'tmp/research-vnext-production-validation/broker-receipt.json';
+          const receipt = JSON.parse(fs.readFileSync(path, 'utf8'));
+          if (receipt.status !== 'PASS') throw new Error('broker_production_probe_not_pass');
+          if (receipt.production_mutation !== 'NONE') throw new Error('broker_production_probe_mutation_contract_violation');
+          if (receipt.all_windows_ready !== true || receipt.ready_window_count !== 5) throw new Error('broker_production_probe_windows_not_ready');
+          if (receipt.same_provider_required !== true || receipt.cross_provider_window_mixing !== false) throw new Error('broker_production_probe_provider_contract_violation');
+          if (receipt.same_requested_as_of_required !== true || receipt.cross_source_backfill_allowed !== false) throw new Error('broker_production_probe_asof_contract_violation');
+          console.log(`broker_provider=${receipt.canonical_provider_id}`);
+          console.log(`broker_windows_ready=${receipt.ready_window_count}/5`);
+          console.log(`protocol_lane=${receipt.protocol_lane}`);
+          console.log('production_mutation=NONE');
+          NODE
+
+      - name: Upload broker immutable-style probe receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: broker-production-validation-${{ github.run_id }}
+          path: tmp/research-vnext-production-validation/broker-receipt.json
           if-no-files-found: error
           retention-days: 30
