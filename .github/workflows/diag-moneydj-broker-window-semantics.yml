@@ -15,59 +15,44 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Inspect public MoneyDJ interval form
+      - name: Verify fixed broker windows from public MoneyDJ page
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import re, urllib.request, html as htmlmod
-          url='https://www.moneydj.com/Z/ZC/ZCO/ZCO.djhtm?a=2330&e='
-          req=urllib.request.Request(url, headers={'User-Agent':'Diamond-Broker-Ranked-ReadOnly/1.0','Accept':'text/html,*/*'})
-          with urllib.request.urlopen(req, timeout=25) as r:
-              raw=r.read(); ctype=r.headers.get('Content-Type','')
-          charset='big5' if 'big5' in ctype.lower() else 'utf-8'
-          text=raw.decode(charset,'replace')
-          print({'http_bytes':len(raw),'content_type':ctype,'charset':charset,'has_custom_window':'自設區間' in text,'has_updated':'最後更新日' in text})
-          m=re.search(r'最後更新日\s*[：:]?\s*((?:\d{4}[/-])?\d{1,2}[/-]\d{1,2})', re.sub(r'<[^>]+>',' ',text))
-          print({'source_date':m.group(1) if m else None})
-          forms=re.findall(r'<form\b[^>]*>[\s\S]*?</form>', text, re.I)
-          for i,f in enumerate(forms):
-              plain=re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',htmlmod.unescape(f)))
-              if '自設區間' not in plain and '券商分點' not in plain: continue
-              head=re.search(r'<form\b([^>]*)>',f,re.I)
-              attrs=head.group(1) if head else ''
-              print('FORM',i,attrs)
-              for tag in re.findall(r'<(?:input|select|option)\b[^>]*>', f, re.I):
-                  name=re.search(r'\bname\s*=\s*["\']?([^\s"\'>]+)',tag,re.I)
-                  value=re.search(r'\bvalue\s*=\s*["\']?([^\s"\'>]+)',tag,re.I)
-                  selected=bool(re.search(r'\bselected\b',tag,re.I))
-                  typ=re.search(r'<(input|select|option)\b',tag,re.I)
-                  print({'tag':typ.group(1).lower() if typ else '?','name':name.group(1) if name else None,'value':value.group(1) if value else None,'selected':selected,'raw':tag[:240]})
-              idx=text.find('自設區間')
-              if idx>=0:
-                  snippet=text[max(0,idx-3500):idx+5000]
-                  print('WINDOW_SNIPPET_START')
-                  print(re.sub(r'\s+',' ',snippet)[:8500])
-                  print('WINDOW_SNIPPET_END')
-          PY
-      - name: Inspect MoneyDJ interval navigation javascript
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import re, urllib.request
-          url='https://www.moneydj.com/z/js/zbrokerjs.djjs'
-          req=urllib.request.Request(url,headers={'User-Agent':'Diamond-Broker-Ranked-ReadOnly/1.0','Accept':'text/javascript,*/*'})
-          with urllib.request.urlopen(req,timeout=25) as r:
-              raw=r.read(); ctype=r.headers.get('Content-Type','')
-          text=raw.decode('big5','replace')
-          print('SCRIPT',url,'bytes',len(raw),'ctype',ctype)
-          lower=text.lower()
-          for needle in ['goa','goc','bdate','edate','zco.djhtm','document.f.d']:
-              start=0; shown=0
-              while True:
-                  idx=lower.find(needle.lower(),start)
-                  if idx<0 or shown>=8: break
-                  print('SNIP',needle,re.sub(r'\s+',' ',text[max(0,idx-500):idx+1300])[:1800])
-                  start=idx+len(needle); shown+=1
+          import re, urllib.request, html as htmlmod, hashlib
+          ua='Diamond-Broker-Ranked-ReadOnly/1.0'
+          expected={1:'近一日',2:'近五日',3:'近十日',4:'近20日',6:'近60日'}
+          seen=[]
+          for e,label in expected.items():
+              url=f'https://www.moneydj.com/Z/ZC/ZCO/ZCO.djhtm?a=2330&e={e}'
+              req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'text/html,*/*'})
+              with urllib.request.urlopen(req,timeout=25) as r:
+                  raw=r.read(); ctype=r.headers.get('Content-Type','')
+              text=raw.decode('big5' if 'big5' in ctype.lower() else 'utf-8','replace')
+              plain=re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',htmlmod.unescape(text)))
+              src=re.search(r'最後更新日\s*[：:]?\s*((?:\d{4}[/-])?\d{1,2}[/-]\d{1,2})',plain)
+              select=re.search(r'<select\s+name=["\']?D["\']?[^>]*>([\s\S]*?)</select>',text,re.I)
+              selected=None; selected_value=None
+              if select:
+                  for val,attrs,lab in re.findall(r'<option\s+value=["\']?([^\s"\'>]+)["\']?([^>]*)>([^<]+)</option>',select.group(1),re.I):
+                      if re.search(r'\bselected\b',attrs,re.I):
+                          selected_value=val; selected=htmlmod.unescape(lab).strip(); break
+              rows=re.findall(r'<tr\b[^>]*>[\s\S]*?</tr>',text,re.I)
+              first=None
+              for tr in rows:
+                  cells=[re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',htmlmod.unescape(x))).strip() for x in re.findall(r'<t[dh]\b[^>]*>([\s\S]*?)</t[dh]>',tr,re.I)]
+                  if len(cells)>=10 and cells[0] and re.fullmatch(r'[\d,]+',cells[1] or ''):
+                      first={'buy_branch':cells[0],'buy_net':cells[3],'sell_branch':cells[5],'sell_net':cells[8]}; break
+              totals=re.search(r'合計買超張數\s*([\d,]+).*?合計賣超張數\s*([\d,]+)',plain)
+              record={'e':e,'expected':label,'selected_value':selected_value,'selected':selected,'source_date':src.group(1) if src else None,'first':first,'totals':(totals.group(1),totals.group(2)) if totals else None,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw)}
+              print(record)
+              assert selected_value==str(e), f'e={e}: selected_value={selected_value}'
+              assert selected==label, f'e={e}: selected={selected}'
+              assert src, f'e={e}: missing source date'
+              assert first, f'e={e}: missing ranked row'
+              seen.append((e, first, record['totals'], record['sha256']))
+          assert len({x[3] for x in seen})>=4, 'window responses are unexpectedly identical'
+          assert len({str(x[1]) for x in seen})>=3, 'rankings did not materially change across windows'
+          print('MONEYDJ_FIXED_WINDOWS_SEMANTICS_PASS')
           PY
