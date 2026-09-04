@@ -170,6 +170,21 @@ True broker customer account maintenance ratio remains fail-closed because publi
   - public Family tool name, read-only permission and 180-day history contract stay frozen
   - current Family evidence routes through the isolated on-demand facade
   - deterministic Published gateway remains historical/replay context behind the facade
+- `tests/public-ingress-freeze.test.ts`
+  - all existing OAuth/path/public ingress ABI assertions remain intact
+  - verified official warrant routes are accepted without weakening the non-directional activity boundary
+  - maintenance-ratio public source remains fail-closed
+- `tests/no-r2-policy.test.ts`
+  - no D1/R2 market-data persistence remains a permanent boundary
+  - OHLC canonical GitHub location remains frozen
+  - current chip evidence is explicitly non-persistent
+  - OAuth KV is explicitly ephemeral session state, not market-data storage
+  - retired chip cron must remain absent and the defensive scheduler no-op must remain present
+- `tests/automation-research-rest.test.ts`
+  - Automation namespace stays bounded/read-only
+  - ordinary requests still delegate to the canonical app
+  - only root `/health` may overlay current on-demand metadata after delegation
+  - the retired non-OHLC scheduler may not delegate back to the legacy scheduled writer
 - existing public ingress tests continue to protect Owner and Family MCP URLs
 
 ## Problems found during migration
@@ -210,6 +225,24 @@ Root cause: after separating formal replay from current web evidence, `get_famil
 
 Fix: update the test to protect the real invariant instead of the retired implementation detail: Family stays read-only, public tool/ingress stays unchanged, current evidence uses the isolated on-demand facade, and the facade retains the deterministic Published gateway only as historical/replay context.
 
+### Problem G — public ingress test still treated warrant capability as unverified
+
+Root cause: the source registry had already promoted official TWSE/TPEx warrant activity routes to `READY`, but `tests/public-ingress-freeze.test.ts` still required the older planned/fail-closed warrant state.
+
+Fix: keep every original Owner/Family OAuth and path ABI assertion intact, then update only the warrant capability assertions. The new invariant is that official warrant turnover/volume activity is available on demand but remains explicitly non-directional and cannot be promoted into net-buy, aggressor-side or dealer-hedging claims.
+
+### Problem H — no-R2 test encoded an obsolete "all application persistence is GitHub" sentence
+
+Root cause: `tests/no-r2-policy.test.ts` required a literal comment saying all application persistence is GitHub-only and also required the retired `*/5` Cloudflare cron. That no longer describes the intended design: OHLC remains canonical GitHub data, while current non-OHLC chip evidence is deliberately not persisted anywhere.
+
+Fix: preserve the permanent no-D1/no-R2 market-data boundary, canonical GitHub repository/branch checks and Durable Object namespace protection, while changing the persistence assertions to the actual contract: OHLC canonical unchanged, current chip persistence `NONE`, OAuth KV is ephemeral session state, and the retired chip cron must remain absent behind a `RETIRED_NOOP` scheduler fence.
+
+### Problem I — Automation bridge test was coupled to direct delegation syntax
+
+Root cause: `tests/automation-research-rest.test.ts` required the exact source strings `return app.fetch(request, env, ctx)` and `return app.scheduled(controller, env, ctx)`. The current wrapper must capture the canonical response before returning it so that only `/` and `/health` can overlay accurate on-demand migration metadata, and scheduled non-OHLC capture is intentionally retired.
+
+Fix: keep all Automation read-only, revision-pinning, Blind-cutoff and secret-leakage tests unchanged. Replace only the internal-syntax assertions with behavioral architecture invariants: Automation routes remain bounded, ordinary traffic delegates to `app.fetch`, health overlay is restricted to root health paths, and `scheduled()` is a defensive `RETIRED_NOOP` rather than a route back to the legacy writer.
+
 ## Rollback
 
 Before Production merge, all changes live on isolated branch `test/on-demand-chip-registry-v1` in PR #221.
@@ -234,3 +267,5 @@ Do not merge/deploy unless all are true:
 10. Health metadata reports on-demand current reads and disabled scheduled chip capture.
 11. Broker/warrant/maintenance capabilities are not overstated beyond verified source contracts.
 12. Formal Published replay tests remain deterministic and do not call current web sources.
+13. No-D1/no-R2 market-data persistence boundary passes with current chip persistence set to `NONE`.
+14. Automation research bridge tests pass with the health-only overlay and retired scheduler semantics.
