@@ -72,7 +72,7 @@ A true customer-account maintenance ratio is not reconstructed from public marke
 
 `family-cloudflare-startup-graph.test.ts` continues to protect the lazy startup graph, Cloudflare 10021 isolation, Family read-only boundaries, canonical OHLC identity and no cross-account Service Binding. Its market-chip identity assertion now matches `OFFICIAL_EXACT_DATE_ON_DEMAND_CURRENT+PUBLISHED_HISTORY_CONTEXT` instead of the retired Published-only current model.
 
-The runtime-changing head `12fb65d1ecb0c5caa9d4ec461f72b874c26f6acf` passed TypeScript type-check, full `test:research`, Wrangler deploy dry-run, Market Data Cloudflare Cron CI and the P7/P8/P9/P11/P12/P13/P13b/P14/P15/P16 PR workflows. Subsequent documentation-only heads were revalidated through the same 12 workflows; final merge-candidate head `2f8d21c0bd5d9429c294f359d1a24a38395862be` completed all 12 successfully before merge.
+The runtime-changing head `12fb65d1ecb0c5caa9d4ec461f72b874c26f6acf` passed TypeScript type-check, full `test:research`, Wrangler deploy dry-run, Market Data Cloudflare Cron CI and the P7/P8/P9/P11/P12/P13/P13b/P14/P15/P16 PR workflows. Subsequent documentation-only heads were revalidated through the same 12 workflows; the final validated candidate is recorded by the pull-request checks rather than embedded recursively into this file.
 
 Existing Family isolation/OAuth/public-ingress tests remain in force. Formal Published replay tests remain deterministic and are not repurposed for live reads.
 
