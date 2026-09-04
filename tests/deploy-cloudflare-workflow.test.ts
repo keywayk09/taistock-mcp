@@ -44,6 +44,14 @@ assert.match(workflow, /scheduled_chip_capture'\) != 'DISABLED'/);
 assert.match(workflow, /current_chip_persistence'\) != 'NONE'/);
 assert.match(workflow, /ohlc_policy'\) != 'UNCHANGED_CANONICAL_PIPELINE'/);
 
+// Degraded Production health responses must retain their JSON body in the
+// diagnostic artifact. `--fail-with-body` keeps HTTP failure semantics while
+// preserving the endpoint's source/coverage errors for root-cause analysis.
+assert.match(workflow, /curl --fail-with-body --silent --show-error --max-time 20 "\$\{WORKER_BASE_URL\}\/health"/);
+assert.match(workflow, /curl --fail-with-body --silent --show-error --max-time 45 "\$\{WORKER_BASE_URL\}\/health\/full-market"/);
+assert.doesNotMatch(workflow, /curl --fail --silent --show-error --max-time 45 "\$\{WORKER_BASE_URL\}\/health\/full-market"/);
+assert.match(workflow, /cat \/tmp\/smoke-full-market\.json/);
+
 assert.match(note, /PRODUCTION_WRITER_AUTHORITY_COLLISION_MAIN_WATCHDOG_VS_UNMERGED_CUTOVER/);
 assert.match(note, /watchdog Run `33534917011`/);
 assert.match(note, /canonical main deploy Run `33534927601`/);

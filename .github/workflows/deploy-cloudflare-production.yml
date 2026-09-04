@@ -255,8 +255,8 @@ jobs:
           passed=false
           for attempt in 1 2 3; do
             echo "Production smoke attempt ${attempt}/3"
-            if curl --fail --silent --show-error --max-time 20 "${WORKER_BASE_URL}/health" > /tmp/smoke-health.json \
-              && curl --fail --silent --show-error --max-time 45 "${WORKER_BASE_URL}/health/full-market" > /tmp/smoke-full-market.json \
+            if curl --fail-with-body --silent --show-error --max-time 20 "${WORKER_BASE_URL}/health" > /tmp/smoke-health.json \
+              && curl --fail-with-body --silent --show-error --max-time 45 "${WORKER_BASE_URL}/health/full-market" > /tmp/smoke-full-market.json \
               && python - <<'PY'
           import json
           from pathlib import Path
