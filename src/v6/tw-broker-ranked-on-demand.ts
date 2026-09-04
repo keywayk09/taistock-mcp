@@ -1,4 +1,9 @@
-export const TW_BROKER_RANKED_ON_DEMAND_VERSION = "tw-broker-ranked-on-demand/v1.3.0";
+import {
+  resolveTwseTradingWindowStart,
+  TWSE_TRADING_CALENDAR_ON_DEMAND_VERSION,
+} from "./twse-trading-calendar-on-demand.ts";
+
+export const TW_BROKER_RANKED_ON_DEMAND_VERSION = "tw-broker-ranked-on-demand/v1.4.0";
 
 export type TwBrokerWindowDays = 1 | 5 | 10 | 20 | 40 | 60 | 120 | 240;
 
@@ -81,19 +86,6 @@ function parseUpdatedDate(html: string, requestedDate: string) {
   const text = textOf(html);
   const match = text.match(/最後更新日\s*[：:]?\s*((?:\d{4}[\/-])?\d{1,2}[\/-]\d{1,2})/);
   return match ? normalizePageDate(match[1], requestedDate) : null;
-}
-
-function parseSelectedWindow(html: string) {
-  const select = html.match(/<select\b[^>]*\bname\s*=\s*["']?D["']?[^>]*>([\s\S]*?)<\/select>/i);
-  if (!select) return null;
-  const options = [...select[1].matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)];
-  for (const option of options) {
-    if (!/\bselected\b/i.test(option[1])) continue;
-    const value = option[1].match(/\bvalue\s*=\s*["']?([^\s"'>]+)/i)?.[1] ?? null;
-    const selector = value && /^\d+$/.test(value) ? Number(value) : null;
-    return { selector, label: textOf(option[2]) };
-  }
-  return null;
 }
 
 function parseRows(html: string) {
@@ -217,21 +209,19 @@ async function fetchPageCached(url: string, fetcher: FetchLike) {
   }
 }
 
-function windowUrl(symbol: string, windowDays: TwBrokerWindowDays, asOf: string) {
-  const config = WINDOW_CONFIG[windowDays];
-  if (windowDays === 1) {
-    const encodedDate = encodeURIComponent(asOf);
-    return `https://www.moneydj.com/z/zc/zco/zco.djhtm?a=${encodeURIComponent(symbol)}&e=${encodedDate}&f=${encodedDate}`;
-  }
-  return `https://www.moneydj.com/z/zc/zco/zco_${encodeURIComponent(symbol)}_${config.selector}.djhtm`;
+function customRangeUrl(symbol: string, startDate: string, endDate: string) {
+  return `https://www.moneydj.com/z/zc/zco/zco.djhtm?a=${encodeURIComponent(symbol)}&e=${encodeURIComponent(startDate)}&f=${encodeURIComponent(endDate)}`;
 }
 
 function baseResult(input: {
   symbol: string;
   as_of: string;
-  url: string;
+  url: string | null;
   window_days: TwBrokerWindowDays;
   retrieved_at: string;
+  range_start: string | null;
+  calendar_years?: number[];
+  calendar_source_urls?: string[];
   page?: DecodedPage;
 }) {
   const config = WINDOW_CONFIG[input.window_days];
@@ -249,8 +239,14 @@ function baseResult(input: {
     window_days: input.window_days,
     source_window_selector: config.selector,
     source_window_label: config.label,
-    source_query_mode: input.window_days === 1 ? "CUSTOM_EXACT_DATE" as const : "FIXED_WINDOW" as const,
+    source_query_mode: input.window_days === 1 ? "CUSTOM_EXACT_DATE" as const : "CUSTOM_TRADING_DAY_RANGE" as const,
     server_side_interval_aggregation: input.window_days > 1,
+    requested_range_start: input.range_start,
+    requested_range_end: input.as_of,
+    range_basis: input.window_days === 1 ? "EXACT_DATE" as const : "TWSE_OFFICIAL_TRADING_CALENDAR" as const,
+    trading_calendar_version: input.window_days === 1 ? null : TWSE_TRADING_CALENDAR_ON_DEMAND_VERSION,
+    trading_calendar_years: input.calendar_years ?? [],
+    trading_calendar_source_urls: input.calendar_source_urls ?? [],
     missing_branch_means_zero: false,
     retrieved_at: input.retrieved_at,
   };
@@ -260,15 +256,17 @@ function baseResult(input: {
  * Read-only secondary evidence adapter for MoneyDJ's public stock -> broker
  * ranking page. It intentionally exposes only ranked output and never claims a
  * complete branch inventory. One-day reads use MoneyDJ's custom exact-date
- * range (start=end=as_of); fixed multi-day pages are server-side interval rankings.
- * Daily ranked rows are never summed to fabricate a window.
- * This adapter is fail-soft and must not block the official TWSE/TPEx chip layers.
+ * range (start=end=as_of). Multi-day reads resolve the exact N trading sessions
+ * from TWSE's official historical holiday schedule and then ask MoneyDJ to rank
+ * that custom server-side interval. Daily ranked rows are never summed.
+ * This adapter is fail-soft and must not block official TWSE/TPEx chip layers.
  */
 export async function getTwBrokerRankedOnDemand(input: {
   symbol: string;
   as_of: string;
   window_days?: TwBrokerWindowDays;
   fetcher?: FetchLike;
+  calendar_fetcher?: FetchLike;
 }) {
   const symbol = String(input.symbol ?? "").trim();
   if (!/^\d{4,6}$/.test(symbol)) throw new Error("invalid_taiwan_symbol");
@@ -276,34 +274,38 @@ export async function getTwBrokerRankedOnDemand(input: {
   const windowDays = input.window_days ?? 1;
   if (!(windowDays in WINDOW_CONFIG)) throw new Error("unsupported_broker_window_days");
   const fetcher = input.fetcher ?? fetch;
-  const url = windowUrl(symbol, windowDays, input.as_of);
   const retrievedAt = new Date().toISOString();
+  let rangeStart: string | null = windowDays === 1 ? input.as_of : null;
+  let calendarYears: number[] = [];
+  let calendarSourceUrls: string[] = [];
+  let url: string | null = null;
 
   try {
-    const page = await fetchPageCached(url, fetcher);
-    const common = baseResult({ symbol, as_of: input.as_of, url, window_days: windowDays, retrieved_at: retrievedAt, page });
-    const expectedWindow = WINDOW_CONFIG[windowDays];
-    const selectedWindow = parseSelectedWindow(page.text);
-    const sourceWindowVerified = windowDays === 1
-      ? true
-      : !!selectedWindow && selectedWindow.selector === expectedWindow.selector && selectedWindow.label === expectedWindow.label;
-
-    if (!sourceWindowVerified) {
-      return {
-        ...common,
-        ok: false,
-        status: "ERROR" as const,
-        source_date: null,
-        source_date_verified: false,
-        source_window_verified: false,
-        observed_source_window: selectedWindow,
-        error: selectedWindow
-          ? `source_window_mismatch:${selectedWindow.selector ?? "unknown"}:${selectedWindow.label}`
-          : "source_window_not_found",
-        buys: [],
-        sells: [],
-      };
+    if (windowDays > 1) {
+      const tradingWindow = await resolveTwseTradingWindowStart({
+        as_of: input.as_of,
+        trading_days: windowDays,
+        fetcher: input.calendar_fetcher,
+      });
+      rangeStart = tradingWindow.start_date;
+      calendarYears = tradingWindow.calendar_years;
+      calendarSourceUrls = tradingWindow.source_urls;
     }
+    if (!rangeStart) throw new Error("broker_range_start_unresolved");
+    url = customRangeUrl(symbol, rangeStart, input.as_of);
+
+    const page = await fetchPageCached(url, fetcher);
+    const common = baseResult({
+      symbol,
+      as_of: input.as_of,
+      url,
+      window_days: windowDays,
+      retrieved_at: retrievedAt,
+      range_start: rangeStart,
+      calendar_years: calendarYears,
+      calendar_source_urls: calendarSourceUrls,
+      page,
+    });
 
     const pageDate = parseUpdatedDate(page.text, input.as_of);
     if (!pageDate) {
@@ -314,6 +316,7 @@ export async function getTwBrokerRankedOnDemand(input: {
         source_date: null,
         source_date_verified: false,
         source_window_verified: true,
+        source_range_verified: false,
         error: "last_updated_date_not_found",
         buys: [],
         sells: [],
@@ -327,6 +330,7 @@ export async function getTwBrokerRankedOnDemand(input: {
         source_date: pageDate,
         source_date_verified: false,
         source_window_verified: true,
+        source_range_verified: false,
         error: `source_date_mismatch:${pageDate}`,
         buys: [],
         sells: [],
@@ -344,6 +348,7 @@ export async function getTwBrokerRankedOnDemand(input: {
         source_date: pageDate,
         source_date_verified: true,
         source_window_verified: true,
+        source_range_verified: true,
         ranked_output_totals: rankedOutputTotals,
         error: noData ? null : "ranked_table_parse_empty",
         buys: [],
@@ -358,20 +363,31 @@ export async function getTwBrokerRankedOnDemand(input: {
       source_date: pageDate,
       source_date_verified: true,
       source_window_verified: true,
+      source_range_verified: true,
       rank_count: { buy: buys.length, sell: sells.length },
       ranked_output_totals: rankedOutputTotals,
       buys,
       sells,
-      interpretation_boundary: "Rows shown are MoneyDJ server-ranked public-page output. Missing branches must NOT be interpreted as zero activity; missing branches/windows are UNKNOWN, never zero. Ranked-output totals cover displayed ranked rows only and are not a complete branch inventory.",
+      interpretation_boundary: "Rows shown are MoneyDJ server-ranked public-page output for the requested range. Missing branches must NOT be interpreted as zero activity; missing branches/windows are UNKNOWN, never zero. Ranked-output totals cover displayed ranked rows only and are not a complete branch inventory.",
     };
   } catch (error) {
     return {
-      ...baseResult({ symbol, as_of: input.as_of, url, window_days: windowDays, retrieved_at: retrievedAt }),
+      ...baseResult({
+        symbol,
+        as_of: input.as_of,
+        url,
+        window_days: windowDays,
+        retrieved_at: retrievedAt,
+        range_start: rangeStart,
+        calendar_years: calendarYears,
+        calendar_source_urls: calendarSourceUrls,
+      }),
       ok: false,
       status: "ERROR" as const,
       source_date: null,
       source_date_verified: false,
       source_window_verified: false,
+      source_range_verified: false,
       error: error instanceof Error ? error.message : String(error),
       buys: [],
       sells: [],
@@ -493,14 +509,16 @@ function buildBranchMatrix(results: BrokerWindowResult[], requestedWindows: TwBr
 
 /**
  * Bounded multi-horizon broker evidence for explicit/deep stock analysis only.
- * MoneyDJ performs each interval aggregation server-side; this function does not
- * sum daily Top-N rows. Origin concurrency is capped to avoid bursty fan-out.
+ * Each N-day interval is resolved from the official TWSE trading calendar and
+ * ranked by MoneyDJ server-side through its custom range. Daily Top-N rows are
+ * never summed. Origin concurrency remains capped to avoid bursty fan-out.
  */
 export async function getTwBrokerRankedWindowBundleOnDemand(input: {
   symbol: string;
   as_of: string;
   windows?: readonly TwBrokerWindowDays[];
   fetcher?: FetchLike;
+  calendar_fetcher?: FetchLike;
 }) {
   const requestedWindows = [...(input.windows ?? DEFAULT_MULTI_WINDOWS)];
   if (!requestedWindows.length) throw new Error("broker_windows_required");
@@ -514,6 +532,7 @@ export async function getTwBrokerRankedWindowBundleOnDemand(input: {
     as_of: input.as_of,
     window_days: days,
     fetcher: input.fetcher,
+    calendar_fetcher: input.calendar_fetcher,
   }));
   const windows = Object.fromEntries(results.map((result, index) => [windowKey(requestedWindows[index]), result])) as Record<string, BrokerWindowResult>;
   const usable = results.filter((result) => result.status === "READY" || result.status === "READY_EMPTY").length;
@@ -527,7 +546,7 @@ export async function getTwBrokerRankedWindowBundleOnDemand(input: {
         : "ERROR";
 
   return {
-    version: "tw-broker-ranked-window-bundle/v1.0.0",
+    version: "tw-broker-ranked-window-bundle/v1.1.0",
     status,
     symbol: String(input.symbol),
     requested_as_of: input.as_of,
@@ -536,6 +555,7 @@ export async function getTwBrokerRankedWindowBundleOnDemand(input: {
     ready_window_count: usable,
     branch_matrix: buildBranchMatrix(results, requestedWindows),
     server_side_interval_aggregation: true,
+    range_basis: "TWSE_OFFICIAL_TRADING_CALENDAR+MONEYDJ_CUSTOM_SERVER_RANGE" as const,
     daily_rank_summing: false,
     missing_branch_means_zero: false,
     missing_window_observation: "UNKNOWN" as const,
@@ -544,7 +564,7 @@ export async function getTwBrokerRankedWindowBundleOnDemand(input: {
     persistence: "NONE" as const,
     previous_day_substitution: false,
     origin_concurrency_limit: 3,
-    interpretation_boundary: "Each MoneyDJ interval is independently server-ranked. A branch absent from a window is UNKNOWN, not zero. Broker names are execution channels and must not be treated as investor identity.",
+    interpretation_boundary: "Each MoneyDJ interval is independently server-ranked for an exact TWSE trading-day range ending at requested_as_of. A branch absent from a window is UNKNOWN, not zero. Broker names are execution channels and must not be treated as investor identity.",
   };
 }
 
