@@ -1,0 +1,55 @@
+name: Diagnose MoneyDJ broker window semantics
+
+on:
+  push:
+    branches:
+      - diag/moneydj-broker-window-semantics-20260904
+    paths:
+      - .github/workflows/diag-moneydj-broker-window-semantics.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Inspect public MoneyDJ interval form
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import re, urllib.request, html as htmlmod
+          url='https://www.moneydj.com/Z/ZC/ZCO/ZCO.djhtm?a=2330&e='
+          req=urllib.request.Request(url, headers={'User-Agent':'Diamond-Broker-Ranked-ReadOnly/1.0','Accept':'text/html,*/*'})
+          with urllib.request.urlopen(req, timeout=25) as r:
+              raw=r.read(); ctype=r.headers.get('Content-Type','')
+          charset='big5' if 'big5' in ctype.lower() else 'utf-8'
+          text=raw.decode(charset,'replace')
+          print({'http_bytes':len(raw),'content_type':ctype,'charset':charset,'has_custom_window':'自設區間' in text,'has_updated':'最後更新日' in text})
+          m=re.search(r'最後更新日\s*[：:]?\s*((?:\d{4}[/-])?\d{1,2}[/-]\d{1,2})', re.sub(r'<[^>]+>',' ',text))
+          print({'source_date':m.group(1) if m else None})
+          forms=re.findall(r'<form\b[^>]*>[\s\S]*?</form>', text, re.I)
+          for i,f in enumerate(forms):
+              plain=re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',htmlmod.unescape(f)))
+              if '自設區間' not in plain and '券商分點' not in plain: continue
+              head=re.search(r'<form\b([^>]*)>',f,re.I)
+              attrs=head.group(1) if head else ''
+              print('FORM',i,attrs)
+              for tag in re.findall(r'<(?:input|select|option)\b[^>]*>', f, re.I):
+                  name=re.search(r'\bname\s*=\s*["\']?([^\s"\'>]+)',tag,re.I)
+                  value=re.search(r'\bvalue\s*=\s*["\']?([^\s"\'>]+)',tag,re.I)
+                  selected=bool(re.search(r'\bselected\b',tag,re.I))
+                  typ=re.search(r'<(input|select|option)\b',tag,re.I)
+                  print({'tag':typ.group(1).lower() if typ else '?','name':name.group(1) if name else None,'value':value.group(1) if value else None,'selected':selected,'raw':tag[:240]})
+              idx=text.find('自設區間')
+              if idx>=0:
+                  snippet=text[max(0,idx-3500):idx+5000]
+                  print('WINDOW_SNIPPET_START')
+                  print(re.sub(r'\s+',' ',snippet)[:8500])
+                  print('WINDOW_SNIPPET_END')
+          for pat in ['sy','sm','sd','ey','em','ed','start','end','date','From','To','B1','B2','D1','D2']:
+              hits=sorted(set(re.findall(r'(?i)(?:name|id)\s*=\s*["\']([^"\']*'+re.escape(pat)+r'[^"\']*)["\']',text)))
+              if hits: print('NAME_HINT',pat,hits[:30])
+          PY
