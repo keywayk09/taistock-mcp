@@ -359,7 +359,7 @@ export async function getTwBrokerRankedOnDemand(input: {
       ranked_output_totals: rankedOutputTotals,
       buys,
       sells,
-      interpretation_boundary: "Rows shown are MoneyDJ server-ranked public-page output. Missing branches/windows are UNKNOWN, never zero. Ranked-output totals cover displayed ranked rows only and are not a complete branch inventory.",
+      interpretation_boundary: "Rows shown are MoneyDJ server-ranked public-page output. Missing branches must NOT be interpreted as zero activity; missing branches/windows are UNKNOWN, never zero. Ranked-output totals cover displayed ranked rows only and are not a complete branch inventory.",
     };
   } catch (error) {
     return {
