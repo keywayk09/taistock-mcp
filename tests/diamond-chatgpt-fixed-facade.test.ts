@@ -87,7 +87,7 @@ assert.match(brokerDescription, /Ranked-only|RANKED_ONLY/i);
 assert.doesNotMatch(brokerDescription, /FinMind單日券商分點淨買賣/);
 for (const tool of ["get_institutional", "get_margin", "get_short_pressure"]) {
   const description = String(capturedToolConfigs.get(tool)?.description ?? "");
-  assert.match(description, /exact-date on-demand/i, `${tool} must advertise the current exact-date read plane`);
+  assert.match(description, /exact-date(?: on-demand| fast path)/i, `${tool} must advertise the current exact-date read plane`);
 }
 
 assert.ok(tryCompat, "compatibility tools/call interceptor must be exported");
