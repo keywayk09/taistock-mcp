@@ -19,6 +19,7 @@ A Family/Custom GPT query for recent 2330 broker branches reported that formal c
 7. Existing regressions later failed on stale implementation details such as Family MCP version `v3.5.0`; these are migrated only where they encode the retired Published-only current architecture. Formal Published replay/history tests remain unchanged.
 8. `family-eleven-point.ts` still emitted user-visible point-8 and final-answer policies saying Published generation was the current formal chip layer. This could reintroduce the stale answer even after provider wiring was fixed. The 11-point contract was migrated to current official on-demand evidence while keeping Published as history/replay context.
 9. The active `docs/FAMILY-UNIFIED-EVIDENCE-V4.md` specification also retained Published-only semantics. It was migrated so code, OpenAPI, instructions, tests and the active evidence specification share one identity contract.
+10. `family-cloudflare-startup-graph.test.ts` still asserted `formal_market_chip: "PUBLISHED_GENERATION_ONLY"`. The runtime had already moved to the new current/history identity, so full `test:research` correctly failed. Only that stale source-identity assertion was migrated; the original lazy-loading, Cloudflare 10021, read-only, OHLC and no-Service-Binding startup guards remain unchanged.
 
 ## New evidence contract
 
@@ -68,6 +69,8 @@ A true customer-account maintenance ratio is not reconstructed from public marke
 ## Test/CI protections
 
 `shared-chip-read-plane-family-contract.test.ts` is part of `test:family-selection` and therefore `test:research`. It requires Family MCP, legacy Action and Family Smart REST current-chip routes to use the shared on-demand facade; rejects direct Published-gateway imports in those current-facing paths; rejects `PUBLISHED_GENERATION_ONLY` and equivalent Published-only current-decision wording across MCP, REST, OpenAPI, analysis, planner, research policy, shared-read plane and 11-point output; preserves public ingress and read-only boundaries; checks compact chip transport, MoneyDJ ranked-only/no-FinMind-token semantics and non-directional warrant semantics.
+
+`family-cloudflare-startup-graph.test.ts` continues to protect the lazy startup graph, Cloudflare 10021 isolation, Family read-only boundaries, canonical OHLC identity and no cross-account Service Binding. Its market-chip identity assertion now matches `OFFICIAL_EXACT_DATE_ON_DEMAND_CURRENT+PUBLISHED_HISTORY_CONTEXT` instead of the retired Published-only current model.
 
 Existing Family isolation/OAuth/public-ingress tests remain in force. Formal Published replay tests remain deterministic and are not repurposed for live reads.
 
