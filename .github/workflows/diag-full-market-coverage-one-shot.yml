@@ -1,0 +1,96 @@
+name: Diagnostic Full Market Coverage One Shot
+
+on:
+  push:
+    branches:
+      - diag/full-market-coverage-20260904
+    paths:
+      - .github/workflows/diag-full-market-coverage-one-shot.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe Production full-market coverage
+        shell: bash
+        run: |
+          set -u
+          mkdir -p probe-output
+          endpoint='https://taistock-mcp.keywayk09.workers.dev/health/full-market'
+
+          for attempt in 1 2 3; do
+            out="probe-output/full-market-${attempt}.json"
+            meta="probe-output/full-market-${attempt}.meta.txt"
+            start_epoch="$(date +%s)"
+
+            set +e
+            http_code="$(curl --silent --show-error --max-time 70 \
+              --output "$out" \
+              --write-out '%{http_code}' \
+              "$endpoint")"
+            curl_exit=$?
+            set -e
+
+            elapsed="$(( $(date +%s) - start_epoch ))"
+            {
+              echo "attempt=${attempt}"
+              echo "curl_exit=${curl_exit}"
+              echo "http_code=${http_code:-NONE}"
+              echo "elapsed_seconds=${elapsed}"
+            } | tee "$meta"
+
+            ATTEMPT="$attempt" CURL_EXIT="$curl_exit" HTTP_CODE="${http_code:-}" ELAPSED="$elapsed" OUT="$out" python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          attempt=os.environ['ATTEMPT']
+          path=Path(os.environ['OUT'])
+          print(f'PROBE_ATTEMPT={attempt}')
+          print(f'CURL_EXIT={os.environ["CURL_EXIT"]}')
+          print(f'HTTP_CODE={os.environ["HTTP_CODE"] or "NONE"}')
+          print(f'ELAPSED_SECONDS={os.environ["ELAPSED"]}')
+          if not path.exists():
+              print('BODY_MISSING=true')
+              raise SystemExit(0)
+          text=path.read_text(errors='replace')
+          try:
+              body=json.loads(text)
+          except Exception as exc:
+              print(f'JSON_INVALID={exc}')
+              print('RAW_BODY_BEGIN')
+              print(text[:4000])
+              print('RAW_BODY_END')
+              raise SystemExit(0)
+
+          listed=body.get('listed') or {}
+          otc=body.get('otc') or {}
+          print(f'STATUS={body.get("status")}')
+          print(f'USABLE={body.get("usable")}')
+          print(f'RETRIEVED_AT={body.get("retrieved_at")}')
+          print(f'LISTED_PROVIDER={listed.get("provider")}')
+          print(f'LISTED_ROWS={listed.get("rows")}')
+          print('LISTED_ERRORS='+json.dumps(listed.get('errors') or [], ensure_ascii=False))
+          print(f'OTC_PROVIDER={otc.get("provider")}')
+          print(f'OTC_ROWS={otc.get("rows")}')
+          print('OTC_ERRORS='+json.dumps(otc.get('errors') or [], ensure_ascii=False))
+          print('OPTIONAL_METADATA_ERRORS='+json.dumps(body.get('optional_metadata_errors') or [], ensure_ascii=False))
+          print('FULL_BODY='+json.dumps(body, ensure_ascii=False, separators=(',',':')))
+          PY
+
+            if [ "$attempt" -lt 3 ]; then
+              # Production keeps a successful full-market result in-memory for 15s.
+              # Wait beyond that TTL so each observation can trigger a fresh source fan-out.
+              sleep 20
+            fi
+          done
+
+      - name: Upload probe evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-market-coverage-probe-${{ github.run_id }}
+          path: probe-output/
+          retention-days: 7
