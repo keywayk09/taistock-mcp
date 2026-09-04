@@ -4,6 +4,7 @@ import { registerDailyReportFormatTool } from "./daily-report-format";
 import { tryHandleDiamondFixedFacadeCompatCall } from "./diamond-fixed-facade-compat";
 import { registerFirstPartyIntelligenceSourceResource } from "./first-party-intelligence-sources";
 import { registerToolThroughJin10Facade } from "./jin10-facade-middleware.ts";
+import { LEGACY_OWNER_CHIP_OVERRIDE_TOOL_NAMES, registerLegacyOwnerChipTools } from "./legacy-owner-chip-tools";
 import { registerResearchTools } from "./research-tools";
 import { registerAdvancedTools } from "./register";
 import { registerSharedCryptoMarketTools } from "./shared-crypto-market-tools";
@@ -20,6 +21,7 @@ const FROZEN_STABLE_MARKET_TOOL_NAMES = new Set([
   "get_macro_risk_dashboard",
   "get_data_health",
   "screen_family_swing_candidates",
+  ...LEGACY_OWNER_CHIP_OVERRIDE_TOOL_NAMES,
 ]);
 
 export type McpContentHandler = {
@@ -39,10 +41,11 @@ export class MyMCP extends BaseMCP {
 
   async init() {
     // Legacy generations still contain implementations that depend on provider
-    // routes already proven unreliable from Cloudflare egress, or old price
-    // identities that are no longer canonical. Suppress only the frozen names
-    // during legacy registration, then register their stable versions exactly once
-    // below. Every unrelated Diamond tool remains unchanged.
+    // routes already proven unreliable from Cloudflare egress, old price
+    // identities that are no longer canonical, or pre-migration chip providers.
+    // Suppress only the frozen names during legacy registration, then register
+    // their stable versions exactly once below. Every unrelated Diamond tool
+    // remains unchanged.
     //
     // Jin10 follows the opposite rule: it is not surfaced as additional MCP
     // actions. Selected existing facade handlers are wrapped during registration
@@ -70,6 +73,7 @@ export class MyMCP extends BaseMCP {
     }
 
     registerStableMarketTools(this.server, this.env);
+    registerLegacyOwnerChipTools(this.server, this.env);
     registerStableSwingScreenTool(this.server, this.env);
     registerSharedStockMarketContextTools(this.server, this.env);
     registerSharedCryptoMarketTools(this.server, this.env);
