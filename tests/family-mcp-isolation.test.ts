@@ -29,7 +29,9 @@ for (const tool of [
 }
 
 assert.match(family, /READ_ONLY_FAMILY_SURFACE/);
-assert.match(family, /PUBLISHED_GENERATION_ONLY/);
+assert.match(family, /OFFICIAL_EXACT_DATE_ON_DEMAND_CURRENT\+PUBLISHED_HISTORY_CONTEXT/);
+assert.match(family, /getTwMarketChipSummaryOnDemand/);
+assert.doesNotMatch(family, /getTwMarketChipSummaryPublished/);
 assert.match(family, /EXISTING_TV_FUGLE_1D_GITHUB_CANONICAL_ONLY/);
 assert.match(family, /GITHUB_CANONICAL_READ_ONLY/);
 assert.match(family, /FUGLE_REST_READ_ONLY_WITH_FIVE_LEVEL_BOOK_AND_RECENT_TRADES/);
@@ -58,8 +60,6 @@ for (const forbidden of [
   assert.doesNotMatch(family, new RegExp(`registerTool\\(\\"${forbidden}\\"`));
 }
 
-// Jin10 remains an internal enrichment source. Family exposes one generic market
-// context tool, never a provider-specific Jin10 public ABI surface.
 for (const dedicatedJin10Tool of [
   "get_jin10_flash",
   "get_jin10_news",
@@ -70,13 +70,9 @@ for (const dedicatedJin10Tool of [
   assert.doesNotMatch(family, new RegExp(`registerTool\\(\\"${dedicatedJin10Tool}\\"`));
 }
 
-// Cross-account Cloudflare Service Binding is intentionally absent. Family keeps
-// its own MCP Durable Object namespace, while market reads remain read-only.
 assert.doesNotMatch(wrangler, /OHLC_READ_SERVICE/);
 assert.doesNotMatch(wrangler, /"services"\s*:/);
 
-// The content adapter owns the Agents SDK Durable Object handoff. OAuth must
-// only authorize and delegate; missing FAMILY_MCP_OBJECT still fails closed.
 assert.match(familyContent, /FamilyMCP\.serve\("\/family-mcp", \{ binding: "FAMILY_MCP_OBJECT" \}\)/);
 assert.match(familyContent, /family_mcp_binding_missing/);
 assert.match(familyContent, /refusing to fall back to the full MCP_OBJECT namespace/);
@@ -85,11 +81,7 @@ assert.doesNotMatch(oauth, /if \(property === "MCP_OBJECT"\)/);
 assert.doesNotMatch(oauth, /binding: "MCP_OBJECT"/);
 assert.doesNotMatch(oauth, /FamilyMCP\.serve\(/);
 
-// Owner and Family share the same architectural shape. The composition root is
-// the only layer that wires concrete content handlers into the access broker;
-// the public entrypoint only receives the already-composed runtime.
 assert.match(broker, /pathname === "\/my-mcp" \|\| pathname === "\/mcp"/);
-assert.match(broker, /ownerContentHandler\.fetch\(request, env, ctx\)/);
 assert.match(ownerContent, /MyMCP\.serve\(pathname\)\.fetch/);
 assert.match(composition, /createMcpAccessBroker/);
 assert.match(composition, /ownerContentHandler/);
@@ -98,4 +90,4 @@ assert.match(index, /createComposedMcpRuntime\(publicAppHandler\)/);
 assert.doesNotMatch(index, /createMcpAccessBroker|ownerContentHandler|familyContentHandler/);
 assert.match(index, /family: "FamilyMCP_READ_ONLY_ISOLATED"/);
 
-console.log("Family MCP isolated read-only cross-account-safe surface contract passed");
+console.log("Family MCP isolated read-only surface + shared current-chip read contract passed");

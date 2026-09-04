@@ -7,7 +7,7 @@ import { familyOpenApiV2 } from "./family-openapi-v2";
 import { familyResearchDirective } from "./family-research-policy";
 import { familySharedReadManifest } from "./family-shared-read-plane";
 import { runFamilySwingScreenV2 } from "./family-stock-selection-v2";
-import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
+import { getTwMarketChipSummaryOnDemand } from "./tw-market-chip-on-demand-facade";
 
 type RuntimeFamilyEnv = Env & { MOM_GPT_API_KEY?: string };
 
@@ -114,7 +114,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
     return json({
       ok: true,
       service: "Taiwan Stock AI Family Read-Only API",
-      version: "family-rest/v3.1.1",
+      version: "family-rest/v3.2.0",
       intelligence_model: "SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS",
       capabilities: {
         natural_language_query: "ADAPTIVE_INTENT_PLANNER",
@@ -124,7 +124,8 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
         realtime: "FUGLE_PRIMARY_DIRECT_ACTION_AND_ANALYSIS",
         market_event_context: "TXF_GLOBAL_FUTURES_JIN10_READ_ONLY",
         web_research: "OPEN_WORLD_AUTONOMOUS_NOT_FIXED_SITES_OR_KEYWORDS",
-        formal_chip: "PUBLISHED_GENERATION_DIRECT_ACTION_AND_ANALYSIS",
+        formal_chip: "OFFICIAL_EXACT_DATE_ON_DEMAND_CURRENT+PUBLISHED_HISTORY_CONTEXT",
+        broker_branch: "MONEYDJ_RANKED_ONLY_FAIL_SOFT_NO_FINMIND_TOKEN",
         formal_ohlc: "OHLC_MCP_ONLY",
         owner_market_research_reads: "SHARED_BY_DEFAULT_WHEN_AVAILABLE",
         action_surface_parity: "FAMILY_MCP_CORE_READ_TOOLS_EXPOSED",
@@ -178,7 +179,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
       const financingRatio = Number.isFinite(rawFinancingRatio)
         ? Math.max(0.1, Math.min(0.9, rawFinancingRatio))
         : 0.6;
-      return json(await getTwMarketChipSummaryPublished(env, {
+      return json(await getTwMarketChipSummaryOnDemand(env, {
         symbol,
         as_of: validDate(body.as_of),
         calendar_days: calendarDays,
@@ -220,7 +221,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
         return compactJson({
           ok: true,
           service: "Taiwan Stock AI Family Read-Only API",
-          version: "family-rest/v3.1.1",
+          version: "family-rest/v3.2.0",
           route: "adaptive_market_context",
           query,
           as_of_date: resolvedAsOf,
@@ -232,7 +233,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
           open_world_research: familyResearchDirective([]),
           response_instructions: [
             "先用engine_result中的TXF、Global Futures與Jin10事件建立時間線，再回答市場為什麼漲跌。",
-            "Jin10快訊/財經日曆屬事件研究context；不得冒充正式OHLC、Published籌碼或官方公司公告。",
+            "Jin10快訊/財經日曆屬事件研究context；不得冒充正式OHLC、當期官方籌碼或官方公司公告。",
             "TXF/Global Futures不可用時必須明示UNAVAILABLE，不得假裝已抓到；Web可補充與交叉驗證。",
             "若事件時間與價格轉折不能對上，必須標示推論不成立或證據不足。",
             "Family永遠唯讀；不得修改GitHub、策略、Production、OHLC canonical或Diamond Judgment。",
@@ -253,7 +254,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
       return json({
         ok: true,
         service: "Taiwan Stock AI Family Read-Only API",
-        version: "family-rest/v3.1.1",
+        version: "family-rest/v3.2.0",
         route: "adaptive_open_research",
         query,
         resolved_symbols: [],
@@ -265,7 +266,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
           "先依使用者真正問題回答，不要求使用者改成固定指令。",
           "可自由使用 Open Web 與 Family 已共享的市場研究讀取能力追查新線索。",
           "若之後辨識到股票代號、公司、產業、客戶、供應商或事件，可自主深化研究。",
-          "正式 OHLC 與 Published 籌碼身份不可被 Web/Fugle/FinMind 取代。",
+          "正式OHLC、TWSE/TPEx exact-date當期籌碼與Published歷史的資料身份不可被Web/Fugle/FinMind取代或混用。",
           "Family 永遠唯讀；不得修改 GitHub、策略、Production、OHLC canonical 或 Diamond Judgment。",
         ],
       }, 200, cors());

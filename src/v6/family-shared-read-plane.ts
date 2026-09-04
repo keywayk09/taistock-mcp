@@ -1,4 +1,4 @@
-export const FAMILY_SHARED_READ_PLANE_VERSION = "family-shared-read-plane/v1.4.1";
+export const FAMILY_SHARED_READ_PLANE_VERSION = "family-shared-read-plane/v1.5.0";
 
 export type FamilySharedReadCapability = {
   id: string;
@@ -30,13 +30,27 @@ export const FAMILY_SHARED_READ_CAPABILITIES = [
     notes: "Family直接唯讀tv-papertrader既有OHLC canonical CSV並綁定GitHub path/SHA；不得把Fugle即時、FinMind或Web價格冒充正式OHLC。",
   },
   {
-    id: "published_chip",
-    label: "正式籌碼",
-    sources: ["PUBLISHED_GENERATION"],
-    identity: "FORMAL_PUBLISHED_CHIP",
+    id: "current_chip",
+    label: "當期正式籌碼與分點研究",
+    sources: [
+      "OFFICIAL_EXACT_DATE_ON_DEMAND",
+      "TWSE_TPEX_OFFICIAL_CHIP",
+      "MONEYDJ_BROKER_RANKED_PUBLIC_SECONDARY",
+      "TWSE_TPEX_WARRANT_ACTIVITY_NON_DIRECTIONAL",
+    ],
+    identity: "CURRENT_OFFICIAL_CHIP_PLUS_GOVERNED_SECONDARY",
     access: "READ_ONLY",
     family_share: "SHARED_BY_DEFAULT",
-    notes: "三大法人、融資融券、借券等正式籌碼只認 Published generation。",
+    notes: "法人、融資融券、借券與借券賣出以TWSE/TPEx exact-date on-demand為當期正式證據；MoneyDJ分點僅RANKED_ONLY輔助，缺席不代表零交易；權證成交只代表活動度、不代表買超。",
+  },
+  {
+    id: "published_chip",
+    label: "歷史籌碼 Published archive",
+    sources: ["PUBLISHED_GENERATION"],
+    identity: "FORMAL_PUBLISHED_CHIP_HISTORY",
+    access: "READ_ONLY",
+    family_share: "SHARED_BY_DEFAULT",
+    notes: "既有Published generation保留做不可變歷史/replay context；不再作當期Family/Owner唯一資料來源。",
   },
   {
     id: "fundamentals",
@@ -54,7 +68,7 @@ export const FAMILY_SHARED_READ_CAPABILITIES = [
     identity: "READ_ONLY_EVENT_RESEARCH_CONTEXT",
     access: "READ_ONLY",
     family_share: "SHARED_WHEN_AVAILABLE",
-    notes: "透過taistock-mcp內部Jin10 MCP provider唯讀取得快訊/新聞；不持久化、不提供獨立Family tool，且不得升格為正式OHLC、Published籌碼或公司官方重大訊息。",
+    notes: "透過taistock-mcp內部Jin10 MCP provider唯讀取得快訊/新聞；不持久化、不提供獨立Family tool，且不得升格為正式OHLC、當期官方籌碼或公司官方重大訊息。",
   },
   {
     id: "industry_supply_chain",
@@ -140,16 +154,19 @@ export function familySharedReadManifest() {
       cloudflare_service_binding: false,
       stock_realtime: "FUGLE_REST_QUOTE_TRADES",
       stock_formal_ohlc: "TV_PAPERTRADER_GITHUB_CANONICAL_READ_ONLY",
+      current_chip: "OFFICIAL_EXACT_DATE_ON_DEMAND_READ_ONLY",
+      broker_branch: "MONEYDJ_RANKED_ONLY_FAIL_SOFT_NO_PERSISTENCE",
       event_research: "JIN10_MCP_EVENTS_READ_ONLY",
-      capabilities: ["CANONICAL_OHLC_READ", "STOCK_REALTIME_READ", "STOCK_FIVE_LEVEL_BOOK", "STOCK_RECENT_TRADES", "STOCK_SHORT_WINDOW_ORDER_FLOW", "JIN10_EVENT_READ"],
+      capabilities: ["CANONICAL_OHLC_READ", "CURRENT_CHIP_READ", "BROKER_RANKED_READ", "STOCK_REALTIME_READ", "STOCK_FIVE_LEVEL_BOOK", "STOCK_RECENT_TRADES", "STOCK_SHORT_WINDOW_ORDER_FLOW", "JIN10_EVENT_READ"],
       stock_live_persistence: "NONE",
+      current_chip_persistence: "NONE",
       event_research_persistence: "NONE",
       public_bypass_route: false,
       mutation_methods: false,
     },
     evidence_hierarchy: {
-      FORMAL_TRUTH: ["OHLC_MCP_GITHUB_CANONICAL_READ", "PUBLISHED_GENERATION"],
-      GOVERNED_CONTEXT: ["STRUCTURED_FUNDAMENTALS", "HOLDER_STRUCTURE", "TXF_CONTEXT", "GLOBAL_MARKET_CONTEXT", "GLOBAL_FUTURES_CONTEXT", "JIN10_MCP_EVENTS_READ_ONLY"],
+      FORMAL_TRUTH: ["OHLC_MCP_GITHUB_CANONICAL_READ", "OFFICIAL_EXACT_DATE_ON_DEMAND", "PUBLISHED_GENERATION_HISTORY"],
+      GOVERNED_CONTEXT: ["MONEYDJ_BROKER_RANKED_PUBLIC_SECONDARY", "WARRANT_ACTIVITY_NON_DIRECTIONAL", "STRUCTURED_FUNDAMENTALS", "HOLDER_STRUCTURE", "TXF_CONTEXT", "GLOBAL_MARKET_CONTEXT", "GLOBAL_FUTURES_CONTEXT", "JIN10_MCP_EVENTS_READ_ONLY"],
       DISPLAY_FALLBACK: ["FUGLE_REST_QUOTE_TRADES", "FINMIND_PRICE_FALLBACK"],
       WEB_EVIDENCE: ["OPEN_WORLD_WEB_WITH_SOURCE_AND_TIME"],
     },
@@ -163,9 +180,12 @@ export function familySharedReadManifest() {
     hard_deny: FAMILY_HARD_DENY_CAPABILITIES,
     evidence_rules: [
       "能力共享不代表資料身份可互換：正式OHLC只認既有tv-fugle-1d canonical的GitHub唯讀資料。",
+      "當期法人、融資融券、借券與借券賣出優先使用TWSE/TPEx exact-date on-demand；當日未公布就PENDING，不得拿前一日冒充。",
+      "MoneyDJ分點只屬PUBLIC_SECONDARY/RANKED_ONLY；未出現在榜上不代表零交易，且不依賴FinMind token。",
+      "權證公開成交資料只代表成交活動度；不得由成交量推論買方aggressor、買超或dealer hedge方向。",
+      "既有Published generation保留不可變歷史/replay context，不再覆蓋當期official on-demand證據。",
       "Fugle REST成交、五檔、逐筆與短窗主動買賣只屬即時context，不持久化、不得升級成正式OHLC。",
-      "Jin10 MCP快訊/新聞只屬事件研究context，不持久化、不得升級成正式OHLC、Published籌碼或公司官方重大訊息。",
-      "正式籌碼仍只認 Published generation。",
+      "Jin10 MCP快訊/新聞只屬事件研究context，不持久化、不得升級成正式OHLC、當期官方籌碼或公司官方重大訊息。",
       "TXF/Global Futures不可用時必須fail-closed，不得用股票資料或Web價格補成正式context。",
       "GOVERNED_CONTEXT、DISPLAY_FALLBACK、WEB_EVIDENCE 不能自行升級成 FORMAL_TRUTH。",
       "Web/研究資料可補充與解釋，但不能覆寫 canonical/official 事實。",

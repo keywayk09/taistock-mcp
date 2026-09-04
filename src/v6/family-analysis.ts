@@ -97,7 +97,8 @@ function openWorldElevenPoint(raw: any, symbol: string) {
     final_answer_policy: [
       ...(Array.isArray(raw?.final_answer_policy) ? raw.final_answer_policy : []),
       "Web研究採open-world：可依新發現自主擴展搜尋，不限seed queries、網站、語言或預先定義主題。",
-      "即時異動可用Fugle與Web事件共同解釋；正式OHLC與Published籌碼的資料身份不可被取代。",
+      "即時異動可用Fugle與Web事件共同解釋；正式OHLC、當期TWSE/TPEx exact-date籌碼與Published歷史的資料身份必須分開。",
+      "MoneyDJ分點只屬RANKED_ONLY輔助；未出現在排名不得解讀為零交易。",
       "11點是完整個股研究的完整性契約，不是所有問題都必須逐點輸出；簡單問題應先直接回答真正問題。",
     ],
   };
@@ -188,10 +189,12 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       },
       interpretation_guardrails: [
         "好公司不等於現在就是好買點；基本面與技術位置分開判斷。",
-        "正式籌碼只採 Published generation；缺資料不可自行補值。",
+        "當期籌碼優先採TWSE/TPEx exact-date on-demand；Published generation只作歷史背景；MoneyDJ分點為RANKED_ONLY，缺席不代表零交易。",
+        "FinMind可作財報/持股/研究fallback，但不是分點來源，也不得冒充當期官方籌碼。",
         "正式 OHLC/K線只讀 tv-fugle-1d 已寫入 tv-papertrader 的既有 GitHub canonical；Family 只有讀取權限，不得寫入。",
         "股票盤中成交、五檔、逐筆與短窗主動買賣只作 ephemeral read-only context；不得寫入 canonical，也不得把即時快照冒充正式 OHLC。",
-        "Jin10 快訊/新聞只作 read-only 事件研究 context；不得冒充正式 OHLC、Published 籌碼或公司官方重大訊息。",
+        "Jin10 快訊/新聞只作 read-only 事件研究 context；不得冒充正式 OHLC、當期官方籌碼或公司官方重大訊息。",
+        "權證公開成交量/成交額只代表活動度，不得推論aggressor買方、買超或dealer hedge方向。",
         "TXF 與 Global Futures context 若跨帳號讀取不可用就保持 UNAVAILABLE；不得自行補值。",
         "Fugle/FinMind價格可作即時與研究輔助，但不得冒充正式技術價位。",
         "Web 是開放研究層，可自主延伸任何有價值的新線索，不限固定網站或關鍵字。",
@@ -201,8 +204,6 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       ],
     };
 
-    // Shared read-only evidence is inserted into both planes so older display
-    // fallback fields cannot shadow newer canonical/realtime results.
     const analysisWithSharedReads = {
       ...analysis,
       canonical_ohlc: canonicalOhlc,
@@ -255,9 +256,12 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
         jin10_context: jin10Context.ok === true,
         technical_research_fallback: evidenceBundle.evidence.technical_research_fallback.status === "READY",
         formal_ohlc: evidenceBundle.evidence.canonical_ohlc.formal_research_eligible,
+        current_chip: evidenceBundle.evidence.current_chip.formal_research_eligible,
+        broker_branch: ["READY", "DEGRADED"].includes(evidenceBundle.evidence.broker_branch.status),
+        warrant_activity: ["READY", "DEGRADED"].includes(evidenceBundle.evidence.warrant_activity.status),
+        published_chip_history: evidenceBundle.evidence.published_chip.formal_research_eligible,
         txf_context: ["READY", "DEGRADED"].includes(evidenceBundle.evidence.txf_context.status),
         global_futures_context: ["READY", "DEGRADED"].includes(evidenceBundle.evidence.global_futures_context.status),
-        published_chip: evidenceBundle.evidence.published_chip.formal_research_eligible,
         monthly_revenue: monthlyRevenue.status === "READY",
         accounting: accounting.status === "READY",
         official_valuation: valuation.status === "READY",
@@ -276,6 +280,13 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
           persistence: "NONE",
           partial_errors: jin10Context.partial_errors,
         },
+        chip_read_plane: {
+          current_chip: evidenceBundle.evidence.current_chip.status,
+          broker_branch: evidenceBundle.evidence.broker_branch.status,
+          warrant_activity: evidenceBundle.evidence.warrant_activity.status,
+          published_history: evidenceBundle.evidence.published_chip.status,
+          family_write_allowed: false,
+        },
         ohlc_read_bridge: {
           formal_ohlc: canonicalOhlc.status,
           stock_live_context: stockLiveContext.status,
@@ -289,7 +300,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
 
   return {
     ...base,
-    version: "family-smart-analysis/v4.2.1",
+    version: "family-smart-analysis/v4.3.0",
     route: symbols.length > 1 ? "adaptive_stock_compare" : adaptivePlan.intent === "FULL_STOCK_ANALYSIS" ? "adaptive_full_stock_analysis" : "adaptive_stock_question",
     question: userQuestion || null,
     adaptive_plan: adaptivePlan,
@@ -302,6 +313,10 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       owner_private_context_shared_by_default: false,
       ohlc_read_transport: "GITHUB_CANONICAL_READ_ONLY",
       ohlc_read_source: "TV_PAPERTRADER_DATA_OHLC_CANONICAL",
+      current_chip_read_transport: "TWSE_TPEX_OFFICIAL_EXACT_DATE_ON_DEMAND",
+      broker_branch_read_transport: "MONEYDJ_RANKED_ONLY_FAIL_SOFT_NO_FINMIND_TOKEN",
+      current_chip_persistence: "NONE",
+      published_chip_role: "IMMUTABLE_HISTORY_CONTEXT_ONLY",
       stock_live_read_transport: "FUGLE_REST_QUOTE_TRADES_READ_ONLY",
       stock_live_persistence: "NONE",
       jin10_events_read: "JIN10_MCP_READ_ONLY_FAIL_SOFT",
@@ -312,7 +327,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       strategy_changes: false,
       evidence_contract: "family-evidence/v1",
       evidence_identity: "EVIDENCE_CLASS_CANNOT_BE_SELF_PROMOTED",
-      formal_chip: "PUBLISHED_GENERATION_ONLY",
+      formal_chip: "OFFICIAL_EXACT_DATE_ON_DEMAND_CURRENT+PUBLISHED_HISTORY_CONTEXT",
       formal_ohlc: "EXISTING_GITHUB_CANONICAL_ONLY",
       txf_and_global_futures: "FAIL_CLOSED_WHEN_CROSS_ACCOUNT_READ_UNAVAILABLE",
       realtime_display: "FUGLE_REST_QUOTE_TRADES_FIVE_LEVEL_AND_RECENT_TAPE",
@@ -324,6 +339,7 @@ export async function runSmartFamilyAnalysis(env: Env, input: SmartFamilyInput) 
       compare: "COMPARE_USING_THE_SAME_1_TO_11_EVIDENCE_MODEL_WITHOUT_FORCING_11_VISIBLE_SECTIONS",
       missing_data: "EXPLICIT_NULL_OR_UNKNOWN_NEVER_GUESS",
       evidence: "FORMAL_TRUTH_GOVERNED_CONTEXT_DISPLAY_FALLBACK_WEB_EVIDENCE_MUST_REMAIN_DISTINCT",
+      current_chip: "OFFICIAL_EXACT_DATE_ON_DEMAND_PRIMARY; BROKER_RANKED_GOVERNED; PUBLISHED_HISTORY_ONLY",
       web: "OPEN_WORLD_AUTONOMOUS_RESEARCH_NOT_FIXED_KEYWORDS_OR_SITES",
       realtime: "FUGLE_REST_TRADES_FIVE_LEVEL_BOOK_AND_SHORT_WINDOW_ORDER_FLOW_ALLOWED_BUT_NOT_FORMAL_OHLC",
       events: "JIN10_MCP_EVENTS_ARE_READ_ONLY_RESEARCH_CONTEXT_NOT_FORMAL_TRUTH",

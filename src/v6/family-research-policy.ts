@@ -1,6 +1,6 @@
 import { familySharedReadManifest } from "./family-shared-read-plane.ts";
 
-export const FAMILY_RESEARCH_POLICY_VERSION = "family-research-policy/v2.0.0";
+export const FAMILY_RESEARCH_POLICY_VERSION = "family-research-policy/v2.1.0";
 
 export const FAMILY_RESEARCH_POLICY = {
   mode: "OPEN_WORLD_AUTONOMOUS_RESEARCH",
@@ -21,10 +21,12 @@ export const FAMILY_RESEARCH_POLICY = {
     intraday_primary: ["FUGLE_QUOTE", "FUGLE_MARKET_SNAPSHOT"],
     market_official_context: ["TWSE", "TPEX"],
     formal_structure: "OHLC_MCP_ONLY",
-    formal_chip: "PUBLISHED_GENERATION_ONLY",
+    formal_chip: "OFFICIAL_EXACT_DATE_ON_DEMAND_CURRENT+PUBLISHED_HISTORY_CONTEXT",
+    broker_branch: "MONEYDJ_RANKED_ONLY_FAIL_SOFT",
+    warrant_activity: "OFFICIAL_NON_DIRECTIONAL_ACTIVITY_ONLY",
     financials: ["FINMIND_STRUCTURED_READ_ONLY", "TWSE_TPEX_OFFICIAL_VALUATION"],
     web_context: "OPEN_WORLD",
-    rule: "盤中價格/成交狀態可用 Fugle 等即時來源；正式型態與技術價位仍由 OHLC MCP；正式籌碼仍由 Published generation。Web 可解釋盤中異動與事件，但不能覆寫正式數字。",
+    rule: "盤中價格/成交狀態可用 Fugle 等即時來源；正式型態與技術價位仍由 OHLC MCP；當期法人/融資融券/借券優先TWSE/TPEx exact-date on-demand，Published只作歷史背景。MoneyDJ分點與權證活動不可升級成官方方向性真相。",
   },
   evidence_authority: [
     "CANONICAL_OR_OFFICIAL_MARKET_DATA",
@@ -44,8 +46,8 @@ export const FAMILY_RESEARCH_POLICY = {
     enabled: true,
     fixed_workflow: false,
     model_may_choose_sources_and_order: true,
-    quick_pass: ["realtime", "revenue_financials", "published_chip", "major_current_events"],
-    deep_pass_when_needed: ["customers", "supply_chain", "capacity", "competitors", "industry_cycle", "valuation", "catalysts", "risks", "foreign_sources"],
+    quick_pass: ["realtime", "revenue_financials", "current_chip", "published_chip_history", "major_current_events"],
+    deep_pass_when_needed: ["broker_branch", "warrant_activity", "customers", "supply_chain", "capacity", "competitors", "industry_cycle", "valuation", "catalysts", "risks", "foreign_sources"],
     rule: "簡單問題先回答真正問題，不強迫輸出固定模板；完整個股研究再用11點作最終完整性契約。若資料矛盾、重大催化劑或新線索可能改變結論，模型自行深化，不要求使用者逐項下指令。",
   },
   discovery_vs_ranking: {
@@ -65,7 +67,10 @@ export const FAMILY_RESEARCH_POLICY = {
   },
   hard_boundaries: [
     "Web 不得冒充正式 OHLC/K線、支撐壓力或停損來源。",
-    "Web 不得冒充 Published generation 的法人/融資融券/借券正式籌碼數字。",
+    "Web/FinMind 不得冒充TWSE/TPEx exact-date當期官方法人/融資融券/借券數字。",
+    "Published generation是歷史/replay context，不得在當期官方資料已可得時覆蓋它。",
+    "MoneyDJ分點只屬RANKED_ONLY；未出現在排名中不得解讀為零交易，且分點不依賴FinMind token。",
+    "權證turnover不得直接解讀為買超/賣超或dealer hedge方向。",
     "財報/估值數字衝突時優先官方或結構化來源並標示差異。",
     "未知就是 UNKNOWN/null；不為了湊完整答案而創造數字。",
     "Owner 私人 Gmail、Calendar、Contacts、Secrets 與未明確共享的私人檔案不自動進入 Family shared plane。",
@@ -78,6 +83,6 @@ export function familyResearchDirective(symbols: string[]) {
     ...FAMILY_RESEARCH_POLICY,
     subjects: symbols,
     shared_read_plane: familySharedReadManifest(),
-    instruction: "把 canonical/official/structured 資料當可信錨點，同時自由使用 Web 與 Owner 已共享的市場研究讀取能力。不要停在預設搜尋字串；每當發現新的公司、客戶、供應鏈節點、政策、產品或風險，應判斷是否值得繼續追查。回答方式依使用者意圖調整，不因為存在11點框架就機械式逐點輸出。",
+    instruction: "把 canonical/official exact-date 資料當可信錨點，同時自由使用 Web 與 Owner 已共享的市場研究讀取能力。當期籌碼與Published歷史身份分開；MoneyDJ分點與權證活動維持Governed Context。不要停在預設搜尋字串；每當發現新的公司、客戶、供應鏈節點、政策、產品或風險，應判斷是否值得繼續追查。回答方式依使用者意圖調整，不因為存在11點框架就機械式逐點輸出。",
   };
 }

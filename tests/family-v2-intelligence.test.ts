@@ -37,7 +37,9 @@ assert.equal(research.web_research.fixed_keyword_limit, false);
 assert.equal(research.web_research.autonomous_query_expansion, true);
 assert.equal(research.realtime_fusion.intraday_primary.includes("FUGLE_QUOTE"), true);
 assert.equal(research.realtime_fusion.formal_structure, "OHLC_MCP_ONLY");
-assert.equal(research.realtime_fusion.formal_chip, "PUBLISHED_GENERATION_ONLY");
+assert.equal(research.realtime_fusion.formal_chip, "OFFICIAL_EXACT_DATE_ON_DEMAND_CURRENT+PUBLISHED_HISTORY_CONTEXT");
+assert.equal(research.realtime_fusion.broker_branch, "MONEYDJ_RANKED_ONLY_FAIL_SOFT");
+assert.equal(research.realtime_fusion.warrant_activity, "OFFICIAL_NON_DIRECTIONAL_ACTIVITY_ONLY");
 assert.equal(research.discovery_vs_ranking.web_discovery_allowed, true);
 assert.equal(research.discovery_vs_ranking.official_rank_requires_engine_validation, true);
 
@@ -95,7 +97,8 @@ for (const path of [
   assert.ok(smartRestSource.includes(path));
 }
 assert.match(smartRestSource, /readFamilyStockMarketContext/);
-assert.match(smartRestSource, /getTwMarketChipSummaryPublished/);
+assert.match(smartRestSource, /getTwMarketChipSummaryOnDemand/);
+assert.doesNotMatch(smartRestSource, /getTwMarketChipSummaryPublished/);
 assert.doesNotMatch(smartRestSource, /symbol:\s*undefined\s+as\s+never/);
 
 const openapi = familyOpenApiV2("https://example.test") as any;
@@ -106,8 +109,10 @@ assert.equal(openapi.paths["/api/family/compare"].post.operationId, "compareFami
 assert.equal(openapi.paths["/api/family/screen"].post.operationId, "screenFamilySwingCandidates");
 
 const openapiSource = fs.readFileSync(new URL("../src/v6/family-openapi-v2.ts", import.meta.url), "utf8");
-assert.match(openapiSource, /OPEN|open-world/i);
-assert.match(openapiSource, /Fugle/i);
-assert.match(openapiSource, /Published generation/i);
+assert.match(openapiSource, /exact-date on-demand/i);
+assert.match(openapiSource, /RANKED_ONLY/);
+assert.match(openapiSource, /Published generation[^\n]*(?:historical|history|歷史|replay)/i);
+assert.match(openapiSource, /非方向性|non-directional/i);
+assert.doesNotMatch(openapiSource, /正式 Published 籌碼|正式Published籌碼|直接讀取正式 Published generation 籌碼/i);
 
 console.log("family-v2-intelligence.test.ts: PASS");

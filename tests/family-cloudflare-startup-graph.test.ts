@@ -27,10 +27,10 @@ assert.match(familyMcp, /"get_family_market_chip_summary"/);
 assert.match(familyMcp, /"analyze_family_stock"/);
 assert.match(familyMcp, /"compare_family_stocks"/);
 
-// The startup fix must not bypass formal source identities or read-only safety.
+// The startup fix must not bypass current/formal source identities or read-only safety.
 assert.match(familyMcp, /production_writes: false/);
 assert.match(familyMcp, /github_writes: false/);
-assert.match(familyMcp, /formal_market_chip: "PUBLISHED_GENERATION_ONLY"/);
+assert.match(familyMcp, /formal_market_chip: "OFFICIAL_EXACT_DATE_ON_DEMAND_CURRENT\+PUBLISHED_HISTORY_CONTEXT"/);
 assert.match(familyMcp, /formal_ohlc: "EXISTING_TV_FUGLE_1D_GITHUB_CANONICAL_ONLY"/);
 assert.match(familyMcp, /FUGLE_REST_READ_ONLY_WITH_FIVE_LEVEL_BOOK_AND_RECENT_TRADES/);
 assert.doesNotMatch(wrangler, /"services"\s*:/);

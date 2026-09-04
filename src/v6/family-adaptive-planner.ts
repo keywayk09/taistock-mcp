@@ -1,6 +1,6 @@
 import { familySharedReadManifest } from "./family-shared-read-plane.ts";
 
-export const FAMILY_ADAPTIVE_PLANNER_VERSION = "family-adaptive-planner/v1.1.1";
+export const FAMILY_ADAPTIVE_PLANNER_VERSION = "family-adaptive-planner/v1.2.0";
 
 export type FamilyIntent =
   | "QUICK_STOCK_QUESTION"
@@ -39,9 +39,6 @@ export function inferFamilyAdaptiveIntent(query: string, symbols: string[]): Fam
 
   if (symbols.length === 1) return "QUICK_STOCK_QUESTION";
 
-  // Market-event questions do not necessarily mention a stock code. Keep Taiwan
-  // futures / US-session language on the governed market-context path instead of
-  // dropping it into generic Open Research with no engine reads.
   if (includesAny(text, [
     /大盤|台股|加權|櫃買|市場|盤勢|台指(?:期)?|期貨|美股|美盤|那斯達克|nasdaq|日經|nikkei|昨晚.*盤|今晚.*盤|今天.*跌|今天.*漲|為什麼.*跌|為什麼.*漲|外資.*大盤/i,
   ])) return "MARKET_CONTEXT";
@@ -65,16 +62,16 @@ function preferredReads(intent: FamilyIntent, query: string) {
   let base: string[];
   switch (intent) {
     case "QUICK_STOCK_QUESTION":
-      base = ["realtime_market", "canonical_ohlc", "published_chip", "fundamentals", "open_world_web"];
+      base = ["realtime_market", "canonical_ohlc", "current_chip", "published_chip", "fundamentals", "open_world_web"];
       break;
     case "FULL_STOCK_ANALYSIS":
-      base = ["realtime_market", "canonical_ohlc", "published_chip", "fundamentals", "industry_supply_chain", "research_repository", "txf_context", "global_futures_context", "global_market_context", "jin10_events", "open_world_web"];
+      base = ["realtime_market", "canonical_ohlc", "current_chip", "published_chip", "fundamentals", "industry_supply_chain", "research_repository", "txf_context", "global_futures_context", "global_market_context", "jin10_events", "open_world_web"];
       break;
     case "STOCK_COMPARE":
-      base = ["realtime_market", "canonical_ohlc", "published_chip", "fundamentals", "industry_supply_chain", "txf_context", "global_futures_context", "jin10_events", "open_world_web"];
+      base = ["realtime_market", "canonical_ohlc", "current_chip", "published_chip", "fundamentals", "industry_supply_chain", "txf_context", "global_futures_context", "jin10_events", "open_world_web"];
       break;
     case "SWING_DISCOVERY":
-      base = ["realtime_market", "canonical_ohlc", "published_chip", "fundamentals", "industry_supply_chain", "txf_context", "global_futures_context", "jin10_events", "open_world_web"];
+      base = ["realtime_market", "canonical_ohlc", "current_chip", "published_chip", "fundamentals", "industry_supply_chain", "txf_context", "global_futures_context", "jin10_events", "open_world_web"];
       break;
     case "MARKET_CONTEXT":
       base = ["txf_context", "global_futures_context", "global_market_context", "jin10_events", "research_repository", "open_world_web"];
@@ -107,10 +104,11 @@ export function planFamilyQuery(query: string, symbols: string[] = []) {
       quick_question: "先回答使用者真正問的事；只取足以支撐答案的證據，不因為有11點框架就強迫逐點念完。",
       full_analysis: "需要完整個股研究時，以1到11點作最終完整性契約，但查詢順序與來源可動態決定。",
       progressive_deepening: "先做高價值核心讀取；若發現重大催化劑、資料衝突、未知欄位或新線索，再自主擴展研究。",
-      market_regime: "市場/台指/美股事件問題主動加入TXF、Global Futures與Jin10事件；它們只作Market Regime/Event Context，不覆寫正式OHLC或Published籌碼。",
+      current_chip: "當期法人、融資融券、借券/SBL優先讀TWSE/TPEx exact-date on-demand；MoneyDJ分點只作RANKED_ONLY輔助；Published generation只作歷史背景。",
+      market_regime: "市場/台指/美股事件問題主動加入TXF、Global Futures與Jin10事件；它們只作Market Regime/Event Context，不覆寫正式OHLC或當期官方籌碼。",
       conflict_resolution: "重大事實衝突不得直接選邊；優先官方/canonical，再找第二高權威來源，最後標 FACT/INFERENCE/JUDGMENT/CONFLICT/UNKNOWN。",
       web: "Open Web 永遠可用，不是 fallback-only；seed query 只是起點，可改寫、跨語言、跨網站與追新實體。",
-      identity: "Web、Fugle、FinMind 與研究資料不得冒充正式 OHLC 或 Published 籌碼。",
+      identity: "Web、Fugle與FinMind不得冒充正式OHLC或TWSE/TPEx exact-date當期官方籌碼；MoneyDJ分點不得冒充完整分點inventory。",
     },
     answer_contract: {
       render_for_intent_not_template: true,
