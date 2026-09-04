@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Verify historical custom-range exact day
+      - name: Verify historical and current custom-range exact day
         shell: bash
         run: |
           set -euo pipefail
@@ -25,7 +25,8 @@ jobs:
           urls={
             'hist_dash':'https://www.moneydj.com/z/zc/zco/zco.djhtm?a=2330&e=2026-9-3&f=2026-9-3',
             'hist_padded':'https://www.moneydj.com/z/zc/zco/zco.djhtm?a=2330&e=2026-09-03&f=2026-09-03',
-            'current':'https://www.moneydj.com/Z/ZC/ZCO/ZCO.djhtm?a=2330&e=',
+            'current_fixed':'https://www.moneydj.com/Z/ZC/ZCO/ZCO.djhtm?a=2330&e=',
+            'current_custom':'https://www.moneydj.com/z/zc/zco/zco.djhtm?a=2330&e=2026-9-4&f=2026-9-4',
           }
           out={}
           for name,url in urls.items():
@@ -57,9 +58,15 @@ jobs:
               assert first, f'{name}: ranked rows missing'
               out[name]=rec
           for name in ['hist_dash','hist_padded']:
+              assert out[name]['updated'] in ('2026/9/3','2026/09/03'), out[name]
               assert out[name]['getYMD1'] in ('2026/9/3','2026/09/03'), out[name]
               assert out[name]['getYMD2'] in ('2026/9/3','2026/09/03'), out[name]
           assert out['hist_dash']['first']==out['hist_padded']['first'], 'date formatting changes historical result'
-          assert out['hist_dash']['first'] != out['current']['first'] or out['hist_dash']['totals'] != out['current']['totals'], 'historical exact-day response unexpectedly identical to current one-day output'
-          print('MONEYDJ_HISTORICAL_EXACT_DAY_PASS')
+          assert out['hist_dash']['first'] != out['current_fixed']['first'] or out['hist_dash']['totals'] != out['current_fixed']['totals'], 'historical exact-day response unexpectedly identical to current one-day output'
+          assert out['current_custom']['updated'] in ('2026/9/4','2026/09/04'), out['current_custom']
+          assert out['current_custom']['getYMD1'] in ('2026/9/4','2026/09/04'), out['current_custom']
+          assert out['current_custom']['getYMD2'] in ('2026/9/4','2026/09/04'), out['current_custom']
+          assert out['current_custom']['first'] == out['current_fixed']['first'], 'current exact-date first rows differ from fixed one-day page'
+          assert out['current_custom']['totals'] == out['current_fixed']['totals'], 'current exact-date totals differ from fixed one-day page'
+          print('MONEYDJ_EXACT_DAY_CUSTOM_RANGE_COMPAT_PASS')
           PY
