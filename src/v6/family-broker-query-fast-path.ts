@@ -2,10 +2,14 @@ import type { PublishedGatewayInput } from "./market-data-published-gateway.ts";
 import {
   getTwBrokerProviderBundleOnDemand,
 } from "./broker-provider-bundle-router.ts";
+import {
+  buildFamilyBrokerWindowRenderRows,
+  FAMILY_BROKER_WINDOW_RENDER_CONTRACT,
+} from "./family-broker-window-render.ts";
 import type { TwBrokerWindowDays } from "./tw-broker-ranked-on-demand.ts";
 import { getTwMarketChipSummaryOnDemand } from "./tw-market-chip-on-demand-facade.ts";
 
-export const FAMILY_BROKER_QUERY_FAST_PATH_VERSION = "family-broker-query-fast-path/v1.1.0";
+export const FAMILY_BROKER_QUERY_FAST_PATH_VERSION = "family-broker-query-fast-path/v1.2.0";
 
 function compactBrokerWindow(result: any, topN: number) {
   const buys = Array.isArray(result?.top_net_buyers)
@@ -85,6 +89,10 @@ export async function runFamilyBrokerQueryFastPath(input: {
   });
   const compact = compactBundle(bundle, topN);
   const oneDay = compact.windows["1D"] ?? null;
+  const brokerWindowRenderRows = buildFamilyBrokerWindowRenderRows({
+    requested_windows: compact.requested_windows,
+    broker: compact,
+  });
 
   return {
     ok: bundle.status === "READY" || bundle.status === "DEGRADED",
@@ -101,6 +109,8 @@ export async function runFamilyBrokerQueryFastPath(input: {
     persistence: "NONE" as const,
     broker_branch_ranked: oneDay,
     broker_multi_window: compact,
+    broker_window_render_contract: FAMILY_BROKER_WINDOW_RENDER_CONTRACT,
+    broker_window_render_rows: brokerWindowRenderRows,
     broker_evidence_contract: {
       same_provider_required: true,
       same_requested_as_of_required: true,
@@ -126,11 +136,12 @@ export async function runFamilyBrokerQueryFastPath(input: {
     },
     response_instructions: [
       "券商分點問題只能使用broker_multi_window中的canonical provider數字回答；不得自行用Open Web把缺少的單一window補入同一張比較表。",
+      "必須依broker_window_render_rows順序逐一呈現所有requested windows；READY要顯示數字與source_date，PENDING/ERROR/UNAVAILABLE也必須列出status與原因，禁止省略任何requested window。",
       "若canonical provider不完整，可以回傳該同一provider的PARTIAL/DEGRADED結果；若切換provider，必須整個requested windows bundle一起切換，禁止逐window混來源。",
       "所有READY視窗必須使用同一requested_as_of與同一精確TWSE交易日窗口語義；不得拿前一交易日、最新頁或不同平台區間替代。",
       "分點資料屬PUBLIC_SECONDARY / RANKED_ONLY；未出現在排名中的分點是UNKNOWN，不得解讀為零交易。",
       "券商分點名稱是執行通路，不等同外資、投信、自營商或特定投資人身分；不得從分點名稱推定投資人身份。",
-      "1D/5D/10D/20D/60D是共享同一截止日的巢狀窗口，不是按20D→10D→5D→1D排列的時間序列；解讀轉強轉弱時必須明示這個限制。",
+      "requested windows共享同一截止日且彼此為巢狀累計窗口，不是按長短窗口排列的時間序列；解讀轉強轉弱時必須明示這個限制。",
     ],
   };
 }
