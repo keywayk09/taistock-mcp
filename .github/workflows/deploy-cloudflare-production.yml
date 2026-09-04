@@ -208,7 +208,11 @@ jobs:
             exit "$deploy_status"
           fi
 
-      - name: Install and verify five-minute Cron Trigger
+      # Non-OHLC chip capture was retired in the on-demand migration. Wrangler
+      # no longer owns a cron binding, but Cloudflare schedules survive script
+      # deployments unless explicitly replaced. Keep this cleanup in the
+      # canonical Production deploy so an old schedule cannot be resurrected.
+      - name: Remove and verify all Worker Cron Triggers
         id: cron
         if: steps.deploy.outcome == 'success'
         continue-on-error: true
@@ -222,7 +226,7 @@ jobs:
           curl --fail --silent --show-error --max-time 30 -X PUT "$endpoint" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H 'Content-Type: application/json' \
-            --data '[{"cron":"*/5 * * * *"}]' > /tmp/cron-put.json
+            --data '[]' > /tmp/cron-put.json
           curl --fail --silent --show-error --max-time 30 "$endpoint" \
             -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
             -H 'Content-Type: application/json' > /tmp/cron-get.json
@@ -233,11 +237,11 @@ jobs:
           put=json.loads(Path('/tmp/cron-put.json').read_text())
           get=json.loads(Path('/tmp/cron-get.json').read_text())
           schedules=((get.get('result') or {}).get('schedules') or [])
-          crons=[x.get('cron') for x in schedules if isinstance(x,dict)]
           if not put.get('success'):
-              raise SystemExit('cron_put_failed')
-          if '*/5 * * * *' not in crons:
-              raise SystemExit(f'cron_verify_failed:{crons}')
+              raise SystemExit('cron_retirement_put_failed')
+          if schedules:
+              raise SystemExit(f'cron_retirement_verify_failed:{schedules}')
+          print('cron retirement verified: no Worker schedules')
           PY
 
       - name: Verify live Production health and full-market contract
@@ -263,6 +267,12 @@ jobs:
               raise SystemExit(f"health_status={health.get('status')}")
           if health.get('mcp_endpoint') != '/my-mcp':
               raise SystemExit(f"owner_mcp={health.get('mcp_endpoint')}")
+          if health.get('market_data', {}).get('scheduled_chip_capture') != 'DISABLED':
+              raise SystemExit(f"scheduled_chip_capture={(health.get('market_data') or {}).get('scheduled_chip_capture')}")
+          if health.get('market_data', {}).get('current_chip_persistence') != 'NONE':
+              raise SystemExit(f"current_chip_persistence={(health.get('market_data') or {}).get('current_chip_persistence')}")
+          if health.get('market_data', {}).get('ohlc_policy') != 'UNCHANGED_CANONICAL_PIPELINE':
+              raise SystemExit(f"ohlc_policy={(health.get('market_data') or {}).get('ohlc_policy')}")
           if market.get('source_contract') != 'tw-full-market-source-contract/v1.0.0':
               raise SystemExit(f"source_contract={market.get('source_contract')}")
           if market.get('usable') is not True:
@@ -271,7 +281,7 @@ jobs:
           otc=(market.get('otc') or {}).get('rows') or 0
           if listed < 400 or otc < 250:
               raise SystemExit(f"coverage listed={listed} otc={otc}")
-          print(f"smoke ok listed={listed} otc={otc}")
+          print(f"smoke ok listed={listed} otc={otc} scheduled_chip_capture=DISABLED")
           PY
             then
               passed=true
@@ -323,16 +333,16 @@ jobs:
           elif [ "$deploy_outcome" != 'success' ]; then
             reason='WRANGLER_DEPLOY_FAILED'
           elif [ "$cron_outcome" != 'success' ]; then
-            reason='CRON_TRIGGER_INSTALL_FAILED'
+            reason='CRON_TRIGGER_RETIREMENT_FAILED'
           elif [ "$smoke_outcome" != 'success' ]; then
             reason='PRODUCTION_SMOKE_FAILED'
           else
-            reason='DEPLOYED_CRON_AND_FULL_MARKET_SMOKE_VERIFIED'
+            reason='DEPLOYED_NO_CRON_AND_FULL_MARKET_SMOKE_VERIFIED'
           fi
 
-          if [ "$reason" != 'DEPLOYED_CRON_AND_FULL_MARKET_SMOKE_VERIFIED' ]; then
+          if [ "$reason" != 'DEPLOYED_NO_CRON_AND_FULL_MARKET_SMOKE_VERIFIED' ]; then
             {
-              echo 'SAFE_PRODUCTION_DEPLOY_DIAGNOSTIC_V4'
+              echo 'SAFE_PRODUCTION_DEPLOY_DIAGNOSTIC_V5'
               echo "source_sha=${GITHUB_SHA}"
               echo "run_id=${GITHUB_RUN_ID}"
               echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
@@ -355,13 +365,14 @@ jobs:
             "oauth_kv_title": "${{ steps.oauth_kv.outputs.title }}",
             "oauth_kv_created": "${{ steps.oauth_kv.outputs.created }}",
             "deploy_outcome": "${deploy_outcome}",
-            "cron_outcome": "${cron_outcome}",
+            "cron_retirement_outcome": "${cron_outcome}",
             "smoke_outcome": "${smoke_outcome}",
             "reason": "${reason}",
             "diagnostic_path": "${diagnostic_path}",
             "token_configured": ${token_configured},
             "account_id_configured": ${account_id_configured},
-            "cron": "*/5 * * * *",
+            "scheduled_chip_capture": "DISABLED",
+            "worker_cron_schedules": [],
             "recorded_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           EOF
