@@ -1,3 +1,11 @@
+// Opt-in live-provider canary. Intentionally excluded from the default
+// `npm run test:research` suite because it depends on external public providers.
+// Run manually with:
+//   node --experimental-strip-types tests/family-broker-live-provider-smoke.test.ts
+//
+// This test is read-only: it calls the same MoneyDJ/TWSE adapter used by the
+// runtime, requires no Family/Production credential, persists nothing, and must
+// never substitute FinMind or a previous trading day for the requested date.
 import assert from "node:assert/strict";
 import { getTwBrokerRankedWindowBundleOnDemand } from "../src/v6/tw-broker-ranked-on-demand.ts";
 
