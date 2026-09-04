@@ -45,4 +45,6 @@ assert.deepEqual(
   { resolved_as_of: "2026-09-04", mode: "IMPLICIT_LATEST_TRADING_DAY" },
 );
 
+await import("./credit-sbl-fast-path-runtime.test.ts");
+
 console.log("credit/SBL exact-date routing v2 contract passed");
