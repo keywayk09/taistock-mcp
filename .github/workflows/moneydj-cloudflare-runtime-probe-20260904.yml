@@ -1,0 +1,88 @@
+name: MoneyDJ Cloudflare Runtime Probe 20260904
+
+on:
+  push:
+    branches:
+      - ops/moneydj-cloudflare-runtime-probe-20260904
+    paths:
+      - .github/workflows/moneydj-cloudflare-runtime-probe-20260904.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Deploy isolated probe, call it, delete it
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || { echo 'missing Cloudflare token' >&2; exit 78; }
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || { echo 'missing Cloudflare account id' >&2; exit 78; }
+          WORKER="taistock-moneydj-probe-${GITHUB_RUN_ID}"
+          export WORKER
+          cleanup() {
+            curl --silent --show-error --max-time 30 -X DELETE \
+              "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${WORKER}" \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H 'Content-Type: application/json' >/tmp/probe-delete.json 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          cat > moneydj-runtime-probe.ts <<'TS'
+          import { getTwBrokerRankedOnDemand } from './src/v6/tw-broker-ranked-on-demand';
+          export default {
+            async fetch() {
+              const result = await getTwBrokerRankedOnDemand({ symbol: '2330', as_of: '2026-09-04' });
+              return Response.json(result, { headers: { 'cache-control': 'no-store' } });
+            },
+          };
+          TS
+
+          cat > wrangler.moneydj-probe.jsonc <<EOF
+          {
+            "name": "${WORKER}",
+            "main": "moneydj-runtime-probe.ts",
+            "compatibility_date": "2025-03-10",
+            "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"]
+          }
+          EOF
+
+          npx wrangler deploy --config wrangler.moneydj-probe.jsonc >/tmp/probe-deploy.log 2>&1
+          URL="https://${WORKER}.keywayk09.workers.dev"
+          export URL
+          body=''
+          for attempt in 1 2 3; do
+            set +e
+            body="$(curl --fail-with-body --silent --show-error --max-time 30 "${URL}" 2>/tmp/probe-curl-error.txt)"
+            rc=$?
+            set -e
+            [ "$rc" -eq 0 ] && break
+            sleep 3
+          done
+          [ -n "$body" ] || { cat /tmp/probe-curl-error.txt >&2 || true; exit 1; }
+          PROBE_BODY="$body" node <<'NODE'
+          const body = JSON.parse(process.env.PROBE_BODY || '{}');
+          function must(v, m) { if (!v) throw new Error(m); }
+          must(body.status === 'READY', `status=${body.status} error=${body.error || ''}`);
+          must(body.requested_as_of === '2026-09-04', `requested=${body.requested_as_of}`);
+          must(body.source_date === '2026-09-04', `source_date=${body.source_date}`);
+          must(body.source_date_verified === true, 'source_date_not_verified');
+          must(body.source_charset === 'big5', `charset=${body.source_charset}`);
+          must(Number(body.transport_attempts) >= 1 && Number(body.transport_attempts) <= 2, `attempts=${body.transport_attempts}`);
+          must(body.completeness === 'RANKED_ONLY', `completeness=${body.completeness}`);
+          must(body.persistence === 'NONE', `persistence=${body.persistence}`);
+          must(Array.isArray(body.buys) && body.buys.length > 0, 'buy_rows_empty');
+          must(Array.isArray(body.sells) && body.sells.length > 0, 'sell_rows_empty');
+          console.log(`[probe] CLOUDFLARE_MONEYDJ_PASS source_date=${body.source_date} charset=${body.source_charset} transport_attempts=${body.transport_attempts} buys=${body.buys.length} sells=${body.sells.length}`);
+          NODE
