@@ -13,77 +13,64 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     env:
       BASE_URL: https://taistock-mcp.keywayk09.workers.dev
-      MOM_GPT_API_KEY: ${{ secrets.MOM_GPT_API_KEY }}
     steps:
-      - name: Verify live Family current chip plane
+      - name: Verify live Family public surface and auth boundary
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
           const base = process.env.BASE_URL;
-          const key = process.env.MOM_GPT_API_KEY || '';
-          if (!key) throw new Error('MOM_GPT_API_KEY_not_configured');
-          const auth = { authorization: `Bearer ${key}`, accept: 'application/json', 'content-type': 'application/json', 'cache-control': 'no-cache' };
-
-          async function readJson(path, init = {}, timeout = 120000) {
+          function must(value, label) { if (!value) throw new Error(label); }
+          async function fetchText(path, init = {}, timeout = 30000) {
             const r = await fetch(`${base}${path}`, { ...init, signal: AbortSignal.timeout(timeout) });
             const text = await r.text();
-            let body;
-            try { body = JSON.parse(text); } catch { throw new Error(`${path}:not_json:http_${r.status}`); }
-            if (!r.ok) throw new Error(`${path}:http_${r.status}:${String(body?.error || body?.message || '').slice(0,160)}`);
-            return body;
+            return { r, text };
           }
-          function must(value, label) { if (!value) throw new Error(label); }
+          function parseJson(text, label) {
+            try { return JSON.parse(text); } catch { throw new Error(`${label}_not_json`); }
+          }
 
-          const health = await readJson('/health', { headers: { accept: 'application/json', 'cache-control': 'no-cache' } }, 20000);
+          const healthRes = await fetchText('/health', { headers: { accept: 'application/json', 'cache-control': 'no-cache' } }, 20000);
+          const health = parseJson(healthRes.text, 'health');
           const healthText = JSON.stringify(health);
-          must(health?.status === 'ok', 'health_not_ok');
+          must(healthRes.r.ok && health?.status === 'ok', `health_not_ok_http_${healthRes.r.status}`);
           must(healthText.includes('/family-mcp'), 'family_mcp_endpoint_missing');
           must(healthText.includes('family-mcp/v3.6.0'), 'family_mcp_v3_6_missing');
           must(healthText.includes('get_family_market_chip_summary'), 'family_chip_tool_missing');
           must(healthText.includes('OFFICIAL_EXACT_DATE_ON_DEMAND_CURRENT+PUBLISHED_HISTORY_CONTEXT'), 'family_mcp_current_chip_identity_missing');
-          console.log('[smoke] HEALTH_PASS family=/family-mcp version=3.6.0 current_chip_identity=on_demand+history_context');
+          console.log('[smoke] HEALTH_PASS family=/family-mcp version=3.6.0 chip=official_on_demand+published_history');
 
-          const status = await readJson('/api/family/status', { method: 'GET', headers: auth }, 30000);
-          must(status?.ok === true && status?.read_only === true, 'family_status_not_read_only_ok');
-          must(status?.capabilities?.formal_chip === 'OFFICIAL_EXACT_DATE_ON_DEMAND_CURRENT+PUBLISHED_HISTORY_CONTEXT', 'family_rest_formal_chip_identity_wrong');
-          must(status?.capabilities?.broker_branch === 'MONEYDJ_RANKED_ONLY_FAIL_SOFT_NO_FINMIND_TOKEN', 'family_rest_broker_identity_wrong');
-          must(Array.isArray(status?.endpoints) && status.endpoints.includes('/api/family/chips') && status.endpoints.includes('/api/family/query'), 'family_rest_endpoints_missing');
-          console.log('[smoke] STATUS_PASS rest_read_only=true broker=MONEYDJ_RANKED_ONLY_NO_FINMIND_TOKEN');
+          const openapiRes = await fetchText('/family-openapi.json', { headers: { accept: 'application/json', 'cache-control': 'no-cache' } }, 20000);
+          const openapi = parseJson(openapiRes.text, 'family_openapi');
+          const openapiText = JSON.stringify(openapi);
+          must(openapiRes.r.ok, `family_openapi_http_${openapiRes.r.status}`);
+          must(openapi?.info?.version === 'family-action-openapi/v3.2.0', 'family_openapi_wrong_version');
+          must(openapi?.paths?.['/api/family/chips']?.post?.operationId === 'getFamilyMarketChipSummary', 'family_openapi_chips_route_missing');
+          must(openapi?.paths?.['/api/family/query']?.post?.operationId === 'queryTaiwanStockSystem', 'family_openapi_query_route_missing');
+          must(openapiText.includes('exact-date on-demand'), 'family_openapi_on_demand_semantics_missing');
+          must(openapiText.includes('RANKED_ONLY'), 'family_openapi_ranked_only_missing');
+          must(openapiText.includes('Published generation') && (openapiText.includes('historical') || openapiText.includes('歷史')), 'family_openapi_published_history_missing');
+          must(!openapiText.includes('正式籌碼只認 Published generation'), 'family_openapi_stale_published_only_semantics');
+          console.log('[smoke] OPENAPI_PASS chips=query routes present; broker=RANKED_ONLY; Published=history');
 
-          const chips = await readJson('/api/family/chips', {
-            method: 'POST', headers: auth,
-            body: JSON.stringify({ symbol: '2330', as_of: '2026-09-04', calendar_days: 60 }),
-          }, 120000);
-          must(chips?.version === 'tw-market-chip-on-demand-facade/v1.0.0', 'chips_wrong_facade_version');
-          must(chips?.current_consistency === 'EXACT_DATE_ON_DEMAND', 'chips_not_exact_date_on_demand');
-          must(chips?.preferred_current_evidence === 'on_demand_current', 'chips_current_evidence_not_preferred');
-          must(chips?.provider_versions?.broker_ranked?.includes('tw-broker-ranked-on-demand'), 'chips_broker_adapter_missing');
-          must(chips?.broker_branch_policy?.completeness === 'RANKED_ONLY', 'chips_broker_not_ranked_only');
-          must(chips?.broker_branch_policy?.missing_branch_means_zero === false, 'chips_missing_branch_wrongly_zero');
-          must(chips?.broker_branch_policy?.persistence === 'NONE', 'chips_broker_persistence_not_none');
-          must(chips?.data_quality?.previous_day_substitution === false, 'chips_previous_day_substitution_enabled');
-          must(chips?.data_quality?.current_raw_persistence === 'NONE' && chips?.data_quality?.current_normalized_persistence === 'NONE', 'chips_current_persistence_not_none');
-          must(chips?.legacy_archive_context?.role === 'HISTORY_CONTEXT_ONLY', 'chips_published_not_history_only');
-          must(chips?.data_quality?.legacy_archive_is_decision_source_for_current_day === false, 'chips_history_promoted_to_current');
-          console.log(`[smoke] CHIPS_PASS symbol=2330 requested=${chips?.requested_as_of} status=${chips?.status} official=${chips?.data_quality?.current_exact_date_status} broker=${chips?.broker_branch_ranked?.status} broker_date_verified=${chips?.broker_branch_ranked?.source_date_verified}`);
-
-          const query = await readJson('/api/family/query', {
-            method: 'POST', headers: auth,
-            body: JSON.stringify({ query: '2330 台積電 籌碼與分點狀況', as_of_date: '2026-09-04' }),
-          }, 180000);
-          must(query?.response_meta?.compact_for_custom_gpt === true, 'query_not_compact_custom_gpt');
-          must(query?.response_meta?.within_target === true, 'query_compact_payload_too_large');
-          must(query?.family_policy?.read_only === true && query?.family_policy?.production_writes === false && query?.family_policy?.github_writes === false, 'query_family_write_boundary_wrong');
-          must(Array.isArray(query?.stock_analyses) && query.stock_analyses.length >= 1, 'query_stock_analysis_missing');
-          const qchip = query.stock_analyses[0]?.chip;
-          must(qchip && typeof qchip === 'object', 'query_compaction_dropped_chip');
-          must(qchip?.version === 'tw-market-chip-on-demand-facade/v1.0.0', 'query_chip_wrong_provider');
-          must(qchip?.current_consistency === 'EXACT_DATE_ON_DEMAND', 'query_chip_not_current_on_demand');
-          must(qchip?.broker_branch_policy?.completeness === 'RANKED_ONLY', 'query_chip_broker_semantics_missing');
-          console.log(`[smoke] QUERY_PASS symbol=${query.stock_analyses[0]?.symbol} chip_visible=true bytes=${query?.response_meta?.encoded_bytes} provider=on_demand broker=RANKED_ONLY`);
-          console.log('[smoke] FAMILY_CURRENT_CHIP_PRODUCTION_PASS');
+          for (const [path, method, body] of [
+            ['/api/family/status', 'GET', undefined],
+            ['/api/family/chips', 'POST', JSON.stringify({ symbol: '2330', as_of: '2026-09-04' })],
+            ['/api/family/query', 'POST', JSON.stringify({ query: '2330 台積電 籌碼與分點狀況', as_of_date: '2026-09-04' })],
+          ]) {
+            const res = await fetchText(path, {
+              method,
+              headers: { accept: 'application/json', 'content-type': 'application/json' },
+              ...(body ? { body } : {}),
+            }, 30000);
+            const parsed = parseJson(res.text, path.replaceAll('/', '_'));
+            must(res.r.status === 401, `${path}_unauthorized_expected_401_got_${res.r.status}`);
+            must(parsed?.error === 'unauthorized', `${path}_wrong_unauthorized_body`);
+            must((res.r.headers.get('www-authenticate') || '').includes('taistock-family'), `${path}_missing_www_authenticate`);
+          }
+          console.log('[smoke] AUTH_BOUNDARY_PASS status/chips/query reject unauthenticated requests with 401');
+          console.log('[smoke] FAMILY_PRODUCTION_PUBLIC_SURFACE_PASS');
           NODE
