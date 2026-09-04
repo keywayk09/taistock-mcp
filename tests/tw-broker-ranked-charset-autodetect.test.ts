@@ -39,7 +39,5 @@ assert.equal(result.sells[0]?.net_lots, -906);
 assert.equal(calls, 1, "charset recovery must not require a second origin request");
 
 await import("./moneydj-public-origin-failover.test.ts");
-// Branch-only live canary. Remove before final GREEN/merge.
-await import("./moneydj-2419-live-smoke-temp.ts");
 
 console.log("MoneyDJ broker charset auto-detect regression passed");
