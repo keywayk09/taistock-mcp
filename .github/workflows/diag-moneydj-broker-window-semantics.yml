@@ -15,52 +15,56 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Locate goA implementation across loaded MoneyDJ scripts
+      - name: Verify MoneyDJ fixed-window server aggregation
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import re, urllib.request, urllib.parse
+          import re, urllib.request, html as htmlmod, hashlib
           ua='Diamond-Broker-Ranked-ReadOnly/1.0'
-          page='https://www.moneydj.com/Z/ZC/ZCO/ZCO.djhtm?a=2330&e='
-          req=urllib.request.Request(page,headers={'User-Agent':ua,'Accept':'text/html,*/*'})
-          with urllib.request.urlopen(req,timeout=25) as r:
-              raw=r.read(); ctype=r.headers.get('Content-Type','')
-          text=raw.decode('big5' if 'big5' in ctype.lower() else 'utf-8','replace')
-          sources=[]
-          for src in re.findall(r'<script\b[^>]*\bsrc\s*=\s*["\']([^"\']+)["\']',text,re.I):
-              url=urllib.parse.urljoin(page,src)
-              if 'moneydj.com' in urllib.parse.urlparse(url).netloc and url not in sources:
-                  sources.append(url)
-          print('SCRIPT_COUNT',len(sources))
-          found=False
-          for url in sources:
-              try:
-                  req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'text/javascript,*/*'})
-                  with urllib.request.urlopen(req,timeout=20) as r:
-                      body=r.read(); ct=r.headers.get('Content-Type','')
-              except Exception as e:
-                  print('FETCH_FAIL',url,type(e).__name__,str(e)[:120]); continue
-              # ASCII identifiers survive either UTF-8 or Big5; latin1 preserves bytes 1:1.
-              js=body.decode('latin1','replace')
-              low=js.lower()
-              hits=[]
-              for needle in ['function goa','goa=function','goa = function','goa()','function goc','bdate','edate','document.f.d']:
-                  idx=low.find(needle)
-                  if idx>=0:
-                      hits.append(needle)
-                      print('SCRIPT_HIT',url,'ctype',ct,'needle',needle)
-                      print('SNIP',re.sub(r'\s+',' ',js[max(0,idx-700):idx+2200])[:2900])
-              if hits: found=True
-          # also inspect inline scripts on page
-          for i,inline in enumerate(re.findall(r'<script\b[^>]*>([\s\S]*?)</script>',text,re.I)):
-              low=inline.lower()
-              for needle in ['function goa','goa=function','goa = function','function goc','bdate','edate','document.f.d']:
-                  idx=low.find(needle)
-                  if idx>=0:
-                      found=True
-                      print('INLINE_HIT',i,'needle',needle)
-                      print('SNIP',re.sub(r'\s+',' ',inline[max(0,idx-700):idx+2200])[:2900])
-          assert found, 'goA/date routing semantics not located'
-          print('MONEYDJ_ROUTING_DISCOVERY_PASS')
+          pages=[
+            (1,'近一日','https://www.moneydj.com/Z/ZC/ZCO/ZCO.djhtm?a=2330&e='),
+            (2,'近五日','https://www.moneydj.com/z/zc/zco/zco_2330_2.djhtm'),
+            (3,'近十日','https://www.moneydj.com/z/zc/zco/zco_2330_3.djhtm'),
+            (4,'近20日','https://www.moneydj.com/z/zc/zco/zco_2330_4.djhtm'),
+            (6,'近60日','https://www.moneydj.com/z/zc/zco/zco_2330_6.djhtm'),
+          ]
+          fingerprints=[]
+          first_rows=[]
+          source_dates=[]
+          for selector,label,url in pages:
+              req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'text/html,*/*'})
+              with urllib.request.urlopen(req,timeout=25) as r:
+                  raw=r.read(); ctype=r.headers.get('Content-Type','')
+              text=raw.decode('big5' if 'big5' in ctype.lower() else 'utf-8','replace')
+              plain=re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',htmlmod.unescape(text)))
+              src=re.search(r'最後更新日\s*[：:]?\s*((?:\d{4}[/-])?\d{1,2}[/-]\d{1,2})',plain)
+              select=re.search(r'<select\s+name=["\']?D["\']?[^>]*>([\s\S]*?)</select>',text,re.I)
+              selected=None; selected_value=None
+              if select:
+                  for val,attrs,lab in re.findall(r'<option\s+value=["\']?([^\s"\'>]+)["\']?([^>]*)>([^<]+)</option>',select.group(1),re.I):
+                      if re.search(r'\bselected\b',attrs,re.I):
+                          selected_value=val; selected=htmlmod.unescape(lab).strip(); break
+              first=None
+              for tr in re.findall(r'<tr\b[^>]*>[\s\S]*?</tr>',text,re.I):
+                  cells=[re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',htmlmod.unescape(x))).strip() for x in re.findall(r'<t[dh]\b[^>]*>([\s\S]*?)</t[dh]>',tr,re.I)]
+                  if len(cells)>=10 and cells[0] and re.fullmatch(r'[\d,]+',cells[1] or ''):
+                      first=(cells[0],cells[3],cells[5],cells[8]); break
+              totals=re.search(r'合計買超張數\s*([\d,]+).*?合計賣超張數\s*([\d,]+)',plain)
+              record={
+                'selector':selector,'label':label,'selected_value':selected_value,'selected':selected,
+                'source_date':src.group(1) if src else None,'first':first,
+                'totals':(totals.group(1),totals.group(2)) if totals else None,
+                'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest(),
+              }
+              print(record)
+              assert selected_value==str(selector), f'{label}: selected value {selected_value}'
+              assert selected==label, f'{label}: selected label {selected}'
+              assert src, f'{label}: source date missing'
+              assert first, f'{label}: ranked row missing'
+              fingerprints.append(record['sha256']); first_rows.append(first); source_dates.append(src.group(1))
+          assert len(set(source_dates))==1, f'source dates differ: {source_dates}'
+          assert len(set(fingerprints))==len(pages), 'window pages are not distinct responses'
+          assert len(set(first_rows))>=4, f'window ranking leaders insufficiently distinct: {first_rows}'
+          print('MONEYDJ_FIXED_WINDOW_SERVER_AGGREGATION_PASS')
           PY
