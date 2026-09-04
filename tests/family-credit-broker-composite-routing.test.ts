@@ -38,18 +38,26 @@ assert.match(smartRest, /runFamilyBrokerQueryFastPath/);
 assert.match(smartRest, /windows:\s*compositeBrokerWindows/);
 assert.match(smartRest, /web_fetch:\s*false/);
 assert.match(smartRest, /broker_web_backfill:\s*false/);
-assert.match(smartRest, /NESTED|巢狀累計窗口|巢狀窗口/);
+assert.match(smartRest, /巢狀累計窗口|巢狀窗口|巢狀累計/);
 assert.match(smartRest, /不得把.*每天持續買|不得把.*連續性/);
 
-// A terse composite question has no explicit broker horizon. Preserve the
-// useful 1/5/10/20/60 lens that the old smart-analysis answer exposed, but keep
-// it inside the governed same-provider broker bundle rather than falling back to
-// generic research/Web. Explicit broker windows still use the user's selection.
-assert.match(smartRest, /\[1,\s*5,\s*10,\s*20,\s*60\]/);
+// Terse composite queries should provide the useful short/medium/long lens all
+// the way through 120D. Explicit user horizons still win.
+assert.match(smartRest, /\[1,\s*5,\s*10,\s*20,\s*60,\s*120\]/);
 assert.match(smartRest, /hasExplicitBrokerWindow/);
+assert.match(smartRest, /broker_window_render_contract/);
+assert.match(smartRest, /broker_window_render_rows/);
+assert.match(smartRest, /任何視窗都不得省略|每一個視窗/);
+
+const brokerFastPath = fs.readFileSync("src/v6/family-broker-query-fast-path.ts", "utf8");
+assert.match(brokerFastPath, /FAMILY_BROKER_WINDOW_RENDER_CONTRACT/);
+assert.match(brokerFastPath, /buildFamilyBrokerWindowRenderRows/);
+assert.match(brokerFastPath, /PENDING\/ERROR\/UNAVAILABLE.*必須列出|禁止省略任何requested window/);
 
 const openApi = fs.readFileSync("src/v6/family-openapi-v2.ts", "utf8");
 assert.match(openApi, /兩者同時詢問|同時詢問融資融券\/借券與券商分點/);
 assert.match(openApi, /禁止 Web 補洞|不得再用 Open Web/);
+assert.match(openApi, /120/);
+assert.match(openApi, /不得省略|完整呈現|逐一呈現/);
 
-console.log("family credit/SBL + broker composite routing contract passed");
+console.log("family credit/SBL + broker composite routing/render contract passed");
