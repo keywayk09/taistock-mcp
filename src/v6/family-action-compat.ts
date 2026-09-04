@@ -6,9 +6,9 @@ import {
   rec,
   technicalSummary,
 } from "./common";
-import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
+import { getTwMarketChipSummaryOnDemand } from "./tw-market-chip-on-demand-facade";
 
-export const FAMILY_ACTION_COMPAT_VERSION = "family-action-compat/v2";
+export const FAMILY_ACTION_COMPAT_VERSION = "family-action-compat/v2.1";
 
 type FamilyActionInput = {
   query: string;
@@ -108,7 +108,7 @@ async function buildStockRead(env: Env, symbol: string, asOf: string) {
   const start1150 = subtractDays(asOf, 1_150);
 
   const [chip, quote, prices, company, revenue, income, balance, cashflow] = await Promise.all([
-    settled("published_chip", getTwMarketChipSummaryPublished(env, {
+    settled("current_chip", getTwMarketChipSummaryOnDemand(env, {
       symbol,
       as_of: asOf,
       calendar_days: 180,
@@ -181,7 +181,9 @@ async function buildStockRead(env: Env, symbol: string, asOf: string) {
         .map((item) => `${item.label}:${item.error}`),
     },
     data_quality: {
-      published_chip: chip.ok,
+      current_chip: chip.ok,
+      chip_provider: chip.ok ? "OFFICIAL_EXACT_DATE_ON_DEMAND+BROKER_RANKED_FAIL_SOFT" : "UNAVAILABLE",
+      broker_branch_finmind_dependency: false,
       fugle_quote: quote.ok,
       finmind_price: prices.ok,
       finmind_company: company.ok,
@@ -218,8 +220,9 @@ export async function runFamilyActionCompatQuery(env: Env, input: FamilyActionIn
     },
     response_instructions: [
       "請以繁體中文先給結論，再解釋理由。",
-      "盤中可搭配Fugle即時資訊；正式Published籌碼與研究/降級行情資料必須分開標示。",
-      "Web可自由延伸研究，不限固定網站或關鍵字；但不可冒充正式OHLC或Published籌碼。",
+      "當期法人、融資融券、借券/SBL優先使用TWSE/TPEx exact-date on-demand；MoneyDJ分點僅為RANKED_ONLY輔助且缺席不代表零交易；Published generation只作歷史背景。",
+      "FinMind可作財報/研究fallback，但不是分點資料源，也不可冒充正式OHLC或當期官方籌碼。",
+      "Web可自由延伸研究，不限固定網站或關鍵字；資料身份不得自行升級。",
       "資料不足時明示，不可自行補數字。",
       "不得聲稱已修改、修復、寫入或下單；此 API 永遠唯讀。",
     ],
@@ -273,7 +276,7 @@ export function familyActionOpenApi(origin: string) {
 
 export function familyPrivacyHtml(origin: string) {
   const safeOrigin = origin.replace(/[<>&\"']/g, "");
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>台股引擎隱私權政策</title></head><body><main><h1>台股引擎隱私權政策</h1><p>本政策適用於台股引擎只讀 API（${safeOrigin}）。</p><p>服務僅處理使用者主動提交的股票查詢與提供查詢所需的公開市場資料；不提供下單，也不允許透過家人 API 修改 GitHub、策略或 Production 設定。</p><p>資料可能來自 TWSE、TPEx、Fugle、FinMind、Web研究與 GitHub canonical store。正式籌碼資料以 Published generation 為準；正式 OHLC/K線仍由 OHLC MCP 提供。</p><p>本服務為研究輔助，不構成投資建議或獲利保證。</p></main></body></html>`;
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>台股引擎隱私權政策</title></head><body><main><h1>台股引擎隱私權政策</h1><p>本政策適用於台股引擎只讀 API（${safeOrigin}）。</p><p>服務僅處理使用者主動提交的股票查詢與提供查詢所需的公開市場資料；不提供下單，也不允許透過家人 API 修改 GitHub、策略或 Production 設定。</p><p>當期籌碼優先讀TWSE/TPEx官方exact-date on-demand資料，分點使用公開secondary ranked evidence；既有Published generation僅作歷史背景。FinMind可作研究/財報fallback但不是分點來源；正式OHLC/K線仍由OHLC MCP提供。</p><p>本服務為研究輔助，不構成投資建議或獲利保證。</p></main></body></html>`;
 }
 
 export async function handleFamilyActionCompat(request: Request, env: Env, url: URL): Promise<Response | null> {

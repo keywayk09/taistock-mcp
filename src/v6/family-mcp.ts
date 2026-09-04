@@ -4,10 +4,10 @@ import { z } from "zod";
 import { readFamilyStockMarketContext } from "./family-ohlc-read-bridge";
 import { familyResearchDirective } from "./family-research-policy";
 import { familySharedReadManifest } from "./family-shared-read-plane";
-import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
 import { registerSharedCryptoMarketTools, SHARED_CRYPTO_TOOL_NAMES } from "./shared-crypto-market-tools";
+import { getTwMarketChipSummaryOnDemand } from "./tw-market-chip-on-demand-facade";
 
-export const FAMILY_MCP_VERSION = "family-mcp/v3.5.0";
+export const FAMILY_MCP_VERSION = "family-mcp/v3.6.0";
 export const FAMILY_MCP_TOOL_NAMES = [
   "family_engine_status",
   "get_family_market_context",
@@ -38,7 +38,7 @@ function taipeiToday() {
 export class FamilyMCP extends McpAgent<Env> {
   server = new McpServer({
     name: "Taiwan Stock + Crypto AI Family",
-    version: "3.5.0",
+    version: "3.6.0",
   });
 
   async init() {
@@ -65,7 +65,7 @@ export class FamilyMCP extends McpAgent<Env> {
         owner_private_context_shared_by_default: false,
         evidence_contract: "family-evidence/v1",
         evidence_identity: "EVIDENCE_CLASS_CANNOT_BE_SELF_PROMOTED",
-        formal_market_chip: "PUBLISHED_GENERATION_ONLY",
+        formal_market_chip: "OFFICIAL_EXACT_DATE_ON_DEMAND_CURRENT+PUBLISHED_HISTORY_CONTEXT",
         formal_ohlc: "EXISTING_TV_FUGLE_1D_GITHUB_CANONICAL_ONLY",
         stock_live: "EPHEMERAL_READ_ONLY_NO_CANONICAL_WRITE",
         crypto_live: "TV_CRYPTO_ENGINE_PUBLIC_READ_ONLY_NO_ORDER_PATH",
@@ -81,7 +81,8 @@ export class FamilyMCP extends McpAgent<Env> {
         evidence_classes: "FORMAL_TRUTH|GOVERNED_CONTEXT|DISPLAY_FALLBACK|WEB_EVIDENCE",
         swing_screening: "V2_FULL_SNAPSHOT_PREFILTER_BOUNDED_DEEP_SCAN",
         realtime: "FUGLE_REST_READ_ONLY_WITH_FIVE_LEVEL_BOOK_AND_RECENT_TRADES",
-        formal_chip_history: "READY",
+        current_chip: "OFFICIAL_EXACT_DATE_ON_DEMAND+BROKER_RANKED_FAIL_SOFT+WARRANT_ACTIVITY_NON_DIRECTIONAL",
+        formal_chip_history: "PUBLISHED_GENERATION_HISTORY_CONTEXT_READY",
         holder_distribution_400_1000_lots: "FINMIND_FAIL_SOFT",
         monthly_revenue_summary: "READY_WITH_MOM_YOY",
         accounting_summary: "READY_WITH_MARGIN_EPS_CASHFLOW_RISK_FLAGS",
@@ -138,7 +139,7 @@ export class FamilyMCP extends McpAgent<Env> {
     registerFamilyStockSelectionToolsV2(this.server, this.env);
 
     this.server.registerTool("get_family_market_chip_summary", {
-      description: "家人版正式個股籌碼入口。只讀 published generation；不允許 live overlay、不寫入資料、不具交易權限。可查最多180自然日法人、融資融券、借券與借券賣出。",
+      description: "家人版唯讀個股籌碼入口。公開工具名稱與 /family-mcp 入口不變；與 Owner 共用 exact-date on-demand 法人、融資融券、借券/借券賣出、官方權證活動與 ranked-only 分點。Family 永遠不寫 GitHub、不下單；既有 Published generation 僅作最多180自然日歷史背景。",
       inputSchema: {
         symbol: symbolSchema,
         as_of: dateSchema.optional(),
@@ -147,11 +148,11 @@ export class FamilyMCP extends McpAgent<Env> {
         estimated_financing_cost: z.number().positive().optional(),
         financing_ratio: z.number().min(0.1).max(0.9).optional().default(0.6),
       },
-      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    }, async (input) => out(await getTwMarketChipSummaryPublished(this.env, input)));
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    }, async (input) => out(await getTwMarketChipSummaryOnDemand(this.env, input)));
 
     this.server.registerTool("analyze_family_stock", {
-      description: "家人版完整單股分析入口。提供Family Unified Evidence V1與1到11點完整證據包；正式OHLC讀既有GitHub canonical，盤中五檔/逐筆/短窗主動買賣直接唯讀Fugle REST，同時允許GPT自由上網延伸研究。正式籌碼仍以Published generation為準，Evidence等級不得自行升級。",
+      description: "家人版完整單股分析入口。提供Family Unified Evidence V1與1到11點完整證據包；正式OHLC讀既有GitHub canonical，盤中五檔/逐筆/短窗主動買賣直接唯讀Fugle REST；當期籌碼使用 Owner 同源 exact-date on-demand read plane，Published generation 僅保留歷史背景，同時允許GPT自由上網延伸研究。",
       inputSchema: {
         symbol: symbolSchema,
         as_of_date: dateSchema.optional(),

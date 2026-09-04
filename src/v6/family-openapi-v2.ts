@@ -1,4 +1,4 @@
-export const FAMILY_OPENAPI_V2_VERSION = "family-action-openapi/v3.1.0";
+export const FAMILY_OPENAPI_V2_VERSION = "family-action-openapi/v3.2.0";
 
 function postOperation(operationId: string, summary: string, schema: Record<string, unknown>) {
   return {
@@ -35,12 +35,12 @@ export function familyOpenApiV2(origin: string) {
     info: {
       title: "Taiwan Stock AI Family Read-Only API",
       version: FAMILY_OPENAPI_V2_VERSION,
-      description: "Family V3 採 Same Research Brain, Different Permissions：家人與Owner共用市場/研究讀取能力，Family永遠唯讀。Custom GPT Action 直接暴露 Family MCP 的核心讀取能力，包括即時五檔/逐筆與正式 Published 籌碼，避免後端有能力但介面沒有工具。自然語言query會先做意圖與研究規劃，不強迫固定模板；需要完整個股研究時仍以1到11點作完整性契約。Web為open-world研究層，不限固定網站或關鍵字；正式Published籌碼及OHLC MCP的資料身份不可被Web、Fugle或FinMind取代。",
+      description: "Family V3 採 Same Research Brain, Different Permissions：家人與 Owner 共用同一套市場/研究讀取能力，Family 永遠唯讀。當期法人、融資融券、借券與借券賣出優先使用 TWSE/TPEx exact-date on-demand 官方資料；MoneyDJ 分點僅為 RANKED_ONLY fail-soft context，未出現在排名不代表零交易；權證只使用官方非方向性 activity 資料。既有 Published generation 僅保留為 immutable historical/replay context，不能覆蓋當期官方資料。正式 OHLC/K線仍只認 OHLC MCP。Web、Fugle、FinMind 可補研究背景，但不得冒充正式 OHLC 或當期官方籌碼。",
     },
     servers: [{ url: origin }],
     paths: {
       "/api/family/query": {
-        post: postOperation("queryTaiwanStockSystem", "自然語言智能入口：依問題自動選擇快速單股、完整分析、多股比較、波段候選、市場背景或Open-World研究", {
+        post: postOperation("queryTaiwanStockSystem", "自然語言智能入口：依問題自動選擇快速單股、完整分析、多股比較、波段候選、市場背景或 Open-World 研究", {
           required: ["query"],
           properties: {
             query: { type: "string", minLength: 1, maxLength: 2000 },
@@ -60,12 +60,12 @@ export function familyOpenApiV2(origin: string) {
         }),
       },
       "/api/family/chips": {
-        post: postOperation("getFamilyMarketChipSummary", "直接讀取正式 Published generation 籌碼：三大法人、融資融券、借券與借券賣出；最多180自然日", {
+        post: postOperation("getFamilyMarketChipSummary", "共用 Owner 同源籌碼 Read Plane：當期 TWSE/TPEx exact-date on-demand 法人、融資融券、借券/借券賣出，另附 MoneyDJ RANKED_ONLY 分點與官方非方向性權證 activity；Published generation 僅作最多180自然日歷史背景", {
           required: ["symbol"],
           properties: {
             symbol,
             as_of: asOf,
-            calendar_days: { type: "integer", minimum: 30, maximum: 180, default: 60 },
+            calendar_days: { type: "integer", minimum: 30, maximum: 180, default: 60, description: "Published historical/replay context window；不代表分點 N 交易日聚合視窗。" },
             reference_price: { type: "number", exclusiveMinimum: 0 },
             estimated_financing_cost: { type: "number", exclusiveMinimum: 0 },
             financing_ratio: { type: "number", minimum: 0.1, maximum: 0.9, default: 0.6 },
@@ -73,7 +73,7 @@ export function familyOpenApiV2(origin: string) {
         }),
       },
       "/api/family/analyze": {
-        post: postOperation("analyzeFamilyStock11Point", "明確要求完整個股研究時使用固定1到11完整性契約；查詢順序與Web深化仍可自主決定", {
+        post: postOperation("analyzeFamilyStock11Point", "明確要求完整個股研究時使用固定1到11完整性契約；查詢順序與 Web 深化仍可自主決定", {
           required: ["symbol"],
           properties: { symbol, as_of_date: asOf },
         }),
@@ -88,7 +88,7 @@ export function familyOpenApiV2(origin: string) {
         }),
       },
       "/api/family/screen": {
-        post: postOperation("screenFamilySwingCandidates", "全市場快速預篩加受控深掃，產生1到8週引擎候選；Web可另發現研究候選但不可冒充Engine Rank", {
+        post: postOperation("screenFamilySwingCandidates", "全市場快速預篩加受控深掃，產生1到8週引擎候選；Web 可另發現研究候選但不可冒充 Engine Rank", {
           properties: {
             mode: { type: "string", enum: ["stable", "balanced", "aggressive"], default: "balanced" },
             top_n: { type: "integer", minimum: 1, maximum: 10, default: 5 },
@@ -98,7 +98,7 @@ export function familyOpenApiV2(origin: string) {
       "/api/family/status": {
         get: {
           operationId: "getFamilyEngineCapabilities",
-          summary: "確認Family Shared Read Plane、唯讀邊界、即時來源與Open-World研究能力",
+          summary: "確認 Family Shared Read Plane、唯讀邊界、即時來源與 Open-World 研究能力",
           security: [{ bearerAuth: [] }],
           responses: { "200": { description: "成功" }, "401": { description: "未授權" } },
           "x-openai-isConsequential": false,

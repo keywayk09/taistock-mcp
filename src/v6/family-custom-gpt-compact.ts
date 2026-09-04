@@ -90,6 +90,10 @@ function compactStock(analysis: any, aggressive = false) {
       source: analysis?.technical?.source ?? null,
       summary: compactUnknown(analysis?.technical?.summary, 0, 260, 4),
     },
+    // Keep the current chip facade visible to legacy Custom GPT callers while
+    // bounding nested arrays/raw sections. This is the only way the old Action
+    // transport can see exact-date official layers + ranked broker evidence.
+    chip: compactUnknown(analysis?.chip, 0, aggressive ? 220 : 340, aggressive ? 3 : 5),
     data_quality: compactUnknown(analysis?.data_quality, 0, 220, 4),
     jin10_context: compactJin10(analysis?.jin10_context ?? intelligence?.jin10_context, aggressive ? 3 : 5, aggressive ? 300 : 600),
     decision_readiness: compactUnknown(analysis?.decision_readiness, 0, 180, 4),

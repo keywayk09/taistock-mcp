@@ -10,10 +10,12 @@ assert.match(route, /\/api\/family\/query/);
 assert.match(route, /MOM_GPT_API_KEY/);
 assert.match(route, /bearerAuthorized/);
 assert.match(route, /runFamilyActionCompatQuery/);
-assert.match(route, /getTwMarketChipSummaryPublished/);
+assert.match(route, /getTwMarketChipSummaryOnDemand/);
+assert.doesNotMatch(route, /getTwMarketChipSummaryPublished/);
 assert.match(route, /calendar_days:\s*180/);
 assert.match(route, /formal_ohlc:\s*false/);
 assert.match(route, /writes_allowed:\s*false/);
+assert.match(route, /broker_branch_finmind_dependency:\s*false/);
 assert.match(route, /\/family-openapi\.json/);
 assert.match(route, /\/privacy/);
 assert.doesNotMatch(route, /env\.DB|D1Database|INSERT\s|UPDATE\s|DELETE\s/i);
@@ -48,8 +50,8 @@ const compact = compactFamilyAnalysisForCustomGpt({
   service: "Taiwan Stock AI Family Read-Only API",
   version: "family-smart-analysis/test",
   route: "adaptive_stock_question",
-  question: "2330 怎麼看",
-  as_of_date: "2026-08-29",
+  question: "2330 最近分點怎麼樣",
+  as_of_date: "2026-09-04",
   resolved_symbols: ["2330"],
   adaptive_plan: { intent: "QUICK_STOCK_QUESTION", giant: hugeRows },
   family_policy: { jin10_events_read: "JIN10_MCP_READ_ONLY_FAIL_SOFT" },
@@ -58,6 +60,31 @@ const compact = compactFamilyAnalysisForCustomGpt({
     company: { stock_id: "2330", stock_name: "台積電" },
     market_snapshot: { source: "FUGLE_DISPLAY_QUOTE", quote: { close: 2420 }, latest_daily_bar: { close: 2420 } },
     technical: { status: "READY", source: "FORMAL", summary: { trend: "UP" }, recent_daily_bars: hugeRows },
+    chip: {
+      ok: true,
+      status: "READY",
+      requested_as_of: "2026-09-04",
+      preferred_current_evidence: "on_demand_current",
+      on_demand_current: {
+        status: "READY",
+        layers: {
+          institutional: { status: "READY", latest: { foreign_net: 1200 } },
+          margin_short: { status: "READY", latest: { margin_change: 50 } },
+        },
+      },
+      broker_branch_ranked: {
+        status: "READY",
+        completeness: "RANKED_ONLY",
+        buys: [{ broker_branch: "新加坡商瑞銀", net_lots: 287 }],
+        sells: [],
+      },
+      warrant_activity: { status: "READY", directionality: "NON_DIRECTIONAL_TURNOVER_ONLY" },
+      data_quality: {
+        current_exact_date_status: "READY",
+        previous_day_substitution: false,
+        broker_ranked_completeness: "RANKED_ONLY",
+      },
+    },
     fundamentals: {
       income_statement_rows: hugeRows,
       balance_sheet_rows: hugeRows,
@@ -77,7 +104,7 @@ const compact = compactFamilyAnalysisForCustomGpt({
       partial_errors: [],
     },
     eleven_point_analysis: { contract: "FIXED_1_TO_11_COMPLETE_TEMPLATE", coverage: { point_count: 11 }, points },
-    decision_readiness: { jin10_context: true },
+    decision_readiness: { jin10_context: true, current_chip: true },
     enrichment_diagnostics: { errors: [], fail_soft: true },
     family_intelligence: {
       jin10_context: { provider: "jin10-mcp" },
@@ -97,7 +124,11 @@ assert.equal(compact.stock_analyses[0].jin10_context.entity_resolution.company_n
 assert.equal(compact.stock_analyses[0].jin10_context.entity_resolution.numeric_symbol_suppressed, true);
 assert.ok(compact.stock_analyses[0].jin10_context.flash.length > 0);
 assert.ok(compact.stock_analyses[0].jin10_context.flash.length <= 5);
+assert.equal(compact.stock_analyses[0].chip.status, "READY");
+assert.equal(compact.stock_analyses[0].chip.broker_branch_ranked.status, "READY");
+assert.equal(compact.stock_analyses[0].chip.broker_branch_ranked.completeness, "RANKED_ONLY");
+assert.equal(compact.stock_analyses[0].chip.broker_branch_ranked.buys[0].broker_branch, "新加坡商瑞銀");
 assert.equal(compact.stock_analyses[0].eleven_point_analysis.points.length, 11);
 assert.doesNotMatch(serialized, /recent_daily_bars|income_statement_rows|balance_sheet_rows|cashflow_rows|five_level_book/);
 
-console.log("PASS legacy Family Custom GPT Action restored with bounded Jin10-capable response");
+console.log("PASS legacy Family Custom GPT Action restored with bounded current-chip + Jin10 response");

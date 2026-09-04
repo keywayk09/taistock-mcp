@@ -3,7 +3,7 @@ import {
   summarizeFamilyHoldingDistribution,
 } from "./family-eleven-point.ts";
 
-export const FAMILY_UNIFIED_EVIDENCE_VERSION = "family-evidence/v1.1.0";
+export const FAMILY_UNIFIED_EVIDENCE_VERSION = "family-evidence/v1.2.0";
 
 export type FamilyEvidenceClass =
   | "FORMAL_TRUTH"
@@ -46,7 +46,7 @@ function rec(value: unknown): AnyRecord {
 
 function normalizeStatus(value: unknown): FamilyEvidenceStatus {
   const status = String(value ?? "").toUpperCase();
-  if (status === "READY") return "READY";
+  if (status === "READY" || status === "READY_EMPTY") return "READY";
   if (status === "DEGRADED" || status === "READY_OR_DEGRADED" || status === "PARTIAL") return "DEGRADED";
   if (status === "PENDING") return "PENDING";
   return "UNAVAILABLE";
@@ -81,13 +81,13 @@ function compactPublishedLayer(value: unknown) {
   };
 }
 
-function compactPublishedChip(chip: AnyRecord) {
+function compactPublishedChip(chip: AnyRecord, historyAsOf: string | null) {
   const layers = rec(chip.layers);
   return {
-    status: chip.status ?? "UNAVAILABLE",
+    status: rec(chip.legacy_archive_context).status ?? chip.status ?? "UNAVAILABLE",
     symbol: chip.symbol ?? null,
     requested_as_of: chip.requested_as_of ?? null,
-    data_as_of: chip.data_as_of ?? null,
+    data_as_of: historyAsOf,
     calendar_days: chip.calendar_days ?? null,
     publication: chip.publication ?? null,
     data_quality: chip.data_quality ?? null,
@@ -95,7 +95,6 @@ function compactPublishedChip(chip: AnyRecord) {
     margin: compactPublishedLayer(layers.margin),
     securities_lending: compactPublishedLayer(layers.securities_lending),
     sbl_short_sale: compactPublishedLayer(layers.sbl_short_sale),
-    maintenance_risk: layers.maintenance_risk ?? null,
   };
 }
 
@@ -116,7 +115,7 @@ function governedContextNode(
     evidence_class: "GOVERNED_CONTEXT",
     status,
     source: status === "UNAVAILABLE" ? "UNAVAILABLE" : source,
-    as_of: value.as_of ?? value.data_as_of ?? value.date ?? null,
+    as_of: value.as_of ?? value.data_as_of ?? value.source_date ?? value.date ?? null,
     verification_level: status === "UNAVAILABLE" ? "NOT_ATTACHED" : String(value.verification_level ?? "GOVERNED_READ_ONLY"),
     formal_research_eligible: false,
     dataset_version: value.dataset_version ?? value.version ?? null,
@@ -134,6 +133,12 @@ export function buildFamilyUnifiedEvidence(input: FamilyUnifiedEvidenceInput) {
   const stockLive = rec(analysis.stock_live_context ?? intelligence.stock_live_context);
   const technical = rec(analysis.technical);
   const chip = rec(analysis.chip);
+  const chipQuality = rec(chip.data_quality);
+  const currentChipPayload = rec(chip.on_demand_current);
+  const brokerRanked = rec(chip.broker_branch_ranked);
+  const warrantActivity = rec(chip.warrant_activity);
+  const maintenanceRisk = rec(chip.current_maintenance_risk ?? rec(chip.layers).maintenance_risk);
+  const legacyArchive = rec(chip.legacy_archive_context);
   const monthlyRevenue = rec(intelligence.monthly_revenue);
   const accounting = rec(intelligence.accounting);
   const officialValuation = rec(intelligence.official_valuation);
@@ -148,8 +153,31 @@ export function buildFamilyUnifiedEvidence(input: FamilyUnifiedEvidenceInput) {
     : fallbackRealtimeReady
       ? "READY"
       : "UNAVAILABLE";
-  const formalPublishedChip = Boolean(chip.ok) && rec(chip.data_quality).formal_published === true;
-  const publishedChipStatus = formalPublishedChip ? normalizeStatus(chip.status) : "UNAVAILABLE";
+
+  const currentChipStatus = normalizeStatus(
+    chipQuality.current_exact_date_status
+      ?? currentChipPayload.status
+      ?? (chip.preferred_current_evidence === "on_demand_current" ? chip.status : null),
+  );
+  const currentChipAttached = Object.keys(currentChipPayload).length > 0;
+  const noPreviousDaySubstitution = chipQuality.previous_day_substitution !== true;
+  const currentChipFormal = currentChipAttached
+    && noPreviousDaySubstitution
+    && (currentChipStatus === "READY" || currentChipStatus === "DEGRADED");
+
+  // Compatibility: a direct historical Published object can still be supplied by
+  // replay/unit tests, while the modern facade exposes the same archive as
+  // legacy_archive_context. Historical evidence remains immutable but is not the
+  // critical current-day decision source.
+  const directPublished = Boolean(chip.ok) && chipQuality.formal_published === true && !currentChipAttached;
+  const legacyHistoryStatus = legacyArchive.status ?? (directPublished ? chip.status : null);
+  const formalPublishedChip = directPublished || Boolean(legacyArchive.status && chipQuality.formal_published === true);
+  const publishedChipStatus = formalPublishedChip ? normalizeStatus(legacyHistoryStatus) : "UNAVAILABLE";
+  const publishedHistoryAsOf = String(
+    legacyArchive.data_as_of
+      ?? (directPublished ? chip.data_as_of ?? rec(chip.publication).trade_date : "")
+      ?? "",
+  ) || null;
 
   const canonicalCandidate = rec(analysis.canonical_ohlc ?? intelligence.canonical_ohlc);
   const canonicalSource = String(canonicalCandidate.source ?? rec(canonicalCandidate.provenance).source ?? "");
@@ -231,24 +259,75 @@ export function buildFamilyUnifiedEvidence(input: FamilyUnifiedEvidenceInput) {
       data: normalizeStatus(technical.status) === "UNAVAILABLE" ? null : technical,
       notes: ["可描述研究型趨勢，不可產生正式操作價位。"],
     }),
+    current_chip: evidenceNode({
+      id: "current_chip",
+      evidence_class: "FORMAL_TRUTH",
+      status: currentChipStatus,
+      source: currentChipAttached ? "TWSE_TPEX_OFFICIAL_EXACT_DATE_ON_DEMAND" : "UNAVAILABLE",
+      as_of: currentChipAttached ? chip.requested_as_of ?? currentChipPayload.requested_as_of ?? input.as_of_date : null,
+      verification_level: currentChipFormal
+        ? (currentChipStatus === "READY" ? "OFFICIAL_EXACT_DATE_VERIFIED" : "OFFICIAL_EXACT_DATE_DEGRADED")
+        : "NOT_VERIFIED",
+      formal_research_eligible: currentChipFormal,
+      dataset_version: currentChipPayload.version ?? chip.provider_versions?.on_demand ?? null,
+      provenance: currentChipAttached ? {
+        source_health: currentChipPayload.source_health ?? null,
+        previous_day_substitution: chipQuality.previous_day_substitution ?? null,
+        persistence: chipQuality.current_normalized_persistence ?? "NONE",
+      } : null,
+      data: currentChipAttached ? currentChipPayload : null,
+      error: currentChipFormal ? null : chip.reason ?? "current_exact_date_chip_unavailable",
+      notes: [
+        "當期法人、融資融券、借券與借券賣出以TWSE/TPEx exact-date on-demand為準。",
+        "PENDING/缺資料不可拿前一交易日冒充。",
+        "此Formal Truth不包含MoneyDJ分點或權證方向推論；二者在獨立Governed Context節點。",
+      ],
+    }),
+    broker_branch: governedContextNode(
+      "broker_branch",
+      "MONEYDJ_BROKER_RANKED_PUBLIC_SECONDARY",
+      brokerRanked,
+      [
+        "分點只代表公開排名頁可見的RANKED_ONLY資料，不是完整分點inventory。",
+        "未出現在排名中不得解讀為零交易或沒有參與。",
+        "此adapter不依賴FinMind token。",
+      ],
+    ),
+    warrant_activity: governedContextNode(
+      "warrant_activity",
+      "TWSE_TPEX_WARRANT_ACTIVITY_NON_DIRECTIONAL",
+      warrantActivity,
+      [
+        "權證公開成交量/成交額只代表活動度。",
+        "不得由turnover推論aggressor買方、買超或dealer hedge方向。",
+      ],
+    ),
+    maintenance_risk: governedContextNode(
+      "maintenance_risk",
+      "ESTIMATED_POSITION_MAINTENANCE_PROXY",
+      maintenanceRisk,
+      ["此為公開資料可計算的部位維持率代理值，不等同券商整戶擔保維持率。"],
+    ),
     published_chip: evidenceNode({
       id: "published_chip",
       evidence_class: "FORMAL_TRUTH",
       status: publishedChipStatus,
-      source: formalPublishedChip ? "PUBLISHED_GENERATION" : "UNAVAILABLE",
-      as_of: formalPublishedChip ? chip.data_as_of ?? rec(chip.publication).trade_date ?? null : null,
-      verification_level: formalPublishedChip ? "GENERATION_FENCED_PUBLISHED" : "NOT_VERIFIED",
+      source: formalPublishedChip ? "PUBLISHED_GENERATION_HISTORY_CONTEXT" : "UNAVAILABLE",
+      as_of: formalPublishedChip ? publishedHistoryAsOf : null,
+      verification_level: formalPublishedChip ? "GENERATION_FENCED_PUBLISHED_HISTORY" : "NOT_VERIFIED",
       formal_research_eligible: formalPublishedChip,
-      dataset_version: formalPublishedChip ? chip.version ?? null : null,
+      dataset_version: formalPublishedChip ? chip.provider_versions?.legacy_archive ?? chip.version ?? null : null,
       provenance: formalPublishedChip ? {
+        role: "HISTORY_CONTEXT_ONLY",
         publication: chip.publication ?? null,
+        legacy_archive_context: legacyArchive,
         datasets: Array.isArray(chip.datasets) ? chip.datasets : [],
       } : null,
-      data: formalPublishedChip ? compactPublishedChip(chip) : null,
-      error: formalPublishedChip ? null : chip.reason ?? "published_generation_unavailable",
+      data: formalPublishedChip ? compactPublishedChip(chip, publishedHistoryAsOf) : null,
+      error: formalPublishedChip ? null : legacyArchive.reason ?? chip.reason ?? "published_history_unavailable",
       notes: [
-        "三大法人、融資融券、借券與借券賣出只認Published generation。",
-        "Web與即時資料不可覆寫此層。",
+        "Published generation保留為不可變歷史/replay證據。",
+        "它不再覆蓋或取代當期TWSE/TPEx exact-date on-demand資料。",
       ],
     }),
     holder_structure: evidenceNode({
@@ -265,7 +344,7 @@ export function buildFamilyUnifiedEvidence(input: FamilyUnifiedEvidenceInput) {
       },
       notes: [
         "400/1000張大戶為集保級距代理值，保留原始級距語意。",
-        "外資持股比是補充證據，不取代Published法人買賣超。",
+        "外資持股比是補充證據，不取代當期官方法人買賣超。",
       ],
     }),
     fundamentals: evidenceNode({
@@ -283,7 +362,7 @@ export function buildFamilyUnifiedEvidence(input: FamilyUnifiedEvidenceInput) {
       },
       notes: [
         "缺值保持null/UNKNOWN。",
-        "官方估值與結構化財報可支援判讀，但不與正式OHLC/Published籌碼混為同一資料身份。",
+        "官方估值與結構化財報可支援判讀，但不與正式OHLC或當期官方籌碼混為同一資料身份。",
       ],
     }),
     txf_context: governedContextNode(
@@ -322,7 +401,7 @@ export function buildFamilyUnifiedEvidence(input: FamilyUnifiedEvidenceInput) {
 
   const criticalLayers = [
     ["canonical_ohlc", evidence.canonical_ohlc],
-    ["published_chip", evidence.published_chip],
+    ["current_chip", evidence.current_chip],
     ["fundamentals", evidence.fundamentals],
   ] as const;
   const missingCritical = criticalLayers
@@ -370,6 +449,8 @@ export function buildFamilyUnifiedEvidence(input: FamilyUnifiedEvidenceInput) {
     },
     evidence_rules: [
       "FORMAL_TRUTH只接受已治理且符合身份契約的資料。",
+      "當期官方籌碼與Published歷史是不同時間身份，不能互相覆蓋。",
+      "MoneyDJ分點與權證活動屬GOVERNED_CONTEXT，不能自行升級成官方方向性資料。",
       "GOVERNED_CONTEXT可支援判讀，但不能覆寫FORMAL_TRUTH。",
       "DISPLAY_FALLBACK只能作顯示/研究補充。",
       "Stock Live五檔與Order Flow不得持久化或冒充正式OHLC。",

@@ -1,4 +1,4 @@
-export const FAMILY_ELEVEN_POINT_VERSION = "family-eleven-point/v1.1.0";
+export const FAMILY_ELEVEN_POINT_VERSION = "family-eleven-point/v1.2.0";
 
 type AnyRecord = Record<string, any>;
 
@@ -247,10 +247,10 @@ export function buildFamilyElevenPointAnalysis(input: ElevenPointInput) {
       accounting_risk_score: accounting.risk_score ?? null,
     }, ["法說、財報、產品時程、報價、政策、產業事件、近期新聞與反向風險"]),
     point(8, "籌碼風向｜400/1000張大戶＋法人籌碼", chipReady || holding.status === "READY" || foreign.status === "READY" ? "READY_OR_DEGRADED" : "DEGRADED", {
-      formal_published_chip: chip,
+      current_chip_evidence: chip,
       holder_distribution: holding,
       foreign_shareholding: foreign,
-      policy: "三大法人/融資融券/借券以Published generation為正式層；股權分級與外資持股為FinMind唯讀補充。",
+      policy: "當期三大法人/融資融券/借券優先採TWSE/TPEx exact-date on-demand官方證據；MoneyDJ分點僅RANKED_ONLY、權證僅非方向性activity，Published generation只作歷史/replay context；股權分級與外資持股為FinMind唯讀補充。",
     }, [], ["股權分級資料不足時不可用新聞猜400/1000張數字。"]),
     point(9, "同產業個股｜同族群與最像同業", industry.peer_candidates?.length ? "PARTIAL_NEEDS_WEB" : "NEEDS_WEB_RESEARCH", {
       peer_candidates: industry.peer_candidates ?? [],
@@ -299,7 +299,7 @@ export function buildFamilyElevenPointAnalysis(input: ElevenPointInput) {
     final_answer_policy: [
       "最終個股回答固定輸出1到11，不省略或合併。",
       "Web可補公司、產業、產能、客戶、訂單、供應鏈、同業、催化劑與機構研究，但需標示來源。",
-      "正式籌碼不可由Web取代；以Published generation為準。",
+      "當期正式籌碼以TWSE/TPEx exact-date on-demand官方證據為準；Web/FinMind不得冒充，Published generation只作歷史/replay context。",
       "正式OHLC不可由Web或研究型K線冒充。",
       "第10點公開機構目標價與引擎PE×EPS合理價分開。",
       "缺值保持UNKNOWN/null，不為湊11點捏造數字。",
