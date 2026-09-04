@@ -49,7 +49,27 @@ jobs:
                   print('WINDOW_SNIPPET_START')
                   print(re.sub(r'\s+',' ',snippet)[:8500])
                   print('WINDOW_SNIPPET_END')
-          for pat in ['sy','sm','sd','ey','em','ed','start','end','date','From','To','B1','B2','D1','D2']:
-              hits=sorted(set(re.findall(r'(?i)(?:name|id)\s*=\s*["\']([^"\']*'+re.escape(pat)+r'[^"\']*)["\']',text)))
-              if hits: print('NAME_HINT',pat,hits[:30])
+          PY
+      - name: Inspect MoneyDJ interval navigation javascript
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import re, urllib.request
+          urls=[
+            'https://www.moneydj.com/z/js/zbrokerjs.djjs',
+            'https://www.moneydj.com/z/js/rollover.djjs',
+          ]
+          for url in urls:
+              req=urllib.request.Request(url,headers={'User-Agent':'Diamond-Broker-Ranked-ReadOnly/1.0','Accept':'text/javascript,*/*'})
+              with urllib.request.urlopen(req,timeout=25) as r:
+                  raw=r.read(); ctype=r.headers.get('Content-Type','')
+              text=raw.decode('big5','replace')
+              print('SCRIPT',url,'bytes',len(raw),'ctype',ctype)
+              for fn in ['goA','goC','CheckDate']:
+                  m=re.search(r'function\s+'+fn+r'\s*\([^)]*\)\s*\{[\s\S]{0,2500}?\n\}',text,re.I)
+                  if m: print('FUNCTION',fn,re.sub(r'\s+',' ',m.group(0))[:2500])
+              for line in text.splitlines():
+                  if any(k in line for k in ['bDate','eDate','document.F.D','location','window.open','ZCO.djhtm']):
+                      print('LINE',line.strip()[:1200])
           PY
