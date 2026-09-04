@@ -1,0 +1,79 @@
+name: One-shot MoneyDJ transport diagnostic
+
+on:
+  push:
+    branches:
+      - diag/moneydj-transport-20260904
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe public MoneyDJ representations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, re, subprocess
+
+          urls = [
+              ("primary", "https://www.moneydj.com/Z/ZC/ZCO/ZCO.djhtm?a=2330&e="),
+              ("primary_b2", "https://www.moneydj.com/Z/ZC/ZCO/ZCO.djhtm?a=2330&b=2"),
+              ("stock_named", "https://www.moneydj.com/z/zc/zco/zco_2330.djhtm"),
+              ("stock_named_5", "https://www.moneydj.com/z/zc/zco/zco_2330_5.djhtm"),
+          ]
+          ua = "Diamond-Broker-Ranked-ReadOnly/1.0"
+          for label, url in urls:
+              for attempt in range(1, 4):
+                  body = f"/tmp/{label}-{attempt}.body"
+                  head = f"/tmp/{label}-{attempt}.head"
+                  cmd = [
+                      "curl", "-L", "--silent", "--show-error", "--max-time", "20",
+                      "-A", ua, "-D", head, "-o", body,
+                      "-w", "%{http_code}|%{url_effective}|%{content_type}|%{size_download}",
+                      url,
+                  ]
+                  p = subprocess.run(cmd, text=True, capture_output=True)
+                  meta = p.stdout.strip() if p.stdout else "curl_no_meta"
+                  try:
+                      raw = open(body, "rb").read()
+                  except FileNotFoundError:
+                      raw = b""
+                  headers = open(head, "rb").read().decode("latin1", "replace") if __import__('os').path.exists(head) else ""
+                  charset = None
+                  m = re.search(r"charset\s*=\s*['\"]?([A-Za-z0-9._-]+)", headers, re.I)
+                  if not m:
+                      m = re.search(br"charset\s*=\s*['\"]?([A-Za-z0-9._-]+)", raw[:8192], re.I)
+                      if m:
+                          charset = m.group(1).decode("ascii", "ignore")
+                  else:
+                      charset = m.group(1)
+                  decoded = []
+                  for enc in [charset, "utf-8", "big5", "cp950"]:
+                      if not enc or enc in [x[0] for x in decoded]:
+                          continue
+                      try:
+                          text = raw.decode(enc, "replace")
+                      except LookupError:
+                          continue
+                      date = None
+                      mm = re.search(r"最後更新日\s*[：:]?\s*((?:\d{4}[/-])?\d{1,2}[/-]\d{1,2})", text)
+                      if mm:
+                          date = mm.group(1)
+                      decoded.append((enc, "最後更新日" in text, "券商分點" in text, date, len(re.findall(r"<tr\b", text, re.I))))
+                  print({
+                      "label": label,
+                      "attempt": attempt,
+                      "curl_rc": p.returncode,
+                      "meta": meta,
+                      "charset_hint": charset,
+                      "sha256": hashlib.sha256(raw).hexdigest() if raw else None,
+                      "bytes": len(raw),
+                      "decoded_markers": decoded,
+                  })
+          PY
