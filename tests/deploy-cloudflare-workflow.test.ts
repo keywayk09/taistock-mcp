@@ -27,6 +27,23 @@ for (const step of ["oauth_kv", "deploy", "cron", "smoke"]) {
   assert.ok(workflow.includes(`steps.${step}.outcome != 'success'`), `${step} outcome must remain enforced`);
 }
 
+// The non-OHLC chip scheduler is retired. Production deploy must actively clear
+// persisted Cloudflare schedules because removing `triggers.crons` from Wrangler
+// does not by itself guarantee an old remote schedule disappears.
+assert.match(workflow, /Remove and verify all Worker Cron Triggers/);
+assert.match(workflow, /workers\/scripts\/taistock-mcp\/schedules/);
+assert.match(workflow, /--data '\[\]'/);
+assert.match(workflow, /cron_retirement_verify_failed/);
+assert.match(workflow, /CRON_TRIGGER_RETIREMENT_FAILED/);
+assert.match(workflow, /DEPLOYED_NO_CRON_AND_FULL_MARKET_SMOKE_VERIFIED/);
+assert.match(workflow, /"scheduled_chip_capture": "DISABLED"/);
+assert.match(workflow, /"worker_cron_schedules": \[\]/);
+assert.doesNotMatch(workflow, /Install and verify five-minute Cron Trigger/);
+assert.doesNotMatch(workflow, /--data '\[\{"cron"/);
+assert.match(workflow, /scheduled_chip_capture'\) != 'DISABLED'/);
+assert.match(workflow, /current_chip_persistence'\) != 'NONE'/);
+assert.match(workflow, /ohlc_policy'\) != 'UNCHANGED_CANONICAL_PIPELINE'/);
+
 assert.match(note, /PRODUCTION_WRITER_AUTHORITY_COLLISION_MAIN_WATCHDOG_VS_UNMERGED_CUTOVER/);
 assert.match(note, /watchdog Run `33534917011`/);
 assert.match(note, /canonical main deploy Run `33534927601`/);
