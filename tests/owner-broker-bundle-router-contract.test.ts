@@ -26,4 +26,8 @@ assert.match(brokerBlock, /date:\s*dateSchema/);
 assert.match(brokerBlock, /top_n:/);
 assert.doesNotMatch(brokerBlock, /windows?|provider|period/i, "do not change frozen Owner broker input schema");
 
+// Keep the post-deploy read-only probe contract in the deterministic market-data
+// suite. This is a pure mocked-network test and never contacts Production.
+await import("./broker-production-readonly-probe.test.mjs");
+
 console.log("Owner frozen broker tool whole-provider bundle contract passed");
