@@ -152,8 +152,10 @@ function blindMemory(date: string, symbol: string) {
   assert.equal(body.error, "INVALID_SOURCE_REVISION");
 }
 
-// The Cloudflare wrapper is statically constrained to intercept only the new
-// namespace. Actual module resolution/bundling is verified by Wrangler dry-run.
+// The Cloudflare wrapper is statically constrained to intercept the bounded
+// Automation namespace while delegating every ordinary request to index-v6.
+// Root /health may overlay migration metadata only after the delegated response;
+// this must not alter Automation routes or public MCP ingress behavior.
 const wrapperSource = await readFile(new URL("../src/index-automation-bridge.ts", import.meta.url), "utf8");
 const bridgeSource = await readFile(new URL("../src/v6/automation-research-rest.ts", import.meta.url), "utf8");
 const ohlcRouteSource = await readFile(new URL("../src/v6/automation-ohlc-1d-route.ts", import.meta.url), "utf8");
@@ -162,8 +164,13 @@ const wrangler = JSON.parse(wranglerText.replace(/\/\*[\s\S]*?\*\//g, ""));
 assert.equal(wrangler.main, "src/index-automation-bridge.ts");
 assert.match(wrapperSource, /url\.pathname === "\/research\/automation\/ohlc-1d"/);
 assert.match(wrapperSource, /url\.pathname\.startsWith\("\/research\/automation"\)/);
-assert.match(wrapperSource, /return app\.fetch\(request, env, ctx\)/);
-assert.match(wrapperSource, /return app\.scheduled\(controller, env, ctx\)/);
+assert.match(wrapperSource, /const response = await app\.fetch\(request, env, ctx\)/);
+assert.match(wrapperSource, /\(url\.pathname === "\/" \|\| url\.pathname === "\/health"\)/);
+assert.match(wrapperSource, /return withOnDemandHealthMetadata\(response\)/);
+assert.match(wrapperSource, /return response/);
+assert.match(wrapperSource, /status:\s*"RETIRED_NOOP"/);
+assert.match(wrapperSource, /reason:\s*"NON_OHLC_CHIP_DATA_MOVED_TO_ON_DEMAND"/);
+assert.doesNotMatch(wrapperSource, /return app\.scheduled\(/);
 assert.match(wrapperSource, /export \{ FamilyMCP, MyMCP \} from "\.\/index-v6\.ts"/);
 assert.match(ohlcRouteSource, /LEGACY_DERIVED_1M_LOTS_TO_SHARES/);
 assert.doesNotMatch(bridgeSource + ohlcRouteSource, /putImmutableGitHubJson|updateGitHubJson|fetch\([^\n]*url\.searchParams\.get\("url"/);
