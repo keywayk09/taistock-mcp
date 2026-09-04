@@ -21,9 +21,10 @@ assert.equal(fixture.tool_names.length, 79);
 assert.equal(new Set(fixture.tool_names).size, 79);
 
 const captured:string[] = [];
+const capturedToolConfigs = new Map<string, any>();
 const capturedResources:{name:string;uri:string}[] = [];
 const fakeServer = {
-  registerTool(name:string){ captured.push(name); },
+  registerTool(name:string, config?:unknown){ captured.push(name); capturedToolConfigs.set(name, config); },
   registerResource(name:string, uri:string){ capturedResources.push({ name, uri }); },
 };
 const cjsRequire = createRequire(import.meta.url) as NodeJS.Require & { extensions:Record<string,(module:unknown,filename:string)=>void> };
@@ -77,6 +78,18 @@ const missing = fixture.tool_names.filter((name) => !live.has(name));
 assert.deepEqual([...missing].sort(), [...compatNames].sort(), "historical 79 facade gap must be covered exactly by the compatibility interceptor");
 assert.ok(fixture.tool_names.every((name) => live.has(name) || compatNames.includes(name)), "every frozen ChatGPT tool must be callable through modern registration or compatibility interception");
 
+for (const tool of ["get_broker_chips", "get_institutional", "get_margin", "get_short_pressure"]) {
+  assert.ok(live.has(tool), `${tool} must remain callable under the frozen Owner schema`);
+}
+const brokerDescription = String(capturedToolConfigs.get("get_broker_chips")?.description ?? "");
+assert.match(brokerDescription, /MoneyDJ/);
+assert.match(brokerDescription, /Ranked-only|RANKED_ONLY/i);
+assert.doesNotMatch(brokerDescription, /FinMind單日券商分點淨買賣/);
+for (const tool of ["get_institutional", "get_margin", "get_short_pressure"]) {
+  const description = String(capturedToolConfigs.get(tool)?.description ?? "");
+  assert.match(description, /exact-date on-demand/i, `${tool} must advertise the current exact-date read plane`);
+}
+
 assert.ok(tryCompat, "compatibility tools/call interceptor must be exported");
 const legacyCall = new Request("https://taistock-mcp.example/my-mcp", {
   method:"POST",
@@ -108,6 +121,23 @@ const compatSource = fs.readFileSync(compatPath, "utf8");
 assert.doesNotMatch(compatSource, /\bD1Database\b|env\.DB\b|\.prepare\(/, "fixed facade compat must not restore D1 app persistence");
 assert.doesNotMatch(compatSource, /\bR2Bucket\b/, "fixed facade compat must not introduce R2 app persistence");
 assert.match(compatSource, /method !== "tools\/call"/, "compatibility adapter must intercept only tools/call");
+assert.match(compatSource, /getTwMarketChipSummaryOnDemand/, "frozen chip aliases must use the current on-demand facade");
+assert.doesNotMatch(compatSource, /getTwMarketChipSummaryPublished|tw-market-data-github-live/, "frozen chip aliases must not use Published/GitHub-live as current evidence");
+assert.match(compatSource, /LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY/, "market-wide frozen aliases must explicitly fail closed to history-only semantics");
+
+const bridgePath = path.join(root, "src/v6/legacy-owner-chip-tools.ts");
+const bridgeSource = fs.readFileSync(bridgePath, "utf8");
+assert.match(bridgeSource, /getTwBrokerRankedOnDemand/);
+assert.match(bridgeSource, /getTwChipOnDemandSnapshot/);
+assert.match(bridgeSource, /HISTORY_CONTEXT_ONLY/);
+assert.match(bridgeSource, /missing_branch_means_zero:\s*false/);
+assert.match(bridgeSource, /previous_day_substitution:\s*false/);
+assert.doesNotMatch(bridgeSource, /\bfinmind\s*\(|FINMIND_TOKEN|taiwan_stock_trading_daily_report/, "frozen Owner chip bridge must never execute the retired FinMind current-chip provider");
+
+const ownerPath = path.join(root, "src/v6/owner-content-handler.ts");
+const ownerSource = fs.readFileSync(ownerPath, "utf8");
+assert.match(ownerSource, /LEGACY_OWNER_CHIP_OVERRIDE_TOOL_NAMES/);
+assert.match(ownerSource, /registerLegacyOwnerChipTools\(this\.server, this\.env\)/);
 
 console.log(JSON.stringify({
   schema:"DIAMOND_CHATGPT_FIXED_FACADE_TEST_V1",
@@ -116,5 +146,6 @@ console.log(JSON.stringify({
   modern_owner_tools:123,
   static_resources:capturedResources.length,
   compatibility_intercepts:39,
+  owner_chip_overrides:4,
   production_mutation:"NONE",
 }, null, 2));
