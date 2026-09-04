@@ -4,6 +4,7 @@ import {
   getTwBrokerRankedWindowBundleOnDemand,
   resetTwBrokerRankedCacheForTests,
 } from "../src/v6/tw-broker-ranked-on-demand.ts";
+import { resetTwseTradingCalendarCacheForTests } from "../src/v6/twse-trading-calendar-on-demand.ts";
 
 const table = (date: string) => `<!doctype html><html><body>
 <div>台積電(2330) 券商分點-進出明細 單位：張　最後更新日：${date}</div>
@@ -63,7 +64,8 @@ resetTwBrokerRankedCacheForTests();
   assert.equal(result.completeness, "RANKED_ONLY");
   assert.equal(result.persistence, "NONE");
   assert.equal((result as any).source_query_mode, "CUSTOM_EXACT_DATE");
-  assert.match(result.source_url, /[?&]e=2026-09-03&f=2026-09-03$/);
+  assert.equal((result as any).requested_range_start, "2026-09-03");
+  assert.match(String(result.source_url), /[?&]e=2026-09-03&f=2026-09-03$/);
   assert.equal(result.buys[0]?.broker_branch, "凱基-台北");
   assert.equal(result.buys[0]?.net_lots, 700);
   assert.equal(result.sells[0]?.broker_branch, "花旗環球");
@@ -141,44 +143,73 @@ resetTwBrokerRankedCacheForTests();
 }
 
 resetTwBrokerRankedCacheForTests();
+resetTwseTradingCalendarCacheForTests();
 {
   const requestedUrls: string[] = [];
   const fixtures = new Map<string, string>([
-    ["1D", windowTable({ date: "2026/09/04", selector: 1, label: "近一日", buyBranch: "單日買方", buyNet: 100, sellBranch: "單日賣方", sellNet: 90 })],
-    ["5D", windowTable({ date: "2026/09/04", selector: 2, label: "近五日", buyBranch: "長線累積", buyNet: 500, sellBranch: "短空長多", sellNet: 400 })],
-    ["10D", windowTable({ date: "2026/09/04", selector: 3, label: "近十日", buyBranch: "長線累積", buyNet: 900, sellBranch: "短空長多", sellNet: 600 })],
-    ["20D", windowTable({ date: "2026/09/04", selector: 4, label: "近20日", buyBranch: "長線累積", buyNet: 1600, sellBranch: "長線派發", sellNet: 1200 })],
-    ["60D", windowTable({ date: "2026/09/04", selector: 6, label: "近60日", buyBranch: "短空長多", buyNet: 3000, sellBranch: "長線派發", sellNet: 2600 })],
+    ["1D", windowTable({ date: "2026/09/03", selector: 1, label: "近一日", buyBranch: "單日買方", buyNet: 100, sellBranch: "單日賣方", sellNet: 90 })],
+    ["5D", windowTable({ date: "2026/09/03", selector: 2, label: "近五日", buyBranch: "長線累積", buyNet: 500, sellBranch: "短空長多", sellNet: 400 })],
+    ["10D", windowTable({ date: "2026/09/03", selector: 3, label: "近十日", buyBranch: "長線累積", buyNet: 900, sellBranch: "短空長多", sellNet: 600 })],
+    ["20D", windowTable({ date: "2026/09/03", selector: 4, label: "近20日", buyBranch: "長線累積", buyNet: 1600, sellBranch: "長線派發", sellNet: 1200 })],
+    ["60D", windowTable({ date: "2026/09/03", selector: 6, label: "近60日", buyBranch: "短空長多", buyNet: 3000, sellBranch: "長線派發", sellNet: 2600 })],
+  ]);
+  const startToKey = new Map([
+    ["2026-09-03", "1D"],
+    ["2026-08-28", "5D"],
+    ["2026-08-21", "10D"],
+    ["2026-08-07", "20D"],
+    ["2026-06-11", "60D"],
   ]);
   const fetcher: typeof fetch = async (input) => {
     const url = String(input);
     requestedUrls.push(url);
-    let key = "1D";
-    if (/_2\.djhtm$/i.test(url)) key = "5D";
-    else if (/_3\.djhtm$/i.test(url)) key = "10D";
-    else if (/_4\.djhtm$/i.test(url)) key = "20D";
-    else if (/_6\.djhtm$/i.test(url)) key = "60D";
+    const start = new URL(url).searchParams.get("e") ?? "";
+    const key = startToKey.get(start);
+    assert.ok(key, `unexpected MoneyDJ custom range: ${url}`);
     return new Response(fixtures.get(key)!, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
   };
+  let calendarFetchCount = 0;
+  const calendarFetcher: typeof fetch = async () => {
+    calendarFetchCount += 1;
+    return new Response(JSON.stringify({
+      stat: "ok",
+      queryYear: 2026,
+      data: [["2026-06-19", "端午節", "依規定放假1日。"]],
+    }), { status: 200, headers: { "content-type": "application/json; charset=utf-8" } });
+  };
 
-  const bundle = await getTwBrokerRankedWindowBundleOnDemand({ symbol: "2330", as_of: "2026-09-04", fetcher });
+  const bundle = await getTwBrokerRankedWindowBundleOnDemand({
+    symbol: "2330",
+    as_of: "2026-09-03",
+    fetcher,
+    calendar_fetcher: calendarFetcher,
+  });
   assert.equal(bundle.status, "READY");
   assert.equal(bundle.server_side_interval_aggregation, true);
   assert.equal(bundle.daily_rank_summing, false);
   assert.equal(bundle.missing_branch_means_zero, false);
+  assert.equal(bundle.previous_day_substitution, false);
   assert.deepEqual(bundle.requested_windows, [1, 5, 10, 20, 60]);
   assert.equal((bundle.windows["1D"] as any).source_query_mode, "CUSTOM_EXACT_DATE");
-  assert.ok(requestedUrls.some((url) => /[?&]e=2026-09-04&f=2026-09-04$/.test(url)), "1D must use MoneyDJ exact-date custom range");
+  assert.equal((bundle.windows["5D"] as any).source_query_mode, "CUSTOM_TRADING_DAY_RANGE");
+  assert.equal((bundle.windows["5D"] as any).requested_range_start, "2026-08-28");
+  assert.equal((bundle.windows["10D"] as any).requested_range_start, "2026-08-21");
+  assert.equal((bundle.windows["20D"] as any).requested_range_start, "2026-08-07");
+  assert.equal((bundle.windows["60D"] as any).requested_range_start, "2026-06-11");
+  assert.equal((bundle.windows["60D"] as any).source_range_verified, true);
+  assert.equal(calendarFetchCount, 1, "multi-window reads should reuse one cached TWSE yearly calendar");
+  for (const [start, key] of startToKey) {
+    assert.ok(
+      requestedUrls.some((url) => url.includes(`e=${start}&f=2026-09-03`)),
+      `${key} must use exact historical custom range ending requested_as_of`,
+    );
+  }
+  assert.ok(requestedUrls.every((url) => /zco\.djhtm\?a=2330&e=/.test(url)), "no fixed latest-window page may substitute for historical as_of");
   assert.equal(bundle.windows["5D"].source_window_label, "近五日");
   assert.equal(bundle.windows["10D"].source_window_label, "近十日");
   assert.equal(bundle.windows["20D"].source_window_label, "近20日");
   assert.equal(bundle.windows["60D"].source_window_label, "近60日");
   assert.equal(bundle.windows["60D"].source_date_verified, true);
-  assert.ok(requestedUrls.some((url) => /zco_2330_2\.djhtm$/i.test(url)), "5D must use MoneyDJ selector _2");
-  assert.ok(requestedUrls.some((url) => /zco_2330_3\.djhtm$/i.test(url)), "10D must use MoneyDJ selector _3");
-  assert.ok(requestedUrls.some((url) => /zco_2330_4\.djhtm$/i.test(url)), "20D must use MoneyDJ selector _4");
-  assert.ok(requestedUrls.some((url) => /zco_2330_6\.djhtm$/i.test(url)), "60D must use MoneyDJ selector _6");
-  assert.ok(!requestedUrls.some((url) => /[?&]e=2(?:&|$)/.test(url)), "D selector must never be guessed as e=2");
 
   const accumulating = bundle.branch_matrix.find((row) => row.broker_branch === "長線累積");
   assert.ok(accumulating);
