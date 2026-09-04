@@ -152,6 +152,12 @@ function retired(tool: string, modernCapability: string, detail: string) {
   });
 }
 
+function historyLayerOf(summary: unknown, key: string) {
+  const record = summary && typeof summary === "object" ? summary as Record<string, any> : {};
+  const layers = record.layers && typeof record.layers === "object" ? record.layers as Record<string, any> : {};
+  return layers[key] ?? null;
+}
+
 async function onDemandSummary(env: Env, symbol: string, as_of: string | undefined) {
   return getTwMarketChipSummaryOnDemand(env, { symbol, as_of, calendar_days: 60 });
 }
@@ -172,7 +178,7 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
       history_context: {
         role: "HISTORY_CONTEXT_ONLY",
         data_as_of: summary.legacy_archive_context?.data_as_of ?? null,
-        layer: summary.layers?.institutional ?? null,
+        layer: historyLayerOf(summary, "institutional"),
       },
       previous_day_substitution: false,
     });
@@ -190,7 +196,7 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
       history_context: {
         role: "HISTORY_CONTEXT_ONLY",
         data_as_of: summary.legacy_archive_context?.data_as_of ?? null,
-        layer: summary.layers?.margin ?? null,
+        layer: historyLayerOf(summary, "margin"),
       },
       previous_day_substitution: false,
     });
