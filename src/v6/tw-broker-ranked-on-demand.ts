@@ -3,7 +3,7 @@ import {
   TWSE_TRADING_CALENDAR_ON_DEMAND_VERSION,
 } from "./twse-trading-calendar-on-demand.ts";
 
-export const TW_BROKER_RANKED_ON_DEMAND_VERSION = "tw-broker-ranked-on-demand/v1.4.0";
+export const TW_BROKER_RANKED_ON_DEMAND_VERSION = "tw-broker-ranked-on-demand/v1.5.0";
 
 export type TwBrokerWindowDays = 1 | 5 | 10 | 20 | 40 | 60 | 120 | 240;
 
@@ -22,6 +22,7 @@ type RankedBrokerRow = {
 type DecodedPage = {
   text: string;
   charset: string;
+  charset_resolution: "HTTP_HEADER" | "HTML_META" | "AUTO_SEMANTIC";
   attempts: number;
   http_status: number;
 };
@@ -74,17 +75,17 @@ function numberOf(value: string): number | null {
 }
 
 function normalizePageDate(raw: string, requestedDate: string) {
-  const text = raw.trim();
-  const full = text.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})$/);
+  const text = raw.trim().replace(/／/g, "/").replace(/．/g, ".");
+  const full = text.match(/^(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})$/);
   if (full) return `${full[1]}-${full[2].padStart(2, "0")}-${full[3].padStart(2, "0")}`;
-  const short = text.match(/^(\d{1,2})[\/-](\d{1,2})$/);
+  const short = text.match(/^(\d{1,2})[\/.-](\d{1,2})$/);
   if (short) return `${requestedDate.slice(0, 4)}-${short[1].padStart(2, "0")}-${short[2].padStart(2, "0")}`;
   return null;
 }
 
 function parseUpdatedDate(html: string, requestedDate: string) {
   const text = textOf(html);
-  const match = text.match(/最後更新日\s*[：:]?\s*((?:\d{4}[\/-])?\d{1,2}[\/-]\d{1,2})/);
+  const match = text.match(/(?:最後更新日(?:期)?|更新日期|資料日期)\s*[：:]?\s*((?:\d{4}[\/\.\-／．])?\d{1,2}[\/\.\-／．]\d{1,2})/);
   return match ? normalizePageDate(match[1], requestedDate) : null;
 }
 
@@ -147,24 +148,92 @@ function parseRankedOutputTotals(html: string) {
   };
 }
 
-function normalizeCharset(contentType: string | null) {
-  const match = contentType?.match(/charset\s*=\s*["']?([^;\s"']+)/i);
-  const raw = match?.[1]?.trim().toLowerCase() ?? "utf-8";
+function normalizeCharset(rawValue: string | null) {
+  if (!rawValue) return null;
+  const raw = rawValue.trim().toLowerCase();
+  if (!raw) return null;
   if (raw === "cp950" || raw === "950" || raw === "big-5") return "big5";
   if (raw === "utf8") return "utf-8";
   return raw;
 }
 
-async function decodeResponse(response: Response) {
-  const charset = normalizeCharset(response.headers.get("content-type"));
-  const bytes = await response.arrayBuffer();
-  let decoder: TextDecoder;
+function headerCharset(contentType: string | null) {
+  const match = contentType?.match(/charset\s*=\s*["']?([^;\s"']+)/i);
+  return normalizeCharset(match?.[1] ?? null);
+}
+
+function asciiPrefix(bytes: ArrayBuffer, maxBytes = 8192) {
+  const view = new Uint8Array(bytes, 0, Math.min(bytes.byteLength, maxBytes));
+  let out = "";
+  for (const byte of view) out += String.fromCharCode(byte);
+  return out;
+}
+
+function metaCharset(bytes: ArrayBuffer) {
+  const ascii = asciiPrefix(bytes);
+  const direct = ascii.match(/<meta\b[^>]*charset\s*=\s*["']?\s*([A-Za-z0-9._-]+)/i);
+  if (direct) return normalizeCharset(direct[1]);
+  const content = ascii.match(/<meta\b[^>]*content\s*=\s*["'][^"']*charset\s*=\s*([A-Za-z0-9._-]+)/i);
+  return normalizeCharset(content?.[1] ?? null);
+}
+
+function decodeBytes(bytes: ArrayBuffer, charset: string) {
   try {
-    decoder = new TextDecoder(charset);
+    return new TextDecoder(charset).decode(bytes);
   } catch {
     throw new Error(`unsupported_charset:${charset}`);
   }
-  return { text: decoder.decode(bytes), charset };
+}
+
+function brokerSemanticScore(text: string) {
+  let score = 0;
+  if (/(?:最後更新日(?:期)?|更新日期|資料日期)/.test(text)) score += 30;
+  if (/券商分點|進出明細/.test(text)) score += 20;
+  if (/買超券商|賣超券商/.test(text)) score += 20;
+  if (/合計買超張數|合計賣超張數/.test(text)) score += 8;
+  if (/<table\b/i.test(text)) score += 2;
+  const replacements = text.match(/\uFFFD/g)?.length ?? 0;
+  score -= Math.min(replacements, 100);
+  return score;
+}
+
+async function decodeResponse(response: Response) {
+  const bytes = await response.arrayBuffer();
+  const declared = headerCharset(response.headers.get("content-type"));
+  if (declared) {
+    return {
+      text: decodeBytes(bytes, declared),
+      charset: declared,
+      charset_resolution: "HTTP_HEADER" as const,
+    };
+  }
+
+  const meta = metaCharset(bytes);
+  if (meta) {
+    return {
+      text: decodeBytes(bytes, meta),
+      charset: meta,
+      charset_resolution: "HTML_META" as const,
+    };
+  }
+
+  const candidates = ["utf-8", "big5"] as const;
+  let best: { text: string; charset: string; score: number } | null = null;
+  for (const charset of candidates) {
+    try {
+      const text = decodeBytes(bytes, charset);
+      const score = brokerSemanticScore(text);
+      if (!best || score > best.score) best = { text, charset, score };
+    } catch {
+      // Unsupported candidate is ignored; at least UTF-8 is expected to exist.
+    }
+  }
+  if (!best) throw new Error("unable_to_decode_broker_page");
+  return {
+    text: best.text,
+    charset: best.charset,
+    charset_resolution: "AUTO_SEMANTIC" as const,
+  };
 }
 
 async function fetchPageCached(url: string, fetcher: FetchLike) {
@@ -187,6 +256,7 @@ async function fetchPageCached(url: string, fetcher: FetchLike) {
         return {
           text: decoded.text,
           charset: decoded.charset,
+          charset_resolution: decoded.charset_resolution,
           attempts: attempt,
           http_status: response.status,
         };
@@ -232,6 +302,7 @@ function baseResult(input: {
     source: "MoneyDJ broker ranked public page",
     source_url: input.url,
     source_charset: input.page?.charset ?? null,
+    source_charset_resolution: input.page?.charset_resolution ?? null,
     transport_attempts: input.page?.attempts ?? null,
     tier: "PUBLIC_SECONDARY" as const,
     completeness: "RANKED_ONLY" as const,
