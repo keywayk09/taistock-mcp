@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { getTwBrokerProviderBundleOnDemand } from "./broker-provider-bundle-router.ts";
 import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway.ts";
-import { getTwBrokerRankedOnDemand, getTwBrokerRankedWindowBundleOnDemand } from "./tw-broker-ranked-on-demand.ts";
 import { getTwChipOnDemandSnapshot } from "./tw-chip-on-demand.ts";
 
 export const LEGACY_OWNER_CHIP_OVERRIDE_TOOL_NAMES = Object.freeze([
@@ -69,15 +69,24 @@ async function currentAndHistory(env: Env, input: {
 }
 
 function compactBrokerWindow(result: any, topN: number) {
-  const buys = Array.isArray(result?.buys) ? result.buys : [];
-  const sells = Array.isArray(result?.sells) ? result.sells : [];
+  const buys = Array.isArray(result?.top_net_buyers)
+    ? result.top_net_buyers
+    : Array.isArray(result?.buys) ? result.buys : [];
+  const sells = Array.isArray(result?.top_net_sellers)
+    ? result.top_net_sellers
+    : Array.isArray(result?.sells) ? result.sells : [];
   return {
+    provider_id: result?.provider_id ?? null,
+    provider_name: result?.provider_name ?? null,
     window_days: result?.window_days ?? null,
     source_window_label: result?.source_window_label ?? null,
     status: result?.status ?? "UNAVAILABLE",
     source_date: result?.source_date ?? null,
     source_date_verified: result?.source_date_verified === true,
-    source_window_verified: result?.source_window_verified === true,
+    source_window_verified: result?.source_window_verified !== false,
+    source_range_verified: result?.source_range_verified === true,
+    requested_range_start: result?.requested_range_start ?? null,
+    requested_range_end: result?.requested_range_end ?? null,
     ranked_output_totals: result?.ranked_output_totals ?? null,
     top_net_buyers: buys.slice(0, topN),
     top_net_sellers: sells.slice(0, topN),
@@ -92,12 +101,13 @@ function compactBrokerWindow(result: any, topN: number) {
  * These public names and input schemas are intentionally preserved because old
  * ChatGPT connections may cache them indefinitely. Only the provider behind the
  * names changes: current chip evidence is exact-date official on-demand;
- * Published/GitHub data is history context only; broker branches are MoneyDJ
- * ranked-only secondary evidence. No current raw/normalized chip data is saved.
+ * Published/GitHub data is history context only; broker branches use a governed
+ * whole-provider ranked-only bundle router. No current raw/normalized chip data
+ * is saved.
  */
 export function registerLegacyOwnerChipTools(server: McpServer, env: Env) {
   server.registerTool("get_broker_chips", {
-    description: "券商分點 Ranked-only 查詢；目前來源 MoneyDJ 公開次級資料。保留原 symbol/date/top_n 輸入，同一次回傳 1日與 MoneyDJ 伺服器端 5/10/20/60 日區間排名，不以每日Top榜自行加總。缺席分點不代表零交易；exact-date 驗證、唯讀、不保存，且不依賴 FinMind Token。",
+    description: "券商分點 Ranked-only 查詢；保留原 symbol/date/top_n 輸入，同一次回傳同一平台、同一截止日的 1/5/10/20/60 日排名。Provider 可整包 failover，但禁止逐 window 混用不同平台；缺席分點不代表零交易；exact-date 驗證、唯讀、不保存，且不依賴 FinMind Token。",
     inputSchema: {
       symbol: symbolSchema,
       date: dateSchema,
@@ -105,38 +115,57 @@ export function registerLegacyOwnerChipTools(server: McpServer, env: Env) {
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   }, async ({ symbol, date, top_n }) => {
-    const [ranked, bundle] = await Promise.all([
-      getTwBrokerRankedOnDemand({ symbol, as_of: date }),
-      getTwBrokerRankedWindowBundleOnDemand({ symbol, as_of: date }),
-    ]);
+    const bundle = await getTwBrokerProviderBundleOnDemand({
+      symbol,
+      as_of: date,
+      windows: [1, 5, 10, 20, 60],
+    });
+    const oneDay = compactBrokerWindow(bundle.windows["1D"], top_n);
     const multiWindow = Object.fromEntries(
       ["5D", "10D", "20D", "60D"].map((key) => [key, compactBrokerWindow(bundle.windows[key], top_n)]),
     );
     return out({
-      source: ranked.source,
-      provider: "MoneyDJ",
-      tier: "PUBLIC_SECONDARY",
+      source: bundle.canonical_provider_name ? `${bundle.canonical_provider_name} broker ranked public page` : null,
+      provider: bundle.canonical_provider_name,
+      provider_id: bundle.canonical_provider_id,
+      tier: bundle.canonical_provider_tier ?? "PUBLIC_SECONDARY",
       completeness: "RANKED_ONLY",
       symbol,
       date,
-      status: ranked.status,
-      source_date: ranked.source_date,
-      source_date_verified: ranked.source_date_verified,
-      top_net_buyers: ranked.buys.slice(0, top_n),
-      top_net_sellers: ranked.sells.slice(0, top_n),
-      rank_count: "rank_count" in ranked ? ranked.rank_count : { buy: ranked.buys.length, sell: ranked.sells.length },
+      status: oneDay.status,
+      source_date: oneDay.source_date,
+      source_date_verified: oneDay.source_date_verified,
+      top_net_buyers: oneDay.top_net_buyers,
+      top_net_sellers: oneDay.top_net_sellers,
+      rank_count: oneDay.rank_count,
       missing_branch_means_zero: false,
       previous_day_substitution: false,
       persistence: "NONE",
-      interpretation_boundary: "Ranked public-page output only. A branch missing from the ranking must not be interpreted as zero activity or no trading. Broker names are execution channels and must not be treated as investor identity.",
+      broker_evidence_contract: {
+        same_provider_required: true,
+        same_requested_as_of_required: true,
+        cross_source_backfill_allowed: false,
+        cross_provider_window_mixing: false,
+        partial_single_provider_result_allowed: true,
+        broker_identity_attribution_allowed: false,
+        window_comparison_semantics: "NESTED_WINDOWS_SAME_END_DATE_NOT_TIME_SERIES",
+        missing_window_means: "UNKNOWN",
+      },
+      interpretation_boundary: "Ranked public-page output only. Every canonical requested window must come from one provider under one exact requested as-of and one TWSE-trading-day window contract. A branch missing from the ranking is UNKNOWN, not zero activity. Broker names are execution channels and must not be treated as investor identity. N-day values are nested same-end-date windows, not a chronological time series.",
       multi_window: {
         version: bundle.version,
         status: bundle.status,
         requested_windows: bundle.requested_windows,
-        server_side_interval_aggregation: bundle.server_side_interval_aggregation,
+        canonical_provider_id: bundle.canonical_provider_id,
+        canonical_provider_name: bundle.canonical_provider_name,
+        provider_attempts: bundle.provider_attempts,
+        bundle_failover_used: bundle.bundle_failover_used,
+        same_provider_required: bundle.same_provider_required,
+        same_requested_as_of_required: bundle.same_requested_as_of_required,
+        cross_source_backfill_allowed: bundle.cross_source_backfill_allowed,
+        cross_provider_window_mixing: bundle.cross_provider_window_mixing,
         daily_rank_summing: bundle.daily_rank_summing,
         missing_window_observation: bundle.missing_window_observation,
-        origin_concurrency_limit: bundle.origin_concurrency_limit,
         windows: multiWindow,
         branch_matrix: bundle.branch_matrix.slice(0, top_n),
         horizon_lens: {
@@ -147,8 +176,7 @@ export function registerLegacyOwnerChipTools(server: McpServer, env: Env) {
         },
         interpretation_boundary: bundle.interpretation_boundary,
       },
-      error: "error" in ranked ? ranked.error : null,
-      retrieved_at: ranked.retrieved_at,
+      error: oneDay.error,
     });
   });
 
