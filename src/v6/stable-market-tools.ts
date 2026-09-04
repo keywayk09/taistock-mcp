@@ -38,6 +38,11 @@ const MIS_BATCH_SIZE = 100;
 // the parallel TWSE quote request while reducing nine OTC batches to two waves.
 const MIS_MAX_CONCURRENCY = 5;
 const MIN_COVERAGE = { TWSE: 400, TPEx: 250 } as const;
+// A low absolute floor protects against total source loss, while the dynamic
+// TPEx completeness ratio prevents a fulfilled-but-truncated MIS response from
+// being mistaken for a complete market. Clean Production probes currently
+// normalize 887 of 890 ordinary-stock symbols (>99.6%).
+const MIN_TPEX_COMPLETENESS_RATIO = 0.98;
 const CACHE_TTL_MS = 15_000;
 
 type StableMarket = "TWSE" | "TPEx";
@@ -360,7 +365,11 @@ async function loadTpexMopsMis(universe: CompanyMeta[]): Promise<MarketSnapshot>
       if (row) deduped.set(row.symbol, row);
     }
     const rows = [...deduped.values()];
+    const completenessRatio = universe.length ? rows.length / universe.length : 0;
     if (rows.length < MIN_COVERAGE.TPEx) errors.push(`MOPSFIN+MIS normalized TPEx coverage only ${rows.length}/${universe.length}`);
+    if (completenessRatio < MIN_TPEX_COMPLETENESS_RATIO) {
+      errors.push(`MOPSFIN+MIS TPEx completeness ${(completenessRatio * 100).toFixed(2)}% (${rows.length}/${universe.length}) below ${(MIN_TPEX_COMPLETENESS_RATIO * 100).toFixed(0)}%`);
+    }
     return {
       market: "TPEx",
       provider: rows.length ? "MOPSFIN_COMPANY_MASTER_MIS_OTC" : "UNAVAILABLE",
@@ -396,7 +405,10 @@ async function buildStableMarketUniverse(): Promise<StableMarketUniverse> {
     TWSE: twse,
     TPEx: tpex,
     rows: [...twse.rows, ...tpex.rows],
-    usable: twse.normalized_count >= MIN_COVERAGE.TWSE && tpex.normalized_count >= MIN_COVERAGE.TPEx,
+    usable: twse.normalized_count >= MIN_COVERAGE.TWSE
+      && tpex.normalized_count >= MIN_COVERAGE.TPEx
+      && twse.errors.length === 0
+      && tpex.errors.length === 0,
     optional_metadata_errors: optionalMetadataErrors,
   };
 }
@@ -538,7 +550,7 @@ async function healthData(env: Env, testSymbol: string) {
     data.push({
       source: "TWSE",
       required: true,
-      status: stable.TWSE.normalized_count >= MIN_COVERAGE.TWSE ? "ok" : "error",
+      status: stable.TWSE.normalized_count >= MIN_COVERAGE.TWSE && stable.TWSE.errors.length === 0 ? "ok" : "error",
       provider: stable.TWSE.provider,
       rows: stable.TWSE.normalized_count,
       errors: stable.TWSE.errors,
@@ -547,7 +559,7 @@ async function healthData(env: Env, testSymbol: string) {
     data.push({
       source: "TPEx",
       required: true,
-      status: stable.TPEx.normalized_count >= MIN_COVERAGE.TPEx ? "ok" : "error",
+      status: stable.TPEx.normalized_count >= MIN_COVERAGE.TPEx && stable.TPEx.errors.length === 0 ? "ok" : "error",
       provider: stable.TPEx.provider,
       rows: stable.TPEx.normalized_count,
       errors: stable.TPEx.errors,
@@ -678,7 +690,7 @@ export function registerStableMarketTools(server: McpServer, env: Env) {
     if (universeResult.status === "rejected") errors.push(errorText(universeResult.reason));
     const universe = universeResult.status === "fulfilled" ? universeResult.value : null;
     if (universe && !universe.usable) errors.push(...universe.TWSE.errors, ...universe.TPEx.errors);
-    const breadth = universe ? aggregateMarket(universe.rows) : null;
+    const breadth = universe?.usable ? aggregateMarket(universe.rows) : null;
     const fxRows = fxResult.status === "fulfilled" ? arr(fxResult.value.body) : [];
     const payload = {
       source: "CBC + TWSE official + MOPSFIN/TWSE MIS",

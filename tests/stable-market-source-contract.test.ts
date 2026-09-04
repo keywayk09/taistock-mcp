@@ -15,6 +15,11 @@ assert.match(stable, /mis\.twse\.com\.tw\/stock\/api\/getStockInfo\.jsp/);
 assert.match(stable, /MOPSFIN_COMPANY_MASTER_MIS_OTC/);
 assert.match(stable, /const MIS_MAX_CONCURRENCY = 5/);
 assert.match(stable, /Math\.min\(MIS_MAX_CONCURRENCY, batches\.length\)/);
+assert.match(stable, /const MIN_TPEX_COMPLETENESS_RATIO = 0\.98/);
+assert.match(stable, /completenessRatio < MIN_TPEX_COMPLETENESS_RATIO/);
+assert.match(stable, /twse\.errors\.length === 0/);
+assert.match(stable, /tpex\.errors\.length === 0/);
+assert.match(stable, /const breadth = universe\?\.usable \? aggregateMarket\(universe\.rows\) : null/);
 
 // Permanent regression guard: these historically blocked Cloudflare egress or
 // required a broken token. They may remain elsewhere for optional/individual
