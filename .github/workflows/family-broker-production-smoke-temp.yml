@@ -14,17 +14,17 @@ jobs:
     timeout-minutes: 10
     env:
       FAMILY_PRODUCTION_URL: https://taistock-mcp.keywayk09.workers.dev/api/family/query
-      FAMILY_PROBE_TOKEN: ${{ secrets.MOM_GPT_API_KEY }}
+      FAMILY_PROBE_TOKEN: ${{ secrets.RESEARCH_VNEXT_PROBE_TOKEN }}
     steps:
-      - name: Verify probe credential presence without disclosure
+      - name: Verify existing read-only probe credential presence without disclosure
         shell: bash
         run: |
           set -euo pipefail
           if [ -z "${FAMILY_PROBE_TOKEN:-}" ]; then
-            echo 'MOM_GPT_API_KEY_NOT_CONFIGURED_FOR_GITHUB_ACTIONS' >&2
+            echo 'RESEARCH_VNEXT_PROBE_TOKEN_NOT_CONFIGURED' >&2
             exit 78
           fi
-          echo 'family_probe_credential=present'
+          echo 'existing_read_only_probe_credential=present'
 
       - name: Run four read-only broker queries against Production
         shell: bash
@@ -36,63 +36,32 @@ jobs:
           if (!endpoint || !token) throw new Error('probe_configuration_missing');
 
           const cases = [
-            {
-              name: '2330_2026-09-03_1d',
-              query: '查 2330 2026-09-03 券商分點',
-              date: '2026-09-03',
-              windows: [1],
-              expectedFirstBuy: ['凱基-台北', 700],
-              expectedFirstSell: ['花旗環球', -906],
-            },
-            {
-              name: '2330_2026-09-04_1d',
-              query: '查 2330 2026-09-04 券商分點',
-              date: '2026-09-04',
-              windows: [1],
-            },
-            {
-              name: '2330_2026-09-04_1_5_10_20_60d',
-              query: '查 2330 2026-09-04 券商分點，列出 1日、5日、10日、20日、60日',
-              date: '2026-09-04',
-              windows: [1, 5, 10, 20, 60],
-            },
-            {
-              name: '2330_2026-09-03_plus_5_10_20_60d',
-              query: '查 2330 2026-09-03 券商分點，並列出 5日、10日、20日、60日',
-              date: '2026-09-03',
-              windows: [1, 5, 10, 20, 60],
-            },
+            { name: '2330_2026-09-03_1d', query: '查 2330 2026-09-03 券商分點', date: '2026-09-03', windows: [1], expectedFirstBuy: ['凱基-台北', 700], expectedFirstSell: ['花旗環球', -906] },
+            { name: '2330_2026-09-04_1d', query: '查 2330 2026-09-04 券商分點', date: '2026-09-04', windows: [1] },
+            { name: '2330_2026-09-04_1_5_10_20_60d', query: '查 2330 2026-09-04 券商分點，列出 1日、5日、10日、20日、60日', date: '2026-09-04', windows: [1, 5, 10, 20, 60] },
+            { name: '2330_2026-09-03_plus_5_10_20_60d', query: '查 2330 2026-09-03 券商分點，並列出 5日、10日、20日、60日', date: '2026-09-03', windows: [1, 5, 10, 20, 60] },
           ];
-
           const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
           const fail = (name, message) => { throw new Error(`${name}:${message}`); };
 
           for (const c of cases) {
             const response = await fetch(endpoint, {
               method: 'POST',
-              headers: {
-                authorization: `Bearer ${token}`,
-                'content-type': 'application/json',
-                accept: 'application/json',
-              },
+              headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json' },
               body: JSON.stringify({ query: c.query, mode: 'auto' }),
               signal: AbortSignal.timeout(90000),
             });
             const text = await response.text();
             let body;
-            try { body = JSON.parse(text); }
-            catch { fail(c.name, `non_json_http_${response.status}`); }
+            try { body = JSON.parse(text); } catch { fail(c.name, `non_json_http_${response.status}`); }
             if (!response.ok) fail(c.name, `http_${response.status}:${body?.error || body?.message || 'unknown'}`);
             if (body.route !== 'adaptive_broker_window_query') fail(c.name, `route=${body.route}`);
             if (!same(body.resolved_symbols, ['2330'])) fail(c.name, `resolved_symbols=${JSON.stringify(body.resolved_symbols)}`);
             if (body.requested_as_of !== c.date || body.as_of_date !== c.date) fail(c.name, `date=${body.requested_as_of}/${body.as_of_date}`);
-            if (body.provider !== 'MoneyDJ') fail(c.name, `provider=${body.provider}`);
-            if (body.tier !== 'PUBLIC_SECONDARY') fail(c.name, `tier=${body.tier}`);
-            if (body.completeness !== 'RANKED_ONLY') fail(c.name, `completeness=${body.completeness}`);
-            if (body.persistence !== 'NONE') fail(c.name, `persistence=${body.persistence}`);
-            if (!same(body.broker_multi_window?.requested_windows, c.windows)) {
-              fail(c.name, `windows=${JSON.stringify(body.broker_multi_window?.requested_windows)}`);
+            if (body.provider !== 'MoneyDJ' || body.tier !== 'PUBLIC_SECONDARY' || body.completeness !== 'RANKED_ONLY' || body.persistence !== 'NONE') {
+              fail(c.name, `identity=${body.provider}/${body.tier}/${body.completeness}/${body.persistence}`);
             }
+            if (!same(body.broker_multi_window?.requested_windows, c.windows)) fail(c.name, `windows=${JSON.stringify(body.broker_multi_window?.requested_windows)}`);
             const policy = body.provider_policy || {};
             for (const key of ['official_chip_fetch','finmind_fetch','ohlc_fetch','jin10_fetch','fundamental_fetch','web_fetch','daily_rank_summing','previous_day_substitution','missing_branch_means_zero']) {
               if (policy[key] !== false) fail(c.name, `provider_policy.${key}=${policy[key]}`);
@@ -107,15 +76,11 @@ jobs:
             }
             if (c.expectedFirstBuy) {
               const row = body.broker_branch_ranked?.top_net_buyers?.[0];
-              if (row?.broker_branch !== c.expectedFirstBuy[0] || row?.net_lots !== c.expectedFirstBuy[1]) {
-                fail(c.name, `first_buy=${row?.broker_branch}:${row?.net_lots}`);
-              }
+              if (row?.broker_branch !== c.expectedFirstBuy[0] || row?.net_lots !== c.expectedFirstBuy[1]) fail(c.name, `first_buy=${row?.broker_branch}:${row?.net_lots}`);
             }
             if (c.expectedFirstSell) {
               const row = body.broker_branch_ranked?.top_net_sellers?.[0];
-              if (row?.broker_branch !== c.expectedFirstSell[0] || row?.net_lots !== c.expectedFirstSell[1]) {
-                fail(c.name, `first_sell=${row?.broker_branch}:${row?.net_lots}`);
-              }
+              if (row?.broker_branch !== c.expectedFirstSell[0] || row?.net_lots !== c.expectedFirstSell[1]) fail(c.name, `first_sell=${row?.broker_branch}:${row?.net_lots}`);
             }
             console.log(`PASS ${c.name} route=${body.route} windows=${c.windows.join('/')} status=${body.broker_multi_window?.status}`);
           }
