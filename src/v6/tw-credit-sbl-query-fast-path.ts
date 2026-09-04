@@ -23,8 +23,8 @@ const rawCache = new Map<string, { expires_at: number; promise: Promise<unknown>
 
 const CREDIT_SBL_PATTERN = /(?:融資(?:融券|龍卷|餘額|增減|變化)?|融券(?:餘額|增減|變化)?|借(?:券|卷)(?:賣出|放空|空單|餘額|成交|還券|了結)?|\bSBL\b)/i;
 const MAINTENANCE_RATIO_PATTERN = /維持率|擔保維持/i;
-const LENDING_DETAIL_PATTERN = /借(?:券|卷)(?:餘額|成交|還券|了結|借入)/i;
-const SBL_PATTERN = /借(?:券|卷)(?:賣出|放空|空單)?|\bSBL\b/i;
+const LENDING_DETAIL_PATTERN = /借(?:券|卷)(?:(?:餘額|成交|還券|了結|借入)|(?=$|[\s？?，,。]))/i;
+const SBL_PATTERN = /借(?:券|卷)(?:賣出|放空|空單)|\bSBL\b/i;
 const MARGIN_PATTERN = /融資|融券|信用/i;
 
 type SymbolMonthShard = {
