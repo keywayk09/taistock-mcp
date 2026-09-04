@@ -46,6 +46,8 @@ The bundle:
 
 The adapter can support 120D for future bounded L-horizon deep analysis, but 120D is not included in the default legacy-tool bundle to avoid unnecessary origin load. It must not be enabled across whole-universe scans.
 
+For a historical `date`, the 1D exact-date query is authoritative for that requested day. Fixed multi-day MoneyDJ pages remain anchored to their own published source date; if that source date does not equal the requested date they must stay `PENDING/UNKNOWN`. The system must never fabricate historical 5D/10D/20D/60D rankings by summing daily ranked pages.
+
 ## Frozen 79-tool compatibility
 
 The public `get_broker_chips` input schema remains exactly:
