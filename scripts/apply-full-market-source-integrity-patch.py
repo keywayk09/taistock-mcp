@@ -59,25 +59,6 @@ replace_once(
     '    const breadth = universe?.usable ? aggregateMarket(universe.rows) : null;',
 )
 
-workflow = ".github/workflows/deploy-cloudflare-production.yml"
-replace_once(
-    workflow,
-    "          if market.get('usable') is not True:\n"
-    "              raise SystemExit(f\"full_market_usable={market.get('usable')}\")\n"
-    "          listed=(market.get('listed') or {}).get('rows') or 0\n"
-    "          otc=(market.get('otc') or {}).get('rows') or 0",
-    "          if market.get('usable') is not True:\n"
-    "              raise SystemExit(f\"full_market_usable={market.get('usable')}\")\n"
-    "          listed_section=market.get('listed') or {}\n"
-    "          otc_section=market.get('otc') or {}\n"
-    "          listed_errors=listed_section.get('errors') or []\n"
-    "          otc_errors=otc_section.get('errors') or []\n"
-    "          if listed_errors or otc_errors:\n"
-    "              raise SystemExit(f\"full_market_source_errors listed={listed_errors} otc={otc_errors}\")\n"
-    "          listed=listed_section.get('rows') or 0\n"
-    "          otc=otc_section.get('rows') or 0",
-)
-
 source_test = "tests/stable-market-source-contract.test.ts"
 replace_once(
     source_test,
@@ -88,16 +69,6 @@ replace_once(
     'assert.match(stable, /twse\\.errors\\.length === 0/);\n'
     'assert.match(stable, /tpex\\.errors\\.length === 0/);\n'
     'assert.match(stable, /const breadth = universe\\?\\.usable \\? aggregateMarket\\(universe\\.rows\\) : null/);',
-)
-
-deploy_test = "tests/deploy-cloudflare-workflow.test.ts"
-replace_once(
-    deploy_test,
-    'assert.match(workflow, /cat \\/tmp\\/smoke-full-market\\.json/);',
-    'assert.match(workflow, /cat \\/tmp\\/smoke-full-market\\.json/);\n'
-    'assert.match(workflow, /listed_errors=listed_section\\.get\\(\'errors\'\\) or \\[\\]/);\n'
-    'assert.match(workflow, /otc_errors=otc_section\\.get\\(\'errors\'\\) or \\[\\]/);\n'
-    'assert.match(workflow, /full_market_source_errors listed=/);',
 )
 
 note = Path("docs/changes/2026-09-04-full-market-source-integrity.md")
@@ -129,7 +100,6 @@ This created a fail-open integrity gap: a materially partial TPEx universe could
 - Keep the existing absolute floors as a secondary total-loss guard.
 - Align `get_data_health` with the same source-error semantics.
 - Make the macro dashboard fail closed: no market breadth/regime is calculated from an unusable partial universe.
-- Add a Production smoke defense-in-depth check that rejects any non-empty required source error array even if a future regression accidentally reports `usable=true`.
 
 ## Why 98%
 
@@ -137,7 +107,7 @@ The clean live probe normalized 887 of 890 TPEx ordinary-stock symbols (99.66%).
 
 ## Retry/cache behavior
 
-No inner retry storm is added. A degraded universe is not cached by the existing loader. The canonical Production smoke already retries the full endpoint up to three times. This preserves bounded external fan-out while preventing partial data from becoming trusted state.
+No inner retry storm is added. A degraded universe is not cached by the existing loader. The canonical Production smoke already retries the full endpoint up to three times. Once this runtime gate is active, any required-source error makes `/health/full-market` return 503, so the existing smoke path will fail/retry rather than accept partial data.
 
 ## Invariants
 
@@ -146,9 +116,9 @@ No inner retry storm is added. A degraded universe is not cached by the existing
 - No change to OHLC.
 - No chip persistence or cron restoration.
 - No stale/previous-day substitution.
+- Production workflow permissions are unchanged.
 - Source contract remains `tw-full-market-source-contract/v1.0.0`.
 """
 )
 
-Path(".github/workflows/apply-full-market-source-integrity-one-shot.yml").unlink()
 Path(__file__).unlink()
