@@ -1,0 +1,73 @@
+name: MoneyDJ historical multi-window Production smoke 20260904
+
+on:
+  push:
+    branches:
+      - ops/moneydj-historical-multiwindow-production-smoke-20260904
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      OWNER_MCP_URL: https://taistock-mcp.keywayk09.workers.dev/my-mcp
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Call live frozen Owner broker tool
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx -y @modelcontextprotocol/inspector@latest --cli "$OWNER_MCP_URL" \
+            --transport http --method tools/call --tool-name get_broker_chips \
+            --tool-args-json '{"symbol":"2330","date":"2026-09-03","top_n":5}' \
+            --format json > /tmp/broker-0903.json
+          node <<'NODE'
+          const fs = require('fs');
+          const envelope = JSON.parse(fs.readFileSync('/tmp/broker-0903.json', 'utf8'));
+          if (envelope?.result?.isError === true || envelope?.isError === true) {
+            throw new Error('get_broker_chips_live_call_failed');
+          }
+          const content = envelope?.result?.content ?? envelope?.content ?? [];
+          const text = content.find((row) => row?.type === 'text')?.text;
+          if (!text) throw new Error('broker_tool_text_missing');
+          const body = JSON.parse(text);
+          const must = (value, message) => { if (!value) throw new Error(message); };
+
+          must(body.provider === 'MoneyDJ', `provider=${body.provider}`);
+          must(body.tier === 'PUBLIC_SECONDARY', `tier=${body.tier}`);
+          must(body.completeness === 'RANKED_ONLY', `completeness=${body.completeness}`);
+          must(body.date === '2026-09-03', `date=${body.date}`);
+          must(body.status === 'READY', `status=${body.status}:${body.error || ''}`);
+          must(body.source_date === '2026-09-03' && body.source_date_verified === true,
+            `source_date=${body.source_date}:${body.source_date_verified}`);
+          must(body.previous_day_substitution === false, 'previous_day_substitution_enabled');
+          must(body.persistence === 'NONE', `persistence=${body.persistence}`);
+          must(body.top_net_buyers?.[0]?.broker_branch === '凱基-台北' && Number(body.top_net_buyers?.[0]?.net_lots) === 700,
+            `top_buy=${body.top_net_buyers?.[0]?.broker_branch}:${body.top_net_buyers?.[0]?.net_lots}`);
+          must(body.top_net_sellers?.[0]?.broker_branch === '花旗環球' && Number(body.top_net_sellers?.[0]?.net_lots) === -906,
+            `top_sell=${body.top_net_sellers?.[0]?.broker_branch}:${body.top_net_sellers?.[0]?.net_lots}`);
+
+          const multi = body.multi_window;
+          must(multi?.status === 'READY', `multi_status=${multi?.status}`);
+          must(multi?.server_side_interval_aggregation === true, 'server_side_interval_aggregation_false');
+          must(multi?.daily_rank_summing === false, 'daily_rank_summing_enabled');
+          for (const key of ['5D', '10D', '20D', '60D']) {
+            const row = multi?.windows?.[key];
+            must(row?.status === 'READY', `${key}_status=${row?.status}:${row?.error || ''}`);
+            must(row?.source_date === '2026-09-03' && row?.source_date_verified === true,
+              `${key}_source_date=${row?.source_date}:${row?.source_date_verified}`);
+            must(row?.source_window_verified === true, `${key}_source_window_not_verified`);
+            must(Array.isArray(row?.top_net_buyers) && row.top_net_buyers.length > 0, `${key}_buyers_empty`);
+            must(Array.isArray(row?.top_net_sellers) && row.top_net_sellers.length > 0, `${key}_sellers_empty`);
+          }
+          must(!JSON.stringify(body).includes('FINMIND_TOKEN'), 'FinMind token error leaked into broker tool');
+          console.log('[production-smoke] BROKER_0903_1D_5D_10D_20D_60D_READY');
+          console.log(`[production-smoke] 1D top_buy=${body.top_net_buyers[0].broker_branch}:${body.top_net_buyers[0].net_lots} top_sell=${body.top_net_sellers[0].broker_branch}:${body.top_net_sellers[0].net_lots}`);
+          console.log('[production-smoke] provider=MoneyDJ tier=PUBLIC_SECONDARY completeness=RANKED_ONLY previous_day_substitution=false persistence=NONE daily_rank_summing=false');
+          NODE
