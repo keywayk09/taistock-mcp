@@ -22,6 +22,12 @@ function includesAny(query: string, patterns: RegExp[]) {
   return patterns.some((pattern) => pattern.test(query));
 }
 
+function looksLikeFullStockAnalysis(text: string) {
+  return includesAny(text, [
+    /完整|全面|深入|詳細|11\s*點|基本面.*技術|財務.*籌碼|估值.*技術|值不值得.*中長期/i,
+  ]);
+}
+
 export function extractFamilyQuerySymbols(query: string) {
   return resolveFamilyQuery(query).symbols;
 }
@@ -31,15 +37,16 @@ export function inferFamilyAdaptiveIntent(query: string, symbols: string[]): Fam
 
   if (symbols.length >= 2) return "STOCK_COMPARE";
 
-  if (symbols.length === 1 && isFamilyBrokerWindowQueryText(text)) return "BROKER_WINDOW_QUERY";
-
   if (includesAny(text, [
     /波段|選股|選標的|找股票|找標的|候選|排名|哪幾檔|有什麼.*股票|值得注意的.*股票/i,
   ])) return "SWING_DISCOVERY";
 
-  if (symbols.length === 1 && includesAny(text, [
-    /完整|全面|深入|詳細|11\s*點|基本面.*技術|財務.*籌碼|估值.*技術|值不值得.*中長期/i,
-  ])) return "FULL_STOCK_ANALYSIS";
+  // An explicit full-analysis request owns the whole research graph even when
+  // the user asks to include broker branches as one component. Only a focused
+  // broker question should take the lightweight fast path.
+  if (symbols.length === 1 && looksLikeFullStockAnalysis(text)) return "FULL_STOCK_ANALYSIS";
+
+  if (symbols.length === 1 && isFamilyBrokerWindowQueryText(text)) return "BROKER_WINDOW_QUERY";
 
   if (symbols.length === 1) return "QUICK_STOCK_QUESTION";
 
