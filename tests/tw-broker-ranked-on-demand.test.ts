@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { getTwBrokerRankedOnDemand, resetTwBrokerRankedCacheForTests } from "../src/v6/tw-broker-ranked-on-demand.ts";
+import {
+  getTwBrokerRankedOnDemand,
+  getTwBrokerRankedWindowBundleOnDemand,
+  resetTwBrokerRankedCacheForTests,
+} from "../src/v6/tw-broker-ranked-on-demand.ts";
 
 const table = (date: string) => `<!doctype html><html><body>
 <div>台積電(2330) 券商分點-進出明細 單位：張　最後更新日：${date}</div>
@@ -8,6 +12,33 @@ const table = (date: string) => `<!doctype html><html><body>
 <tr><td>凱基-台北</td><td>937</td><td>237</td><td>700</td><td>5.19%</td><td>花旗環球</td><td>249</td><td>1,155</td><td>906</td><td>6.72%</td></tr>
 <tr><td>新加坡商瑞銀</td><td>1,192</td><td>905</td><td>287</td><td>2.13%</td><td>台灣摩根士丹利</td><td>1,377</td><td>1,603</td><td>226</td><td>1.68%</td></tr>
 </table></body></html>`;
+
+const windowTable = (input: {
+  date: string;
+  selector: number;
+  label: string;
+  buyBranch: string;
+  buyNet: number;
+  sellBranch: string;
+  sellNet: number;
+}) => `<!doctype html><html><body>
+<div>台積電(2330) 券商分點-進出明細 單位：張　最後更新日：${input.date}</div>
+<select name="D">
+<option value="1"${input.selector === 1 ? " selected" : ""}>近一日</option>
+<option value="2"${input.selector === 2 ? " selected" : ""}>近五日</option>
+<option value="3"${input.selector === 3 ? " selected" : ""}>近十日</option>
+<option value="4"${input.selector === 4 ? " selected" : ""}>近20日</option>
+<option value="5"${input.selector === 5 ? " selected" : ""}>近40日</option>
+<option value="6"${input.selector === 6 ? " selected" : ""}>近60日</option>
+<option value="7"${input.selector === 7 ? " selected" : ""}>近120日</option>
+<option value="8"${input.selector === 8 ? " selected" : ""}>近240日</option>
+</select>
+<table>
+<tr><th>買超券商</th><th>買進</th><th>賣出</th><th>買超</th><th>佔成交比重</th><th>賣超券商</th><th>買進</th><th>賣出</th><th>賣超</th><th>佔成交比重</th></tr>
+<tr><td>${input.buyBranch}</td><td>${input.buyNet + 100}</td><td>100</td><td>${input.buyNet}</td><td>5.00%</td><td>${input.sellBranch}</td><td>100</td><td>${input.sellNet + 100}</td><td>${input.sellNet}</td><td>4.00%</td></tr>
+</table>
+<div>合計買超張數 ${input.buyNet} 合計賣超張數 ${input.sellNet}</div>
+</body></html>`;
 
 function makeFetch(html: string) {
   let count = 0;
@@ -105,6 +136,57 @@ resetTwBrokerRankedCacheForTests();
   assert.equal(result.source_charset, "big5");
   assert.equal(result.transport_attempts, 2);
   assert.equal(count, 2, "one transient 520 should be retried exactly once");
+}
+
+resetTwBrokerRankedCacheForTests();
+{
+  const requestedUrls: string[] = [];
+  const fixtures = new Map<string, string>([
+    ["1D", windowTable({ date: "2026/09/04", selector: 1, label: "近一日", buyBranch: "單日買方", buyNet: 100, sellBranch: "單日賣方", sellNet: 90 })],
+    ["5D", windowTable({ date: "2026/09/04", selector: 2, label: "近五日", buyBranch: "長線累積", buyNet: 500, sellBranch: "短空長多", sellNet: 400 })],
+    ["10D", windowTable({ date: "2026/09/04", selector: 3, label: "近十日", buyBranch: "長線累積", buyNet: 900, sellBranch: "短空長多", sellNet: 600 })],
+    ["20D", windowTable({ date: "2026/09/04", selector: 4, label: "近20日", buyBranch: "長線累積", buyNet: 1600, sellBranch: "長線派發", sellNet: 1200 })],
+    ["60D", windowTable({ date: "2026/09/04", selector: 6, label: "近60日", buyBranch: "短空長多", buyNet: 3000, sellBranch: "長線派發", sellNet: 2600 })],
+  ]);
+  const fetcher: typeof fetch = async (input) => {
+    const url = String(input);
+    requestedUrls.push(url);
+    let key = "1D";
+    if (/_2\.djhtm$/i.test(url)) key = "5D";
+    else if (/_3\.djhtm$/i.test(url)) key = "10D";
+    else if (/_4\.djhtm$/i.test(url)) key = "20D";
+    else if (/_6\.djhtm$/i.test(url)) key = "60D";
+    return new Response(fixtures.get(key)!, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+  };
+
+  const bundle = await getTwBrokerRankedWindowBundleOnDemand({ symbol: "2330", as_of: "2026-09-04", fetcher });
+  assert.equal(bundle.status, "READY");
+  assert.equal(bundle.server_side_interval_aggregation, true);
+  assert.equal(bundle.daily_rank_summing, false);
+  assert.equal(bundle.missing_branch_means_zero, false);
+  assert.deepEqual(bundle.requested_windows, [1, 5, 10, 20, 60]);
+  assert.equal(bundle.windows["5D"].source_window_label, "近五日");
+  assert.equal(bundle.windows["10D"].source_window_label, "近十日");
+  assert.equal(bundle.windows["20D"].source_window_label, "近20日");
+  assert.equal(bundle.windows["60D"].source_window_label, "近60日");
+  assert.equal(bundle.windows["60D"].source_date_verified, true);
+  assert.ok(requestedUrls.some((url) => /zco_2330_2\.djhtm$/i.test(url)), "5D must use MoneyDJ selector _2");
+  assert.ok(requestedUrls.some((url) => /zco_2330_3\.djhtm$/i.test(url)), "10D must use MoneyDJ selector _3");
+  assert.ok(requestedUrls.some((url) => /zco_2330_4\.djhtm$/i.test(url)), "20D must use MoneyDJ selector _4");
+  assert.ok(requestedUrls.some((url) => /zco_2330_6\.djhtm$/i.test(url)), "60D must use MoneyDJ selector _6");
+  assert.ok(!requestedUrls.some((url) => /[?&]e=2(?:&|$)/.test(url)), "D selector must never be guessed as e=2");
+
+  const accumulating = bundle.branch_matrix.find((row) => row.broker_branch === "長線累積");
+  assert.ok(accumulating);
+  assert.equal(accumulating.pattern, "PERSISTENT_ACCUMULATION");
+  assert.equal(accumulating.windows["5D"]?.net_lots, 500);
+  assert.equal(accumulating.windows["60D"], null, "missing ranked branch must remain UNKNOWN/null, never zero");
+
+  const reversal = bundle.branch_matrix.find((row) => row.broker_branch === "短空長多");
+  assert.ok(reversal);
+  assert.equal(reversal.windows["5D"]?.net_lots, -400);
+  assert.equal(reversal.windows["60D"]?.net_lots, 3000);
+  assert.equal(reversal.pattern, "SHORT_TERM_DISTRIBUTION_AGAINST_LONGER_ACCUMULATION");
 }
 
 console.log("TW ranked broker on-demand tests passed");
