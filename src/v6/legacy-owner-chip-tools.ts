@@ -105,7 +105,7 @@ export function registerLegacyOwnerChipTools(server: McpServer, env: Env) {
       previous_day_substitution: false,
       persistence: "NONE",
       interpretation_boundary: "Ranked public-page output only. A branch missing from the ranking must not be interpreted as zero activity or no trading.",
-      error: ranked.error ?? null,
+      error: "error" in ranked ? ranked.error : null,
       retrieved_at: ranked.retrieved_at,
     });
   });
