@@ -34,3 +34,5 @@ jobs:
           git add -A
           git commit -m 'fix: fail closed on partial full-market source coverage'
           git push origin HEAD:fix/full-market-source-integrity-v1
+
+# one-shot rerun after narrowing patch scope to non-workflow files
