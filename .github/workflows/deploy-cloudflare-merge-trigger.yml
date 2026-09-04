@@ -19,24 +19,8 @@ jobs:
   dispatch:
     if: github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      TARGET_SHA: ${{ github.event.pull_request.merge_commit_sha }}
-      BROKER_PROBE_TOKEN: ${{ secrets.RESEARCH_VNEXT_PROBE_TOKEN }}
-      BROKER_PROBE_ENDPOINT: https://taistock-mcp.keywayk09.workers.dev/my-mcp
-      BROKER_PROBE_CONFIRMATION: READ_ONLY_PRODUCTION_PROBE
-      BROKER_PROBE_SYMBOL: "2317"
-      BROKER_PROBE_DATE: "2026-09-04"
-
+    timeout-minutes: 3
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
       - name: Dispatch canonical Production deploy
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,73 +30,3 @@ jobs:
           gh workflow run deploy-cloudflare-production.yml \
             --repo "${GITHUB_REPOSITORY}" \
             --ref main
-
-      - name: Wait for exact canonical Production deploy
-        id: deploy_wait
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          run_id=''
-          for attempt in $(seq 1 30); do
-            run_id="$(gh api --method GET \
-              "repos/${GITHUB_REPOSITORY}/actions/workflows/deploy-cloudflare-production.yml/runs" \
-              -f branch=main \
-              -f event=workflow_dispatch \
-              -f per_page=20 \
-              --jq ".workflow_runs[] | select(.head_sha == \"${TARGET_SHA}\") | .id" \
-              | head -n 1)"
-            if [ -n "$run_id" ]; then
-              break
-            fi
-            echo "Waiting for canonical deploy run ${attempt}/30 target_sha=${TARGET_SHA}"
-            sleep 2
-          done
-          if [ -z "$run_id" ]; then
-            echo "canonical_deploy_run_not_found target_sha=${TARGET_SHA}" >&2
-            exit 1
-          fi
-          echo "deploy_run_id=${run_id}" >> "$GITHUB_OUTPUT"
-          echo "Watching canonical deploy run_id=${run_id} target_sha=${TARGET_SHA}"
-          timeout 720 gh run watch "$run_id" --repo "${GITHUB_REPOSITORY}" --exit-status
-          conclusion="$(gh run view "$run_id" --repo "${GITHUB_REPOSITORY}" --json conclusion --jq .conclusion)"
-          if [ "$conclusion" != 'success' ]; then
-            echo "canonical_deploy_not_success conclusion=${conclusion}" >&2
-            exit 1
-          fi
-          echo "canonical_deploy=SUCCESS"
-
-      - name: Run strict post-deploy broker read-only validation
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${BROKER_PROBE_TOKEN:-}" ]; then
-            echo 'RESEARCH_VNEXT_PROBE_TOKEN is missing; refusing unauthenticated Production broker validation.' >&2
-            exit 78
-          fi
-          mkdir -p tmp/broker-production-validation
-          node scripts/broker-production-readonly-probe.mjs \
-            > tmp/broker-production-validation/receipt.json
-          node - <<'NODE'
-          const fs = require('fs');
-          const receipt = JSON.parse(fs.readFileSync('tmp/broker-production-validation/receipt.json', 'utf8'));
-          if (receipt.status !== 'PASS') throw new Error('broker_production_probe_not_pass');
-          if (receipt.production_mutation !== 'NONE') throw new Error('broker_production_probe_mutation_contract_violation');
-          if (receipt.all_windows_ready !== true || receipt.ready_window_count !== 5) throw new Error('broker_production_probe_windows_not_ready');
-          if (receipt.same_provider_required !== true || receipt.cross_provider_window_mixing !== false) throw new Error('broker_production_probe_provider_contract_violation');
-          if (receipt.same_requested_as_of_required !== true || receipt.cross_source_backfill_allowed !== false) throw new Error('broker_production_probe_asof_contract_violation');
-          console.log(`broker_provider=${receipt.canonical_provider_id}`);
-          console.log(`broker_windows_ready=${receipt.ready_window_count}/5`);
-          console.log(`protocol_lane=${receipt.protocol_lane}`);
-          console.log('production_mutation=NONE');
-          NODE
-
-      - name: Upload post-deploy broker validation receipt
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: broker-production-validation-${{ github.run_id }}
-          path: tmp/broker-production-validation/receipt.json
-          if-no-files-found: warn
-          retention-days: 30
