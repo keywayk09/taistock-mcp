@@ -16,6 +16,7 @@ const unifiedEvidence = read("src/v6/family-unified-evidence.ts");
 const familyCompact = read("src/v6/family-custom-gpt-compact.ts");
 const marketTools = read("src/v6/tw-market-data-tools.ts");
 const broker = read("src/v6/tw-broker-ranked-on-demand.ts");
+const brokerRouter = read("src/v6/broker-provider-bundle-router.ts");
 const legacyOwnerChipTools = read("src/v6/legacy-owner-chip-tools.ts");
 const publicIngress = read("tests/public-ingress-freeze.test.ts");
 
@@ -72,18 +73,26 @@ assert.match(familyEleven, /Published generation只作歷史\/replay context/);
 assert.match(familyCompact, /chip:/);
 assert.match(familyCompact, /analysis\?\.chip/);
 
-// Broker branch evidence is a dedicated public-secondary adapter. It must not
-// depend on FinMind credentials and it must stay ranked-only/fail-soft.
+// MoneyDJ remains a dedicated ranked-only provider adapter, but canonical
+// broker-window selection now goes through a provider-neutral whole-bundle
+// router. The router must never introduce FinMind credentials or per-window
+// cross-source backfill.
 assert.match(broker, /MoneyDJ broker ranked public page/);
 assert.match(broker, /RANKED_ONLY/);
 assert.match(broker, /missing branches must NOT be interpreted as zero activity/i);
 assert.doesNotMatch(broker, /FINMIND|FinMind|token/i);
+assert.match(brokerRouter, /getTwBrokerProviderBundleOnDemand/);
+assert.match(brokerRouter, /same_provider_required:\s*true/);
+assert.match(brokerRouter, /cross_source_backfill_allowed:\s*false/);
+assert.match(brokerRouter, /cross_provider_window_mixing:\s*false/);
+assert.match(brokerRouter, /NESTED_WINDOWS_SAME_END_DATE_NOT_TIME_SERIES/);
 assert.match(familyOpenApi, /RANKED_ONLY/);
-assert.match(familyEleven, /MoneyDJ分點僅RANKED_ONLY/);
+assert.match(familyEleven, /RANKED_ONLY/);
 
 // Historical 79-tool ABI is frozen. Multi-window broker evidence may enrich the
 // response, but it must never add an input field that forces old ChatGPT clients
-// to refresh/reconnect their cached schema.
+// to refresh/reconnect their cached schema. The frozen tool must use the same
+// whole-provider router as Family rather than bypassing it with MoneyDJ direct.
 const brokerInput = legacyOwnerChipTools.match(
   /server\.registerTool\("get_broker_chips",[\s\S]*?inputSchema:\s*\{([\s\S]*?)\n\s*\},\n\s*annotations:/,
 )?.[1];
@@ -91,9 +100,10 @@ assert.ok(brokerInput, "get_broker_chips input schema must remain discoverable")
 assert.match(brokerInput, /symbol:\s*symbolSchema/);
 assert.match(brokerInput, /date:\s*dateSchema/);
 assert.match(brokerInput, /top_n:/);
-assert.doesNotMatch(brokerInput, /window|period|days/i, "multi-window must not change the frozen public input schema");
-assert.match(legacyOwnerChipTools, /getTwBrokerRankedWindowBundleOnDemand/);
-assert.match(legacyOwnerChipTools, /5\/10\/20\/60/);
+assert.doesNotMatch(brokerInput, /window|period|days|provider/i, "multi-provider windows must not change the frozen public input schema");
+assert.match(legacyOwnerChipTools, /getTwBrokerProviderBundleOnDemand/);
+assert.doesNotMatch(legacyOwnerChipTools, /getTwBrokerRankedWindowBundleOnDemand/);
+assert.match(legacyOwnerChipTools, /1,\s*5,\s*10,\s*20,\s*60/);
 assert.match(legacyOwnerChipTools, /daily_rank_summing/);
 
 // Warrant activity is official activity data but is not directional flow.
