@@ -2,11 +2,12 @@ import { familySharedReadManifest } from "./family-shared-read-plane.ts";
 import { isFamilyBrokerWindowQueryText, resolveFamilyQuery } from "./family-query-resolver.ts";
 import { isFamilyCreditSblQueryText } from "./tw-credit-sbl-query-fast-path.ts";
 
-export const FAMILY_ADAPTIVE_PLANNER_VERSION = "family-adaptive-planner/v1.4.0";
+export const FAMILY_ADAPTIVE_PLANNER_VERSION = "family-adaptive-planner/v1.5.0";
 
 export type FamilyIntent =
   | "BROKER_WINDOW_QUERY"
   | "CREDIT_SBL_QUERY"
+  | "CREDIT_SBL_BROKER_QUERY"
   | "QUICK_STOCK_QUESTION"
   | "FULL_STOCK_ANALYSIS"
   | "STOCK_COMPARE"
@@ -49,8 +50,9 @@ export function inferFamilyAdaptiveIntent(query: string, symbols: string[]): Fam
 
   const brokerFocused = symbols.length === 1 && isFamilyBrokerWindowQueryText(text);
   const creditFocused = symbols.length === 1 && isFamilyCreditSblQueryText(text);
-  if (brokerFocused && !creditFocused) return "BROKER_WINDOW_QUERY";
-  if (creditFocused && !brokerFocused) return "CREDIT_SBL_QUERY";
+  if (brokerFocused && creditFocused) return "CREDIT_SBL_BROKER_QUERY";
+  if (brokerFocused) return "BROKER_WINDOW_QUERY";
+  if (creditFocused) return "CREDIT_SBL_QUERY";
 
   if (symbols.length === 1) return "QUICK_STOCK_QUESTION";
 
@@ -62,7 +64,7 @@ export function inferFamilyAdaptiveIntent(query: string, symbols: string[]): Fam
 }
 
 function answerDepth(intent: FamilyIntent, query: string): FamilyAnswerDepth {
-  if (intent === "BROKER_WINDOW_QUERY" || intent === "CREDIT_SBL_QUERY") return "QUICK";
+  if (intent === "BROKER_WINDOW_QUERY" || intent === "CREDIT_SBL_QUERY" || intent === "CREDIT_SBL_BROKER_QUERY") return "QUICK";
   if (intent === "FULL_STOCK_ANALYSIS" || intent === "STOCK_COMPARE") return "DEEP";
   if (intent === "SWING_DISCOVERY") return "STANDARD";
   if (/深入|詳細|完整|全面|徹底|研究/i.test(query)) return "DEEP";
@@ -83,6 +85,9 @@ function preferredReads(intent: FamilyIntent, query: string) {
     case "CREDIT_SBL_QUERY":
       base = ["current_chip"];
       break;
+    case "CREDIT_SBL_BROKER_QUERY":
+      base = ["current_chip", "broker_branch"];
+      break;
     case "QUICK_STOCK_QUESTION":
       base = ["realtime_market", "canonical_ohlc", "current_chip", "published_chip", "fundamentals", "open_world_web"];
       break;
@@ -102,7 +107,7 @@ function preferredReads(intent: FamilyIntent, query: string) {
       base = ["fundamentals", "industry_supply_chain", "research_repository", "global_market_context", "open_world_web"];
       break;
   }
-  if (intent !== "BROKER_WINDOW_QUERY" && intent !== "CREDIT_SBL_QUERY" && wantsRegimeContext(query)) {
+  if (!["BROKER_WINDOW_QUERY", "CREDIT_SBL_QUERY", "CREDIT_SBL_BROKER_QUERY"].includes(intent) && wantsRegimeContext(query)) {
     base.push("txf_context", "global_futures_context", "jin10_events");
   }
   return unique(base);
@@ -136,13 +141,14 @@ export function planFamilyQuery(query: string, symbols: string[] = []) {
     execution_guidance: {
       broker_window_query: "明確券商分點問題直接走受治理的同平台 broker bundle fast path；不啟動OHLC、Jin10、財報、產業鏈或完整11點研究。",
       credit_sbl_query: "明確融資融券、借券或借券賣出問題直接走TWSE/TPEx official credit/SBL fast path；明示日期 exact-date，未明示日期才可解析最近交易日；不啟動OHLC、Jin10、財報、MoneyDJ或完整11點研究。",
+      credit_sbl_broker_query: "同時詢問融資融券/借券與券商分點時，先統一解析同一交易日，再平行讀TWSE/TPEx official credit/SBL與受治理的同平台broker bundle；禁止Open Web、OHLC、財報、Jin10與完整分析補資料。",
       quick_question: "先回答使用者真正問的事；只取足以支撐答案的證據，不因為有11點框架就強迫逐點念完。",
       full_analysis: "需要完整個股研究時，以1到11點作最終完整性契約，但查詢順序與來源可動態決定。",
       progressive_deepening: "先做高價值核心讀取；若發現重大催化劑、資料衝突、未知欄位或新線索，再自主擴展研究。",
       current_chip: "當期法人、融資融券、借券/SBL優先讀TWSE/TPEx exact-date on-demand；broker branch只作RANKED_ONLY輔助；Published generation只作歷史背景。",
       market_regime: "市場/台指/美股事件問題主動加入TXF、Global Futures與Jin10事件；它們只作Market Regime/Event Context，不覆寫正式OHLC或當期官方籌碼。",
       conflict_resolution: "重大事實衝突不得直接選邊；優先官方/canonical，再找第二高權威來源，最後標 FACT/INFERENCE/JUDGMENT/CONFLICT/UNKNOWN。",
-      web: "Open Web 永遠可用，不是 fallback-only；seed query 只是起點，可改寫、跨語言、跨網站與追新實體。",
+      web: "一般Open-World研究可使用Open Web；BROKER_WINDOW_QUERY、CREDIT_SBL_QUERY與CREDIT_SBL_BROKER_QUERY例外，除非使用者明確要求外部交叉驗證，否則不得用Web補正式數字。",
       identity: "Web、Fugle與FinMind不得冒充正式OHLC或TWSE/TPEx exact-date當期官方籌碼；broker ranked data不得冒充完整分點inventory。",
     },
     answer_contract: {
