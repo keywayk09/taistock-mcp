@@ -6,9 +6,10 @@ import {
   rec,
   technicalSummary,
 } from "./common";
+import { resolveFamilyQuery } from "./family-query-resolver";
 import { getTwMarketChipSummaryOnDemand } from "./tw-market-chip-on-demand-facade";
 
-export const FAMILY_ACTION_COMPAT_VERSION = "family-action-compat/v2.1";
+export const FAMILY_ACTION_COMPAT_VERSION = "family-action-compat/v2.2";
 
 type FamilyActionInput = {
   query: string;
@@ -71,7 +72,7 @@ function subtractDays(date: string, days: number) {
 }
 
 export function extractFamilySymbols(query: string) {
-  return [...new Set(query.match(/(?<!\d)\d{4,6}(?!\d)/g) ?? [])].slice(0, 5);
+  return [...resolveFamilyQuery(query).symbols];
 }
 
 function looksLikeSwingSelection(query: string) {
@@ -197,10 +198,12 @@ export async function runFamilyActionCompatQuery(env: Env, input: FamilyActionIn
   const query = String(input.query ?? "").trim();
   if (!query) throw new Error("query is required");
   if (query.length > 2_000) throw new Error("query is too long");
-  const asOf = input.as_of_date && /^\d{4}-\d{2}-\d{2}$/.test(input.as_of_date)
+  const resolved = resolveFamilyQuery(query);
+  const structuredAsOf = input.as_of_date && /^\d{4}-\d{2}-\d{2}$/.test(input.as_of_date)
     ? input.as_of_date
-    : taipeiDate();
-  const symbols = extractFamilySymbols(query);
+    : undefined;
+  const asOf = resolved.as_of_date ?? structuredAsOf ?? taipeiDate();
+  const symbols = [...resolved.symbols];
   const stockAnalyses = await Promise.all(symbols.map((symbol) => buildStockRead(env, symbol, asOf)));
   const route = symbols.length > 1 ? "stock_compare" : symbols.length === 1 ? "stock_analysis" : "read_only_query";
 
@@ -300,14 +303,35 @@ export async function handleFamilyActionCompat(request: Request, env: Env, url: 
     const query = typeof payload.query === "string" ? payload.query.trim() : "";
     if (!query) return jsonResponse({ error: "query_required" }, 400, corsHeaders());
     if (query.length > 2_000) return jsonResponse({ error: "query_too_long" }, 400, corsHeaders());
-    const asOfDate = typeof payload.as_of_date === "string" ? payload.as_of_date : undefined;
+    const resolved = resolveFamilyQuery(query);
+    const structuredAsOf = typeof payload.as_of_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(payload.as_of_date)
+      ? payload.as_of_date
+      : undefined;
+    const asOfDate = resolved.as_of_date ?? structuredAsOf;
 
     try {
-      const symbols = extractFamilySymbols(query);
+      if (resolved.is_broker_window_query) {
+        const { runFamilyBrokerQueryFastPath } = await import("./family-broker-query-fast-path");
+        const result = await runFamilyBrokerQueryFastPath({
+          symbol: resolved.symbols[0],
+          as_of: asOfDate ?? taipeiDate(),
+          windows: resolved.broker_windows,
+        });
+        return jsonResponse({
+          ...result,
+          route: "adaptive_broker_window_query",
+          query,
+          resolved_symbols: [...resolved.symbols],
+          compatibility: "LEGACY_QUERY_BROKER_FAST_PATH",
+          requested_via: "queryTaiwanStockSystem",
+        }, 200, corsHeaders());
+      }
+
+      const symbols = [...resolved.symbols];
       if (symbols.length) {
         // Dynamic import avoids a static initialization cycle: family-analysis uses the base read function above.
         const { runSmartFamilyAnalysis } = await import("./family-analysis");
-        const result = await runSmartFamilyAnalysis(env, { symbols, as_of_date: asOfDate });
+        const result = await runSmartFamilyAnalysis(env, { symbols, as_of_date: asOfDate, question: query });
         return jsonResponse({
           ...result,
           compatibility: "LEGACY_QUERY_SMART_ROUTED_TO_FAMILY_V2",
