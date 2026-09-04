@@ -36,11 +36,11 @@ Rules:
 - source errors are isolated by layer and do not block unrelated layers
 - exact-date dataset with no symbol row is `READY_EMPTY`, never silently coerced to zero
 - current raw and normalized responses are not persisted
-- full-market source responses may be reused in a 5-minute in-memory Worker-isolate cache to reduce repeated external requests during the same research batch
+- full-market source responses may be reused in a short in-memory Worker-isolate cache to reduce repeated external requests during the same research batch
 
 ### 2. Existing public chip tools keep their names
 
-`src/v6/tw-market-data-tools.ts` now routes current evidence through the on-demand provider while preserving existing public tool names and input schemas.
+`src/v6/tw-market-data-tools.ts` routes user-facing current evidence through the isolated on-demand facade while preserving existing public tool names and input schemas.
 
 Important stable names include:
 
@@ -54,17 +54,22 @@ Important stable names include:
 
 Family remains read-only. The existing compatibility label `READ_ONLY_PUBLISHED_GENERATION` and the 180-calendar-day historical-read contract are retained because tests and external clients treat them as long-lived compatibility surfaces. The internal current-day provider can change without changing Family permissions or ingress.
 
-### 3. Existing GitHub chip archive becomes historical context only
+### 3. Formal Published gateway and current on-demand facade are separated
 
-`src/v6/market-data-published-gateway.ts` is now an on-demand-first compatibility facade.
+The migration intentionally keeps the deterministic formal-history path separate from current web evidence.
 
-- current requested-date official evidence: TWSE / TPEx direct on-demand
-- ranked broker evidence: public secondary, fail-soft
-- existing GitHub market-data archive: read-only historical context only
-- old archive is not the current-day decision source
-- no requirement to continue daily chip capture to keep current reads working
+`src/v6/market-data-published-gateway.ts` remains the deterministic Published-generation gateway used by formal historical/replay research. It is not converted into a live web facade.
 
-The historical writer/parser code is retained during migration so old research data remains readable and rollback is simple.
+`src/v6/tw-market-chip-on-demand-facade.ts` is the user-facing current-evidence composition layer behind the existing Owner/Family public tool names.
+
+The facade combines:
+
+- current requested-date official evidence from TWSE / TPEx
+- official non-directional warrant activity
+- ranked broker evidence as public-secondary fail-soft context
+- existing GitHub market-data archive as read-only historical context only
+
+The old GitHub archive is not the current-day decision source and no new daily chip capture is required for current reads. Formal Published replay remains deterministic and uncontaminated by current web fetches.
 
 ### 4. Automatic Cloudflare market-data capture cron disabled
 
@@ -72,7 +77,7 @@ Removed the `*/5 * * * *` trigger from `wrangler.jsonc`.
 
 This is the actual configuration switch that stops automatic chip capture/publish/backfill from being scheduled by this Worker.
 
-`src/index-automation-bridge.ts` also turns its `scheduled()` handler into a defensive `RETIRED_NOOP`. This prevents a stale external scheduler binding from silently restarting the retired non-OHLC writer. Root `/health` metadata is overlaid to report `OFFICIAL_EXACT_DATE_ON_DEMAND`, `scheduled_chip_capture=DISABLED`, and `ohlc_policy=UNCHANGED_CANONICAL_PIPELINE`.
+`src/index-automation-bridge.ts` also turns its `scheduled()` handler into a defensive `RETIRED_NOOP`. This prevents a stale external scheduler binding from silently restarting the retired non-OHLC writer. Root `/health` metadata is overlaid to report on-demand current reads, disabled scheduled chip capture, and unchanged OHLC policy.
 
 The old scheduler implementation remains in the codebase as dormant compatibility/history code. OHLC is not owned by this cron and is unchanged.
 
@@ -95,23 +100,32 @@ Current contract:
 - date mismatch -> `PENDING`
 - parser failure -> `ERROR`, never fake empty/zero data
 - explicit no-data page -> `READY_EMPTY`
-- 10-minute in-memory request reuse
+- short in-memory request reuse
 - no persistence
 - fail-soft: broker-page failure never blocks official TWSE/TPEx chip layers
 - a missing branch never means zero activity or no trading
 
 This supports the research use case "stock -> important ranked branches". It does not claim to be a complete branch ledger and does not bypass CAPTCHA/anti-bot controls.
 
-### 7. Warrant and maintenance-ratio boundary
+### 7. Official warrant activity and maintenance-ratio boundary
 
-Free official warrant data sources were identified for a later verified adapter: TWSE/TPEx daily warrant transaction/basic-data datasets expose warrant code/name, transaction date, amount/volume and underlying mappings. However, the production adapter remains fail-closed until field units and call/put/underlying mapping are regression-tested. Paid broker-by-broker warrant transaction products are not substituted or scraped as if they were free public data.
+Added `src/v6/tw-warrant-activity-on-demand.ts` using verified free official TWSE/TPEx warrant datasets for warrant basic mapping and daily activity.
 
-True broker customer account maintenance ratio also remains fail-closed because public market aggregates cannot reconstruct an individual's account collateral/debt state. The existing `ESTIMATED_POSITION_MAINTENANCE_PROXY` may be used only when reference price and estimated financing cost are explicitly available, and it must stay labeled as a proxy rather than official account maintenance ratio.
+The warrant layer is intentionally non-directional:
+
+- it may report warrant turnover / volume activity and underlying association
+- it must not label turnover as aggressive buying or net buying
+- it does not infer dealer hedge direction unless a separate verified directional source exists
+- it is fail-soft and does not block the primary official chip layers
+- current warrant responses are not persisted
+
+True broker customer account maintenance ratio remains fail-closed because public market aggregates cannot reconstruct an individual's account collateral/debt state. The existing `ESTIMATED_POSITION_MAINTENANCE_PROXY` may be used only when reference price and estimated financing cost are explicitly available, and it must stay labeled as a proxy rather than official account maintenance ratio.
 
 ## What did NOT change
 
 - OHLC daily canonical capture
 - OHLC indicators and historical replay data
+- formal deterministic Published-generation replay semantics
 - `/my-mcp`
 - `/mcp`
 - `/family-mcp`
@@ -127,7 +141,7 @@ True broker customer account maintenance ratio also remains fail-closed because 
   - margin / short values
   - lending values
   - SBL values
-  - 5-minute request reuse
+  - short request reuse
   - date mismatch -> `PENDING`
   - previous-day substitution remains forbidden
 - `tests/tw-broker-ranked-on-demand.test.ts`
@@ -138,6 +152,11 @@ True broker customer account maintenance ratio also remains fail-closed because 
   - short-lived cache
   - date mismatch -> `PENDING`
   - explicit no-data -> `READY_EMPTY`
+- `tests/tw-warrant-activity-on-demand.test.ts`
+  - official warrant basic/daily activity parsing
+  - underlying mapping
+  - activity is explicitly non-directional
+  - date/source verification and fail-soft behavior
 - `tests/market-data-cloudflare-cron.test.ts`
   - old scheduler code may remain for compatibility
   - Production Wrangler config must have no automatic market-data cron trigger
@@ -147,6 +166,10 @@ True broker customer account maintenance ratio also remains fail-closed because 
   - GitHub archive is historical-only
   - Wrangler cron is retired
   - automation bridge is defensive no-op
+- `tests/market-data-family-read-contract.test.ts`
+  - public Family tool name, read-only permission and 180-day history contract stay frozen
+  - current Family evidence routes through the isolated on-demand facade
+  - deterministic Published gateway remains historical/replay context behind the facade
 - existing public ingress tests continue to protect Owner and Family MCP URLs
 
 ## Problems found during migration
@@ -181,6 +204,12 @@ Root cause: `tests/tw-market-data.test.ts` still asserted the literal old `D1/R2
 
 Fix: preserve all official parser regressions and stable public tool-name checks, but migrate the architecture assertions to the intended invariants: exact-date on-demand current reads, no current persistence, no previous-day substitution, legacy archive read-only, no Wrangler chip cron, defensive scheduler no-op, OHLC unchanged.
 
+### Problem F — Family test was coupled to the old internal implementation function
+
+Root cause: after separating formal replay from current web evidence, `get_family_market_chip_summary` correctly moved from direct `getTwMarketChipSummaryPublished(...)` calls to `getTwMarketChipSummaryOnDemand(...)`. The old test asserted the exact internal function name, so CI failed even though the public Family contract, permission boundary and 180-day history semantics were unchanged.
+
+Fix: update the test to protect the real invariant instead of the retired implementation detail: Family stays read-only, public tool/ingress stays unchanged, current evidence uses the isolated on-demand facade, and the facade retains the deterministic Published gateway only as historical/replay context.
+
 ## Rollback
 
 Before Production merge, all changes live on isolated branch `test/on-demand-chip-registry-v1` in PR #221.
@@ -200,6 +229,8 @@ Do not merge/deploy unless all are true:
 5. Family isolation/read-only tests pass.
 6. On-demand exact-date unit tests pass.
 7. Ranked broker adapter tests pass.
-8. Market-data cron retirement test passes.
-9. Health metadata reports on-demand current reads and disabled scheduled chip capture.
-10. Broker/warrant/maintenance capabilities are not overstated beyond verified source contracts.
+8. Warrant activity adapter tests pass and remain non-directional.
+9. Market-data cron retirement test passes.
+10. Health metadata reports on-demand current reads and disabled scheduled chip capture.
+11. Broker/warrant/maintenance capabilities are not overstated beyond verified source contracts.
+12. Formal Published replay tests remain deterministic and do not call current web sources.
