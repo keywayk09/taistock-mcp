@@ -91,5 +91,6 @@ assert.doesNotMatch(mcpSource, /registerTool\("jin10_/);
 // gate so the bug cannot silently return even if a new test file is forgotten
 // by package.json in a future refactor.
 await import("./family-broker-query-routing.test.ts");
+await import("./credit-sbl-date-routing-v2.test.ts");
 
 console.log("family-shared-read-intelligence.test.ts: PASS");
