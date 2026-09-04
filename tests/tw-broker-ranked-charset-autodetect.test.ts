@@ -42,4 +42,6 @@ assert.equal(result.sells[0]?.broker_branch, "花旗環球");
 assert.equal(result.sells[0]?.net_lots, -906);
 assert.equal(calls, 1, "charset recovery must not require a second origin request");
 
+await import("./moneydj-live-diagnostic-temp.ts");
+
 console.log("MoneyDJ broker charset auto-detect regression passed");
