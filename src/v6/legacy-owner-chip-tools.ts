@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway.ts";
-import { getTwBrokerRankedWindowBundleOnDemand } from "./tw-broker-ranked-on-demand.ts";
+import { getTwBrokerRankedOnDemand, getTwBrokerRankedWindowBundleOnDemand } from "./tw-broker-ranked-on-demand.ts";
 import { getTwChipOnDemandSnapshot } from "./tw-chip-on-demand.ts";
 
 export const LEGACY_OWNER_CHIP_OVERRIDE_TOOL_NAMES = Object.freeze([
@@ -105,24 +105,26 @@ export function registerLegacyOwnerChipTools(server: McpServer, env: Env) {
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   }, async ({ symbol, date, top_n }) => {
-    const bundle = await getTwBrokerRankedWindowBundleOnDemand({ symbol, as_of: date });
-    const ranked = bundle.windows["1D"];
+    const [ranked, bundle] = await Promise.all([
+      getTwBrokerRankedOnDemand({ symbol, as_of: date }),
+      getTwBrokerRankedWindowBundleOnDemand({ symbol, as_of: date }),
+    ]);
     const multiWindow = Object.fromEntries(
       ["5D", "10D", "20D", "60D"].map((key) => [key, compactBrokerWindow(bundle.windows[key], top_n)]),
     );
     return out({
-      source: ranked?.source ?? "MoneyDJ broker ranked public page",
+      source: ranked.source,
       provider: "MoneyDJ",
       tier: "PUBLIC_SECONDARY",
       completeness: "RANKED_ONLY",
       symbol,
       date,
-      status: ranked?.status ?? bundle.status,
-      source_date: ranked?.source_date ?? null,
-      source_date_verified: ranked?.source_date_verified === true,
-      top_net_buyers: (ranked?.buys ?? []).slice(0, top_n),
-      top_net_sellers: (ranked?.sells ?? []).slice(0, top_n),
-      rank_count: ranked && "rank_count" in ranked ? ranked.rank_count : { buy: ranked?.buys?.length ?? 0, sell: ranked?.sells?.length ?? 0 },
+      status: ranked.status,
+      source_date: ranked.source_date,
+      source_date_verified: ranked.source_date_verified,
+      top_net_buyers: ranked.buys.slice(0, top_n),
+      top_net_sellers: ranked.sells.slice(0, top_n),
+      rank_count: "rank_count" in ranked ? ranked.rank_count : { buy: ranked.buys.length, sell: ranked.sells.length },
       missing_branch_means_zero: false,
       previous_day_substitution: false,
       persistence: "NONE",
@@ -145,8 +147,8 @@ export function registerLegacyOwnerChipTools(server: McpServer, env: Env) {
         },
         interpretation_boundary: bundle.interpretation_boundary,
       },
-      error: ranked && "error" in ranked ? ranked.error : null,
-      retrieved_at: ranked?.retrieved_at ?? null,
+      error: "error" in ranked ? ranked.error : null,
+      retrieved_at: ranked.retrieved_at,
     });
   });
 
