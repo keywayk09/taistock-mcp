@@ -1,4 +1,4 @@
-import { readGitHubJson } from "./github-data-store";
+import { readGitHubJson } from "./github-data-store.ts";
 import {
   normalizeTpexMargin,
   normalizeTpexSblShortSale,
@@ -10,9 +10,9 @@ import {
   type SblShortSaleRow,
   type TwMarket,
   type TwMarketDataKind,
-} from "./tw-market-data";
-import { normalizeTwseMiMargnOfficial } from "./twse-mi-margin-official";
-import { resolveTwseTradingWindowStart } from "./twse-trading-calendar-on-demand";
+} from "./tw-market-data.ts";
+import { normalizeTwseMiMargnOfficial } from "./twse-mi-margin-official.ts";
+import { resolveTwseTradingWindowStart } from "./twse-trading-calendar-on-demand.ts";
 
 export const TW_CREDIT_SBL_QUERY_FAST_PATH_VERSION = "tw-credit-sbl-query-fast-path/v1.0.0";
 export type CreditSblWindowDays = 1 | 5 | 10 | 20 | 60;
@@ -506,12 +506,14 @@ export async function runFamilyCreditSblQueryFastPath(
     layers: {
       margin_short: wants.margin ? {
         latest: marginRows.at(-1) ?? null,
+        rows: marginRows.slice(-60),
         windows: marginWindows,
         current_source: exactMargin ? "OFFICIAL_GITHUB_ARCHIVE_EXACT_DATE" : marginCurrent?.source ?? null,
         current_status: exactMargin ? "READY" : marginCurrent?.status ?? "UNAVAILABLE",
       } : null,
       sbl_short_sale: wants.sbl ? {
         latest: sblRows.at(-1) ?? null,
+        rows: sblRows.slice(-60),
         windows: sblWindows,
         current_source: exactSbl ? "OFFICIAL_GITHUB_ARCHIVE_EXACT_DATE" : sblCurrent?.source ?? null,
         current_status: exactSbl ? "READY" : sblCurrent?.status ?? "UNAVAILABLE",
@@ -519,6 +521,7 @@ export async function runFamilyCreditSblQueryFastPath(
       } : null,
       securities_lending: wants.lending ? {
         latest: lendingRows.at(-1) ?? null,
+        rows: lendingRows.slice(-60),
         windows: lendingWindows,
         current_source: exactLending ? "OFFICIAL_GITHUB_ARCHIVE_EXACT_DATE" : lendingCurrent?.source ?? null,
         current_status: exactLending ? "READY" : lendingCurrent?.status ?? "UNAVAILABLE",
