@@ -42,4 +42,9 @@ assert.equal(result.sells[0]?.broker_branch, "花旗環球");
 assert.equal(result.sells[0]?.net_lots, -906);
 assert.equal(calls, 1, "charset recovery must not require a second origin request");
 
+// Keep the whole-bundle provider-selection regression in the permanent market
+// data suite. It intentionally imports after the charset gate so RED proves the
+// new router is absent/incorrect without weakening the MoneyDJ transport fix.
+await import("./broker-provider-bundle-router.test.ts");
+
 console.log("MoneyDJ broker charset auto-detect regression passed");
