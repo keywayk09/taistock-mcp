@@ -68,7 +68,25 @@ function provider(id: string, bundle: BrokerProviderBundle): BrokerBundleProvide
       historical_as_of: true,
       ranked_only: true,
     },
-    readBundle: async () => bundle,
+    readBundle: async (request) => {
+      // A provider contract must return exactly the windows the router asked
+      // for. Project the fixture here so the one-window test models a compliant
+      // provider rather than failing for an unrelated fixture mismatch.
+      const windows = Object.fromEntries(request.windows.map((days) => {
+        const key = `${days}D`;
+        return [key, bundle.windows[key]];
+      }));
+      const ready = Object.values(windows).filter((row: any) => row?.status === "READY" || row?.status === "READY_EMPTY").length;
+      return {
+        ...bundle,
+        symbol: request.symbol,
+        requested_as_of: request.as_of,
+        requested_windows: [...request.windows],
+        windows,
+        ready_window_count: ready,
+        status: ready === request.windows.length ? "READY" : ready > 0 ? "DEGRADED" : "ERROR",
+      };
+    },
   };
 }
 
