@@ -62,8 +62,3 @@ assert.match(fullMarketHealthRoute, /loadStableMarketUniverse\(\)/);
 assert.doesNotMatch(fullMarketHealthRoute, /loadStableMarketUniverse\(true\)/);
 
 console.log("stable market + swing source contracts locked");
-
-// Temporary isolated-branch validation: execute the exact production MoneyDJ/TWSE
-// read-only adapter against the live public providers. This branch must never be
-// merged with the live import enabled.
-await import("./family-broker-live-provider-smoke.test.ts");
