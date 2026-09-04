@@ -1,8 +1,10 @@
 import { familySharedReadManifest } from "./family-shared-read-plane.ts";
+import { isFamilyBrokerWindowQueryText, resolveFamilyQuery } from "./family-query-resolver.ts";
 
-export const FAMILY_ADAPTIVE_PLANNER_VERSION = "family-adaptive-planner/v1.2.0";
+export const FAMILY_ADAPTIVE_PLANNER_VERSION = "family-adaptive-planner/v1.3.0";
 
 export type FamilyIntent =
+  | "BROKER_WINDOW_QUERY"
   | "QUICK_STOCK_QUESTION"
   | "FULL_STOCK_ANALYSIS"
   | "STOCK_COMPARE"
@@ -21,13 +23,15 @@ function includesAny(query: string, patterns: RegExp[]) {
 }
 
 export function extractFamilyQuerySymbols(query: string) {
-  return unique(String(query ?? "").match(/(?<!\d)\d{4,6}(?!\d)/g) ?? []).slice(0, 5);
+  return resolveFamilyQuery(query).symbols;
 }
 
 export function inferFamilyAdaptiveIntent(query: string, symbols: string[]): FamilyIntent {
   const text = String(query ?? "").trim();
 
   if (symbols.length >= 2) return "STOCK_COMPARE";
+
+  if (symbols.length === 1 && isFamilyBrokerWindowQueryText(text)) return "BROKER_WINDOW_QUERY";
 
   if (includesAny(text, [
     /波段|選股|選標的|找股票|找標的|候選|排名|哪幾檔|有什麼.*股票|值得注意的.*股票/i,
@@ -47,6 +51,7 @@ export function inferFamilyAdaptiveIntent(query: string, symbols: string[]): Fam
 }
 
 function answerDepth(intent: FamilyIntent, query: string): FamilyAnswerDepth {
+  if (intent === "BROKER_WINDOW_QUERY") return "QUICK";
   if (intent === "FULL_STOCK_ANALYSIS" || intent === "STOCK_COMPARE") return "DEEP";
   if (intent === "SWING_DISCOVERY") return "STANDARD";
   if (/深入|詳細|完整|全面|徹底|研究/i.test(query)) return "DEEP";
@@ -61,6 +66,9 @@ function wantsRegimeContext(query: string) {
 function preferredReads(intent: FamilyIntent, query: string) {
   let base: string[];
   switch (intent) {
+    case "BROKER_WINDOW_QUERY":
+      base = ["broker_branch"];
+      break;
     case "QUICK_STOCK_QUESTION":
       base = ["realtime_market", "canonical_ohlc", "current_chip", "published_chip", "fundamentals", "open_world_web"];
       break;
@@ -80,13 +88,17 @@ function preferredReads(intent: FamilyIntent, query: string) {
       base = ["fundamentals", "industry_supply_chain", "research_repository", "global_market_context", "open_world_web"];
       break;
   }
-  if (wantsRegimeContext(query)) base.push("txf_context", "global_futures_context", "jin10_events");
+  if (intent !== "BROKER_WINDOW_QUERY" && wantsRegimeContext(query)) {
+    base.push("txf_context", "global_futures_context", "jin10_events");
+  }
   return unique(base);
 }
 
 export function planFamilyQuery(query: string, symbols: string[] = []) {
-  const normalizedSymbols = unique(symbols.map((symbol) => String(symbol).trim()).filter(Boolean)).slice(0, 5);
   const normalizedQuery = String(query ?? "").trim();
+  const queryResolution = resolveFamilyQuery(normalizedQuery);
+  const suppliedSymbols = unique(symbols.map((symbol) => String(symbol).trim()).filter(Boolean)).slice(0, 5);
+  const normalizedSymbols = suppliedSymbols.length ? suppliedSymbols : [...queryResolution.symbols];
   const intent = inferFamilyAdaptiveIntent(normalizedQuery, normalizedSymbols);
   const depth = answerDepth(intent, normalizedQuery);
 
@@ -95,12 +107,20 @@ export function planFamilyQuery(query: string, symbols: string[] = []) {
     intent,
     answer_depth: depth,
     subjects: normalizedSymbols,
+    query_resolution: {
+      version: queryResolution.version,
+      as_of_date: queryResolution.as_of_date,
+      explicit_dates: queryResolution.explicit_dates,
+      is_broker_window_query: queryResolution.is_broker_window_query,
+      broker_windows: queryResolution.broker_windows,
+    },
     planner_role: "NON_BINDING_RESEARCH_PLAN",
     model_override_allowed: true,
     fixed_workflow: false,
     preferred_reads: preferredReads(intent, normalizedQuery),
     shared_read_plane: familySharedReadManifest(),
     execution_guidance: {
+      broker_window_query: "明確券商分點問題直接走既有MoneyDJ bounded multi-window fast path；不啟動OHLC、Jin10、財報、產業鏈或完整11點研究。",
       quick_question: "先回答使用者真正問的事；只取足以支撐答案的證據，不因為有11點框架就強迫逐點念完。",
       full_analysis: "需要完整個股研究時，以1到11點作最終完整性契約，但查詢順序與來源可動態決定。",
       progressive_deepening: "先做高價值核心讀取；若發現重大催化劑、資料衝突、未知欄位或新線索，再自主擴展研究。",
