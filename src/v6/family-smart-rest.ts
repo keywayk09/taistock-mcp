@@ -9,6 +9,7 @@ import { resolveFamilyQuery } from "./family-query-resolver";
 import { familyResearchDirective } from "./family-research-policy";
 import { familySharedReadManifest } from "./family-shared-read-plane";
 import { runFamilySwingScreenV2 } from "./family-stock-selection-v2";
+import { runFamilyCreditSblQueryFastPath } from "./tw-credit-sbl-query-fast-path";
 import { getTwMarketChipSummaryOnDemand } from "./tw-market-chip-on-demand-facade";
 
 type RuntimeFamilyEnv = Env & { MOM_GPT_API_KEY?: string };
@@ -116,7 +117,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
     return json({
       ok: true,
       service: "Taiwan Stock AI Family Read-Only API",
-      version: "family-rest/v3.2.0",
+      version: "family-rest/v3.3.0",
       intelligence_model: "SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS",
       capabilities: {
         natural_language_query: "ADAPTIVE_INTENT_PLANNER",
@@ -128,6 +129,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
         web_research: "OPEN_WORLD_AUTONOMOUS_NOT_FIXED_SITES_OR_KEYWORDS",
         formal_chip: "OFFICIAL_EXACT_DATE_ON_DEMAND_CURRENT+PUBLISHED_HISTORY_CONTEXT",
         broker_branch: "MONEYDJ_RANKED_ONLY_FAIL_SOFT_NO_FINMIND_TOKEN",
+        credit_sbl: "TWSE_TPEX_TARGETED_1D_5D_10D_20D_60D_FAST_PATH",
         formal_ohlc: "OHLC_MCP_ONLY",
         owner_market_research_reads: "SHARED_BY_DEFAULT_WHEN_AVAILABLE",
         action_surface_parity: "FAMILY_MCP_CORE_READ_TOOLS_EXPOSED",
@@ -223,6 +225,26 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
         }, 200, cors());
       }
 
+      if (adaptivePlan.intent === "CREDIT_SBL_QUERY") {
+        const result = await runFamilyCreditSblQueryFastPath(env, {
+          symbol: symbols[0],
+          query,
+          as_of: asOfDate ?? taipeiDate(),
+          as_of_explicit: queryResolution.as_of_date !== null,
+        });
+        return compactJson({
+          ...result,
+          route: "adaptive_credit_sbl_query",
+          query,
+          as_of_date: result.resolved_as_of ?? asOfDate ?? taipeiDate(),
+          resolved_symbols: symbols,
+          requested_via: "queryTaiwanStockSystem",
+          adaptive_plan: adaptivePlan,
+          query_resolution: queryResolution,
+          shared_read_plane: familySharedReadManifest(),
+        }, 200, cors());
+      }
+
       if (adaptivePlan.intent === "SWING_DISCOVERY") {
         const result = await runFamilySwingScreenV2(env, { mode: inferScreenMode(query), top_n: 5 });
         return json({
@@ -246,7 +268,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
         return compactJson({
           ok: true,
           service: "Taiwan Stock AI Family Read-Only API",
-          version: "family-rest/v3.2.0",
+          version: "family-rest/v3.3.0",
           route: "adaptive_market_context",
           query,
           as_of_date: resolvedAsOf,
@@ -279,7 +301,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
       return json({
         ok: true,
         service: "Taiwan Stock AI Family Read-Only API",
-        version: "family-rest/v3.2.0",
+        version: "family-rest/v3.3.0",
         route: "adaptive_open_research",
         query,
         resolved_symbols: [],
