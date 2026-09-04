@@ -34,13 +34,19 @@ assert.deepEqual(extractFamilyQuerySymbols("比較 2330 2317"), ["2330", "2317"]
 
 // The broker question needs its own lightweight intent. It must be resolved
 // before generic one-stock analysis, while real multi-stock comparisons remain
-// STOCK_COMPARE.
+// STOCK_COMPARE. An explicit full-analysis request must still win even if the
+// user says to include broker branches as one part of that full analysis.
 assert.equal(
   inferFamilyAdaptiveIntent("查 2330 2026-09-04 券商分點", ["2330"]),
   "BROKER_WINDOW_QUERY",
 );
 assert.equal(inferFamilyAdaptiveIntent("比較 2330 2317", ["2330", "2317"]), "STOCK_COMPARE");
 assert.equal(inferFamilyAdaptiveIntent("2330 完整分析", ["2330"]), "FULL_STOCK_ANALYSIS");
+assert.equal(
+  inferFamilyAdaptiveIntent("2330 完整深入分析，分點也要看", ["2330"]),
+  "FULL_STOCK_ANALYSIS",
+  "full-analysis intent must not be stolen by the broker fast path",
+);
 assert.equal(inferFamilyAdaptiveIntent("2026-09-04 台股為什麼跌", []), "MARKET_CONTEXT");
 
 const brokerPlan = planFamilyQuery("查 2330 2026-09-04 券商分點，列出1日、5日、10日、20日、60日", ["2330"]);
