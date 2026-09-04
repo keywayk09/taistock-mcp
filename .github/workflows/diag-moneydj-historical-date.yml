@@ -1,0 +1,65 @@
+name: Diagnose MoneyDJ historical exact-date semantics
+
+on:
+  push:
+    branches:
+      - diag/moneydj-historical-date-20260904
+    paths:
+      - .github/workflows/diag-moneydj-historical-date.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify historical custom-range exact day
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import re, urllib.request, html as htmlmod, hashlib
+          ua='Diamond-Broker-Ranked-ReadOnly/1.0'
+          urls={
+            'hist_dash':'https://www.moneydj.com/z/zc/zco/zco.djhtm?a=2330&e=2026-9-3&f=2026-9-3',
+            'hist_padded':'https://www.moneydj.com/z/zc/zco/zco.djhtm?a=2330&e=2026-09-03&f=2026-09-03',
+            'current':'https://www.moneydj.com/Z/ZC/ZCO/ZCO.djhtm?a=2330&e=',
+          }
+          out={}
+          for name,url in urls.items():
+              req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'text/html,*/*'})
+              with urllib.request.urlopen(req,timeout=25) as r:
+                  raw=r.read(); ctype=r.headers.get('Content-Type','')
+              text=raw.decode('big5' if 'big5' in ctype.lower() else 'utf-8','replace')
+              plain=re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',htmlmod.unescape(text)))
+              updated=re.search(r'最後更新日\s*[：:]?\s*((?:\d{4}[/-])?\d{1,2}[/-]\d{1,2})',plain)
+              ymd1=re.search(r"var\s+getYMD1\s*=\s*'([^']+)'",text,re.I)
+              ymd2=re.search(r"var\s+getYMD2\s*=\s*'([^']+)'",text,re.I)
+              first=None
+              for tr in re.findall(r'<tr\b[^>]*>[\s\S]*?</tr>',text,re.I):
+                  cells=[re.sub(r'\s+',' ',re.sub(r'<[^>]+>',' ',htmlmod.unescape(x))).strip() for x in re.findall(r'<t[dh]\b[^>]*>([\s\S]*?)</t[dh]>',tr,re.I)]
+                  if len(cells)>=10 and cells[0] and re.fullmatch(r'[\d,]+',cells[1] or ''):
+                      first=(cells[0],cells[3],cells[5],cells[8]); break
+              totals=re.search(r'合計買超張數\s*([\d,]+).*?合計賣超張數\s*([\d,]+)',plain)
+              rec={
+                'name':name,
+                'updated':updated.group(1) if updated else None,
+                'getYMD1':ymd1.group(1) if ymd1 else None,
+                'getYMD2':ymd2.group(1) if ymd2 else None,
+                'first':first,
+                'totals':(totals.group(1),totals.group(2)) if totals else None,
+                'sha256':hashlib.sha256(raw).hexdigest(),
+                'bytes':len(raw),
+              }
+              print(rec)
+              assert first, f'{name}: ranked rows missing'
+              out[name]=rec
+          for name in ['hist_dash','hist_padded']:
+              assert out[name]['getYMD1'] in ('2026/9/3','2026/09/03'), out[name]
+              assert out[name]['getYMD2'] in ('2026/9/3','2026/09/03'), out[name]
+          assert out['hist_dash']['first']==out['hist_padded']['first'], 'date formatting changes historical result'
+          assert out['hist_dash']['first'] != out['current']['first'] or out['hist_dash']['totals'] != out['current']['totals'], 'historical exact-day response unexpectedly identical to current one-day output'
+          print('MONEYDJ_HISTORICAL_EXACT_DAY_PASS')
+          PY
