@@ -94,7 +94,4 @@ await import("./credit-sbl-date-routing-v2.test.ts");
 await import("./family-credit-broker-composite-routing.test.ts");
 await import("./family-broker-render-contract.test.ts");
 
-// TEMPORARY PR-only live canary. Remove after 120D qualification succeeds.
-await import("./family-broker-live-provider-smoke.test.ts");
-
 console.log("family-shared-read-intelligence.test.ts: PASS");
