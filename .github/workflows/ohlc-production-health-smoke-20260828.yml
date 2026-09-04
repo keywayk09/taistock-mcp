@@ -1,0 +1,53 @@
+name: OHLC Production Compatibility Smoke 20260828
+
+on:
+  push:
+    branches: [test/ohlc-production-health-20260828]
+    paths:
+      - '.github/workflows/ohlc-production-health-smoke-20260828.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify Production compatibility receipt and MCP OAuth boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, urllib.error, urllib.request
+
+          base='https://tv-fugle-1d.keikei99887.workers.dev'
+          headers={'Accept':'application/json','Cache-Control':'no-cache','User-Agent':'ohlc-prod-compat-smoke/20260828'}
+
+          # Public health carries only a non-sensitive capability receipt. Its
+          # presence proves the full Production build passed every earlier test.
+          with urllib.request.urlopen(urllib.request.Request(base+'/health',headers=headers),timeout=30) as r:
+            health=json.loads(r.read().decode('utf-8-sig'))
+            if r.status != 200: raise RuntimeError(f'health_http_{r.status}')
+          marker=health.get('legacy_mcp_hard_cutoff_compat')
+          print(json.dumps({'health_status':200,'compat_marker':marker,'liveness_version':health.get('liveness_version')},ensure_ascii=False))
+          if marker != 'v1': raise RuntimeError(f'compat_marker_not_live:{marker!r}')
+
+          # The MCP route must still be OAuth-protected after the compatibility deploy.
+          payload=json.dumps({'jsonrpc':'2.0','id':1,'method':'tools/list','params':{}}).encode()
+          req=urllib.request.Request(base+'/mcp',data=payload,method='POST',headers={
+            'Accept':'application/json, text/event-stream',
+            'Content-Type':'application/json',
+            'Cache-Control':'no-cache',
+            'User-Agent':'ohlc-prod-compat-smoke/20260828',
+          })
+          try:
+            with urllib.request.urlopen(req,timeout=30) as r:
+              raw=r.read().decode('utf-8-sig',errors='replace'); status=r.status; auth=r.headers.get('WWW-Authenticate')
+          except urllib.error.HTTPError as e:
+            raw=e.read().decode('utf-8-sig',errors='replace'); status=e.code; auth=e.headers.get('WWW-Authenticate')
+          print(json.dumps({'mcp_status':status,'oauth_challenge':bool(auth),'body':raw[:300]},ensure_ascii=False))
+          if status not in (401,403): raise RuntimeError(f'mcp_oauth_boundary_regressed:http_{status}')
+          if not auth: raise RuntimeError('mcp_oauth_challenge_missing')
+          if 'ohlc.read' not in auth: raise RuntimeError(f'mcp_scope_missing:{auth}')
+          PY
