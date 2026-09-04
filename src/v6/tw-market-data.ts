@@ -268,11 +268,33 @@ function twseTwt93Rows(body: unknown) {
   return responseRows(body);
 }
 
+function includesNormalizedField(field: string, parts: string[]) {
+  const normalized = normalizeKey(field);
+  return parts.every((part) => normalized.includes(normalizeKey(part)));
+}
+
+export function assertTwseTwt93uSchema(body: unknown) {
+  const root = rec(body);
+  const fields = Array.isArray(root.fields) ? root.fields.map(String) : [];
+  const data = Array.isArray(root.data) ? root.data : [];
+  if (!data.length) return;
+  const valid = fields.length >= 14
+    && includesNormalizedField(fields[0] ?? "", ["代號"])
+    && includesNormalizedField(fields[8] ?? "", ["前日", "餘額"])
+    && includesNormalizedField(fields[9] ?? "", ["賣出"])
+    && includesNormalizedField(fields[10] ?? "", ["還券"])
+    && includesNormalizedField(fields[11] ?? "", ["調整"])
+    && includesNormalizedField(fields[12] ?? "", ["餘額"])
+    && includesNormalizedField(fields[13] ?? "", ["限額"]);
+  if (!valid) throw new Error("twt93u_schema_mismatch");
+}
+
 export function normalizeTwseSblShortSale(body: unknown, requestedDate: string): SblShortSaleRow[] {
   const root = rec(body);
   const tradeDate = normalizeTradeDate(root.date) ?? requestedDate;
   const fields = Array.isArray(root.fields) ? root.fields.map(String) : [];
   const rows = Array.isArray(root.data) ? root.data.filter(Array.isArray) as unknown[][] : [];
+  assertTwseTwt93uSchema(body);
   // TWT93U contains two groups with duplicate field names. The SBL group is the second
   // set: 前日餘額、當日賣出、當日還券、當日調整、當日餘額、次一營業日可限額.
   if (fields.length >= 14 && rows.length) {
@@ -342,19 +364,42 @@ export function normalizeTpexSblShortSale(balanceBody: unknown, volumeBody: unkn
   }).filter((x): x is SblShortSaleRow => Boolean(x));
 }
 
+function strictSum<T>(rows: T[], pick: (row: T) => number | null) {
+  if (!rows.length) return null;
+  let total = 0;
+  for (const row of rows) {
+    const value = pick(row);
+    if (value === null) return null;
+    total += value;
+  }
+  return total;
+}
+
+const WINDOWS = [1,3,5,10,20] as const;
+const CREDIT_WINDOWS = [1,3,5,10,20,60] as const;
+
 export function securitiesLendingWindows(rows: SecuritiesLendingRow[]) {
   const sorted = [...rows].sort((a,b)=>a.trade_date.localeCompare(b.trade_date));
   const latest = sorted.at(-1) ?? null;
   const sums = (n:number) => {
     const slice = sorted.slice(-n);
+    const borrowed = strictSum(slice, (x) => x.borrowed_shares);
+    const returned = strictSum(slice, (x) => x.returned_shares);
+    const startBalance = slice[0]?.previous_balance_shares ?? null;
+    const endBalance = slice.at(-1)?.balance_shares ?? null;
     return {
       days: slice.length,
-      borrowed_shares: slice.reduce((s,x)=>s+(x.borrowed_shares ?? 0),0),
-      returned_shares: slice.reduce((s,x)=>s+(x.returned_shares ?? 0),0),
-      net_borrowed_shares: slice.reduce((s,x)=>s+(x.borrowed_shares ?? 0)-(x.returned_shares ?? 0),0),
+      requested_days: n,
+      complete: slice.length === n && borrowed !== null && returned !== null,
+      borrowed_shares: borrowed,
+      returned_shares: returned,
+      net_borrowed_shares: borrowed !== null && returned !== null ? borrowed - returned : null,
+      start_balance_shares: startBalance,
+      end_balance_shares: endBalance,
+      balance_change_shares: startBalance !== null && endBalance !== null ? endBalance - startBalance : null,
     };
   };
-  return { latest, windows:Object.fromEntries(WINDOWS.map((n)=>[`${n}d`,sums(n)])) };
+  return { latest, windows:Object.fromEntries(CREDIT_WINDOWS.map((n)=>[`${n}d`,sums(n)])) };
 }
 
 export function sblShortSaleWindows(rows: SblShortSaleRow[]) {
@@ -362,19 +407,29 @@ export function sblShortSaleWindows(rows: SblShortSaleRow[]) {
   const latest = sorted.at(-1) ?? null;
   const sums = (n:number) => {
     const slice = sorted.slice(-n);
+    const sold = strictSum(slice, (x) => x.sold_shares);
+    const returned = strictSum(slice, (x) => x.returned_shares);
+    const adjustment = strictSum(slice, (x) => x.adjustment_shares);
+    const soldVolume = strictSum(slice, (x) => x.sold_volume_shares);
+    const soldAmount = strictSum(slice, (x) => x.sold_amount);
+    const startBalance = slice[0]?.previous_balance_shares ?? null;
+    const endBalance = slice.at(-1)?.balance_shares ?? null;
     return {
       days: slice.length,
-      sold_shares: slice.reduce((s,x)=>s+(x.sold_shares ?? 0),0),
-      returned_shares: slice.reduce((s,x)=>s+(x.returned_shares ?? 0),0),
-      adjustment_shares: slice.reduce((s,x)=>s+(x.adjustment_shares ?? 0),0),
-      sold_volume_shares: slice.reduce((s,x)=>s+(x.sold_volume_shares ?? 0),0),
-      sold_amount: slice.reduce((s,x)=>s+(x.sold_amount ?? 0),0),
+      requested_days: n,
+      complete: slice.length === n && sold !== null && returned !== null && adjustment !== null,
+      sold_shares: sold,
+      returned_shares: returned,
+      adjustment_shares: adjustment,
+      sold_volume_shares: soldVolume,
+      sold_amount: soldAmount,
+      start_balance_shares: startBalance,
+      end_balance_shares: endBalance,
+      balance_change_shares: startBalance !== null && endBalance !== null ? endBalance - startBalance : null,
     };
   };
-  return { latest, windows:Object.fromEntries(WINDOWS.map((n)=>[`${n}d`,sums(n)])) };
+  return { latest, windows:Object.fromEntries(CREDIT_WINDOWS.map((n)=>[`${n}d`,sums(n)])) };
 }
-
-const WINDOWS = [1,3,5,10,20] as const;
 
 export function institutionalWindows(rows: InstitutionalRow[]) {
   const sorted = [...rows].sort((a,b)=>a.trade_date.localeCompare(b.trade_date));
@@ -396,11 +451,23 @@ export function marginWindows(rows: MarginRow[]) {
   const latest = sorted.at(-1) ?? null;
   const sums = (n:number) => {
     const slice = sorted.slice(-n);
+    const marginChange = strictSum(slice, (x) => x.margin_balance_change_lots);
+    const shortChange = strictSum(slice, (x) => x.short_balance_change_lots);
+    const marginStart = slice[0]?.margin_previous_balance_lots ?? null;
+    const marginEnd = slice.at(-1)?.margin_balance_lots ?? null;
+    const shortStart = slice[0]?.short_previous_balance_lots ?? null;
+    const shortEnd = slice.at(-1)?.short_balance_lots ?? null;
     return {
       days:slice.length,
-      margin_balance_change_lots:slice.reduce((s,x)=>s+(x.margin_balance_change_lots ?? 0),0),
-      short_balance_change_lots:slice.reduce((s,x)=>s+(x.short_balance_change_lots ?? 0),0),
+      requested_days: n,
+      complete: slice.length === n && marginChange !== null && shortChange !== null,
+      margin_balance_change_lots: marginChange,
+      short_balance_change_lots: shortChange,
+      margin_start_balance_lots: marginStart,
+      margin_end_balance_lots: marginEnd,
+      short_start_balance_lots: shortStart,
+      short_end_balance_lots: shortEnd,
     };
   };
-  return { latest, windows:Object.fromEntries(WINDOWS.map((n)=>[`${n}d`,sums(n)])) };
+  return { latest, windows:Object.fromEntries(CREDIT_WINDOWS.map((n)=>[`${n}d`,sums(n)])) };
 }
