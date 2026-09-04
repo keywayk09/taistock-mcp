@@ -1,12 +1,7 @@
 import { readFamilyStockMarketContext } from "./family-ohlc-read-bridge";
 import { getTwMarketCrossSection } from "./market-data-cross-section";
-import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway";
 import { getSupplyChainContract } from "./supply-chain-graph";
-import {
-  getTwInstitutionalFlow,
-  getTwMarginShort,
-  getTwMarketDataBundle,
-} from "./tw-market-data-github-live";
+import { getTwMarketChipSummaryOnDemand } from "./tw-market-chip-on-demand-facade";
 
 export const DIAMOND_CHATGPT_FIXED_FACADE_VERSION = "diamond-chatgpt-fixed-facade/v1";
 
@@ -157,23 +152,58 @@ function retired(tool: string, modernCapability: string, detail: string) {
   });
 }
 
+async function onDemandSummary(env: Env, symbol: string, as_of: string | undefined) {
+  return getTwMarketChipSummaryOnDemand(env, { symbol, as_of, calendar_days: 60 });
+}
+
 async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
   const symbol = symbolOf(input);
   const as_of = asOfOf(input);
 
   if (tool === "get_official_stock_institutional") {
     if (!symbol) return retired(tool, "get_tw_institutional_flow", "legacy call requires a 4-6 digit Taiwan stock symbol");
-    return out({ compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION, legacy_tool: tool, modern_tool: "get_tw_institutional_flow", data: await getTwInstitutionalFlow(env, { symbol, as_of, calendar_days: 60 }) });
+    const summary = await onDemandSummary(env, symbol, as_of);
+    return out({
+      compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
+      legacy_tool: tool,
+      modern_tool: "get_tw_institutional_flow",
+      preferred_current_evidence: "EXACT_DATE_OFFICIAL_ON_DEMAND",
+      data: summary.on_demand_current.layers.institutional,
+      history_context: {
+        role: "HISTORY_CONTEXT_ONLY",
+        data_as_of: summary.legacy_archive_context?.data_as_of ?? null,
+        layer: summary.layers?.institutional ?? null,
+      },
+      previous_day_substitution: false,
+    });
   }
 
   if (tool === "get_official_stock_margin") {
     if (!symbol) return retired(tool, "get_tw_margin_short", "legacy call requires a 4-6 digit Taiwan stock symbol");
-    return out({ compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION, legacy_tool: tool, modern_tool: "get_tw_margin_short", data: await getTwMarginShort(env, { symbol, as_of, calendar_days: 60 }) });
+    const summary = await onDemandSummary(env, symbol, as_of);
+    return out({
+      compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
+      legacy_tool: tool,
+      modern_tool: "get_tw_margin_short",
+      preferred_current_evidence: "EXACT_DATE_OFFICIAL_ON_DEMAND",
+      data: summary.on_demand_current.layers.margin_short,
+      history_context: {
+        role: "HISTORY_CONTEXT_ONLY",
+        data_as_of: summary.legacy_archive_context?.data_as_of ?? null,
+        layer: summary.layers?.margin ?? null,
+      },
+      previous_day_substitution: false,
+    });
   }
 
   if (tool === "get_daily_chip_report") {
     if (!symbol) return retired(tool, "get_tw_market_data_bundle", "legacy call requires a 4-6 digit Taiwan stock symbol");
-    return out({ compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION, legacy_tool: tool, modern_tool: "get_tw_market_data_bundle", data: await getTwMarketDataBundle(env, { symbol, as_of, calendar_days: 60 }) });
+    return out({
+      compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
+      legacy_tool: tool,
+      modern_tool: "get_tw_market_data_bundle",
+      data: await onDemandSummary(env, symbol, as_of),
+    });
   }
 
   if (tool === "get_official_market_institutional" || tool === "get_official_market_margin") {
@@ -183,6 +213,10 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
       legacy_tool: tool,
       modern_tool: "get_tw_market_cross_section",
       projection: tool.endsWith("institutional") ? "institutional" : "margin",
+      status: "LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY",
+      role: "HISTORY_CONTEXT_ONLY",
+      current_selection_source: false,
+      note: "目前沒有全市場 on-demand cross-section；此 frozen alias 僅保留舊 GitHub archive 歷史背景，不得解讀為當期官方全市場快照。當期個股請改由 exact-date on-demand 工具補證。",
       data,
     });
   }
@@ -200,7 +234,7 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
     }
     const [marketContext, chip] = await Promise.all([
       readFamilyStockMarketContext(env, { symbol, books: true, wait_ms: 0 }),
-      getTwMarketChipSummaryPublished(env, { symbol, as_of, calendar_days: 60 }),
+      onDemandSummary(env, symbol, as_of),
     ]);
     return out({
       ok: true,
