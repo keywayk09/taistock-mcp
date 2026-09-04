@@ -82,8 +82,10 @@ for (const tool of ["get_broker_chips", "get_institutional", "get_margin", "get_
   assert.ok(live.has(tool), `${tool} must remain callable under the frozen Owner schema`);
 }
 const brokerDescription = String(capturedToolConfigs.get("get_broker_chips")?.description ?? "");
-assert.match(brokerDescription, /MoneyDJ/);
 assert.match(brokerDescription, /Ranked-only|RANKED_ONLY/i);
+assert.match(brokerDescription, /Provider|同一平台/i);
+assert.match(brokerDescription, /1\/5\/10\/20\/60/);
+assert.match(brokerDescription, /禁止逐 window 混用不同平台/);
 assert.doesNotMatch(brokerDescription, /FinMind單日券商分點淨買賣/);
 for (const tool of ["get_institutional", "get_margin", "get_short_pressure"]) {
   const description = String(capturedToolConfigs.get(tool)?.description ?? "");
@@ -127,7 +129,8 @@ assert.match(compatSource, /LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY/, "market-w
 
 const bridgePath = path.join(root, "src/v6/legacy-owner-chip-tools.ts");
 const bridgeSource = fs.readFileSync(bridgePath, "utf8");
-assert.match(bridgeSource, /getTwBrokerRankedOnDemand/);
+assert.match(bridgeSource, /getTwBrokerProviderBundleOnDemand/);
+assert.doesNotMatch(bridgeSource, /getTwBrokerRankedWindowBundleOnDemand/);
 assert.match(bridgeSource, /getTwChipOnDemandSnapshot/);
 assert.match(bridgeSource, /HISTORY_CONTEXT_ONLY/);
 assert.match(bridgeSource, /missing_branch_means_zero:\s*false/);

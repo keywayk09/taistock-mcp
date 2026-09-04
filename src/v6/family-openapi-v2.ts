@@ -35,12 +35,12 @@ export function familyOpenApiV2(origin: string) {
     info: {
       title: "Taiwan Stock AI Family Read-Only API",
       version: FAMILY_OPENAPI_V2_VERSION,
-      description: "Family V3 採 Same Research Brain, Different Permissions：家人與 Owner 共用同一套市場/研究讀取能力，Family 永遠唯讀。當期法人、融資融券、借券與借券賣出優先使用 TWSE/TPEx exact-date on-demand 官方資料；MoneyDJ 分點僅為 RANKED_ONLY fail-soft context，未出現在排名不代表零交易；權證只使用官方非方向性 activity 資料。既有 Published generation 僅保留為 immutable historical/replay context，不能覆蓋當期官方資料。正式 OHLC/K線仍只認 OHLC MCP。Web、Fugle、FinMind 可補研究背景，但不得冒充正式 OHLC 或當期官方籌碼。",
+      description: "Family V3 採 Same Research Brain, Different Permissions：家人與 Owner 共用同一套市場/研究讀取能力，Family 永遠唯讀。當期法人、融資融券、借券與借券賣出優先使用 TWSE/TPEx exact-date on-demand 官方資料；券商分點使用受治理的 RANKED_ONLY 公開 provider bundle：同一次 requested windows 必須同一平台、同一 requested as-of、同一 TWSE 交易日窗口語義，可整包 failover 但禁止逐 window 混來源，未出現在排名不代表零交易。權證只使用官方非方向性 activity 資料。既有 Published generation 僅保留為 immutable historical/replay context，不能覆蓋當期官方資料。正式 OHLC/K線仍只認 OHLC MCP。Web、Fugle、FinMind 可補一般研究背景，但不得冒充正式 OHLC、當期官方籌碼，也不得為券商分點缺少的單一 window 補入另一平台數字。",
     },
     servers: [{ url: origin }],
     paths: {
       "/api/family/query": {
-        post: postOperation("queryTaiwanStockSystem", "自然語言智能入口：依問題自動選擇快速單股、完整分析、多股比較、波段候選、市場背景或 Open-World 研究", {
+        post: postOperation("queryTaiwanStockSystem", "自然語言智能入口：依問題自動選擇快速單股、完整分析、多股比較、波段候選、市場背景或 Open-World 研究；券商分點 intent 例外採同平台 whole-bundle evidence contract，禁止逐 window Web 補洞", {
           required: ["query"],
           properties: {
             query: { type: "string", minLength: 1, maxLength: 2000 },
@@ -60,7 +60,7 @@ export function familyOpenApiV2(origin: string) {
         }),
       },
       "/api/family/chips": {
-        post: postOperation("getFamilyMarketChipSummary", "共用 Owner 同源籌碼 Read Plane：當期 TWSE/TPEx exact-date on-demand 法人、融資融券、借券/借券賣出，另附 MoneyDJ RANKED_ONLY 分點與官方非方向性權證 activity；Published generation 僅作最多180自然日歷史背景", {
+        post: postOperation("getFamilyMarketChipSummary", "共用 Owner 同源籌碼 Read Plane：當期 TWSE/TPEx exact-date on-demand 法人、融資融券、借券/借券賣出，另附受治理的同平台 RANKED_ONLY 券商分點 bundle 與官方非方向性權證 activity；Published generation 僅作最多180自然日歷史背景", {
           required: ["symbol"],
           properties: {
             symbol,
