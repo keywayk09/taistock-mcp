@@ -25,13 +25,15 @@ MoneyDJ's custom interval JavaScript uses `e=<startDate>&f=<endDate>`. Custom-ra
 
 A live read-only 2330 check for source date 2026-09-04 verified that 1D, 5D, 10D, 20D and 60D are distinct MoneyDJ server-side interval rankings with materially different leaders and displayed ranked-row totals. The implementation therefore does **not** sum daily Top-N rows, avoiding ranking-truncation bias.
 
+A second read-only probe verified MoneyDJ exact-day custom ranges. `e=2026-09-03&f=2026-09-03` returned the 2026-09-03 broker ranking, while `e=2026-09-04&f=2026-09-04` matched the ordinary 2026-09-04 one-day page in both leading rows and displayed totals. Therefore the public `date` argument now genuinely supports historical 1D broker queries without previous-day substitution or a latest-page fallback.
+
 ## Runtime design
 
-`tw-broker-ranked-on-demand/v1.2.0` adds internal fixed-window support for 1/5/10/20/40/60/120/240 trading-day views and a bounded multi-window bundle. The default explicit broker bundle uses 1/5/10/20/60.
+`tw-broker-ranked-on-demand/v1.3.0` uses MoneyDJ custom exact-date range for 1D (`e=as_of&f=as_of`) and fixed server windows for 5/10/20/40/60/120/240 views. The default explicit broker bundle uses 1/5/10/20/60.
 
 The bundle:
 
-- fetches each MoneyDJ fixed interval independently
+- fetches 1D through MoneyDJ custom exact-date range and each multi-day fixed interval independently
 - verifies both requested source date and the selected source window
 - caps origin concurrency at 3
 - reuses the existing 10-minute per-URL in-isolate cache

@@ -1,4 +1,4 @@
-export const TW_BROKER_RANKED_ON_DEMAND_VERSION = "tw-broker-ranked-on-demand/v1.2.0";
+export const TW_BROKER_RANKED_ON_DEMAND_VERSION = "tw-broker-ranked-on-demand/v1.3.0";
 
 export type TwBrokerWindowDays = 1 | 5 | 10 | 20 | 40 | 60 | 120 | 240;
 
@@ -217,10 +217,11 @@ async function fetchPageCached(url: string, fetcher: FetchLike) {
   }
 }
 
-function windowUrl(symbol: string, windowDays: TwBrokerWindowDays) {
+function windowUrl(symbol: string, windowDays: TwBrokerWindowDays, asOf: string) {
   const config = WINDOW_CONFIG[windowDays];
   if (windowDays === 1) {
-    return `https://www.moneydj.com/Z/ZC/ZCO/ZCO.djhtm?a=${encodeURIComponent(symbol)}&e=`;
+    const encodedDate = encodeURIComponent(asOf);
+    return `https://www.moneydj.com/z/zc/zco/zco.djhtm?a=${encodeURIComponent(symbol)}&e=${encodedDate}&f=${encodedDate}`;
   }
   return `https://www.moneydj.com/z/zc/zco/zco_${encodeURIComponent(symbol)}_${config.selector}.djhtm`;
 }
@@ -248,6 +249,7 @@ function baseResult(input: {
     window_days: input.window_days,
     source_window_selector: config.selector,
     source_window_label: config.label,
+    source_query_mode: input.window_days === 1 ? "CUSTOM_EXACT_DATE" as const : "FIXED_WINDOW" as const,
     server_side_interval_aggregation: input.window_days > 1,
     missing_branch_means_zero: false,
     retrieved_at: input.retrieved_at,
@@ -257,8 +259,9 @@ function baseResult(input: {
 /**
  * Read-only secondary evidence adapter for MoneyDJ's public stock -> broker
  * ranking page. It intentionally exposes only ranked output and never claims a
- * complete branch inventory. Fixed multi-day pages are MoneyDJ server-side
- * interval rankings; daily ranked rows are never summed to fabricate a window.
+ * complete branch inventory. One-day reads use MoneyDJ's custom exact-date
+ * range (start=end=as_of); fixed multi-day pages are server-side interval rankings.
+ * Daily ranked rows are never summed to fabricate a window.
  * This adapter is fail-soft and must not block the official TWSE/TPEx chip layers.
  */
 export async function getTwBrokerRankedOnDemand(input: {
@@ -273,7 +276,7 @@ export async function getTwBrokerRankedOnDemand(input: {
   const windowDays = input.window_days ?? 1;
   if (!(windowDays in WINDOW_CONFIG)) throw new Error("unsupported_broker_window_days");
   const fetcher = input.fetcher ?? fetch;
-  const url = windowUrl(symbol, windowDays);
+  const url = windowUrl(symbol, windowDays, input.as_of);
   const retrievedAt = new Date().toISOString();
 
   try {
@@ -281,9 +284,9 @@ export async function getTwBrokerRankedOnDemand(input: {
     const common = baseResult({ symbol, as_of: input.as_of, url, window_days: windowDays, retrieved_at: retrievedAt, page });
     const expectedWindow = WINDOW_CONFIG[windowDays];
     const selectedWindow = parseSelectedWindow(page.text);
-    const sourceWindowVerified = selectedWindow
-      ? selectedWindow.selector === expectedWindow.selector && selectedWindow.label === expectedWindow.label
-      : windowDays === 1;
+    const sourceWindowVerified = windowDays === 1
+      ? true
+      : !!selectedWindow && selectedWindow.selector === expectedWindow.selector && selectedWindow.label === expectedWindow.label;
 
     if (!sourceWindowVerified) {
       return {
