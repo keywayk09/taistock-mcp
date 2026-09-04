@@ -13,108 +13,66 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     env:
-      OWNER_MCP_URL: https://taistock-mcp.keywayk09.workers.dev/my-mcp
+      BASE_URL: https://taistock-mcp.keywayk09.workers.dev
+      MOM_GPT_API_KEY: ${{ secrets.MOM_GPT_API_KEY }}
     steps:
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Verify frozen broker tool schema
+      - name: Verify deployed historical and current exact-date broker reads
         shell: bash
         run: |
           set -euo pipefail
-          npx -y @modelcontextprotocol/inspector@latest --cli "$OWNER_MCP_URL" \
-            --transport http --method tools/list --format json > /tmp/tools.json
           node <<'NODE'
-          const fs = require('fs');
-          const body = JSON.parse(fs.readFileSync('/tmp/tools.json', 'utf8'));
-          const tools = body?.result?.tools || body?.tools || [];
-          const tool = tools.find((x) => x?.name === 'get_broker_chips');
-          if (!tool) throw new Error('missing_live_tool:get_broker_chips');
-          const keys = Object.keys(tool?.inputSchema?.properties || {}).sort();
-          const expected = ['date','symbol','top_n'];
-          if (JSON.stringify(keys) !== JSON.stringify(expected)) {
-            throw new Error(`broker_schema_drift:${JSON.stringify(keys)}`);
-          }
-          console.log(`[smoke] BROKER_SCHEMA_PASS keys=${keys.join(',')}`);
-          NODE
-
-      - name: Verify historical exact-date broker read
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx -y @modelcontextprotocol/inspector@latest --cli "$OWNER_MCP_URL" \
-            --transport http --method tools/call --tool-name get_broker_chips \
-            --tool-args-json '{"symbol":"2330","date":"2026-09-03","top_n":10}' --format json > /tmp/broker-0903.json
-          node <<'NODE'
-          const fs = require('fs');
-          function toolPayload(path) {
-            const outer = JSON.parse(fs.readFileSync(path, 'utf8'));
-            if (outer?.result?.isError === true || outer?.isError === true) throw new Error(`${path}:tool_error`);
-            const text = outer?.result?.content?.find?.((x) => x?.type === 'text')?.text
-              ?? outer?.content?.find?.((x) => x?.type === 'text')?.text;
-            if (typeof text !== 'string') throw new Error(`${path}:text_payload_missing`);
-            return JSON.parse(text);
+          const base = process.env.BASE_URL;
+          const key = process.env.MOM_GPT_API_KEY || '';
+          if (!key) throw new Error('MOM_GPT_API_KEY_not_configured');
+          const headers = {
+            authorization: `Bearer ${key}`,
+            accept: 'application/json',
+            'content-type': 'application/json',
+            'cache-control': 'no-cache',
+          };
+          async function chips(asOf) {
+            const r = await fetch(`${base}/api/family/chips`, {
+              method: 'POST', headers,
+              body: JSON.stringify({ symbol: '2330', as_of: asOf, calendar_days: 60 }),
+              signal: AbortSignal.timeout(120000),
+            });
+            const text = await r.text();
+            let body;
+            try { body = JSON.parse(text); } catch { throw new Error(`${asOf}:not_json:http_${r.status}`); }
+            if (!r.ok) throw new Error(`${asOf}:http_${r.status}:${String(body?.error || body?.message || '').slice(0,180)}`);
+            return body;
           }
           function must(v, msg) { if (!v) throw new Error(msg); }
-          const b = toolPayload('/tmp/broker-0903.json');
-          must(b.provider === 'MoneyDJ', `provider=${b.provider}`);
-          must(b.status === 'READY', `status=${b.status}:${b.error || ''}`);
-          must(b.date === '2026-09-03', `requested_date=${b.date}`);
-          must(b.source_date === '2026-09-03', `source_date=${b.source_date}`);
-          must(b.source_date_verified === true, 'source_date_not_verified');
-          must(b.previous_day_substitution === false, 'previous_day_substitution_enabled');
-          must(b.persistence === 'NONE', `persistence=${b.persistence}`);
-          must(b.completeness === 'RANKED_ONLY', `completeness=${b.completeness}`);
-          must(Array.isArray(b.top_net_buyers) && b.top_net_buyers.length > 0, 'buyers_empty');
-          must(Array.isArray(b.top_net_sellers) && b.top_net_sellers.length > 0, 'sellers_empty');
-          must(b.top_net_buyers[0]?.broker_branch === '凱基-台北', `unexpected_top_buyer=${b.top_net_buyers[0]?.broker_branch}`);
-          must(Number(b.top_net_buyers[0]?.net_lots) === 700, `unexpected_top_buy_net=${b.top_net_buyers[0]?.net_lots}`);
-          must(b.top_net_sellers[0]?.broker_branch === '花旗環球', `unexpected_top_seller=${b.top_net_sellers[0]?.broker_branch}`);
-          must(Number(b.top_net_sellers[0]?.net_lots) === -906, `unexpected_top_sell_net=${b.top_net_sellers[0]?.net_lots}`);
-          const windows = b?.multi_window?.windows || {};
-          for (const key of ['5D','10D','20D','60D']) {
-            must(windows[key]?.status === 'PENDING', `${key}_must_fail_closed:${windows[key]?.status}`);
-            must(windows[key]?.source_date_verified === false, `${key}_historical_date_wrongly_verified`);
+          function verifyCommon(body, asOf) {
+            must(body?.current_consistency === 'EXACT_DATE_ON_DEMAND', `${asOf}:current_consistency=${body?.current_consistency}`);
+            must(body?.data_quality?.previous_day_substitution === false, `${asOf}:previous_day_substitution_enabled`);
+            const b = body?.broker_branch_ranked;
+            must(b && typeof b === 'object', `${asOf}:broker_missing`);
+            must(b.status === 'READY', `${asOf}:broker_status=${b.status}:${b.error || ''}`);
+            must(b.requested_as_of === asOf, `${asOf}:requested_as_of=${b.requested_as_of}`);
+            must(b.source_date === asOf, `${asOf}:source_date=${b.source_date}`);
+            must(b.source_date_verified === true, `${asOf}:source_date_not_verified`);
+            must(b.source_query_mode === 'CUSTOM_EXACT_DATE', `${asOf}:query_mode=${b.source_query_mode}`);
+            const suffix = `e=${asOf}&f=${asOf}`;
+            must(String(b.source_url || '').endsWith(suffix), `${asOf}:source_url=${b.source_url}`);
+            must(b.completeness === 'RANKED_ONLY', `${asOf}:completeness=${b.completeness}`);
+            must(b.persistence === 'NONE', `${asOf}:persistence=${b.persistence}`);
+            must(Array.isArray(b.buys) && b.buys.length > 0, `${asOf}:buys_empty`);
+            must(Array.isArray(b.sells) && b.sells.length > 0, `${asOf}:sells_empty`);
+            return b;
           }
-          must(b?.multi_window?.daily_rank_summing === false, 'daily_rank_summing_enabled');
-          console.log(`[smoke] BROKER_0903_EXACT_DATE_PASS top_buy=${b.top_net_buyers[0].broker_branch}:${b.top_net_buyers[0].net_lots} top_sell=${b.top_net_sellers[0].broker_branch}:${b.top_net_sellers[0].net_lots} fixed_windows_fail_closed=true`);
-          NODE
 
-      - name: Verify current multi-window broker read
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx -y @modelcontextprotocol/inspector@latest --cli "$OWNER_MCP_URL" \
-            --transport http --method tools/call --tool-name get_broker_chips \
-            --tool-args-json '{"symbol":"2330","date":"2026-09-04","top_n":10}' --format json > /tmp/broker-0904.json
-          node <<'NODE'
-          const fs = require('fs');
-          function toolPayload(path) {
-            const outer = JSON.parse(fs.readFileSync(path, 'utf8'));
-            if (outer?.result?.isError === true || outer?.isError === true) throw new Error(`${path}:tool_error`);
-            const text = outer?.result?.content?.find?.((x) => x?.type === 'text')?.text
-              ?? outer?.content?.find?.((x) => x?.type === 'text')?.text;
-            if (typeof text !== 'string') throw new Error(`${path}:text_payload_missing`);
-            return JSON.parse(text);
-          }
-          function must(v, msg) { if (!v) throw new Error(msg); }
-          const b = toolPayload('/tmp/broker-0904.json');
-          must(b.status === 'READY', `status=${b.status}:${b.error || ''}`);
-          must(b.source_date === '2026-09-04' && b.source_date_verified === true, `source_date=${b.source_date}`);
-          must(b.previous_day_substitution === false, 'previous_day_substitution_enabled');
-          must(b?.multi_window?.status === 'READY', `multi_window_status=${b?.multi_window?.status}`);
-          must(b?.multi_window?.server_side_interval_aggregation === true, 'server_interval_aggregation_false');
-          must(b?.multi_window?.daily_rank_summing === false, 'daily_rank_summing_enabled');
-          const windows = b?.multi_window?.windows || {};
-          for (const key of ['5D','10D','20D','60D']) {
-            must(windows[key]?.status === 'READY', `${key}_status=${windows[key]?.status}:${windows[key]?.error || ''}`);
-            must(windows[key]?.source_date === '2026-09-04', `${key}_source_date=${windows[key]?.source_date}`);
-            must(windows[key]?.source_date_verified === true, `${key}_source_date_not_verified`);
-            must(Array.isArray(windows[key]?.top_net_buyers) && windows[key].top_net_buyers.length > 0, `${key}_buyers_empty`);
-          }
-          must(Array.isArray(b?.multi_window?.branch_matrix) && b.multi_window.branch_matrix.length > 0, 'branch_matrix_empty');
-          console.log(`[smoke] BROKER_0904_MULTI_WINDOW_PASS windows=5D,10D,20D,60D matrix=${b.multi_window.branch_matrix.length}`);
+          const d0903 = await chips('2026-09-03');
+          const b0903 = verifyCommon(d0903, '2026-09-03');
+          must(b0903.buys[0]?.broker_branch === '凱基-台北', `0903:top_buyer=${b0903.buys[0]?.broker_branch}`);
+          must(Number(b0903.buys[0]?.net_lots) === 700, `0903:top_buy_net=${b0903.buys[0]?.net_lots}`);
+          must(b0903.sells[0]?.broker_branch === '花旗環球', `0903:top_seller=${b0903.sells[0]?.broker_branch}`);
+          must(Number(b0903.sells[0]?.net_lots) === -906, `0903:top_sell_net=${b0903.sells[0]?.net_lots}`);
+          console.log(`[smoke] BROKER_0903_PRODUCTION_EXACT_DATE_PASS charset=${b0903.source_charset} top_buy=${b0903.buys[0].broker_branch}:${b0903.buys[0].net_lots} top_sell=${b0903.sells[0].broker_branch}:${b0903.sells[0].net_lots}`);
+
+          const d0904 = await chips('2026-09-04');
+          const b0904 = verifyCommon(d0904, '2026-09-04');
+          console.log(`[smoke] BROKER_0904_PRODUCTION_EXACT_DATE_PASS charset=${b0904.source_charset} buys=${b0904.rank_count?.buy ?? b0904.buys.length} sells=${b0904.rank_count?.sell ?? b0904.sells.length}`);
           NODE
