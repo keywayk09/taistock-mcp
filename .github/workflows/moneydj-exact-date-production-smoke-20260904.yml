@@ -1,4 +1,4 @@
-name: MoneyDJ exact-date Production smoke 20260904
+name: MoneyDJ exact-date live-source smoke 20260904
 
 on:
   push:
@@ -14,65 +14,65 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      BASE_URL: https://taistock-mcp.keywayk09.workers.dev
-      MOM_GPT_API_KEY: ${{ secrets.MOM_GPT_API_KEY }}
     steps:
-      - name: Verify deployed historical and current exact-date broker reads
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify merged adapter against live MoneyDJ
         shell: bash
         run: |
           set -euo pipefail
-          node <<'NODE'
-          const base = process.env.BASE_URL;
-          const key = process.env.MOM_GPT_API_KEY || '';
-          if (!key) throw new Error('MOM_GPT_API_KEY_not_configured');
-          const headers = {
-            authorization: `Bearer ${key}`,
-            accept: 'application/json',
-            'content-type': 'application/json',
-            'cache-control': 'no-cache',
-          };
-          async function chips(asOf) {
-            const r = await fetch(`${base}/api/family/chips`, {
-              method: 'POST', headers,
-              body: JSON.stringify({ symbol: '2330', as_of: asOf, calendar_days: 60 }),
-              signal: AbortSignal.timeout(120000),
-            });
-            const text = await r.text();
-            let body;
-            try { body = JSON.parse(text); } catch { throw new Error(`${asOf}:not_json:http_${r.status}`); }
-            if (!r.ok) throw new Error(`${asOf}:http_${r.status}:${String(body?.error || body?.message || '').slice(0,180)}`);
-            return body;
-          }
+          node --experimental-strip-types <<'NODE'
+          import {
+            getTwBrokerRankedOnDemand,
+            getTwBrokerRankedWindowBundleOnDemand,
+            resetTwBrokerRankedCacheForTests,
+          } from './src/v6/tw-broker-ranked-on-demand.ts';
+
           function must(v, msg) { if (!v) throw new Error(msg); }
-          function verifyCommon(body, asOf) {
-            must(body?.current_consistency === 'EXACT_DATE_ON_DEMAND', `${asOf}:current_consistency=${body?.current_consistency}`);
-            must(body?.data_quality?.previous_day_substitution === false, `${asOf}:previous_day_substitution_enabled`);
-            const b = body?.broker_branch_ranked;
-            must(b && typeof b === 'object', `${asOf}:broker_missing`);
-            must(b.status === 'READY', `${asOf}:broker_status=${b.status}:${b.error || ''}`);
-            must(b.requested_as_of === asOf, `${asOf}:requested_as_of=${b.requested_as_of}`);
-            must(b.source_date === asOf, `${asOf}:source_date=${b.source_date}`);
-            must(b.source_date_verified === true, `${asOf}:source_date_not_verified`);
-            must(b.source_query_mode === 'CUSTOM_EXACT_DATE', `${asOf}:query_mode=${b.source_query_mode}`);
-            const suffix = `e=${asOf}&f=${asOf}`;
-            must(String(b.source_url || '').endsWith(suffix), `${asOf}:source_url=${b.source_url}`);
-            must(b.completeness === 'RANKED_ONLY', `${asOf}:completeness=${b.completeness}`);
-            must(b.persistence === 'NONE', `${asOf}:persistence=${b.persistence}`);
-            must(Array.isArray(b.buys) && b.buys.length > 0, `${asOf}:buys_empty`);
-            must(Array.isArray(b.sells) && b.sells.length > 0, `${asOf}:sells_empty`);
-            return b;
+
+          resetTwBrokerRankedCacheForTests();
+          const d3 = await getTwBrokerRankedOnDemand({ symbol: '2330', as_of: '2026-09-03' });
+          must(d3.status === 'READY', `0903_status=${d3.status}:${'error' in d3 ? d3.error : ''}`);
+          must(d3.source_date === '2026-09-03', `0903_source_date=${d3.source_date}`);
+          must(d3.source_date_verified === true, '0903_source_date_not_verified');
+          must(d3.source_query_mode === 'CUSTOM_EXACT_DATE', `0903_query_mode=${d3.source_query_mode}`);
+          must(String(d3.source_url).endsWith('e=2026-09-03&f=2026-09-03'), `0903_url=${d3.source_url}`);
+          must(d3.persistence === 'NONE' && d3.completeness === 'RANKED_ONLY', '0903_contract_wrong');
+          must(d3.buys[0]?.broker_branch === '凱基-台北' && Number(d3.buys[0]?.net_lots) === 700,
+            `0903_top_buy=${d3.buys[0]?.broker_branch}:${d3.buys[0]?.net_lots}`);
+          must(d3.sells[0]?.broker_branch === '花旗環球' && Number(d3.sells[0]?.net_lots) === -906,
+            `0903_top_sell=${d3.sells[0]?.broker_branch}:${d3.sells[0]?.net_lots}`);
+          console.log(`[smoke] LIVE_0903_EXACT_DATE_PASS charset=${d3.source_charset} attempts=${d3.transport_attempts} top_buy=${d3.buys[0].broker_branch}:${d3.buys[0].net_lots} top_sell=${d3.sells[0].broker_branch}:${d3.sells[0].net_lots}`);
+
+          resetTwBrokerRankedCacheForTests();
+          const histBundle = await getTwBrokerRankedWindowBundleOnDemand({ symbol: '2330', as_of: '2026-09-03' });
+          for (const key of ['5D','10D','20D','60D']) {
+            const w = histBundle.windows[key];
+            must(w?.status === 'PENDING', `0903_${key}_status=${w?.status}:${w && 'error' in w ? w.error : ''}`);
+            must(w?.source_date_verified === false, `0903_${key}_wrongly_verified`);
           }
+          must(histBundle.daily_rank_summing === false, 'historical_daily_rank_summing_enabled');
+          console.log('[smoke] LIVE_0903_FIXED_WINDOWS_FAIL_CLOSED_PASS windows=5D,10D,20D,60D');
 
-          const d0903 = await chips('2026-09-03');
-          const b0903 = verifyCommon(d0903, '2026-09-03');
-          must(b0903.buys[0]?.broker_branch === '凱基-台北', `0903:top_buyer=${b0903.buys[0]?.broker_branch}`);
-          must(Number(b0903.buys[0]?.net_lots) === 700, `0903:top_buy_net=${b0903.buys[0]?.net_lots}`);
-          must(b0903.sells[0]?.broker_branch === '花旗環球', `0903:top_seller=${b0903.sells[0]?.broker_branch}`);
-          must(Number(b0903.sells[0]?.net_lots) === -906, `0903:top_sell_net=${b0903.sells[0]?.net_lots}`);
-          console.log(`[smoke] BROKER_0903_PRODUCTION_EXACT_DATE_PASS charset=${b0903.source_charset} top_buy=${b0903.buys[0].broker_branch}:${b0903.buys[0].net_lots} top_sell=${b0903.sells[0].broker_branch}:${b0903.sells[0].net_lots}`);
+          resetTwBrokerRankedCacheForTests();
+          const d4 = await getTwBrokerRankedOnDemand({ symbol: '2330', as_of: '2026-09-04' });
+          must(d4.status === 'READY', `0904_status=${d4.status}:${'error' in d4 ? d4.error : ''}`);
+          must(d4.source_date === '2026-09-04' && d4.source_date_verified === true, `0904_source_date=${d4.source_date}`);
+          must(d4.source_query_mode === 'CUSTOM_EXACT_DATE', `0904_query_mode=${d4.source_query_mode}`);
+          must(String(d4.source_url).endsWith('e=2026-09-04&f=2026-09-04'), `0904_url=${d4.source_url}`);
 
-          const d0904 = await chips('2026-09-04');
-          const b0904 = verifyCommon(d0904, '2026-09-04');
-          console.log(`[smoke] BROKER_0904_PRODUCTION_EXACT_DATE_PASS charset=${b0904.source_charset} buys=${b0904.rank_count?.buy ?? b0904.buys.length} sells=${b0904.rank_count?.sell ?? b0904.sells.length}`);
+          const bundle = await getTwBrokerRankedWindowBundleOnDemand({ symbol: '2330', as_of: '2026-09-04' });
+          must(bundle.status === 'READY', `0904_bundle_status=${bundle.status}`);
+          must(bundle.server_side_interval_aggregation === true, 'server_side_interval_aggregation_false');
+          must(bundle.daily_rank_summing === false, 'daily_rank_summing_enabled');
+          for (const key of ['5D','10D','20D','60D']) {
+            const w = bundle.windows[key];
+            must(w?.status === 'READY', `0904_${key}_status=${w?.status}:${w && 'error' in w ? w.error : ''}`);
+            must(w?.source_date === '2026-09-04' && w?.source_date_verified === true, `0904_${key}_source_date=${w?.source_date}`);
+            must(Array.isArray(w?.buys) && w.buys.length > 0, `0904_${key}_buys_empty`);
+          }
+          must(Array.isArray(bundle.branch_matrix) && bundle.branch_matrix.length > 0, '0904_branch_matrix_empty');
+          console.log(`[smoke] LIVE_0904_MULTI_WINDOW_PASS windows=5D,10D,20D,60D matrix=${bundle.branch_matrix.length} charset=${d4.source_charset}`);
           NODE
