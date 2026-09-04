@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { inferFamilyAdaptiveIntent, planFamilyQuery } from "../src/v6/family-adaptive-planner.ts";
 import { compactFamilyAnalysisForCustomGpt } from "../src/v6/family-custom-gpt-compact.ts";
 
 const route = fs.readFileSync("src/v6/family-action-compat.ts", "utf8");
@@ -23,6 +24,38 @@ assert.match(entry, /handleFamilyActionCompat\(request, env, url\)/);
 assert.match(entry, /family_read_only_action:\s*"\/api\/family\/query"/);
 assert.match(smartRoute, /compactFamilyAnalysisForCustomGpt/);
 assert.match(smartRoute, /LEGACY_QUERY_NOW_ADAPTIVE_FAMILY_V3_COMPACT/);
+
+// RED regression for the next lightweight chip route: focused financing / margin
+// short / SBL questions must never enter the full Family analysis graph.
+for (const query of [
+  "查 2330 融資融券",
+  "2330 融資龍卷的部分呢？借券放空呢",
+  "查 2330 借券賣出",
+  "查 2330 借卷放空 1日 5日 10日 20日 60日",
+]) {
+  assert.equal(
+    inferFamilyAdaptiveIntent(query, ["2330"]),
+    "CREDIT_SBL_QUERY",
+    `focused credit/SBL query should use lightweight intent: ${query}`,
+  );
+}
+assert.equal(
+  inferFamilyAdaptiveIntent("2330 完整深入分析，融資融券與借券放空也要看", ["2330"]),
+  "FULL_STOCK_ANALYSIS",
+  "explicit full analysis must still own the whole research graph",
+);
+const creditPlan = planFamilyQuery("查 2330 2026-09-04 融資融券與借券放空 1日 5日 10日 20日 60日", ["2330"]);
+assert.equal(creditPlan.intent, "CREDIT_SBL_QUERY");
+assert.equal(creditPlan.answer_depth, "QUICK");
+assert.deepEqual(creditPlan.preferred_reads, ["current_chip"]);
+assert.match(smartRoute, /runFamilyCreditSblQueryFastPath/);
+assert.match(smartRoute, /adaptive_credit_sbl_query/);
+const creditRouteIndex = smartRoute.indexOf('route: "adaptive_credit_sbl_query"');
+const heavyAnalysisIndex = smartRoute.indexOf("runSmartFamilyAnalysis(env, { symbols");
+assert.ok(
+  creditRouteIndex >= 0 && heavyAnalysisIndex >= 0 && creditRouteIndex < heavyAnalysisIndex,
+  "credit/SBL fast path must execute before runSmartFamilyAnalysis",
+);
 
 const hugeRows = Array.from({ length: 500 }, (_, index) => ({
   date: `2026-08-${String((index % 28) + 1).padStart(2, "0")}`,

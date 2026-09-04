@@ -87,7 +87,7 @@ assert.match(brokerDescription, /Ranked-only|RANKED_ONLY/i);
 assert.doesNotMatch(brokerDescription, /FinMind單日券商分點淨買賣/);
 for (const tool of ["get_institutional", "get_margin", "get_short_pressure"]) {
   const description = String(capturedToolConfigs.get(tool)?.description ?? "");
-  assert.match(description, /exact-date on-demand/i, `${tool} must advertise the current exact-date read plane`);
+  assert.match(description, /exact-date(?: on-demand| fast path)/i, `${tool} must advertise the current exact-date read plane`);
 }
 
 assert.ok(tryCompat, "compatibility tools/call interceptor must be exported");
@@ -133,6 +133,15 @@ assert.match(bridgeSource, /HISTORY_CONTEXT_ONLY/);
 assert.match(bridgeSource, /missing_branch_means_zero:\s*false/);
 assert.match(bridgeSource, /previous_day_substitution:\s*false/);
 assert.doesNotMatch(bridgeSource, /\bfinmind\s*\(|FINMIND_TOKEN|taiwan_stock_trading_daily_report/, "frozen Owner chip bridge must never execute the retired FinMind current-chip provider");
+// RED regression: focused frozen Owner margin/short tools must share the same
+// targeted credit/SBL route as Family rather than triggering the 8-source chip graph.
+assert.match(bridgeSource, /runFamilyCreditSblQueryFastPath/);
+const getMarginBlock = bridgeSource.match(/registerTool\("get_margin"[\s\S]*?registerTool\("get_short_pressure"/)?.[0] ?? "";
+assert.match(getMarginBlock, /runFamilyCreditSblQueryFastPath/);
+assert.doesNotMatch(getMarginBlock, /currentAndHistory\(/, "get_margin must not use the full current chip graph");
+const shortPressureBlock = bridgeSource.match(/registerTool\("get_short_pressure"[\s\S]*?\n\s*\}\);\n\}/)?.[0] ?? "";
+assert.match(shortPressureBlock, /runFamilyCreditSblQueryFastPath/);
+assert.doesNotMatch(shortPressureBlock, /currentAndHistory\(/, "get_short_pressure must not use the full current chip graph");
 
 const ownerPath = path.join(root, "src/v6/owner-content-handler.ts");
 const ownerSource = fs.readFileSync(ownerPath, "utf8");

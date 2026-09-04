@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getTwMarketCrossSection } from "./market-data-cross-section";
 import { getTwMarketDataDayStatus } from "./market-data-day-status";
 import { getTwChipOnDemandSnapshot, TW_CHIP_ON_DEMAND_VERSION } from "./tw-chip-on-demand.ts";
+import { runFamilyCreditSblQueryFastPath } from "./tw-credit-sbl-query-fast-path.ts";
 import { getTwMarketChipSummaryOnDemand } from "./tw-market-chip-on-demand-facade.ts";
 import {
   TW_MARKET_DATA_VERSION,
@@ -25,8 +26,6 @@ const querySchema = {
 };
 const fastSummarySchema = {
   ...querySchema,
-  // Frozen input schema: kept for older callers. Current evidence always uses
-  // exact-date on-demand official reads regardless of this legacy selector.
   consistency: z.enum(["published", "live"]).optional().default("published"),
   reference_price: z.number().positive().optional(),
   estimated_financing_cost: z.number().positive().optional(),
@@ -47,10 +46,19 @@ const crossSectionSchema = {
 
 type QueryInput = { symbol: string; as_of?: string; calendar_days?: number };
 
+function taipeiToday() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 async function currentWithLegacyHistory(
   env: Env,
   input: QueryInput,
-  layer: "institutional" | "margin_short" | "securities_lending" | "sbl_short_sale",
+  layer: "institutional",
   historyReader: (env: Env, input: QueryInput) => Promise<any>,
 ) {
   const [current, history] = await Promise.all([
@@ -82,6 +90,55 @@ async function currentWithLegacyHistory(
   };
 }
 
+async function targetedCreditWithLegacyHistory(
+  env: Env,
+  input: QueryInput,
+  layer: "margin_short" | "securities_lending" | "sbl_short_sale",
+  historyReader: (env: Env, input: QueryInput) => Promise<any>,
+) {
+  const requestedAsOf = input.as_of ?? taipeiToday();
+  const query = layer === "margin_short"
+    ? `${input.symbol} 融資融券 1日 5日 10日 20日 60日`
+    : layer === "securities_lending"
+      ? `${input.symbol} 借券餘額 借券成交 還券 1日 5日 10日 20日 60日`
+      : `${input.symbol} 借券賣出 借券放空 1日 5日 10日 20日 60日`;
+  const current = await runFamilyCreditSblQueryFastPath(env, {
+    symbol: input.symbol,
+    query,
+    as_of: requestedAsOf,
+    as_of_explicit: Boolean(input.as_of),
+  });
+  const resolvedAsOf = current.resolved_as_of ?? requestedAsOf;
+  const history = await historyReader(env, { ...input, as_of: resolvedAsOf });
+  const currentLayer = current.layers?.[layer] ?? null;
+  const currentStatus = currentLayer?.current_status ?? current.status;
+  const currentUsable = currentStatus === "READY" || currentStatus === "READY_EMPTY" || current.status === "READY" || current.status === "DEGRADED";
+  return {
+    ...history,
+    ok: currentUsable || history?.ok === true,
+    version: TW_CHIP_ON_DEMAND_VERSION,
+    storage: "TARGETED_ON_DEMAND_CURRENT+LEGACY_ARCHIVE_READ_ONLY",
+    read_strategy: "TARGETED_OFFICIAL_EXACT_DATE_ON_DEMAND_FIRST; LEGACY_HISTORY_CONTEXT_ONLY",
+    requested_as_of: requestedAsOf,
+    resolved_as_of: resolvedAsOf,
+    as_of_resolution: current.as_of_resolution,
+    status: currentStatus,
+    preferred_current_evidence: "targeted_on_demand_current",
+    on_demand_current: currentLayer,
+    on_demand_source_health: current.diagnostics,
+    previous_day_substitution: false,
+    unknown_is_zero: false,
+    history_context: {
+      role: "LEGACY_ARCHIVE_CONTEXT_ONLY",
+      status: history?.status ?? "UNAVAILABLE",
+      as_of: history?.as_of ?? null,
+      windows: history?.windows ?? null,
+      rows: history?.rows ?? [],
+      datasets: history?.datasets ?? [],
+    },
+  };
+}
+
 export function registerTwMarketDataTools(server: McpServer, env: Env) {
   server.registerTool("get_tw_market_data_contract", {
     description: "台股籌碼資料契約。OHLC/K線維持既有 canonical pipeline；法人、融資融券、借券/還券、借券賣出與權證活動改為需要時直接讀官方來源，不做每日 raw capture。舊 GitHub 籌碼資料僅保留唯讀歷史背景。",
@@ -94,13 +151,10 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
     preferred_symbol_read_tool: "get_tw_market_chip_summary",
     preferred_cross_sectional_read_tool: null,
     family_symbol_read_tool: "get_family_market_chip_summary",
-    // Frozen compatibility labels stay stable while implementation changes
-    // behind the facade. Family permissions and history-retention semantics do
-    // not change just because current-day evidence is fetched on demand.
     family_access: "READ_ONLY_PUBLISHED_GENERATION",
     family_current_provider: "EXACT_DATE_OFFICIAL_ON_DEMAND_READ_ONLY",
     history_window_calendar_days: 180,
-    current_read_model: "exact-date official on-demand; no previous-day substitution; no current raw/normalized persistence",
+    current_read_model: "exact-date official on-demand; focused margin/lending/SBL tools use targeted providers; no previous-day substitution; no current raw/normalized persistence",
     legacy_history_model: "existing GitHub archive is read-only context only and is not required to continue daily capture",
     formal_replay_model: "DETERMINISTIC_PUBLISHED_GATEWAY_UNCHANGED",
     official_sources: {
@@ -166,22 +220,22 @@ export function registerTwMarketDataTools(server: McpServer, env: Env) {
   }, async (input) => out(await currentWithLegacyHistory(env, input, "institutional", getTwInstitutionalFlow)));
 
   server.registerTool("get_tw_margin_short", {
-    description: "查詢個股融資融券。當日融資/融券餘額與增減直接讀 TWSE MI_MARGN 或 TPEx 官方來源；不再依賴每日 GitHub raw capture。當日未公布回 PENDING，不得拿前一日冒充。",
+    description: "查詢個股融資融券。公開名稱/schema不變；當日只讀必要的 TWSE MI_MARGN 或 TPEx 官方 exact-date provider，並附 1/5/10/20/60 交易日窗口；不再因單項查詢啟動完整 8-source chip graph。",
     inputSchema: querySchema,
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:true },
-  }, async (input) => out(await currentWithLegacyHistory(env, input, "margin_short", getTwMarginShort)));
+  }, async (input) => out(await targetedCreditWithLegacyHistory(env, input, "margin_short", getTwMarginShort)));
 
   server.registerTool("get_tw_securities_lending", {
-    description: "查詢借券成交、還券/了結與借券餘額。當日直接讀 TWSE TWT72U exact-date 官方來源，不保存 raw；還券是官方返還/了結欄位，不等同盤中買回成交量。",
+    description: "查詢借券成交、還券/了結與借券餘額。公開名稱/schema不變；當日只讀必要的 TWSE TWT72U exact-date provider，附 1/5/10/20/60 交易日窗口，不保存 raw；還券不等同盤中買回成交量。",
     inputSchema: querySchema,
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
-  }, async (input) => out(await currentWithLegacyHistory(env, input, "securities_lending", getTwSecuritiesLending)));
+  }, async (input) => out(await targetedCreditWithLegacyHistory(env, input, "securities_lending", getTwSecuritiesLending)));
 
   server.registerTool("get_tw_sbl_short_sale", {
-    description: "查詢借券賣出、還券/調整/餘額。上市當日直接讀 TWSE TWT93U；上櫃直接讀 TPEx tpex_margin_sbl + tpex_short_sell。exact-date fail-closed，不保存 raw。",
+    description: "查詢借券賣出、還券/調整/餘額。公開名稱/schema不變；上市只讀 TWSE TWT93U，上櫃只讀 TPEx SBL provider，附 1/5/10/20/60 交易日窗口。schema drift fail-closed、UNKNOWN不當0、exact-date不回退。",
     inputSchema: querySchema,
     annotations: { readOnlyHint:true, destructiveHint:false, idempotentHint:true, openWorldHint:false },
-  }, async (input) => out(await currentWithLegacyHistory(env, input, "sbl_short_sale", getTwSblShortSale)));
+  }, async (input) => out(await targetedCreditWithLegacyHistory(env, input, "sbl_short_sale", getTwSblShortSale)));
 
   server.registerTool("get_tw_market_data_bundle", {
     description: "相容型個股籌碼 bundle。公開名稱保留；目前回傳 on-demand current evidence + 唯讀歷史背景，不再啟動每日 capture/publish。",

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway.ts";
 import { getTwBrokerRankedOnDemand, getTwBrokerRankedWindowBundleOnDemand } from "./tw-broker-ranked-on-demand.ts";
 import { getTwChipOnDemandSnapshot } from "./tw-chip-on-demand.ts";
+import { runFamilyCreditSblQueryFastPath } from "./tw-credit-sbl-query-fast-path.ts";
 
 export const LEGACY_OWNER_CHIP_OVERRIDE_TOOL_NAMES = Object.freeze([
   "get_broker_chips",
@@ -66,6 +67,10 @@ async function currentAndHistory(env: Env, input: {
     }),
   ]);
   return { current, history: history as Record<string, any> };
+}
+
+async function publishedHistory(env: Env, input: { symbol: string; as_of: string; calendar_days: number }) {
+  return await getTwMarketChipSummaryPublished(env, input) as Record<string, any>;
 }
 
 function compactBrokerWindow(result: any, topN: number) {
@@ -187,7 +192,7 @@ export function registerLegacyOwnerChipTools(server: McpServer, env: Env) {
   });
 
   server.registerTool("get_margin", {
-    description: "個股融資融券。requested end_date 當日直接讀 TWSE MI_MARGN 或 TPEx 官方 exact-date on-demand；舊 Published/GitHub 只補歷史背景，未公布回 PENDING，不拿前一日冒充。公開名稱與舊參數保持相容。",
+    description: "個股融資融券。公開名稱與 input schema 不變；內部改走 targeted TWSE MI_MARGN / TPEx exact-date fast path，直接附 1/5/10/20/60 交易日窗口，不啟動完整 8-source chip graph。舊 Published/GitHub 僅補歷史背景，UNKNOWN 不得當 0。",
     inputSchema: {
       symbol: symbolSchema,
       start_date: dateSchema.optional(),
@@ -196,32 +201,47 @@ export function registerLegacyOwnerChipTools(server: McpServer, env: Env) {
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   }, async ({ symbol, start_date, end_date, limit }) => {
-    const asOf = end_date ?? taipeiToday();
-    const window = calendarDays(start_date, asOf, Math.max(60, Math.min(180, limit * 3)));
-    const { current, history } = await currentAndHistory(env, { symbol, as_of: asOf, calendar_days: window });
-    const currentLayer = current.layers.margin_short;
-    const historyLayer = history.layers?.margin ?? null;
-    return out({
-      source_priority: ["TWSE/TPEx OFFICIAL EXACT_DATE_ON_DEMAND", "PUBLISHED_GITHUB HISTORY_CONTEXT_ONLY"],
+    const requestedAsOf = end_date ?? taipeiToday();
+    const historyDays = calendarDays(start_date, requestedAsOf, Math.max(60, Math.min(180, limit * 3)));
+    const credit = await runFamilyCreditSblQueryFastPath(env, {
       symbol,
-      requested_as_of: asOf,
-      status: currentLayer.status,
-      data: mergeCurrentOverHistory(rowsOf(historyLayer), currentLayer.rows, limit),
+      query: `${symbol} 融資融券 1日 5日 10日 20日 60日`,
+      as_of: requestedAsOf,
+      as_of_explicit: Boolean(end_date),
+    });
+    const resolvedAsOf = credit.resolved_as_of ?? requestedAsOf;
+    const history = await publishedHistory(env, { symbol, as_of: resolvedAsOf, calendar_days: historyDays });
+    const currentLayer = credit.layers?.margin_short ?? null;
+    const historyLayer = history.layers?.margin ?? null;
+    const currentRows = rowsOf(currentLayer);
+    return out({
+      source_priority: ["TWSE/TPEx OFFICIAL TARGETED_EXACT_DATE", "PUBLISHED_GITHUB HISTORY_CONTEXT_ONLY"],
+      symbol,
+      requested_as_of: requestedAsOf,
+      resolved_as_of: resolvedAsOf,
+      as_of_resolution: credit.as_of_resolution,
+      status: currentLayer?.current_status ?? credit.status,
+      data: mergeCurrentOverHistory(rowsOf(historyLayer), currentRows, limit),
       on_demand_current: currentLayer,
+      windows: currentLayer?.windows ?? null,
       history_context: {
         role: "HISTORY_CONTEXT_ONLY",
         data_as_of: history.data_as_of ?? null,
         status: historyLayer?.status ?? history.status ?? "UNAVAILABLE",
         rows: rowsOf(historyLayer).slice(-limit),
       },
-      source_health: current.source_health,
+      source_health: {
+        targeted_fast_path: credit.diagnostics,
+        current_source: currentLayer?.current_source ?? null,
+      },
       previous_day_substitution: false,
       current_persistence: "NONE",
+      unknown_is_zero: false,
     });
   });
 
   server.registerTool("get_short_pressure", {
-    description: "空方/籌碼壓力相容入口。當期融資融券、借券與借券賣出統一走 TWSE/TPEx official exact-date on-demand；Published/GitHub 僅為歷史背景。未公布 fail-closed，不以 FinMind 或前一日資料冒充當期。",
+    description: "空方/籌碼壓力相容入口。公開名稱與 input schema 不變；當期融資融券、借券餘額與借券賣出改走 targeted TWSE/TPEx exact-date fast path，附 1/5/10/20/60 交易日窗口；不啟動完整 chip graph、OHLC、Jin10、財報或 MoneyDJ。",
     inputSchema: {
       symbol: symbolSchema,
       market: marketSchema.optional().default("auto"),
@@ -229,35 +249,59 @@ export function registerLegacyOwnerChipTools(server: McpServer, env: Env) {
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   }, async ({ symbol, market, days }) => {
-    const asOf = taipeiToday();
-    const window = Math.max(30, Math.min(180, days * 3));
-    const { current, history } = await currentAndHistory(env, { symbol, as_of: asOf, calendar_days: window });
+    const requestedAsOf = taipeiToday();
+    const credit = await runFamilyCreditSblQueryFastPath(env, {
+      symbol,
+      query: `${symbol} 融資融券 借券賣出 借券餘額 1日 5日 10日 20日 60日`,
+      as_of: requestedAsOf,
+      as_of_explicit: false,
+    });
+    const resolvedAsOf = credit.resolved_as_of ?? requestedAsOf;
+    const historyDays = Math.max(30, Math.min(180, days * 3));
+    const history = await publishedHistory(env, { symbol, as_of: resolvedAsOf, calendar_days: historyDays });
+    const marginLayer = credit.layers?.margin_short ?? null;
+    const lendingLayer = credit.layers?.securities_lending ?? null;
+    const sblLayer = credit.layers?.sbl_short_sale ?? null;
     const marginHistory = rowsOf(history.layers?.margin).slice(-days);
     const lendingHistory = rowsOf(history.layers?.securities_lending).slice(-days);
     const sblHistory = rowsOf(history.layers?.sbl_short_sale).slice(-days);
     return out({
-      source_priority: ["TWSE/TPEx OFFICIAL EXACT_DATE_ON_DEMAND", "PUBLISHED_GITHUB HISTORY_CONTEXT_ONLY"],
+      source_priority: ["TWSE/TPEx OFFICIAL TARGETED_EXACT_DATE", "PUBLISHED_GITHUB HISTORY_CONTEXT_ONLY"],
       symbol,
       market_requested: market,
-      requested_as_of: asOf,
-      status: current.status,
+      market_resolved: credit.market,
+      requested_as_of: requestedAsOf,
+      resolved_as_of: resolvedAsOf,
+      as_of_resolution: credit.as_of_resolution,
+      status: credit.status,
       official_current: {
-        margin_short: current.layers.margin_short,
-        securities_lending: current.layers.securities_lending,
-        sbl_short_sale: current.layers.sbl_short_sale,
+        margin_short: marginLayer,
+        securities_lending: lendingLayer,
+        sbl_short_sale: sblLayer,
       },
-      margin_history: marginHistory,
-      securities_lending: mergeCurrentOverHistory(lendingHistory, current.layers.securities_lending.rows, days),
-      sbl_short_sale: mergeCurrentOverHistory(sblHistory, current.layers.sbl_short_sale.rows, days),
+      windows: {
+        margin_short: marginLayer?.windows ?? null,
+        securities_lending: lendingLayer?.windows ?? null,
+        sbl_short_sale: sblLayer?.windows ?? null,
+      },
+      margin_history: mergeCurrentOverHistory(marginHistory, rowsOf(marginLayer), days),
+      securities_lending: mergeCurrentOverHistory(lendingHistory, rowsOf(lendingLayer), days),
+      sbl_short_sale: mergeCurrentOverHistory(sblHistory, rowsOf(sblLayer), days),
       history_context: {
         role: "HISTORY_CONTEXT_ONLY",
         data_as_of: history.data_as_of ?? null,
         status: history.status ?? "UNAVAILABLE",
       },
-      source_health: current.source_health,
+      source_health: {
+        targeted_fast_path: credit.diagnostics,
+        margin_source: marginLayer?.current_source ?? null,
+        lending_source: lendingLayer?.current_source ?? null,
+        sbl_source: sblLayer?.current_source ?? null,
+      },
       previous_day_substitution: false,
       current_persistence: "NONE",
-      interpretation_boundary: "融資增加不自動等於偏空；借券餘額、借券賣出與融券是不同事件層，須分開解讀。",
+      unknown_is_zero: false,
+      interpretation_boundary: "融資增加不自動等於偏空；借券餘額、借券賣出與融券是不同事件層，須分開解讀。借券成交本身不等同新增放空。",
     });
   });
 }
