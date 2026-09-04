@@ -1,9 +1,11 @@
 import { runSmartFamilyAnalysis } from "./family-analysis";
-import { extractFamilyQuerySymbols, planFamilyQuery } from "./family-adaptive-planner";
+import { planFamilyQuery } from "./family-adaptive-planner";
+import { runFamilyBrokerQueryFastPath } from "./family-broker-query-fast-path";
 import { compactFamilyAnalysisForCustomGpt } from "./family-custom-gpt-compact";
 import { buildFamilyMarketQuestionContext } from "./family-market-question";
 import { readFamilyStockMarketContext } from "./family-ohlc-read-bridge";
 import { familyOpenApiV2 } from "./family-openapi-v2";
+import { resolveFamilyQuery } from "./family-query-resolver";
 import { familyResearchDirective } from "./family-research-policy";
 import { familySharedReadManifest } from "./family-shared-read-plane";
 import { runFamilySwingScreenV2 } from "./family-stock-selection-v2";
@@ -194,9 +196,32 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
       if (!query) return json({ error: "query_required" }, 400, cors());
       if (query.length > 2_000) return json({ error: "query_too_long" }, 400, cors());
 
-      const symbols = extractFamilyQuerySymbols(query);
+      const queryResolution = resolveFamilyQuery(query);
+      const symbols = [...queryResolution.symbols];
       const adaptivePlan = planFamilyQuery(query, symbols);
-      const asOfDate = validDate(body.as_of_date);
+      // Literal user text wins over an optional generated structured field. This
+      // prevents an Action model from accidentally replacing the date the user
+      // actually typed.
+      const asOfDate = queryResolution.as_of_date ?? validDate(body.as_of_date);
+
+      if (adaptivePlan.intent === "BROKER_WINDOW_QUERY") {
+        const result = await runFamilyBrokerQueryFastPath({
+          symbol: symbols[0],
+          as_of: asOfDate ?? taipeiDate(),
+          windows: queryResolution.broker_windows,
+        });
+        return compactJson({
+          ...result,
+          route: "adaptive_broker_window_query",
+          query,
+          as_of_date: asOfDate ?? taipeiDate(),
+          resolved_symbols: symbols,
+          requested_via: "queryTaiwanStockSystem",
+          adaptive_plan: adaptivePlan,
+          query_resolution: queryResolution,
+          shared_read_plane: familySharedReadManifest(),
+        }, 200, cors());
+      }
 
       if (adaptivePlan.intent === "SWING_DISCOVERY") {
         const result = await runFamilySwingScreenV2(env, { mode: inferScreenMode(query), top_n: 5 });
