@@ -18,6 +18,11 @@ function makeFetch(html: string) {
   return { fetcher, count: () => count };
 }
 
+const moneyDjBig5Fixture = Buffer.from(
+  "PCFkb2N0eXBlIGh0bWw+PGh0bWw+PGJvZHk+CjxkaXY+pXi/brlxKDIzMzApIKjpsNOkwMJJLbZppVip+rLTILPmpuyhR7FpoUCzzKvhp/O3c6TpoUcyMDI2LzA5LzA0PC9kaXY+Cjx0YWJsZT4KPHRyPjx0aD62UrZXqOmw0zwvdGg+PHRoPrZStmk8L3RoPjx0aD695qVYPC90aD48dGg+tlK2VzwvdGg+PHRoPqb7pqil5qTxras8L3RoPjx0aD695rZXqOmw0zwvdGg+PHRoPrZStmk8L3RoPjx0aD695qVYPC90aD48dGg+vea2VzwvdGg+PHRoPqb7pqil5qTxras8L3RoPjwvdHI+Cjx0cj48dGQ+s82w8i2leKVfPC90ZD48dGQ+OTM3PC90ZD48dGQ+MjM3PC90ZD48dGQ+NzAwPC90ZD48dGQ+NS4xOSU8L3RkPjx0ZD6q4bpYwPSyeTwvdGQ+PHRkPjI0OTwvdGQ+PHRkPjEsMTU1PC90ZD48dGQ+OTA2PC90ZD48dGQ+Ni43MiU8L3RkPjwvdHI+CjwvdGFibGU+PC9ib2R5PjwvaHRtbD4=",
+  "base64",
+);
+
 resetTwBrokerRankedCacheForTests();
 {
   const mock = makeFetch(table("2026/09/03"));
@@ -55,6 +60,51 @@ resetTwBrokerRankedCacheForTests();
   const result = await getTwBrokerRankedOnDemand({ symbol: "0080", as_of: "2026-09-03", fetcher: mock.fetcher });
   assert.equal(result.status, "READY_EMPTY");
   assert.equal(result.ok, true);
+}
+
+resetTwBrokerRankedCacheForTests();
+{
+  let count = 0;
+  const fetcher: typeof fetch = async () => {
+    count += 1;
+    return new Response(moneyDjBig5Fixture, {
+      status: 200,
+      headers: { "content-type": "text/html;Charset=big5" },
+    });
+  };
+  const result = await getTwBrokerRankedOnDemand({ symbol: "2330", as_of: "2026-09-04", fetcher });
+  assert.equal(result.status, "READY");
+  assert.equal(result.source_date, "2026-09-04");
+  assert.equal(result.source_date_verified, true);
+  assert.equal(result.source_charset, "big5");
+  assert.equal(result.transport_attempts, 1);
+  assert.equal(result.buys[0]?.broker_branch, "凱基-台北");
+  assert.equal(result.sells[0]?.broker_branch, "花旗環球");
+  assert.equal(count, 1);
+}
+
+resetTwBrokerRankedCacheForTests();
+{
+  let count = 0;
+  const fetcher: typeof fetch = async () => {
+    count += 1;
+    if (count === 1) {
+      return new Response("temporary origin error", {
+        status: 520,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      });
+    }
+    return new Response(moneyDjBig5Fixture, {
+      status: 200,
+      headers: { "content-type": "text/html;Charset=big5" },
+    });
+  };
+  const result = await getTwBrokerRankedOnDemand({ symbol: "2330", as_of: "2026-09-04", fetcher });
+  assert.equal(result.status, "READY");
+  assert.equal(result.source_date, "2026-09-04");
+  assert.equal(result.source_charset, "big5");
+  assert.equal(result.transport_attempts, 2);
+  assert.equal(count, 2, "one transient 520 should be retried exactly once");
 }
 
 console.log("TW ranked broker on-demand tests passed");
