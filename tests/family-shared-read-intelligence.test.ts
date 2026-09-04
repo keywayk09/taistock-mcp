@@ -87,10 +87,11 @@ assert.match(mcpSource, /github_writes: false/);
 assert.match(mcpSource, /LOCAL_FUGLE_REST_QUOTE_TRADES/);
 assert.doesNotMatch(mcpSource, /registerTool\("jin10_/);
 
-// Keep the focused routing regressions in the permanent Family gate so they
-// cannot silently return even if a future package.json refactor forgets a test.
+// Keep the focused routing/render regressions in the permanent Family gate so
+// they cannot silently return even if a future package.json refactor forgets a test.
 await import("./family-broker-query-routing.test.ts");
 await import("./credit-sbl-date-routing-v2.test.ts");
 await import("./family-credit-broker-composite-routing.test.ts");
+await import("./family-broker-render-contract.test.ts");
 
 console.log("family-shared-read-intelligence.test.ts: PASS");
