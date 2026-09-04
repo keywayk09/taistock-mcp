@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway.ts";
-import { getTwBrokerRankedOnDemand } from "./tw-broker-ranked-on-demand.ts";
+import { getTwBrokerRankedWindowBundleOnDemand } from "./tw-broker-ranked-on-demand.ts";
 import { getTwChipOnDemandSnapshot } from "./tw-chip-on-demand.ts";
 
 export const LEGACY_OWNER_CHIP_OVERRIDE_TOOL_NAMES = Object.freeze([
@@ -68,6 +68,24 @@ async function currentAndHistory(env: Env, input: {
   return { current, history: history as Record<string, any> };
 }
 
+function compactBrokerWindow(result: any, topN: number) {
+  const buys = Array.isArray(result?.buys) ? result.buys : [];
+  const sells = Array.isArray(result?.sells) ? result.sells : [];
+  return {
+    window_days: result?.window_days ?? null,
+    source_window_label: result?.source_window_label ?? null,
+    status: result?.status ?? "UNAVAILABLE",
+    source_date: result?.source_date ?? null,
+    source_date_verified: result?.source_date_verified === true,
+    source_window_verified: result?.source_window_verified === true,
+    ranked_output_totals: result?.ranked_output_totals ?? null,
+    top_net_buyers: buys.slice(0, topN),
+    top_net_sellers: sells.slice(0, topN),
+    rank_count: result?.rank_count ?? { buy: buys.length, sell: sells.length },
+    error: result && "error" in result ? result.error : null,
+  };
+}
+
 /**
  * Frozen 79-tool semantic bridge.
  *
@@ -79,7 +97,7 @@ async function currentAndHistory(env: Env, input: {
  */
 export function registerLegacyOwnerChipTools(server: McpServer, env: Env) {
   server.registerTool("get_broker_chips", {
-    description: "券商分點 Ranked-only 查詢；目前來源 MoneyDJ 公開次級資料。只代表頁面排行，不是完整分點清冊；缺席分點不代表零交易。exact-date 驗證、唯讀、不保存，且不依賴 FinMind Token。",
+    description: "券商分點 Ranked-only 查詢；目前來源 MoneyDJ 公開次級資料。保留原 symbol/date/top_n 輸入，同一次回傳 1日與 MoneyDJ 伺服器端 5/10/20/60 日區間排名，不以每日Top榜自行加總。缺席分點不代表零交易；exact-date 驗證、唯讀、不保存，且不依賴 FinMind Token。",
     inputSchema: {
       symbol: symbolSchema,
       date: dateSchema,
@@ -87,26 +105,48 @@ export function registerLegacyOwnerChipTools(server: McpServer, env: Env) {
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   }, async ({ symbol, date, top_n }) => {
-    const ranked = await getTwBrokerRankedOnDemand({ symbol, as_of: date });
+    const bundle = await getTwBrokerRankedWindowBundleOnDemand({ symbol, as_of: date });
+    const ranked = bundle.windows["1D"];
+    const multiWindow = Object.fromEntries(
+      ["5D", "10D", "20D", "60D"].map((key) => [key, compactBrokerWindow(bundle.windows[key], top_n)]),
+    );
     return out({
-      source: ranked.source,
+      source: ranked?.source ?? "MoneyDJ broker ranked public page",
       provider: "MoneyDJ",
       tier: "PUBLIC_SECONDARY",
       completeness: "RANKED_ONLY",
       symbol,
       date,
-      status: ranked.status,
-      source_date: ranked.source_date,
-      source_date_verified: ranked.source_date_verified,
-      top_net_buyers: ranked.buys.slice(0, top_n),
-      top_net_sellers: ranked.sells.slice(0, top_n),
-      rank_count: "rank_count" in ranked ? ranked.rank_count : { buy: ranked.buys.length, sell: ranked.sells.length },
+      status: ranked?.status ?? bundle.status,
+      source_date: ranked?.source_date ?? null,
+      source_date_verified: ranked?.source_date_verified === true,
+      top_net_buyers: (ranked?.buys ?? []).slice(0, top_n),
+      top_net_sellers: (ranked?.sells ?? []).slice(0, top_n),
+      rank_count: ranked && "rank_count" in ranked ? ranked.rank_count : { buy: ranked?.buys?.length ?? 0, sell: ranked?.sells?.length ?? 0 },
       missing_branch_means_zero: false,
       previous_day_substitution: false,
       persistence: "NONE",
-      interpretation_boundary: "Ranked public-page output only. A branch missing from the ranking must not be interpreted as zero activity or no trading.",
-      error: "error" in ranked ? ranked.error : null,
-      retrieved_at: ranked.retrieved_at,
+      interpretation_boundary: "Ranked public-page output only. A branch missing from the ranking must not be interpreted as zero activity or no trading. Broker names are execution channels and must not be treated as investor identity.",
+      multi_window: {
+        version: bundle.version,
+        status: bundle.status,
+        requested_windows: bundle.requested_windows,
+        server_side_interval_aggregation: bundle.server_side_interval_aggregation,
+        daily_rank_summing: bundle.daily_rank_summing,
+        missing_window_observation: bundle.missing_window_observation,
+        origin_concurrency_limit: bundle.origin_concurrency_limit,
+        windows: multiWindow,
+        branch_matrix: bundle.branch_matrix.slice(0, top_n),
+        horizon_lens: {
+          S: ["1D", "5D", "10D"],
+          M: ["10D", "20D", "60D"],
+          L: ["20D", "60D"],
+          optional_deep_L_window_days: 120,
+        },
+        interpretation_boundary: bundle.interpretation_boundary,
+      },
+      error: ranked && "error" in ranked ? ranked.error : null,
+      retrieved_at: ranked?.retrieved_at ?? null,
     });
   });
 
