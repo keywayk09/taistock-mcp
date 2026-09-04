@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getTwBrokerProviderBundleOnDemand } from "./broker-provider-bundle-router.ts";
 import { getTwMarketChipSummaryPublished } from "./market-data-published-gateway.ts";
 import { getTwChipOnDemandSnapshot } from "./tw-chip-on-demand.ts";
+import { runFamilyCreditSblQueryFastPath } from "./tw-credit-sbl-query-fast-path.ts";
 
 export const LEGACY_OWNER_CHIP_OVERRIDE_TOOL_NAMES = Object.freeze([
   "get_broker_chips",
@@ -249,7 +250,7 @@ export function registerLegacyOwnerChipTools(server: McpServer, env: Env) {
   });
 
   server.registerTool("get_short_pressure", {
-    description: "空方/籌碼壓力相容入口。當期融資融券、借券與借券賣出統一走 TWSE/TPEx official exact-date on-demand；Published/GitHub 僅為歷史背景。未公布 fail-closed，不以 FinMind 或前一日資料冒充當期。",
+    description: "最新交易日空方/籌碼壓力相容入口，沒有日期參數。若使用者明示 YYYY-MM-DD，禁止用本工具代表該歷史日期；借券賣出請改用 get_tw_sbl_short_sale(as_of)，借券成交/還券請用 get_tw_securities_lending(as_of)，融資融券請用 get_margin(end_date)。未明示日期時，本工具會把週末/假日解析到最近 TWSE 交易日。公開 input schema 保持不變。",
     inputSchema: {
       symbol: symbolSchema,
       market: marketSchema.optional().default("auto"),
@@ -257,35 +258,103 @@ export function registerLegacyOwnerChipTools(server: McpServer, env: Env) {
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   }, async ({ symbol, market, days }) => {
-    const asOf = taipeiToday();
+    const requestedAsOf = taipeiToday();
+    const credit = await runFamilyCreditSblQueryFastPath(env, {
+      symbol,
+      query: `${symbol} 融資融券 借券賣出 借券餘額 1日 5日 10日 20日 60日`,
+      as_of: requestedAsOf,
+      as_of_explicit: false,
+    });
+    const resolvedAsOf = credit.resolved_as_of ?? requestedAsOf;
     const window = Math.max(30, Math.min(180, days * 3));
-    const { current, history } = await currentAndHistory(env, { symbol, as_of: asOf, calendar_days: window });
+    const history = await getTwMarketChipSummaryPublished(env, {
+      symbol,
+      as_of: resolvedAsOf,
+      calendar_days: window,
+    }) as Record<string, any>;
+    const marginLayer = credit.layers?.margin_short ?? null;
+    const lendingLayer = credit.layers?.securities_lending ?? null;
+    const sblLayer = credit.layers?.sbl_short_sale ?? null;
+    const marginLatest = marginLayer?.latest ?? null;
+    const lendingLatest = lendingLayer?.latest ?? null;
+    const sblLatest = sblLayer?.latest ?? null;
     const marginHistory = rowsOf(history.layers?.margin).slice(-days);
     const lendingHistory = rowsOf(history.layers?.securities_lending).slice(-days);
     const sblHistory = rowsOf(history.layers?.sbl_short_sale).slice(-days);
     return out({
-      source_priority: ["TWSE/TPEx OFFICIAL EXACT_DATE_ON_DEMAND", "PUBLISHED_GITHUB HISTORY_CONTEXT_ONLY"],
+      source_priority: ["TWSE/TPEx OFFICIAL TARGETED_EXACT_DATE", "PUBLISHED_GITHUB HISTORY_CONTEXT_ONLY"],
       symbol,
       market_requested: market,
-      requested_as_of: asOf,
-      status: current.status,
-      official_current: {
-        margin_short: current.layers.margin_short,
-        securities_lending: current.layers.securities_lending,
-        sbl_short_sale: current.layers.sbl_short_sale,
+      market_resolved: credit.market ?? null,
+      requested_as_of: requestedAsOf,
+      resolved_as_of: resolvedAsOf,
+      as_of_resolution: credit.as_of_resolution ?? null,
+      explicit_historical_date_supported: false,
+      explicit_date_tools: {
+        margin_short: "get_margin(end_date)",
+        securities_lending: "get_tw_securities_lending(as_of)",
+        sbl_short_sale: "get_tw_sbl_short_sale(as_of)",
       },
-      margin_history: marginHistory,
-      securities_lending: mergeCurrentOverHistory(lendingHistory, current.layers.securities_lending.rows, days),
-      sbl_short_sale: mergeCurrentOverHistory(sblHistory, current.layers.sbl_short_sale.rows, days),
+      status: credit.status,
+      current_summary: {
+        margin_short: marginLatest ? {
+          trade_date: marginLatest.trade_date ?? null,
+          margin_previous_balance_lots: marginLatest.margin_previous_balance_lots ?? null,
+          margin_balance_lots: marginLatest.margin_balance_lots ?? null,
+          margin_balance_change_lots: marginLatest.margin_balance_change_lots ?? null,
+          short_previous_balance_lots: marginLatest.short_previous_balance_lots ?? null,
+          short_balance_lots: marginLatest.short_balance_lots ?? null,
+          short_balance_change_lots: marginLatest.short_balance_change_lots ?? null,
+          source: marginLatest.source ?? marginLayer?.current_source ?? null,
+        } : null,
+        securities_lending: lendingLatest ? {
+          trade_date: lendingLatest.trade_date ?? null,
+          previous_balance_shares: lendingLatest.previous_balance_shares ?? null,
+          borrowed_shares: lendingLatest.borrowed_shares ?? null,
+          returned_shares: lendingLatest.returned_shares ?? null,
+          balance_shares: lendingLatest.balance_shares ?? null,
+          source: lendingLatest.source ?? lendingLayer?.current_source ?? null,
+        } : null,
+        sbl_short_sale: sblLatest ? {
+          trade_date: sblLatest.trade_date ?? null,
+          previous_balance_shares: sblLatest.previous_balance_shares ?? null,
+          sold_shares: sblLatest.sold_shares ?? null,
+          returned_shares: sblLatest.returned_shares ?? null,
+          adjustment_shares: sblLatest.adjustment_shares ?? null,
+          balance_shares: sblLatest.balance_shares ?? null,
+          sold_lots_equivalent: sblLatest.sold_shares == null ? null : sblLatest.sold_shares / 1000,
+          balance_lots_equivalent: sblLatest.balance_shares == null ? null : sblLatest.balance_shares / 1000,
+          source: sblLatest.source ?? sblLayer?.current_source ?? null,
+        } : null,
+      },
+      official_current: {
+        margin_short: marginLayer,
+        securities_lending: lendingLayer,
+        sbl_short_sale: sblLayer,
+      },
+      windows: {
+        margin_short: marginLayer?.windows ?? null,
+        securities_lending: lendingLayer?.windows ?? null,
+        sbl_short_sale: sblLayer?.windows ?? null,
+      },
+      margin_history: mergeCurrentOverHistory(marginHistory, rowsOf(marginLayer), days),
+      securities_lending: mergeCurrentOverHistory(lendingHistory, rowsOf(lendingLayer), days),
+      sbl_short_sale: mergeCurrentOverHistory(sblHistory, rowsOf(sblLayer), days),
       history_context: {
         role: "HISTORY_CONTEXT_ONLY",
         data_as_of: history.data_as_of ?? null,
         status: history.status ?? "UNAVAILABLE",
       },
-      source_health: current.source_health,
+      source_health: {
+        targeted_fast_path: credit.diagnostics ?? null,
+        margin_source: marginLayer?.current_source ?? null,
+        lending_source: lendingLayer?.current_source ?? null,
+        sbl_source: sblLayer?.current_source ?? null,
+      },
       previous_day_substitution: false,
       current_persistence: "NONE",
-      interpretation_boundary: "融資增加不自動等於偏空；借券餘額、借券賣出與融券是不同事件層，須分開解讀。",
+      unknown_is_zero: false,
+      interpretation_boundary: "融資增加不自動等於偏空；借券餘額、借券賣出與融券是不同事件層，須分開解讀。借券成交本身不等同新增放空。",
     });
   });
 }

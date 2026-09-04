@@ -3,7 +3,7 @@ import {
   TWSE_TRADING_CALENDAR_ON_DEMAND_VERSION,
 } from "./twse-trading-calendar-on-demand.ts";
 
-export const TW_BROKER_RANKED_ON_DEMAND_VERSION = "tw-broker-ranked-on-demand/v1.5.0";
+export const TW_BROKER_RANKED_ON_DEMAND_VERSION = "tw-broker-ranked-on-demand/v1.6.0";
 
 export type TwBrokerWindowDays = 1 | 5 | 10 | 20 | 40 | 60 | 120 | 240;
 
@@ -27,11 +27,25 @@ type DecodedPage = {
   http_status: number;
 };
 
+type SelectedPage = DecodedPage & {
+  source_url: string;
+  source_host: string;
+  origin_attempts: number;
+};
+
 type CacheEntry = { expires_at: number; promise: Promise<DecodedPage> };
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_TRANSPORT_ATTEMPTS = 2;
 const TRANSIENT_HTTP_STATUSES = new Set([502, 503, 504, 520]);
 const cache = new Map<string, CacheEntry>();
+
+// www.moneydj.com currently redirects anonymous custom-range requests to SSO.
+// These two public MoneyDJ subdomains return the same broker-ranked payload and
+// are treated as transport origins of the SAME provider, not separate sources.
+const MONEYDJ_PUBLIC_ORIGINS = Object.freeze([
+  "https://concords.moneydj.com",
+  "https://5850web.moneydj.com",
+] as const);
 
 const WINDOW_CONFIG: Record<TwBrokerWindowDays, { selector: number; label: string }> = {
   1: { selector: 1, label: "近一日" },
@@ -197,6 +211,12 @@ function brokerSemanticScore(text: string) {
   return score;
 }
 
+function isBrokerPayload(text: string) {
+  const plain = textOf(text);
+  return /券商分點|進出明細/.test(plain)
+    && /(?:最後更新日(?:期)?|更新日期|資料日期)/.test(plain);
+}
+
 async function decodeResponse(response: Response) {
   const bytes = await response.arrayBuffer();
   const declared = headerCharset(response.headers.get("content-type"));
@@ -279,8 +299,37 @@ async function fetchPageCached(url: string, fetcher: FetchLike) {
   }
 }
 
-function customRangeUrl(symbol: string, startDate: string, endDate: string) {
-  return `https://www.moneydj.com/z/zc/zco/zco.djhtm?a=${encodeURIComponent(symbol)}&e=${encodeURIComponent(startDate)}&f=${encodeURIComponent(endDate)}`;
+function customRangeUrl(origin: string, symbol: string, startDate: string, endDate: string) {
+  return `${origin}/z/zc/zco/zco.djhtm?a=${encodeURIComponent(symbol)}&e=${encodeURIComponent(startDate)}&f=${encodeURIComponent(endDate)}`;
+}
+
+async function fetchMoneyDjRangePage(input: {
+  symbol: string;
+  start_date: string;
+  end_date: string;
+  fetcher: FetchLike;
+}): Promise<SelectedPage> {
+  const errors: string[] = [];
+  for (let index = 0; index < MONEYDJ_PUBLIC_ORIGINS.length; index += 1) {
+    const origin = MONEYDJ_PUBLIC_ORIGINS[index];
+    const url = customRangeUrl(origin, input.symbol, input.start_date, input.end_date);
+    try {
+      const page = await fetchPageCached(url, input.fetcher);
+      if (!isBrokerPayload(page.text)) {
+        errors.push(`${new URL(url).host}:not_broker_payload`);
+        continue;
+      }
+      return {
+        ...page,
+        source_url: url,
+        source_host: new URL(url).host,
+        origin_attempts: index + 1,
+      };
+    } catch (error) {
+      errors.push(`${new URL(url).host}:${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  throw new Error(`moneydj_public_origins_exhausted:${errors.join("|")}`);
 }
 
 function baseResult(input: {
@@ -292,7 +341,7 @@ function baseResult(input: {
   range_start: string | null;
   calendar_years?: number[];
   calendar_source_urls?: string[];
-  page?: DecodedPage;
+  page?: SelectedPage;
 }) {
   const config = WINDOW_CONFIG[input.window_days];
   return {
@@ -300,10 +349,12 @@ function baseResult(input: {
     symbol: input.symbol,
     requested_as_of: input.as_of,
     source: "MoneyDJ broker ranked public page",
-    source_url: input.url,
+    source_url: input.page?.source_url ?? input.url,
+    source_host: input.page?.source_host ?? null,
     source_charset: input.page?.charset ?? null,
     source_charset_resolution: input.page?.charset_resolution ?? null,
     transport_attempts: input.page?.attempts ?? null,
+    origin_attempts: input.page?.origin_attempts ?? null,
     tier: "PUBLIC_SECONDARY" as const,
     completeness: "RANKED_ONLY" as const,
     persistence: "NONE" as const,
@@ -325,12 +376,12 @@ function baseResult(input: {
 
 /**
  * Read-only secondary evidence adapter for MoneyDJ's public stock -> broker
- * ranking page. It intentionally exposes only ranked output and never claims a
- * complete branch inventory. One-day reads use MoneyDJ's custom exact-date
- * range (start=end=as_of). Multi-day reads resolve the exact N trading sessions
- * from TWSE's official historical holiday schedule and then ask MoneyDJ to rank
- * that custom server-side interval. Daily ranked rows are never summed.
- * This adapter is fail-soft and must not block official TWSE/TPEx chip layers.
+ * ranking page. One-day reads use MoneyDJ's custom exact-date range; multi-day
+ * reads resolve exact TWSE trading sessions before asking MoneyDJ to rank that
+ * interval. Anonymous www.moneydj.com currently redirects to SSO, so this
+ * adapter uses bounded MoneyDJ public subdomain origins and accepts a page only
+ * when the broker/date markers are present. All origins remain the SAME MoneyDJ
+ * provider; this is transport failover, never cross-provider window mixing.
  */
 export async function getTwBrokerRankedOnDemand(input: {
   symbol: string;
@@ -363,9 +414,15 @@ export async function getTwBrokerRankedOnDemand(input: {
       calendarSourceUrls = tradingWindow.source_urls;
     }
     if (!rangeStart) throw new Error("broker_range_start_unresolved");
-    url = customRangeUrl(symbol, rangeStart, input.as_of);
+    url = customRangeUrl(MONEYDJ_PUBLIC_ORIGINS[0], symbol, rangeStart, input.as_of);
 
-    const page = await fetchPageCached(url, fetcher);
+    const page = await fetchMoneyDjRangePage({
+      symbol,
+      start_date: rangeStart,
+      end_date: input.as_of,
+      fetcher,
+    });
+    url = page.source_url;
     const common = baseResult({
       symbol,
       as_of: input.as_of,
@@ -617,7 +674,7 @@ export async function getTwBrokerRankedWindowBundleOnDemand(input: {
         : "ERROR";
 
   return {
-    version: "tw-broker-ranked-window-bundle/v1.1.0",
+    version: "tw-broker-ranked-window-bundle/v1.2.0",
     status,
     symbol: String(input.symbol),
     requested_as_of: input.as_of,
@@ -635,7 +692,9 @@ export async function getTwBrokerRankedWindowBundleOnDemand(input: {
     persistence: "NONE" as const,
     previous_day_substitution: false,
     origin_concurrency_limit: 3,
-    interpretation_boundary: "Each MoneyDJ interval is independently server-ranked for an exact TWSE trading-day range ending at requested_as_of. A branch absent from a window is UNKNOWN, not zero. Broker names are execution channels and must not be treated as investor identity.",
+    moneydj_transport_origins: [...MONEYDJ_PUBLIC_ORIGINS],
+    moneydj_transport_policy: "SAME_PROVIDER_PUBLIC_ORIGIN_FAILOVER" as const,
+    interpretation_boundary: "Each MoneyDJ interval is independently server-ranked for an exact TWSE trading-day range ending at requested_as_of. MoneyDJ public subdomain failover is transport-only and never cross-provider mixing. A branch absent from a window is UNKNOWN, not zero. Broker names are execution channels and must not be treated as investor identity.",
   };
 }
 

@@ -87,10 +87,16 @@ assert.match(brokerDescription, /Provider|同一平台/i);
 assert.match(brokerDescription, /1\/5\/10\/20\/60/);
 assert.match(brokerDescription, /禁止逐 window 混用不同平台/);
 assert.doesNotMatch(brokerDescription, /FinMind單日券商分點淨買賣/);
-for (const tool of ["get_institutional", "get_margin", "get_short_pressure"]) {
+for (const tool of ["get_institutional", "get_margin"]) {
   const description = String(capturedToolConfigs.get(tool)?.description ?? "");
   assert.match(description, /exact-date on-demand/i, `${tool} must advertise the current exact-date read plane`);
 }
+const shortPressureDescription = String(capturedToolConfigs.get("get_short_pressure")?.description ?? "");
+assert.match(shortPressureDescription, /最新交易日/);
+assert.match(shortPressureDescription, /沒有日期參數/);
+assert.match(shortPressureDescription, /get_tw_sbl_short_sale\(as_of\)/);
+assert.match(shortPressureDescription, /get_tw_securities_lending\(as_of\)/);
+assert.match(shortPressureDescription, /週末|假日/);
 
 assert.ok(tryCompat, "compatibility tools/call interceptor must be exported");
 const legacyCall = new Request("https://taistock-mcp.example/my-mcp", {
@@ -132,6 +138,10 @@ const bridgeSource = fs.readFileSync(bridgePath, "utf8");
 assert.match(bridgeSource, /getTwBrokerProviderBundleOnDemand/);
 assert.doesNotMatch(bridgeSource, /getTwBrokerRankedWindowBundleOnDemand/);
 assert.match(bridgeSource, /getTwChipOnDemandSnapshot/);
+assert.match(bridgeSource, /runFamilyCreditSblQueryFastPath/);
+assert.match(bridgeSource, /resolved_as_of/);
+assert.match(bridgeSource, /current_summary/);
+assert.match(bridgeSource, /sold_shares/);
 assert.match(bridgeSource, /HISTORY_CONTEXT_ONLY/);
 assert.match(bridgeSource, /missing_branch_means_zero:\s*false/);
 assert.match(bridgeSource, /previous_day_substitution:\s*false/);
