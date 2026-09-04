@@ -72,6 +72,8 @@ A true customer-account maintenance ratio is not reconstructed from public marke
 
 `family-cloudflare-startup-graph.test.ts` continues to protect the lazy startup graph, Cloudflare 10021 isolation, Family read-only boundaries, canonical OHLC identity and no cross-account Service Binding. Its market-chip identity assertion now matches `OFFICIAL_EXACT_DATE_ON_DEMAND_CURRENT+PUBLISHED_HISTORY_CONTEXT` instead of the retired Published-only current model.
 
+Final pre-merge head `12fb65d1ecb0c5caa9d4ec461f72b874c26f6acf` passed TypeScript type-check, full `test:research`, Wrangler deploy dry-run, Market Data Cloudflare Cron CI and the P7/P8/P9/P11/P12/P13/P13b/P14/P15/P16 PR workflows before merge.
+
 Existing Family isolation/OAuth/public-ingress tests remain in force. Formal Published replay tests remain deterministic and are not repurposed for live reads.
 
 ## Recent-N-trading-day broker window
