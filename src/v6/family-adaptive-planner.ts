@@ -1,10 +1,12 @@
 import { familySharedReadManifest } from "./family-shared-read-plane.ts";
 import { isFamilyBrokerWindowQueryText, resolveFamilyQuery } from "./family-query-resolver.ts";
+import { isFamilyCreditSblQueryText } from "./tw-credit-sbl-query-fast-path.ts";
 
-export const FAMILY_ADAPTIVE_PLANNER_VERSION = "family-adaptive-planner/v1.3.0";
+export const FAMILY_ADAPTIVE_PLANNER_VERSION = "family-adaptive-planner/v1.4.0";
 
 export type FamilyIntent =
   | "BROKER_WINDOW_QUERY"
+  | "CREDIT_SBL_QUERY"
   | "QUICK_STOCK_QUESTION"
   | "FULL_STOCK_ANALYSIS"
   | "STOCK_COMPARE"
@@ -42,11 +44,13 @@ export function inferFamilyAdaptiveIntent(query: string, symbols: string[]): Fam
   ])) return "SWING_DISCOVERY";
 
   // An explicit full-analysis request owns the whole research graph even when
-  // the user asks to include broker branches as one component. Only a focused
-  // broker question should take the lightweight fast path.
+  // the user asks to include broker branches or credit/SBL as one component.
   if (symbols.length === 1 && looksLikeFullStockAnalysis(text)) return "FULL_STOCK_ANALYSIS";
 
-  if (symbols.length === 1 && isFamilyBrokerWindowQueryText(text)) return "BROKER_WINDOW_QUERY";
+  const brokerFocused = symbols.length === 1 && isFamilyBrokerWindowQueryText(text);
+  const creditFocused = symbols.length === 1 && isFamilyCreditSblQueryText(text);
+  if (brokerFocused && !creditFocused) return "BROKER_WINDOW_QUERY";
+  if (creditFocused && !brokerFocused) return "CREDIT_SBL_QUERY";
 
   if (symbols.length === 1) return "QUICK_STOCK_QUESTION";
 
@@ -58,7 +62,7 @@ export function inferFamilyAdaptiveIntent(query: string, symbols: string[]): Fam
 }
 
 function answerDepth(intent: FamilyIntent, query: string): FamilyAnswerDepth {
-  if (intent === "BROKER_WINDOW_QUERY") return "QUICK";
+  if (intent === "BROKER_WINDOW_QUERY" || intent === "CREDIT_SBL_QUERY") return "QUICK";
   if (intent === "FULL_STOCK_ANALYSIS" || intent === "STOCK_COMPARE") return "DEEP";
   if (intent === "SWING_DISCOVERY") return "STANDARD";
   if (/深入|詳細|完整|全面|徹底|研究/i.test(query)) return "DEEP";
@@ -75,6 +79,9 @@ function preferredReads(intent: FamilyIntent, query: string) {
   switch (intent) {
     case "BROKER_WINDOW_QUERY":
       base = ["broker_branch"];
+      break;
+    case "CREDIT_SBL_QUERY":
+      base = ["current_chip"];
       break;
     case "QUICK_STOCK_QUESTION":
       base = ["realtime_market", "canonical_ohlc", "current_chip", "published_chip", "fundamentals", "open_world_web"];
@@ -95,7 +102,7 @@ function preferredReads(intent: FamilyIntent, query: string) {
       base = ["fundamentals", "industry_supply_chain", "research_repository", "global_market_context", "open_world_web"];
       break;
   }
-  if (intent !== "BROKER_WINDOW_QUERY" && wantsRegimeContext(query)) {
+  if (intent !== "BROKER_WINDOW_QUERY" && intent !== "CREDIT_SBL_QUERY" && wantsRegimeContext(query)) {
     base.push("txf_context", "global_futures_context", "jin10_events");
   }
   return unique(base);
@@ -128,6 +135,7 @@ export function planFamilyQuery(query: string, symbols: string[] = []) {
     shared_read_plane: familySharedReadManifest(),
     execution_guidance: {
       broker_window_query: "明確券商分點問題直接走既有MoneyDJ bounded multi-window fast path；不啟動OHLC、Jin10、財報、產業鏈或完整11點研究。",
+      credit_sbl_query: "明確融資融券、借券或借券賣出問題直接走TWSE/TPEx official credit/SBL fast path；只讀必要籌碼層與既有official history，不啟動OHLC、Jin10、財報、MoneyDJ或完整11點研究。",
       quick_question: "先回答使用者真正問的事；只取足以支撐答案的證據，不因為有11點框架就強迫逐點念完。",
       full_analysis: "需要完整個股研究時，以1到11點作最終完整性契約，但查詢順序與來源可動態決定。",
       progressive_deepening: "先做高價值核心讀取；若發現重大催化劑、資料衝突、未知欄位或新線索，再自主擴展研究。",
