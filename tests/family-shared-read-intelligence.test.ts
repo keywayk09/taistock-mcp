@@ -87,4 +87,9 @@ assert.match(mcpSource, /github_writes: false/);
 assert.match(mcpSource, /LOCAL_FUGLE_REST_QUOTE_TRADES/);
 assert.doesNotMatch(mcpSource, /registerTool\("jin10_/);
 
+// Keep the Family broker-routing regression in the existing permanent Family
+// gate so the bug cannot silently return even if a new test file is forgotten
+// by package.json in a future refactor.
+await import("./family-broker-query-routing.test.ts");
+
 console.log("family-shared-read-intelligence.test.ts: PASS");

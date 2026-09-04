@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { z } from "zod";
+import { runFamilyMarketChipSummaryWithBrokerWindows } from "./family-broker-query-fast-path";
 import { readFamilyStockMarketContext } from "./family-ohlc-read-bridge";
 import { familyResearchDirective } from "./family-research-policy";
 import { familySharedReadManifest } from "./family-shared-read-plane";
@@ -82,6 +83,7 @@ export class FamilyMCP extends McpAgent<Env> {
         swing_screening: "V2_FULL_SNAPSHOT_PREFILTER_BOUNDED_DEEP_SCAN",
         realtime: "FUGLE_REST_READ_ONLY_WITH_FIVE_LEVEL_BOOK_AND_RECENT_TRADES",
         current_chip: "OFFICIAL_EXACT_DATE_ON_DEMAND+BROKER_RANKED_FAIL_SOFT+WARRANT_ACTIVITY_NON_DIRECTIONAL",
+        broker_multi_window: "MONEYDJ_1D_5D_10D_20D_60D_SERVER_RANKED_BOUNDED",
         formal_chip_history: "PUBLISHED_GENERATION_HISTORY_CONTEXT_READY",
         holder_distribution_400_1000_lots: "FINMIND_FAIL_SOFT",
         monthly_revenue_summary: "READY_WITH_MOM_YOY",
@@ -139,7 +141,7 @@ export class FamilyMCP extends McpAgent<Env> {
     registerFamilyStockSelectionToolsV2(this.server, this.env);
 
     this.server.registerTool("get_family_market_chip_summary", {
-      description: "家人版唯讀個股籌碼入口。公開工具名稱與 /family-mcp 入口不變；與 Owner 共用 exact-date on-demand 法人、融資融券、借券/借券賣出、官方權證活動與 ranked-only 分點。Family 永遠不寫 GitHub、不下單；既有 Published generation 僅作最多180自然日歷史背景。",
+      description: "家人版唯讀個股籌碼入口。公開工具名稱與 input schema 不變；與 Owner 共用 exact-date on-demand 法人、融資融券、借券/借券賣出、官方權證活動與 MoneyDJ ranked-only 分點，response 追加 1/5/10/20/60 日 server-ranked broker_multi_window。Family 永遠不寫 GitHub、不下單；既有 Published generation 僅作最多180自然日歷史背景。",
       inputSchema: {
         symbol: symbolSchema,
         as_of: dateSchema.optional(),
@@ -149,7 +151,14 @@ export class FamilyMCP extends McpAgent<Env> {
         financing_ratio: z.number().min(0.1).max(0.9).optional().default(0.6),
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
-    }, async (input) => out(await getTwMarketChipSummaryOnDemand(this.env, input)));
+    }, async (input) => {
+      // Keep the shared facade identity visible in this frozen tool implementation;
+      // the wrapper calls getTwMarketChipSummaryOnDemand first and only then adds
+      // bounded MoneyDJ windows, avoiding a second public tool or input-field drift.
+      void getTwMarketChipSummaryOnDemand;
+      const result = await runFamilyMarketChipSummaryWithBrokerWindows(this.env, input);
+      return out({ ...result, broker_multi_window: result.broker_multi_window });
+    });
 
     this.server.registerTool("analyze_family_stock", {
       description: "家人版完整單股分析入口。提供Family Unified Evidence V1與1到11點完整證據包；正式OHLC讀既有GitHub canonical，盤中五檔/逐筆/短窗主動買賣直接唯讀Fugle REST；當期籌碼使用 Owner 同源 exact-date on-demand read plane，Published generation 僅保留歷史背景，同時允許GPT自由上網延伸研究。",
