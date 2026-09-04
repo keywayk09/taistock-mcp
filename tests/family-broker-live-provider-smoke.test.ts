@@ -12,6 +12,7 @@ import { getTwBrokerRankedWindowBundleOnDemand } from "../src/v6/tw-broker-ranke
 const cases = [
   {
     name: "2330 2026-09-03 1D",
+    symbol: "2330",
     as_of: "2026-09-03",
     windows: [1] as const,
     expectedFirstBuy: ["凱基-台北", 700] as const,
@@ -19,16 +20,25 @@ const cases = [
   },
   {
     name: "2330 2026-09-04 1D",
+    symbol: "2330",
     as_of: "2026-09-04",
     windows: [1] as const,
   },
   {
-    name: "2330 2026-09-04 1/5/10/20/60D",
+    name: "2330 2026-09-04 1/5/10/20/60/120D",
+    symbol: "2330",
     as_of: "2026-09-04",
-    windows: [1, 5, 10, 20, 60] as const,
+    windows: [1, 5, 10, 20, 60, 120] as const,
+  },
+  {
+    name: "2377 2026-09-04 1/5/10/20/60/120D",
+    symbol: "2377",
+    as_of: "2026-09-04",
+    windows: [1, 5, 10, 20, 60, 120] as const,
   },
   {
     name: "2330 2026-09-03 1/5/10/20/60D",
+    symbol: "2330",
     as_of: "2026-09-03",
     windows: [1, 5, 10, 20, 60] as const,
   },
@@ -36,12 +46,13 @@ const cases = [
 
 for (const testCase of cases) {
   const bundle = await getTwBrokerRankedWindowBundleOnDemand({
-    symbol: "2330",
+    symbol: testCase.symbol,
     as_of: testCase.as_of,
     windows: testCase.windows,
   });
 
   assert.ok(bundle.status === "READY" || bundle.status === "DEGRADED", `${testCase.name}: bundle status=${bundle.status}`);
+  assert.equal(bundle.symbol, testCase.symbol, `${testCase.name}: symbol`);
   assert.equal(bundle.requested_as_of, testCase.as_of, `${testCase.name}: requested_as_of`);
   assert.deepEqual(bundle.requested_windows, [...testCase.windows], `${testCase.name}: requested_windows`);
   assert.equal(bundle.tier, "PUBLIC_SECONDARY", `${testCase.name}: tier`);

@@ -1,4 +1,4 @@
-export const FAMILY_OPENAPI_V2_VERSION = "family-action-openapi/v3.3.0";
+export const FAMILY_OPENAPI_V2_VERSION = "family-action-openapi/v3.4.0";
 
 function postOperation(operationId: string, summary: string, schema: Record<string, unknown>) {
   return {
@@ -35,12 +35,12 @@ export function familyOpenApiV2(origin: string) {
     info: {
       title: "Taiwan Stock AI Family Read-Only API",
       version: FAMILY_OPENAPI_V2_VERSION,
-      description: "Family V3 採 Same Research Brain, Different Permissions：家人與 Owner 共用同一套市場/研究讀取能力，Family 永遠唯讀。當期法人、融資融券、借券與借券賣出優先使用 TWSE/TPEx exact-date on-demand 官方資料；券商分點使用受治理的 RANKED_ONLY 公開 provider bundle：同一次 requested windows 必須同一平台、同一 requested as-of、同一 TWSE 交易日窗口語義，可整包 failover 但禁止逐 window 混來源，未出現在排名不代表零交易。若使用者同時詢問融資融券/借券與券商分點，後端會用同一 resolved as-of 平行執行兩條 bounded fast path；除非使用者明確要求外部交叉驗證，模型不得再用 Open Web、OHLC、財報或 Jin10 補這組正式數字。權證只使用官方非方向性 activity 資料。既有 Published generation 僅保留為 immutable historical/replay context，不能覆蓋當期官方資料。正式 OHLC/K線仍只認 OHLC MCP。Web、Fugle、FinMind 可補一般研究背景，但不得冒充正式 OHLC、當期官方籌碼，也不得為券商分點缺少的單一 window 補入另一平台數字。",
+      description: "Family V3 採 Same Research Brain, Different Permissions：家人與 Owner 共用同一套市場/研究讀取能力，Family 永遠唯讀。當期法人、融資融券、借券與借券賣出優先使用 TWSE/TPEx exact-date on-demand 官方資料；券商分點使用受治理的 RANKED_ONLY 公開 provider bundle：同一次 requested windows 必須同一平台、同一 requested as-of、同一 TWSE 交易日窗口語義，可整包 failover 但禁止逐 window 混來源，未出現在排名不代表零交易。若使用者同時詢問融資融券/借券與券商分點，後端會用同一 resolved as-of 平行執行兩條 bounded fast path；未明示分點窗口時預設讀取 1/5/10/20/60/120D。所有 requested broker windows 必須逐一完整呈現：READY 顯示資料與來源日，PENDING/ERROR/UNAVAILABLE 也必須顯示狀態與原因，不得省略。除非使用者明確要求外部交叉驗證，模型不得再用 Open Web、OHLC、財報或 Jin10 補這組正式數字。權證只使用官方非方向性 activity 資料。既有 Published generation 僅保留為 immutable historical/replay context，不能覆蓋當期官方資料。正式 OHLC/K線仍只認 OHLC MCP。Web、Fugle、FinMind 可補一般研究背景，但不得冒充正式 OHLC、當期官方籌碼，也不得為券商分點缺少的單一 window 補入另一平台數字。",
     },
     servers: [{ url: origin }],
     paths: {
       "/api/family/query": {
-        post: postOperation("queryTaiwanStockSystem", "自然語言智能入口：依問題自動選擇快速單股、完整分析、多股比較、波段候選、市場背景或 Open-World 研究；券商分點、融資融券/借券，以及兩者同時詢問的 focused intent 例外走 bounded fast path，複合查詢共用同一 resolved as-of 並禁止 Web 補洞", {
+        post: postOperation("queryTaiwanStockSystem", "自然語言智能入口：依問題自動選擇快速單股、完整分析、多股比較、波段候選、市場背景或 Open-World 研究；券商分點、融資融券/借券，以及兩者同時詢問的 focused intent 例外走 bounded fast path。複合查詢共用同一 resolved as-of，預設分點 lens 為 1/5/10/20/60/120D，每個 requested window 必須完整呈現且禁止 Web 補洞", {
           required: ["query"],
           properties: {
             query: { type: "string", minLength: 1, maxLength: 2000 },

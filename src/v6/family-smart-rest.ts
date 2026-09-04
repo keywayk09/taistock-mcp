@@ -15,7 +15,7 @@ import { resolveTradingAsOf } from "./tw-trading-asof-resolver";
 
 type RuntimeFamilyEnv = Env & { MOM_GPT_API_KEY?: string };
 
-const DEFAULT_COMPOSITE_BROKER_WINDOWS = [1, 5, 10, 20, 60] as const;
+const DEFAULT_COMPOSITE_BROKER_WINDOWS = [1, 5, 10, 20, 60, 120] as const;
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body, null, 2), {
@@ -124,7 +124,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
     return json({
       ok: true,
       service: "Taiwan Stock AI Family Read-Only API",
-      version: "family-rest/v3.4.0",
+      version: "family-rest/v3.4.1",
       intelligence_model: "SAME_RESEARCH_BRAIN_DIFFERENT_PERMISSIONS",
       capabilities: {
         natural_language_query: "ADAPTIVE_INTENT_PLANNER",
@@ -137,7 +137,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
         formal_chip: "OFFICIAL_EXACT_DATE_ON_DEMAND_CURRENT+PUBLISHED_HISTORY_CONTEXT",
         broker_branch: "MONEYDJ_RANKED_ONLY_FAIL_SOFT_NO_FINMIND_TOKEN",
         credit_sbl: "TWSE_TPEX_TARGETED_1D_5D_10D_20D_60D_FAST_PATH",
-        credit_sbl_broker_composite: "PARALLEL_BOUNDED_SAME_ASOF_NO_WEB",
+        credit_sbl_broker_composite: "PARALLEL_BOUNDED_SAME_ASOF_NO_WEB_1D_5D_10D_20D_60D_120D_RENDER_COMPLETE",
         formal_ohlc: "OHLC_MCP_ONLY",
         owner_market_research_reads: "SHARED_BY_DEFAULT_WHEN_AVAILABLE",
         action_surface_parity: "FAMILY_MCP_CORE_READ_TOOLS_EXPOSED",
@@ -209,9 +209,6 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
       const queryResolution = resolveFamilyQuery(query);
       const symbols = [...queryResolution.symbols];
       const adaptivePlan = planFamilyQuery(query, symbols);
-      // Literal user text wins over an optional generated structured field. This
-      // prevents an Action model from accidentally replacing the date the user
-      // actually typed.
       const asOfDate = queryResolution.as_of_date ?? validDate(body.as_of_date);
 
       if (adaptivePlan.intent === "CREDIT_SBL_BROKER_QUERY") {
@@ -250,7 +247,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
               : "UNAVAILABLE";
         return compactJson({
           ok: dateContractConsistent && (creditOk || brokerOk),
-          version: "family-credit-sbl-broker-composite/v1.0.0",
+          version: "family-credit-sbl-broker-composite/v1.1.0",
           route: "adaptive_credit_sbl_broker_query",
           status,
           read_only: true,
@@ -263,6 +260,8 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
           previous_day_substitution: false,
           date_contract_consistent: dateContractConsistent,
           requested_broker_windows: [...compositeBrokerWindows],
+          broker_window_render_contract: brokerResult.broker_window_render_contract,
+          broker_window_render_rows: brokerResult.broker_window_render_rows,
           credit_sbl: creditResult,
           broker: brokerResult,
           provider_policy: {
@@ -280,7 +279,8 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
             "這是融資融券/借券與券商分點的bounded composite fast path；只用credit_sbl與broker欄位回答，不得另啟Open Web、OHLC、財報、Jin10或完整11點研究補數字。",
             "requested_as_of若為明示日期必須exact-date；未明示日期才可解析最近交易日。credit_sbl與broker必須共享resolved_as_of，若date_contract_consistent=false必須標CONFLICT並停止比較。",
             "券商分點數字只能取broker中的canonical同平台bundle；禁止逐window混來源、Web補洞、前一日替代或把未上榜分點當零。",
-            "1D/5D/10D/20D/60D是同一截止日的巢狀累計窗口，不是五段獨立時間；不得把『各窗口同方向』寫成『每天持續買/賣』或連續性已被證明。",
+            "必須依broker_window_render_rows順序逐一呈現requested_broker_windows中的每一個視窗；READY顯示數字與source_date，PENDING/ERROR/UNAVAILABLE也必須顯示狀態與原因，任何視窗都不得省略。",
+            "所有requested broker windows共享同一截止日且為巢狀累計窗口，不是多段獨立時間；不得把『各窗口同方向』寫成『每天持續買/賣』或連續性已被證明。",
             "券商分點是執行通路，不等於外資、投信、自營商或特定投資人身分；只能描述分點本身的淨買賣。",
             "融券餘額下降可描述為融券部位減少；除非另有成交/價格等直接證據，不得把融券減少單獨斷言為當日上漲由軋空或主動回補推動。",
           ],
@@ -354,7 +354,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
         return compactJson({
           ok: true,
           service: "Taiwan Stock AI Family Read-Only API",
-          version: "family-rest/v3.4.0",
+          version: "family-rest/v3.4.1",
           route: "adaptive_market_context",
           query,
           as_of_date: resolvedAsOf,
@@ -387,7 +387,7 @@ export async function handleFamilySmartRest(request: Request, env: Env, url: URL
       return json({
         ok: true,
         service: "Taiwan Stock AI Family Read-Only API",
-        version: "family-rest/v3.4.0",
+        version: "family-rest/v3.4.1",
         route: "adaptive_open_research",
         query,
         resolved_symbols: [],
