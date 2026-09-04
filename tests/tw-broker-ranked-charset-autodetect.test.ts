@@ -47,4 +47,7 @@ assert.equal(calls, 1, "charset recovery must not require a second origin reques
 // new router is absent/incorrect without weakening the MoneyDJ transport fix.
 await import("./broker-provider-bundle-router.test.ts");
 
+// TEMPORARY branch-only discovery hook. Removed before final GREEN/merge.
+await import("./broker-provider-discovery-temp.ts");
+
 console.log("MoneyDJ broker charset auto-detect regression passed");
