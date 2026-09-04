@@ -4,7 +4,12 @@ import {
   resetTwCreditSblFastPathCacheForTests,
   runFamilyCreditSblQueryFastPath,
 } from "../src/v6/tw-credit-sbl-query-fast-path.ts";
-import { normalizeTwseSblShortSale, type MarginRow, type SblShortSaleRow } from "../src/v6/tw-market-data.ts";
+import {
+  normalizeTwseSblShortSale,
+  type MarginRow,
+  type SecuritiesLendingRow,
+  type SblShortSaleRow,
+} from "../src/v6/tw-market-data.ts";
 
 const date = "2026-09-03";
 
@@ -145,6 +150,20 @@ const historySbl: SblShortSaleRow[] = historicalDates.map((tradeDate, index) => 
   source: "TWSE_TWT93U",
   source_priority: "OFFICIAL",
 }));
+const historyLending: SecuritiesLendingRow[] = historicalDates.map((tradeDate, index) => ({
+  trade_date: tradeDate,
+  symbol: "2330",
+  name: "台積電",
+  market: "listed",
+  previous_balance_shares: 20_000_000 + index * 1_000,
+  borrowed_shares: 3_000,
+  returned_shares: 2_000,
+  balance_shares: 20_001_000 + index * 1_000,
+  close_price: 2400,
+  balance_value: null,
+  source: "TWSE_TWT72U",
+  source_priority: "OFFICIAL",
+}));
 
 const fastMarginBody = {
   date: "20260904",
@@ -159,6 +178,11 @@ const fastSblBody = {
   fields: twt93Fields,
   data: [["2330", "台積電", 0, 0, 0, 0, 0, 0, "16031000", "2000", "38000", "0", "15995000", "50000000", ""]],
 };
+const fastLendingBody = {
+  date: "20260904",
+  fields: ["證券代號", "證券名稱", "市場別", "前日借券餘額(1)股", "本日異動股借券(2)", "本日異動股還券(3)", "本日借券餘額股(4)=(1)+(2)-(3)", "本日收盤價(5)單位：元", "借券餘額市值單位：元(6)=(4)*(5)"],
+  data: [["2330", "台積電", "上市", "20059000", "1000", "3000", "20057000", "2410", "48337370000"]],
+};
 
 function fastFetcher() {
   let calls = 0;
@@ -167,6 +191,7 @@ function fastFetcher() {
     const url = String(input);
     if (url.includes("MI_MARGN")) return jsonResponse(fastMarginBody);
     if (url.includes("TWT93U")) return jsonResponse(fastSblBody);
+    if (url.includes("TWT72U")) return jsonResponse(fastLendingBody);
     throw new Error(`unexpected fast-path URL: ${url}`);
   };
   return { fetcher, calls: () => calls };
@@ -225,6 +250,28 @@ resetTwCreditSblFastPathCacheForTests();
   });
   assert.equal(result.layers.sbl_short_sale?.windows["60D"].status, "PARTIAL");
   assert.equal(result.layers.sbl_short_sale?.windows["60D"].sold_shares, null, "UNKNOWN must not be coerced to zero inside SBL windows");
+}
+
+resetTwCreditSblFastPathCacheForTests();
+{
+  const mock = fastFetcher();
+  const result = await runFamilyCreditSblQueryFastPath({} as Env, {
+    symbol: "2330",
+    query: "查 2330 2026-09-04 借券餘額 1日",
+    as_of: fastAsOf,
+    as_of_explicit: true,
+  }, {
+    fetcher: mock.fetcher,
+    window_resolver: windowResolver,
+    history_reader: async () => ({ margin: [], sbl_short_sale: [], securities_lending: historyLending, datasets: ["fixture"] }),
+  });
+  assert.equal(result.requested_layers.lending, true);
+  assert.equal(result.requested_layers.sbl, false, "lending balance is not SBL short-sale intent");
+  assert.equal(result.layers.sbl_short_sale, null);
+  assert.equal(result.layers.securities_lending?.current_source, "TWSE_TWT72U");
+  assert.equal(result.layers.securities_lending?.windows["1D"].balance_change_shares, -2_000);
+  assert.equal(result.diagnostics.current_market_provider_http_requests, 1, "lending-only query must call TWT72U only");
+  assert.equal(mock.calls(), 1);
 }
 
 resetTwCreditSblFastPathCacheForTests();
