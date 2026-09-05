@@ -1,0 +1,36 @@
+name: Crypto V1.2.9 Source Capability Smoke 2026-09-05
+
+on:
+  push:
+    paths:
+      - '.github/workflows/crypto-v129-source-capability-smoke-20260905.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call Cloudflare source-capability probe once
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(mktemp)"
+          trap 'rm -f "$out"' EXIT
+
+          # One request only. The Worker itself performs the alternative-source
+          # checks, so this measures Cloudflare egress rather than GitHub egress.
+          code="$(curl -L -sS --connect-timeout 10 --max-time 30 \
+            -H 'accept: application/json' \
+            -A 'crypto-source-capability-smoke/2026-09-05' \
+            -o "$out" -w '%{http_code}' \
+            'https://f439704c-tv-crypto-engine.keikei99887.workers.dev/research/source-capability-v129' || true)"
+
+          echo "CAPABILITY_HTTP_STATUS=${code}"
+          jq -c '{ok,version,mode,raw_market_data_returned,persistent_storage,target_bases,probes}' "$out"
+          test "$code" = '200'
+          test "$(jq -r '.raw_market_data_returned' "$out")" = 'false'
+          test "$(jq -r '.persistent_storage' "$out")" = 'false'
+          echo 'PASS_SOURCE_CAPABILITY_PROBE_EXECUTED'
