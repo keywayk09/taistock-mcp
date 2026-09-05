@@ -1,8 +1,8 @@
 name: Crypto Forward Shadow V1.3.0 Outcome Review
 
 on:
-  # Push smoke validates evaluator/workflow changes immediately on the isolated
-  # research branch. The daily tick reuses this exact job after observation data matures.
+  # Keep push/manual paths for operator diagnostics. The canonical recurring
+  # path is the GitHub-native scheduler on the default branch.
   push:
     branches: [research/crypto-mtf-rr-20260830]
     paths:
@@ -10,6 +10,9 @@ on:
       - '.github/workflows/crypto-forward-shadow-outcome-v128.yml'
       - 'research/crypto_forward_shadow_outcome_daily_tick.txt'
   workflow_dispatch:
+  # Called directly by the native scheduler; no connector write/tick mutation
+  # is needed for recurring daily matured-outcome review.
+  workflow_call:
 
 permissions:
   contents: read
@@ -141,7 +144,7 @@ jobs:
           assert price.get('rr_policy_metrics') == 'not_computed_without_frozen_entry_stop_receipt', price
 
           # Old V1.2.8 records are allowed only as diagnostics. They can never
-          # enter the promotion statistics after the source-repair boundary.
+          # enter promotion statistics after the source-repair boundary.
           for row in p.get('records') or []:
               if row.get('shadow_version') != '1.3.0-shadow':
                   assert row.get('promotion_statistics_eligible') is False, row
