@@ -1,0 +1,39 @@
+name: Crypto Forward Shadow V1.3.0 Native Scheduler
+
+on:
+  # This self-path push is an acceptance smoke whenever scheduler wiring changes.
+  # Normal recurring execution uses GitHub's scheduler and performs no repo write.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/crypto-forward-shadow-v130-native-scheduler.yml'
+  # Hourly observation is intentionally off the top of the hour to reduce
+  # GitHub scheduled-run congestion. Daily outcome runs after the 18:23 Taipei
+  # observation has had time to upload its compact artifact.
+  schedule:
+    - cron: '23 * * * *'
+    - cron: '50 10 * * *'
+  workflow_dispatch:
+
+# Called research workflows are read-only with respect to repository content.
+# actions:read is needed by the outcome workflow to enumerate/download artifacts.
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: crypto-forward-shadow-v130-native-scheduler
+  cancel-in-progress: false
+
+jobs:
+  hourly-observation:
+    # Push/manual events exercise this path as a smoke. Scheduled runs execute it
+    # only for the hourly cron, so the daily outcome cron does not double-scan.
+    if: github.event_name != 'schedule' || github.event.schedule == '23 * * * *'
+    uses: keywayk09/taistock-mcp/.github/workflows/crypto-forward-shadow-observation-v128.yml@research/crypto-mtf-rr-20260830
+
+  daily-matured-outcome:
+    # 10:50 UTC = 18:50 Asia/Taipei. Push/manual events also exercise the exact
+    # reusable outcome path so scheduler changes are acceptance-tested immediately.
+    if: github.event_name != 'schedule' || github.event.schedule == '50 10 * * *'
+    uses: keywayk09/taistock-mcp/.github/workflows/crypto-forward-shadow-outcome-v128.yml@research/crypto-mtf-rr-20260830
