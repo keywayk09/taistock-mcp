@@ -1,17 +1,19 @@
 name: Crypto Forward Shadow V1.3.0 Observation
 
 on:
-  # Forward observation uses a deterministic push tick instead of GitHub cron.
-  # The hourly tick file is updated by the external scheduler; collector/model
-  # code remains frozen on this research branch and Production is untouched.
+  # Keep the legacy push path as a manual/operator fallback. The canonical
+  # recurring path is now the GitHub-native reusable scheduler on main.
   push:
     branches: [research/crypto-mtf-rr-20260830]
     paths:
       - 'research/crypto_forward_shadow_observation_v128.py'
       - 'research/crypto_forward_shadow_hourly_tick.txt'
       - '.github/workflows/crypto-forward-shadow-observation-v128.yml'
-  # Keep manual replay available for diagnosis without changing the cadence path.
+  # Manual replay remains available for diagnosis.
   workflow_dispatch:
+  # Native scheduler calls this exact frozen research workflow directly, so no
+  # ChatGPT automation or connector write is required for recurring execution.
+  workflow_call:
 
 permissions:
   contents: read
