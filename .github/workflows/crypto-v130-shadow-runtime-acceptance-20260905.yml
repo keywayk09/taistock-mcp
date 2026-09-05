@@ -1,0 +1,108 @@
+name: Crypto V1.3.0 Shadow Runtime Acceptance 2026-09-05
+
+on:
+  push:
+    paths:
+      - '.github/workflows/crypto-v130-shadow-runtime-acceptance-20260905.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  accept:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CRYPTO_PREVIEW: https://7d75ff6c-tv-crypto-engine.keikei99887.workers.dev
+    steps:
+      - name: Validate V1.3.0 source routing and invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Acceptance is single-shot per route. No retry is used here so the
+          # test cannot mask a source problem or create a new request storm.
+          call() {
+            name="$1"; path="$2"; out="$3"
+            code="$(curl -L -sS --connect-timeout 10 --max-time 60 \
+              -H 'accept: application/json' \
+              -A 'crypto-v130-runtime-acceptance/2026-09-05' \
+              -o "$out" -w '%{http_code}' "${CRYPTO_PREVIEW}${path}" || true)"
+            echo "HTTP_${name}=${code} bytes=$(wc -c < "$out" | tr -d ' ')" >&2
+            jq -e . "$out" >/dev/null
+            printf '%s' "$code"
+          }
+
+          health="$(mktemp)"; stable="$(mktemp)"; volatile="$(mktemp)"; bonk="$(mktemp)"
+          trap 'rm -f "$health" "$stable" "$volatile" "$bonk"' EXIT
+
+          hcode="$(call health '/health' "$health")"
+          scode="$(call stable '/market/candidate-scan?profile=stable_quality&per_side=1&light_limit=12' "$stable")"
+          vcode="$(call volatile '/market/candidate-scan?profile=volatile&per_side=1&setup=all' "$volatile")"
+          bcode="$(call bonk '/market/deep-probe?symbols=BONK&kucoin_symbols=1000BONKUSDTM' "$bonk")"
+
+          echo 'HEALTH'
+          jq -c '{ok,version,production_promotion,source_reliability_repair}' "$health"
+          echo 'STABLE'
+          jq -c '{ok,degraded,version,core_pipeline_ok,selected_count,source_status,subrequest_budget,candidates:[.candidates[]? | {base,final_stage,deep:{complete:.deep.complete,kucoin_symbol:.deep.kucoin_symbol,mexc_symbol:.deep.mexc_symbol,request_status:.deep.request_status},htf:{available:.multi_timeframe.higher_timeframes_available,alignment:.multi_timeframe.alignment,mexc_symbol:.multi_timeframe.higher_context.mexc_symbol,request_status:.multi_timeframe.higher_context.request_status}}]}' "$stable"
+          echo 'VOLATILE'
+          jq -c '{ok,degraded,version,selected_count,subrequest_budget,candidates:[.candidates[]? | {base,side,setup,research_actionability,deep:{complete:.deep.complete,kucoin_symbol:.deep.kucoin_symbol,mexc_symbol:.deep.mexc_symbol,request_status:.deep.request_status},htf:{available:.multi_timeframe.higher_timeframes_available,alignment:.multi_timeframe.alignment,mexc_symbol:.multi_timeframe.higher_context.mexc_symbol,request_status:.multi_timeframe.higher_context.request_status}}]}' "$volatile"
+          echo 'BONK'
+          jq -c '{ok,degraded,version,kucoin_symbol_hints_applied,results:[.results[]? | {base,kucoin_symbol,mexc_symbol,complete,requests_passed,requests_total,request_status,htf:{available:.multi_timeframe.higher_timeframes_available,alignment:.multi_timeframe.alignment,mexc_symbol:.multi_timeframe.higher_context.mexc_symbol,request_status:.multi_timeframe.higher_context.request_status}}]}' "$bonk"
+
+          # Identity / safety.
+          test "$hcode" = '200'
+          test "$scode" = '200'
+          test "$vcode" = '200'
+          test "$bcode" = '200'
+          for f in "$health" "$stable" "$volatile" "$bonk"; do
+            test "$(jq -r '.version' "$f")" = '1.3.0-shadow'
+          done
+          test "$(jq -r '.production_promotion' "$health")" = 'false'
+          test "$(jq -r '.source_reliability_repair.added_market_requests' "$health")" = '0'
+          test "$(jq -r '.source_reliability_repair.ranking_changed' "$health")" = 'false'
+          test "$(jq -r '.source_reliability_repair.thresholds_changed' "$health")" = 'false'
+          test "$(jq -r '.source_reliability_repair.gate_candlestick_in_data_path' "$health")" = 'false'
+
+          # Preserve the existing stable fail-closed criterion; do not accept a
+          # 200 response unless at least one deep candidate is fully complete.
+          test "$(jq -r '.core_pipeline_ok' "$stable")" = 'true'
+          jq -e '.source_status.deep_complete_symbols > 0' "$stable" >/dev/null
+
+          # Every candidate must use the exact four deep request IDs. Gate is
+          # still the OI leg, but Gate candlesticks are forbidden.
+          expected_deep='["gate_oi_5m","kucoin_kline_5m","kucoin_oi_5m","mexc_kline_5m"]'
+          for f in "$stable" "$volatile"; do
+            jq -e --argjson expected "$expected_deep" '
+              [.candidates[]? | ([.deep.request_status[]?.id] | sort) == $expected] | all
+            ' "$f" >/dev/null
+            jq -e '[.candidates[]?.deep.request_status[]? | .id | test("gate_kline|bybit"; "i")] | any | not' "$f" >/dev/null
+          done
+
+          # Mandatory HTF must be exactly KuCoin + MEXC; Gate 1H and any
+          # single-source success are forbidden.
+          expected_htf='["kucoin_1h","mexc_1h"]'
+          for f in "$stable" "$volatile"; do
+            jq -e --argjson expected "$expected_htf" '
+              [.candidates[]? | ([.multi_timeframe.higher_context.request_status[]?.id] | sort) == $expected] | all
+            ' "$f" >/dev/null
+            jq -e '[.candidates[]?.multi_timeframe.higher_context.request_status[]? | .id | test("gate_1h|bybit"; "i")] | any | not' "$f" >/dev/null
+            jq -e '[.candidates[]?.multi_timeframe.higher_context.timeframes[]? | select(.ok == true) | (.source_complete == true and .source_count == 2)] | all' "$f" >/dev/null
+          done
+
+          # Request budgets are invariant: stable accounting remains 14 for two
+          # candidates; volatile remains 15 worst case for two candidates.
+          test "$(jq -r '.subrequest_budget.reported_total' "$stable")" = '14'
+          test "$(jq -r '.subrequest_budget.reported_total_worst_case' "$volatile")" = '15'
+
+          # Multiplier mapping must survive both deep and HTF without a mapping
+          # request: KuCoin 1000BONKUSDTM -> MEXC 1000BONK_USDT.
+          test "$(jq -r '.kucoin_symbol_hints_applied' "$bonk")" = '1'
+          test "$(jq -r '.results[0].kucoin_symbol' "$bonk")" = '1000BONKUSDTM'
+          test "$(jq -r '.results[0].mexc_symbol' "$bonk")" = '1000BONK_USDT'
+          test "$(jq -r '.results[0].requests_passed' "$bonk")" = '4'
+          test "$(jq -r '.results[0].requests_total' "$bonk")" = '4'
+          jq -e --argjson expected "$expected_deep" '([.results[0].request_status[]?.id] | sort) == $expected' "$bonk" >/dev/null
+          jq -e --argjson expected "$expected_htf" '([.results[0].multi_timeframe.higher_context.request_status[]?.id] | sort) == $expected' "$bonk" >/dev/null
+
+          echo 'PASS_CRYPTO_V130_SHADOW_RUNTIME_ACCEPTANCE'
