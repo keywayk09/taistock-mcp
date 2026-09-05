@@ -1,4 +1,4 @@
-name: Crypto Forward Shadow V1.2.8 Observation
+name: Crypto Forward Shadow V1.3.0 Observation
 
 on:
   # Forward observation uses a deterministic push tick instead of GitHub cron.
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      PREVIEW_BASE: https://0a7039af-tv-crypto-engine.keikei99887.workers.dev
+      PREVIEW_BASE: https://7d75ff6c-tv-crypto-engine.keikei99887.workers.dev
     steps:
       - uses: actions/checkout@v4
 
@@ -31,9 +31,8 @@ jobs:
           # The collector stores no raw ticker/K-line/OI history. The timestamped
           # JSON contains only aggregate market evidence and candidate summaries.
           #
-          # Public exchange endpoints can briefly return 429/5xx or time out.
-          # Retry only those explicit transport/source failures, with bounded
-          # backoff. Semantic/schema/policy failures remain immediate fail-closed.
+          # Retry only explicit transport/rate-limit failures. History coverage,
+          # schema, policy and version failures remain immediate fail-closed.
           max_attempts=3
           attempt=1
 
@@ -55,11 +54,11 @@ jobs:
               break
             fi
 
-            # Retry only explicit transient transport/source failures. Do not
-            # retry semantic guards, source-policy violations, schema failures,
-            # version mismatches, or Production-promotion safety failures.
+            # The V1.3.0 collector classifies source failures. Only rate-limit
+            # and transport failures are retryable; history_insufficient and
+            # contract/data completeness failures must not create a retry storm.
             if ! grep -Eqi \
-              '((stable_failed|volatile_failed|health_failed) status=(429|500|502|503|504)|non_json_response status=(429|500|502|503|504)|timed out|timeout|URLError|Temporary failure|ConnectionResetError|RemoteDisconnected)' \
+              'class=(rate_limited|transport_failure)|non_json_response status=(429|500|502|503|504)|timed out|timeout|URLError|Temporary failure|ConnectionResetError|RemoteDisconnected' \
               "$log"; then
               echo "NON_RETRYABLE_FORWARD_OBSERVATION_FAILURE attempt=$attempt"
               exit "$code"
@@ -70,8 +69,7 @@ jobs:
               exit "$code"
             fi
 
-            # The observed upstream wobble recovered on a roughly two-minute
-            # timescale. 45s then 75s spans that window without a retry storm.
+            # Keep bounded backoff; there is no external GitHub-job rerun.
             if [ "$attempt" -eq 1 ]; then
               delay=45
             else
@@ -87,7 +85,7 @@ jobs:
         run: |
           python - <<'PY'
           # Fail closed if a future collector change starts persisting raw data or
-          # drops the Shadow-only production guard.
+          # drops the Shadow-only production/source-repair guards.
           import json, os
 
           path = os.environ['OBSERVATION_FILE']
@@ -96,8 +94,16 @@ jobs:
 
           assert p.get('schema_version') == 'crypto-forward-observation-v1', p
           shadow = p.get('shadow') or {}
-          assert shadow.get('version') == '1.2.8-shadow', shadow
+          assert shadow.get('version') == '1.3.0-shadow', shadow
           assert shadow.get('production_promotion') is False, shadow
+
+          repair = shadow.get('source_reliability_repair') or {}
+          assert repair.get('gate_candlestick_in_data_path') is False, repair
+          assert repair.get('deep_price_sources') == ['kucoin', 'mexc'], repair
+          assert repair.get('deep_oi_sources') == ['kucoin', 'gate'], repair
+          assert repair.get('higher_tf_price_sources') == ['kucoin', 'mexc'], repair
+          assert repair.get('added_market_requests') == 0, repair
+          assert repair.get('production_promotion') is False, repair
 
           storage = p.get('storage_policy') or {}
           assert storage.get('raw_tickers') == 'not_persisted', storage
@@ -115,15 +121,9 @@ jobs:
           assert stable.get('http_status') == 200, stable
           assert volatile.get('http_status') == 200, volatile
 
-          # Only aggregate/candidate summaries are allowed. Explicit raw-series
-          # field names are prohibited in the serialized observation artifact.
           serialized = json.dumps(p, ensure_ascii=False).lower()
-          for forbidden in ['raw_ticker_rows', 'raw_klines', 'raw_candles', 'raw_oi_series', 'api.bybit.com', 'api.bytick.com']:
-              if forbidden in ('raw_klines', 'raw_oi_series'):
-                  # The storage-policy declarations intentionally contain these
-                  # names with the value `not_persisted`; they are safe metadata.
-                  continue
-              assert forbidden not in serialized, f'forbidden persisted field: {forbidden}'
+          for forbidden in ['raw_ticker_rows', 'raw_candles', 'api.bybit.com', 'api.bytick.com', 'gate_kline_5m', 'gate_1h']:
+              assert forbidden not in serialized, f'forbidden persisted/source field: {forbidden}'
 
           print('FORWARD_OBSERVATION_SCHEMA_ACCEPTANCE')
           print(json.dumps({
@@ -134,14 +134,14 @@ jobs:
               'stable_preferred': stable.get('research_preferred_count'),
               'volatile_selected': volatile.get('selected_count'),
               'volatile_preferred': volatile.get('research_preferred_count'),
-              'result': 'PASS_FORWARD_OBSERVATION_SCHEMA',
+              'result': 'PASS_FORWARD_OBSERVATION_SCHEMA_V130',
           }, ensure_ascii=False, indent=2))
           PY
 
       - name: Upload aggregate observation artifact
         uses: actions/upload-artifact@v4
         with:
-          name: crypto-forward-shadow-v128-observation-${{ github.run_id }}
+          name: crypto-forward-shadow-v130-observation-${{ github.run_id }}
           path: ${{ env.OBSERVATION_FILE }}
           retention-days: 30
           if-no-files-found: error
