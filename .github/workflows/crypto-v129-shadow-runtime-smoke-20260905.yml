@@ -1,0 +1,95 @@
+name: Crypto V1.2.9 Shadow Runtime Smoke 2026-09-05
+
+on:
+  push:
+    paths:
+      - '.github/workflows/crypto-v129-shadow-runtime-smoke-20260905.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      # Immutable V1.2.9 Shadow Preview produced from the repaired engine commit.
+      CRYPTO_PREVIEW: https://225fa340-tv-crypto-engine.keikei99887.workers.dev
+    steps:
+      - name: Probe V1.2.9 Shadow once per lane
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Runtime acceptance is intentionally single-shot. The smoke itself must
+          # not retry Gate and recreate the rate-limit amplification under test.
+          fetch_json() {
+            name="$1"
+            path="$2"
+            file="$3"
+            code="$(curl -L -sS --connect-timeout 10 --max-time 45 \
+              -H 'accept: application/json' \
+              -A 'crypto-v129-shadow-smoke/2026-09-05' \
+              -o "$file" -w '%{http_code}' "${CRYPTO_PREVIEW}${path}" || true)"
+            echo "HTTP name=${name} status=${code} bytes=$(wc -c < "$file" | tr -d ' ')"
+            if ! jq -e . "$file" >/dev/null 2>&1; then
+              echo "FAIL_NON_JSON name=${name}"
+              exit 1
+            fi
+            echo "$code"
+          }
+
+          health="$(mktemp)"
+          stable="$(mktemp)"
+          volatile="$(mktemp)"
+          trap 'rm -f "$health" "$stable" "$volatile"' EXIT
+
+          hcode="$(fetch_json health '/health' "$health" | tail -n1)"
+          scode="$(fetch_json stable '/market/candidate-scan?profile=stable_quality&per_side=1&light_limit=12' "$stable" | tail -n1)"
+          vcode="$(fetch_json volatile '/market/candidate-scan?profile=volatile&per_side=1&setup=all' "$volatile" | tail -n1)"
+
+          echo 'V129_HEALTH_SUMMARY'
+          jq -c '{ok,version,production_promotion,stability_repair}' "$health"
+          echo 'V129_STABLE_SUMMARY'
+          jq -c '{ok,degraded,version,core_pipeline_ok,selected_count,diagnostic_stage_counts,source_status,subrequest_budget}' "$stable"
+          echo 'V129_STABLE_CANDIDATE_SOURCES'
+          jq -c '.candidates[]? | {base,final_stage,deep:{complete:.deep.complete,requests_passed:.deep.requests_passed,requests_total:.deep.requests_total,request_status:.deep.request_status},htf:{available:.multi_timeframe.higher_timeframes_available,alignment:.multi_timeframe.alignment,request_status:.multi_timeframe.higher_context.request_status,timeframes:(.multi_timeframe.higher_context.timeframes|with_entries(.value |= {ok,source_complete,source_count,cross_exchange_agreement}))}}' "$stable"
+          echo 'V129_VOLATILE_SUMMARY'
+          jq -c '{ok,degraded,version,selected_count,setup_counts,subrequest_budget,volatile_bulk_source_status}' "$volatile"
+          echo 'V129_VOLATILE_CANDIDATE_SOURCES'
+          jq -c '.candidates[]? | {base,side,setup,research_actionability,deep:{complete:.deep.complete,requests_passed:.deep.requests_passed,requests_total:.deep.requests_total,request_status:.deep.request_status},htf:{available:.multi_timeframe.higher_timeframes_available,alignment:.multi_timeframe.alignment,request_status:.multi_timeframe.higher_context.request_status,timeframes:(.multi_timeframe.higher_context.timeframes|with_entries(.value |= {ok,source_complete,source_count,cross_exchange_agreement}))}}' "$volatile"
+
+          # Identity and safety invariants.
+          test "$hcode" = '200'
+          test "$scode" = '200'
+          test "$vcode" = '200'
+          test "$(jq -r '.version' "$health")" = '1.2.9-shadow'
+          test "$(jq -r '.version' "$stable")" = '1.2.9-shadow'
+          test "$(jq -r '.version' "$volatile")" = '1.2.9-shadow'
+          test "$(jq -r '.production_promotion' "$health")" = 'false'
+          test "$(jq -r '.stability_repair.ranking_changed' "$health")" = 'false'
+          test "$(jq -r '.stability_repair.thresholds_changed' "$health")" = 'false'
+          test "$(jq -r '.stability_repair.persistent_raw_storage' "$health")" = 'false'
+
+          # Stable must retain at least one complete deep symbol; this preserves
+          # the existing fail-closed core criterion instead of weakening it.
+          test "$(jq -r '.core_pipeline_ok' "$stable")" = 'true'
+          test "$(jq -r '.source_status.deep_complete_symbols > 0' "$stable")" = 'true'
+
+          # Every observed mandatory HTF timeframe must be a true two-source
+          # KuCoin+Gate result; a single-source fallback is forbidden.
+          jq -e '[.candidates[]?.multi_timeframe.higher_context.timeframes[]? | select(.ok == true) | (.source_complete == true and .source_count == 2)] | all' "$stable" >/dev/null
+          jq -e '[.candidates[]?.multi_timeframe.higher_context.timeframes[]? | select(.ok == true) | (.source_complete == true and .source_count == 2)] | all' "$volatile" >/dev/null
+
+          # Required deep request metadata must now be observable without raw
+          # ticker/K-line/OI payload persistence.
+          jq -e '[.candidates[]? | (.deep.requests_total == 4 and (.deep.request_status|type) == "array")] | all' "$stable" >/dev/null
+          jq -e '[.candidates[]? | (.deep.requests_total == 4 and (.deep.request_status|type) == "array")] | all' "$volatile" >/dev/null
+
+          # No blocked Bybit data-plane path may reappear.
+          if grep -qi 'bybit' "$stable" "$volatile"; then
+            echo 'FAIL_BYBIT_LEAKAGE'
+            exit 1
+          fi
+
+          echo 'PASS_CRYPTO_V129_SHADOW_RUNTIME_SMOKE'
