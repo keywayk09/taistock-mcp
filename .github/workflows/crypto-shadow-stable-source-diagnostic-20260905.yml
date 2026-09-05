@@ -33,12 +33,23 @@ jobs:
             echo "SOURCE_PROBE name=${name} http_status=${code} bytes=${bytes}"
             echo "SOURCE_PREVIEW name=${name} body=${preview}"
 
-            # For the Preview stable response only, print the compact source-health
-            # objects already returned by the engine. Do not print candidate rows.
+            # For the Preview stable response only, print compact health/error
+            # metadata already returned by the engine. Do not print market rows.
             if [ "$name" = "preview_stable" ] && jq -e . "$body" >/dev/null 2>&1; then
               echo "PREVIEW_STABLE_SOURCE_STATUS_BEGIN"
-              jq -c '.. | objects | select(has("ticker_status")) | .ticker_status' "$body" | head -n 3 || true
               jq -c '.. | objects | select(has("source_health")) | .source_health' "$body" | head -n 5 || true
+              echo "PREVIEW_STABLE_FAILURE_PATHS_BEGIN"
+              jq -c '
+                paths(scalars) as $p
+                | (getpath($p)) as $v
+                | select(
+                    $v == false
+                    or $v == 502
+                    or ($v|type == "string" and test("failed|error|unavailable|timeout|upstream_http"; "i"))
+                  )
+                | {path: ($p|map(tostring)|join(".")), value: $v}
+              ' "$body" | head -n 120 || true
+              echo "PREVIEW_STABLE_FAILURE_PATHS_END"
               echo "PREVIEW_STABLE_SOURCE_STATUS_END"
             fi
             rm -f "$body"
