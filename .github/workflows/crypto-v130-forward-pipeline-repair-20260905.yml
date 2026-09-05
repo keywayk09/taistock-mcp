@@ -1,0 +1,226 @@
+name: Repair Crypto V1.3.0 Forward Shadow Pipeline
+
+on:
+  push:
+    branches: [research/crypto-mtf-rr-20260830]
+    paths:
+      - '.github/workflows/crypto-v130-forward-pipeline-repair-20260905.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: research/crypto-mtf-rr-20260830
+          fetch-depth: 0
+
+      - name: Apply V1.3.0 forward-pipeline repairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          PREVIEW = 'https://7d75ff6c-tv-crypto-engine.keikei99887.workers.dev'
+
+          def read(path):
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path, text):
+              Path(path).write_text(text, encoding='utf-8')
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'REPLACE_ERROR {label} expected=1 actual={count}')
+              return text.replace(old, new, 1)
+
+          # ------------------------------------------------------------------
+          # 1) Observation collector: V1.3.0 Preview + fail-fast stable lane.
+          # ------------------------------------------------------------------
+          path = 'research/crypto_forward_shadow_observation_v128.py'
+          text = read(path)
+          text = text.replace('Crypto V1.2.8.', 'Crypto V1.3.0.', 1)
+          text = text.replace('https://0a7039af-tv-crypto-engine.keikei99887.workers.dev', PREVIEW)
+          text = text.replace('taistock-mcp-forward-shadow-observation-v128/1', 'taistock-mcp-forward-shadow-observation-v130/1')
+          text = replace_once(
+              text,
+              '''def collect(base: str) -> dict[str, Any]:\n    """Collect one forward observation from stable and volatile Shadow lanes."""\n    health_status, health, health_latency = fetch_json(base, "/health", timeout=60)\n    stable_status, stable, stable_latency = fetch_json(\n        base,\n        "/market/candidate-scan?profile=stable_quality&per_side=1&light_limit=12",\n    )\n    volatile_status, volatile, volatile_latency = fetch_json(\n        base,\n        "/market/candidate-scan?profile=volatile&per_side=1&setup=all",\n    )\n\n    if health_status != 200 or health.get("ok") is not True:\n        raise RuntimeError(f"health_failed status={health_status}")\n    if health.get("version") != "1.2.8-shadow":\n        raise RuntimeError(f"unexpected_shadow_version={health.get('version')!r}")\n    if health.get("production_promotion") is not False:\n        raise RuntimeError("production_promotion_must_remain_false")\n    if stable_status != 200 or stable.get("ok") is not True or stable.get("core_pipeline_ok") is not True:\n        raise RuntimeError(f"stable_failed status={stable_status}")\n    if volatile_status != 200 or volatile.get("ok") is not True:\n        raise RuntimeError(f"volatile_failed status={volatile_status}")\n''',
+              '''def classify_failure(payload: dict[str, Any], status: int) -> str:\n    """Classify compact source failures without persisting raw market payloads."""\n    serialized = json.dumps(payload, ensure_ascii=False).lower()\n    if status == 429 or "upstream_http_429" in serialized or "rate limit" in serialized:\n        return "rate_limited"\n    if any(token in serialized for token in ("insufficient_closed_bars", "history_insufficient", "insufficient_history")):\n        return "history_insufficient"\n    if any(token in serialized for token in ("contract_not_found", "symbol_not_found", "invalid_symbol")):\n        return "contract_unavailable"\n    if status in (500, 502, 503, 504) or any(token in serialized for token in ("timeout", "timed out", "network", "connectionreset", "remotedisconnected")):\n        return "transport_failure"\n    return "data_incomplete"\n\n\ndef collect(base: str) -> dict[str, Any]:\n    """Collect one V1.3.0 forward observation with fail-fast lane ordering."""\n    health_status, health, health_latency = fetch_json(base, "/health", timeout=60)\n    if health_status != 200 or health.get("ok") is not True:\n        raise RuntimeError(f"health_failed status={health_status} class={classify_failure(health, health_status)}")\n    if health.get("version") != "1.3.0-shadow":\n        raise RuntimeError(f"unexpected_shadow_version={health.get('version')!r}")\n    if health.get("production_promotion") is not False:\n        raise RuntimeError("production_promotion_must_remain_false")\n\n    # Stable is the promotion-relevant lane. Fail closed here before starting a\n    # volatile scan so one unhealthy source cannot double the request burst.\n    stable_status, stable, stable_latency = fetch_json(\n        base,\n        "/market/candidate-scan?profile=stable_quality&per_side=1&light_limit=12",\n    )\n    if stable_status != 200 or stable.get("ok") is not True or stable.get("core_pipeline_ok") is not True:\n        raise RuntimeError(f"stable_failed status={stable_status} class={classify_failure(stable, stable_status)}")\n\n    volatile_status, volatile, volatile_latency = fetch_json(\n        base,\n        "/market/candidate-scan?profile=volatile&per_side=1&setup=all",\n    )\n    if volatile_status != 200 or volatile.get("ok") is not True:\n        raise RuntimeError(f"volatile_failed status={volatile_status} class={classify_failure(volatile, volatile_status)}")\n''',
+              'collector fail-fast block',
+          )
+          text = replace_once(
+              text,
+              '''            "health_latency_ms": health_latency,\n        },''',
+              '''            "health_latency_ms": health_latency,\n            "source_reliability_repair": stable.get("source_reliability_repair"),\n        },''',
+              'collector source repair receipt',
+          )
+          text = text.replace('CRYPTO_FORWARD_SHADOW_OBSERVATION_V128', 'CRYPTO_FORWARD_SHADOW_OBSERVATION_V130')
+          write(path, text)
+
+          # ------------------------------------------------------------------
+          # 2) Observation workflow: point only at immutable V1.3.0 Preview.
+          # ------------------------------------------------------------------
+          path = '.github/workflows/crypto-forward-shadow-observation-v128.yml'
+          text = read(path)
+          text = text.replace('Crypto Forward Shadow V1.2.8 Observation', 'Crypto Forward Shadow V1.3.0 Observation')
+          text = text.replace('https://0a7039af-tv-crypto-engine.keikei99887.workers.dev', PREVIEW)
+          text = text.replace("assert shadow.get('version') == '1.2.8-shadow', shadow", "assert shadow.get('version') == '1.3.0-shadow', shadow")
+          text = text.replace('crypto-forward-shadow-v128-observation-${{ github.run_id }}', 'crypto-forward-shadow-v130-observation-${{ github.run_id }}')
+          marker = "          assert shadow.get('production_promotion') is False, shadow\n"
+          addition = marker + "          repair = shadow.get('source_reliability_repair') or {}\n          assert repair.get('gate_candlestick_in_data_path') is False, repair\n          assert repair.get('deep_price_sources') == ['kucoin', 'mexc'], repair\n          assert repair.get('deep_oi_sources') == ['kucoin', 'gate'], repair\n          assert repair.get('higher_tf_price_sources') == ['kucoin', 'mexc'], repair\n          assert repair.get('added_market_requests') == 0, repair\n          assert repair.get('production_promotion') is False, repair\n"
+          text = replace_once(text, marker, addition, 'observation source-repair assertions')
+          write(path, text)
+
+          # ------------------------------------------------------------------
+          # 3) Outcome evaluator: remove Gate candles, use KuCoin + MEXC price.
+          #    Old V1.2.8 observations remain diagnostic only; only V1.3.0 can\n          #    enter promotion statistics after this source repair boundary.
+          # ------------------------------------------------------------------
+          path = 'research/crypto_forward_shadow_outcome_v128.py'
+          text = read(path)
+          text = text.replace('Crypto V1.2.8 Forward Shadow', 'Crypto V1.3.0 Forward Shadow', 1)
+          text = text.replace('public KuCoin + Gate 5m', 'public KuCoin + MEXC 5m', 1)
+          text = text.replace('taistock-mcp-crypto-forward-outcome-v128/1', 'taistock-mcp-crypto-forward-outcome-v130/1')
+
+          insert_after = '''def canonical_kucoin_base(value: Any) -> str:\n    base = "".join(ch for ch in str(value or "").upper() if ch.isalnum())\n    if base == "XBT":\n        return "BTC"\n    for prefix in ("1000000", "10000", "1000"):\n        if base.startswith(prefix) and len(base) > len(prefix) and base[len(prefix)].isalpha():\n            return base[len(prefix):]\n    return base\n'''
+          mexc_helper = insert_after + '''\n\ndef mexc_symbol_for_base(base: str, kucoin_symbol: str | None) -> str:\n    """Reuse KuCoin's validated multiplier contract hint without another map request."""\n    normalized = canonical_kucoin_base(base)\n    explicit = str(kucoin_symbol or "").upper().strip()\n    match = re.match(r"^(1000|10000|1000000)([A-Z0-9]+)USDTM$", explicit)\n    if match and canonical_kucoin_base(match.group(2)) == normalized:\n        return f"{match.group(1)}{normalized}_USDT"\n    return f"{normalized}_USDT"\n'''
+          text = replace_once(text, insert_after, mexc_helper, 'mexc symbol helper')
+          # The helper uses re; add the import once.
+          text = text.replace('import os\nimport statistics', 'import os\nimport re\nimport statistics', 1)
+
+          pattern = re.compile(r'def fetch_gate_bars\(base: str, start_ms: int, end_ms: int\) -> list\[dict\[str, float\]\]:.*?\n    return normalize_bars\(rows\)\n', re.S)
+          match = pattern.search(text)
+          if not match:
+              raise SystemExit('REPLACE_ERROR fetch_gate_bars block not found')
+          mexc_fetch = '''def fetch_mexc_bars(symbol: str, start_ms: int, end_ms: int) -> list[dict[str, float]]:\n    """Fetch the bounded review window in one MEXC futures K-line request."""\n    query = urllib.parse.urlencode({\n        "interval": "Min5",\n        "start": str(start_ms // 1000),\n        "end": str(end_ms // 1000),\n    })\n    payload = fetch_json(f"https://contract.mexc.com/api/v1/contract/kline/{symbol}?{query}")\n    data = payload.get("data") if isinstance(payload, dict) else None\n    if payload.get("success") is not True or payload.get("code") != 0 or not isinstance(data, dict):\n        raise RuntimeError(f"mexc_kline_invalid symbol={symbol}")\n    times = data.get("time") or []\n    rows: list[dict[str, Any]] = []\n    for index, value in enumerate(times):\n        rows.append({\n            "t": number(value) * 1000 if number(value) is not None else None,\n            "o": (data.get("open") or [None] * len(times))[index],\n            "h": (data.get("high") or [None] * len(times))[index],\n            "l": (data.get("low") or [None] * len(times))[index],\n            "c": (data.get("close") or [None] * len(times))[index],\n        })\n    return normalize_bars(rows)\n'''
+          text = text[:match.start()] + mexc_fetch + text[match.end():]
+
+          text = replace_once(
+              text,
+              '''                "observed_at": observed_at,\n                "lane": lane,''',
+              '''                "observed_at": observed_at,\n                "shadow_version": (observation.get("shadow") or {}).get("version"),\n                "lane": lane,''',
+              'candidate shadow version',
+          )
+          text = replace_once(
+              text,
+              '''            promotion_cohort\n            and len(refs) == 2''',
+              '''            promotion_cohort\n            and candidate.get("shadow_version") == "1.3.0-shadow"\n            and len(refs) == 2''',
+              'promotion version gate',
+          )
+          text = replace_once(
+              text,
+              '''        cohort = "promotion_cohort" if record.get("promotion_cohort") else "diagnostic"''',
+              '''        cohort = (\n            "promotion_cohort" if record.get("promotion_statistics_eligible")\n            else "promotion_legacy_diagnostic" if record.get("promotion_cohort")\n            else "diagnostic"\n        )''',
+              'promotion cohort separation',
+          )
+
+          old_loop = '''            try:\n                entry["gate"] = fetch_gate_bars(base, start_ms, end_ms)\n                gate_ok = len(entry["gate"]) > 0\n            except Exception as exc:\n                gate_error = str(exc)\n            market[base] = entry\n            source_health.append({\n                "base": base,\n                "kucoin_symbol": symbol,\n                "kucoin_ok": kucoin_ok,\n                "gate_ok": gate_ok,\n                "required_pair_ok": kucoin_ok and gate_ok,\n                "kucoin_error": kucoin_error,\n                "gate_error": gate_error,\n            })'''
+          new_loop = '''            mexc_symbol = mexc_symbol_for_base(base, symbol)\n            mexc_ok = False\n            mexc_error = None\n            try:\n                entry["mexc"] = fetch_mexc_bars(mexc_symbol, start_ms, end_ms)\n                mexc_ok = len(entry["mexc"]) > 0\n            except Exception as exc:\n                mexc_error = str(exc)\n            market[base] = entry\n            source_health.append({\n                "base": base,\n                "kucoin_symbol": symbol,\n                "mexc_symbol": mexc_symbol,\n                "kucoin_ok": kucoin_ok,\n                "mexc_ok": mexc_ok,\n                "required_pair_ok": kucoin_ok and mexc_ok,\n                "kucoin_error": kucoin_error,\n                "mexc_error": mexc_error,\n            })'''
+          text = replace_once(text, old_loop, new_loop, 'outcome source loop')
+          text = text.replace('kucoin_ok = gate_ok = False', 'kucoin_ok = False', 1)
+          text = text.replace('kucoin_error = gate_error = None', 'kucoin_error = None', 1)
+          text = text.replace('for exchange in ("kucoin", "gate"):', 'for exchange in ("kucoin", "mexc"):', 1)
+          text = text.replace('"sources": ["kucoin_futures_5m", "gate_futures_5m"]', '"sources": ["kucoin_futures_5m", "mexc_futures_5m"]', 1)
+          text = text.replace('"shadow_version": "1.2.8-shadow",', '"shadow_version": (observation_versions[0] if len(observation_versions) == 1 else "mixed"),\n        "observation_shadow_versions": observation_versions,', 1)
+          marker = '    records = [evaluate_candidate(candidate, market, now) for candidate in candidates]\n'
+          replacement = marker + '    observation_versions = sorted({str((row.get("shadow") or {}).get("version") or "unknown") for row in observations})\n'
+          text = replace_once(text, marker, replacement, 'outcome observation versions')
+          write(path, text)
+
+          # ------------------------------------------------------------------
+          # 4) Outcome workflow: accept old observations for diagnostics but\n          #    publish V1.3.0 outcome artifacts and MEXC price validation.
+          # ------------------------------------------------------------------
+          path = '.github/workflows/crypto-forward-shadow-outcome-v128.yml'
+          text = read(path)
+          text = text.replace('Crypto Forward Shadow V1.2.8 Outcome Review', 'Crypto Forward Shadow V1.3.0 Outcome Review')
+          text = text.replace('crypto-forward-shadow-v128-outcome', 'crypto-forward-shadow-v130-outcome')
+          text = text.replace("prefix = 'crypto-forward-shadow-v128-observation-'", "prefixes = ('crypto-forward-shadow-v128-observation-', 'crypto-forward-shadow-v130-observation-')")
+          text = text.replace("if str(row.get('name') or '').startswith(prefix) and not row.get('expired'):", "if str(row.get('name') or '').startswith(prefixes) and not row.get('expired'):")
+          text = text.replace('crypto-forward-outcome-v128.json', 'crypto-forward-outcome-v130.json')
+          text = text.replace("assert p.get('shadow_version') == '1.2.8-shadow', p", "assert p.get('shadow_version') in {'1.2.8-shadow', '1.3.0-shadow', 'mixed'}, p\n          versions = set(p.get('observation_shadow_versions') or [])\n          assert versions and versions.issubset({'1.2.8-shadow', '1.3.0-shadow'}), versions")
+          marker = "          assert price.get('rr_policy_metrics') == 'not_computed_without_frozen_entry_stop_receipt', price\n"
+          addition = marker + "          assert price.get('sources') == ['kucoin_futures_5m', 'mexc_futures_5m'], price\n"
+          text = replace_once(text, marker, addition, 'outcome MEXC source assertion')
+          write(path, text)
+
+          # ------------------------------------------------------------------
+          # 5) Family/Owner read bridge metadata + smoke expectations.
+          # ------------------------------------------------------------------
+          path = 'src/v6/shared-crypto-market-tools.ts'
+          text = read(path)
+          text = text.replace(
+              '同時包含KuCoin/Gate價格、成交量、OI與Price×OI regime。',
+              '價格結構使用KuCoin+MEXC，OI使用KuCoin+Gate，並保留Price×OI regime。',
+          )
+          write(path, text)
+
+          path = 'src/v6/family-mcp.ts'
+          text = read(path)
+          text = text.replace(
+              'TV_CRYPTO_ENGINE_KUCOIN_GATE_5M_LOCAL15M_OI_READ_ONLY',
+              'TV_CRYPTO_ENGINE_KUCOIN_MEXC_PRICE_KUCOIN_GATE_OI_READ_ONLY',
+          )
+          write(path, text)
+
+          path = 'tests/family-crypto-shadow-bridge-v128.test.ts'
+          text = read(path)
+          text = text.replace('V1.2.8 Shadow', 'V1.3.0 Shadow')
+          text = text.replace('V1.2.8 Shadow', 'V1.3.0 Shadow')
+          text = text.replace('"TV_CRYPTO_ENGINE_KUCOIN_GATE_5M_LOCAL15M_OI_READ_ONLY"', '"TV_CRYPTO_ENGINE_KUCOIN_MEXC_PRICE_KUCOIN_GATE_OI_READ_ONLY"')
+          text = text.replace('/TV_CRYPTO_ENGINE_KUCOIN_GATE_5M_LOCAL15M_OI_READ_ONLY/', '/TV_CRYPTO_ENGINE_KUCOIN_MEXC_PRICE_KUCOIN_GATE_OI_READ_ONLY/')
+          text = text.replace('assert.equal(status.payload.version, "1.2.8-shadow", status);', 'assert.equal(status.payload.version, "1.3.0-shadow", status);')
+          text = text.replace('"gate_kline_5m",', '"mexc_kline_5m",')
+          text = text.replace('new Set(["kucoin_1h", "gate_1h"])', 'new Set(["kucoin_1h", "mexc_1h"])')
+          text = text.replace('PASS_FAMILY_CRYPTO_V128_SHADOW_BRIDGE', 'PASS_FAMILY_CRYPTO_V130_SHADOW_BRIDGE')
+          # Verify source repair is visible through the exact Family handler.
+          marker = 'assert.equal(status.payload.production_promotion, false, status);\n'
+          addition = marker + 'assert.equal(status.payload.source_reliability_repair?.gate_candlestick_in_data_path, false, status);\n'
+          text = replace_once(text, marker, addition, 'family status source repair assertion')
+          write(path, text)
+
+          path = '.github/workflows/crypto-family-mcp-shadow-v128.yml'
+          text = read(path)
+          text = text.replace('Crypto Family MCP V1.2.8 Shadow Smoke', 'Crypto Family MCP V1.3.0 Shadow Smoke')
+          text = text.replace('https://0a7039af-tv-crypto-engine.keikei99887.workers.dev', PREVIEW)
+          text = text.replace('V1.2.8 Shadow engine URL', 'V1.3.0 Shadow engine URL')
+          write(path, text)
+
+          print('PATCH_V130_FORWARD_PIPELINE_COMPLETE')
+          PY
+
+      - name: Static safety checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile research/crypto_forward_shadow_observation_v128.py research/crypto_forward_shadow_outcome_v128.py
+          grep -q '1.3.0-shadow' research/crypto_forward_shadow_observation_v128.py
+          grep -q '7d75ff6c-tv-crypto-engine' .github/workflows/crypto-forward-shadow-observation-v128.yml
+          ! grep -q 'fetch_gate_bars' research/crypto_forward_shadow_outcome_v128.py
+          grep -q 'mexc_futures_5m' research/crypto_forward_shadow_outcome_v128.py
+          grep -q 'mexc_kline_5m' tests/family-crypto-shadow-bridge-v128.test.ts
+          grep -q 'mexc_1h' tests/family-crypto-shadow-bridge-v128.test.ts
+
+      - name: Commit repaired research pipeline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            research/crypto_forward_shadow_observation_v128.py \
+            .github/workflows/crypto-forward-shadow-observation-v128.yml \
+            research/crypto_forward_shadow_outcome_v128.py \
+            .github/workflows/crypto-forward-shadow-outcome-v128.yml \
+            src/v6/shared-crypto-market-tools.ts \
+            src/v6/family-mcp.ts \
+            tests/family-crypto-shadow-bridge-v128.test.ts \
+            .github/workflows/crypto-family-mcp-shadow-v128.yml
+          git diff --cached --check
+          git commit -m 'repair: align forward pipeline with Crypto V1.3.0 Shadow'
+          git push origin HEAD:research/crypto-mtf-rr-20260830
