@@ -32,6 +32,15 @@ jobs:
             preview="$(head -c 300 "$body" | tr '\n\r' '  ' | sed 's/[^[:print:]\t]/?/g')"
             echo "SOURCE_PROBE name=${name} http_status=${code} bytes=${bytes}"
             echo "SOURCE_PREVIEW name=${name} body=${preview}"
+
+            # For the Preview stable response only, print the compact source-health
+            # objects already returned by the engine. Do not print candidate rows.
+            if [ "$name" = "preview_stable" ] && jq -e . "$body" >/dev/null 2>&1; then
+              echo "PREVIEW_STABLE_SOURCE_STATUS_BEGIN"
+              jq -c '.. | objects | select(has("ticker_status")) | .ticker_status' "$body" | head -n 3 || true
+              jq -c '.. | objects | select(has("source_health")) | .source_health' "$body" | head -n 5 || true
+              echo "PREVIEW_STABLE_SOURCE_STATUS_END"
+            fi
             rm -f "$body"
           }
 
