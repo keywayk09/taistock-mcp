@@ -38,17 +38,20 @@ jobs:
             if [ "$name" = "preview_stable" ] && jq -e . "$body" >/dev/null 2>&1; then
               echo "PREVIEW_STABLE_SOURCE_STATUS_BEGIN"
               jq -c '.. | objects | select(has("source_health")) | .source_health' "$body" | head -n 5 || true
+              echo "PREVIEW_STABLE_REQUEST_STATUS_BEGIN"
+              jq -c '.. | objects | select(has("request_status")) | .request_status' "$body" | head -n 20 || true
               echo "PREVIEW_STABLE_FAILURE_PATHS_BEGIN"
               jq -c '
                 paths(scalars) as $p
                 | (getpath($p)) as $v
                 | select(
                     $v == false
+                    or $v == 429
                     or $v == 502
                     or ($v|type == "string" and test("failed|error|unavailable|timeout|upstream_http"; "i"))
                   )
                 | {path: ($p|map(tostring)|join(".")), value: $v}
-              ' "$body" | head -n 120 || true
+              ' "$body" | head -n 160 || true
               echo "PREVIEW_STABLE_FAILURE_PATHS_END"
               echo "PREVIEW_STABLE_SOURCE_STATUS_END"
             fi
