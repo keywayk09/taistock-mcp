@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate-only Forward Shadow observation collector for Crypto V1.2.8.
+"""Aggregate-only Forward Shadow observation collector for Crypto V1.3.0.
 
 This collector intentionally stores no raw ticker payloads, K-lines, or OI time
 series. It records only source health, aggregate market participation, candidate
@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-DEFAULT_PREVIEW = "https://0a7039af-tv-crypto-engine.keikei99887.workers.dev"
+DEFAULT_PREVIEW = "https://7d75ff6c-tv-crypto-engine.keikei99887.workers.dev"
 
 
 def fetch_json(base: str, path: str, timeout: int = 180) -> tuple[int, dict[str, Any], int]:
@@ -29,7 +29,7 @@ def fetch_json(base: str, path: str, timeout: int = 180) -> tuple[int, dict[str,
         base.rstrip("/") + path,
         headers={
             "Accept": "application/json",
-            "User-Agent": "taistock-mcp-forward-shadow-observation-v128/1",
+            "User-Agent": "taistock-mcp-forward-shadow-observation-v130/1",
         },
     )
     try:
@@ -147,28 +147,45 @@ def assert_no_legacy_bybit(payload: Any, label: str) -> None:
         raise RuntimeError(f"{label}_legacy_bybit_leak={leaked}")
 
 
+def classify_failure(payload: dict[str, Any], status: int) -> str:
+    """Classify compact source failures without persisting raw market payloads."""
+    serialized = json.dumps(payload, ensure_ascii=False).lower()
+    if status == 429 or "upstream_http_429" in serialized or "rate limit" in serialized:
+        return "rate_limited"
+    if any(token in serialized for token in ("insufficient_closed_bars", "history_insufficient", "insufficient_history")):
+        return "history_insufficient"
+    if any(token in serialized for token in ("contract_not_found", "symbol_not_found", "invalid_symbol")):
+        return "contract_unavailable"
+    if status in (500, 502, 503, 504) or any(token in serialized for token in ("timeout", "timed out", "network", "connectionreset", "remotedisconnected")):
+        return "transport_failure"
+    return "data_incomplete"
+
+
 def collect(base: str) -> dict[str, Any]:
-    """Collect one forward observation from stable and volatile Shadow lanes."""
+    """Collect one V1.3.0 forward observation with fail-fast lane ordering."""
     health_status, health, health_latency = fetch_json(base, "/health", timeout=60)
+    if health_status != 200 or health.get("ok") is not True:
+        raise RuntimeError(f"health_failed status={health_status} class={classify_failure(health, health_status)}")
+    if health.get("version") != "1.3.0-shadow":
+        raise RuntimeError(f"unexpected_shadow_version={health.get('version')!r}")
+    if health.get("production_promotion") is not False:
+        raise RuntimeError("production_promotion_must_remain_false")
+
+    # Promotion-relevant stable lane runs first. A stable failure stops here so
+    # the collector does not double the upstream request burst with volatile.
     stable_status, stable, stable_latency = fetch_json(
         base,
         "/market/candidate-scan?profile=stable_quality&per_side=1&light_limit=12",
     )
+    if stable_status != 200 or stable.get("ok") is not True or stable.get("core_pipeline_ok") is not True:
+        raise RuntimeError(f"stable_failed status={stable_status} class={classify_failure(stable, stable_status)}")
+
     volatile_status, volatile, volatile_latency = fetch_json(
         base,
         "/market/candidate-scan?profile=volatile&per_side=1&setup=all",
     )
-
-    if health_status != 200 or health.get("ok") is not True:
-        raise RuntimeError(f"health_failed status={health_status}")
-    if health.get("version") != "1.2.8-shadow":
-        raise RuntimeError(f"unexpected_shadow_version={health.get('version')!r}")
-    if health.get("production_promotion") is not False:
-        raise RuntimeError("production_promotion_must_remain_false")
-    if stable_status != 200 or stable.get("ok") is not True or stable.get("core_pipeline_ok") is not True:
-        raise RuntimeError(f"stable_failed status={stable_status}")
     if volatile_status != 200 or volatile.get("ok") is not True:
-        raise RuntimeError(f"volatile_failed status={volatile_status}")
+        raise RuntimeError(f"volatile_failed status={volatile_status} class={classify_failure(volatile, volatile_status)}")
 
     assert_no_legacy_bybit(stable, "stable")
     assert_no_legacy_bybit(volatile, "volatile")
@@ -203,6 +220,7 @@ def collect(base: str) -> dict[str, Any]:
             "version": health.get("version"),
             "production_promotion": health.get("production_promotion"),
             "health_latency_ms": health_latency,
+            "source_reliability_repair": stable.get("source_reliability_repair"),
         },
         "market_participation": {
             "mode": participation.get("mode"),
@@ -259,7 +277,7 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(observation, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    print("CRYPTO_FORWARD_SHADOW_OBSERVATION_V128")
+    print("CRYPTO_FORWARD_SHADOW_OBSERVATION_V130")
     print(json.dumps({
         "observed_at": observation["observed_at"],
         "version": observation["shadow"]["version"],

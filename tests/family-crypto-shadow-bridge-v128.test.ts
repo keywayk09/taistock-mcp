@@ -1,4 +1,4 @@
-// Family MCP -> Crypto Engine V1.2.8 Shadow bridge acceptance.
+// Family MCP -> Crypto Engine V1.3.0 Shadow bridge acceptance.
 //
 // This test intentionally exercises the exact shared crypto handlers registered
 // by FamilyMCP while injecting a Shadow-only CRYPTO_ENGINE_BASE_URL. It never
@@ -40,7 +40,7 @@ assert.deepEqual([...SHARED_CRYPTO_TOOL_NAMES], [
 const familySource = fs.readFileSync(path.resolve("src/v6/family-mcp.ts"), "utf8");
 assert.match(familySource, /\.\.\.SHARED_CRYPTO_TOOL_NAMES/);
 assert.match(familySource, /registerSharedCryptoMarketTools\(this\.server, this\.env\)/);
-assert.match(familySource, /TV_CRYPTO_ENGINE_KUCOIN_GATE_5M_LOCAL15M_OI_READ_ONLY/);
+assert.match(familySource, /TV_CRYPTO_ENGINE_KUCOIN_MEXC_PRICE_KUCOIN_GATE_OI_READ_ONLY/);
 assert.doesNotMatch(familySource, /TV_CRYPTO_ENGINE_BYBIT_GATE_5M_LOCAL15M_OI_READ_ONLY/);
 
 function unwrapToolResult(result: any) {
@@ -78,12 +78,13 @@ function assertNoLegacyBybit(value: any) {
   }
 }
 
-// 1) Family status bridge must resolve the injected V1.2.8 Shadow, not the
+// 1) Family status bridge must resolve the injected V1.3.0 Shadow, not the
 // default Production URL.
 const status = await invoke("get_crypto_engine_status");
 assertReadOnlyEnvelope(status, "/health");
-assert.equal(status.payload.version, "1.2.8-shadow", status);
+assert.equal(status.payload.version, "1.3.0-shadow", status);
 assert.equal(status.payload.production_promotion, false, status);
+assert.equal(status.payload.source_reliability_repair?.gate_candlestick_in_data_path, false, status);
 assertNoLegacyBybit(status);
 
 // 2) Stable candidate bridge must preserve observation-only Market
@@ -149,7 +150,7 @@ assert.equal(bonk.requests_total, 4, bonk);
 const deepIds = new Set((bonk.request_status || []).map((item: any) => item.id));
 assert.deepEqual(deepIds, new Set([
   "kucoin_kline_5m",
-  "gate_kline_5m",
+  "mexc_kline_5m",
   "kucoin_oi_5m",
   "gate_oi_5m",
 ]));
@@ -159,11 +160,11 @@ assert.equal(mtf.higher_timeframes_available, true, bonk);
 assert.equal(mtf.higher_context?.kucoin_symbol, "1000BONKUSDTM", bonk);
 assert.equal(mtf.higher_context?.requests_total, 2, bonk);
 const higherIds = new Set((mtf.higher_context?.request_status || []).map((item: any) => item.id));
-assert.deepEqual(higherIds, new Set(["kucoin_1h", "gate_1h"]));
+assert.deepEqual(higherIds, new Set(["kucoin_1h", "mexc_1h"]));
 assertNoLegacyBybit(deep);
 
 console.log(JSON.stringify({
-  result: "PASS_FAMILY_CRYPTO_V128_SHADOW_BRIDGE",
+  result: "PASS_FAMILY_CRYPTO_V130_SHADOW_BRIDGE",
   family_tools: [...SHARED_CRYPTO_TOOL_NAMES],
   engine_version: status.payload.version,
   stable_candidates: (stable.payload.candidates || []).length,

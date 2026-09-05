@@ -90,7 +90,7 @@ export function registerSharedCryptoMarketTools(server: McpServer, env: Env) {
   });
 
   server.registerTool("get_crypto_deep_probe", {
-    description: "對指定1到6個幣做中央幣圈引擎完整多週期Deep Probe。固定讀取日線、4H、1H、15m、5m；同時包含KuCoin/Gate價格、成交量、OI與Price×OI regime。5m只當觸發層，不可單獨形成結論。唯讀，不建立部位。",
+    description: "對指定1到6個幣做中央幣圈引擎完整多週期Deep Probe。固定讀取日線、4H、1H、15m、5m；價格結構使用KuCoin+MEXC，OI使用KuCoin+Gate，並保留Price×OI regime。5m只當觸發層，不可單獨形成結論。唯讀，不建立部位。",
     inputSchema: {
       symbols: z.array(z.string().trim().min(1).max(20).regex(/^[A-Za-z0-9]+$/)).min(1).max(6),
     },

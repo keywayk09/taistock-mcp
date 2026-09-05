@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Evaluate matured Crypto V1.2.8 Forward Shadow observations without raw persistence.
+"""Evaluate matured Crypto V1.3.0 Forward Shadow observations without raw persistence.
 
 The observation artifacts intentionally contain only aggregate/candidate state. This
-script reconstructs the price path at review time from public KuCoin + Gate 5m
+script reconstructs the price path at review time from public KuCoin + MEXC 5m
 candles, computes forward return/MFE/MAE in memory, and writes only compact outcome
 metrics. Raw K-lines are never written to disk or included in the output artifact.
 
@@ -16,6 +16,7 @@ import argparse
 import json
 import math
 import os
+import re
 import statistics
 import time
 import urllib.error
@@ -28,7 +29,7 @@ from typing import Any
 
 FIVE_MINUTES_MS = 5 * 60_000
 HORIZONS_HOURS = (1, 3, 6, 12, 24)
-USER_AGENT = "taistock-mcp-crypto-forward-outcome-v128/1"
+USER_AGENT = "taistock-mcp-crypto-forward-outcome-v130/1"
 
 
 def number(value: Any) -> float | None:
@@ -82,6 +83,16 @@ def canonical_kucoin_base(value: Any) -> str:
         if base.startswith(prefix) and len(base) > len(prefix) and base[len(prefix)].isalpha():
             return base[len(prefix):]
     return base
+
+
+def mexc_symbol_for_base(base: str, kucoin_symbol: str | None) -> str:
+    """Reuse the KuCoin multiplier contract mapping without an extra market request."""
+    normalized = canonical_kucoin_base(base)
+    explicit = str(kucoin_symbol or "").upper().strip()
+    match = re.match(r"^(1000|10000|1000000)([A-Z0-9]+)USDTM$", explicit)
+    if match and canonical_kucoin_base(match.group(2)) == normalized:
+        return f"{match.group(1)}{normalized}_USDT"
+    return f"{normalized}_USDT"
 
 
 def kucoin_contract_map() -> dict[str, str]:
@@ -148,31 +159,25 @@ def fetch_kucoin_bars(symbol: str, start_ms: int, end_ms: int) -> list[dict[str,
     return normalize_bars(rows)
 
 
-def fetch_gate_bars(base: str, start_ms: int, end_ms: int) -> list[dict[str, float]]:
-    """Fetch Gate in bounded chunks and keep only normalized 5m OHLC in memory."""
-    rows: list[dict[str, Any]] = []
-    chunk_ms = 20 * 60 * 60_000
-    cursor = start_ms
-    while cursor < end_ms:
-        stop = min(end_ms, cursor + chunk_ms)
-        query = urllib.parse.urlencode({
-            "contract": f"{base}_USDT",
-            "interval": "5m",
-            "from": str(cursor // 1000),
-            "to": str(stop // 1000),
-        })
-        payload = fetch_json(f"https://api.gateio.ws/api/v4/futures/usdt/candlesticks?{query}")
-        if not isinstance(payload, list):
-            raise RuntimeError(f"gate_kline_invalid base={base}")
-        for item in payload:
-            if not isinstance(item, dict):
-                continue
-            t = number(item.get("t"))
-            rows.append({
-                "t": t * 1000 if t is not None else None,
-                "o": item.get("o"), "h": item.get("h"), "l": item.get("l"), "c": item.get("c"),
-            })
-        cursor = stop + 1
+def fetch_mexc_bars(symbol: str, start_ms: int, end_ms: int) -> list[dict[str, float]]:
+    """Fetch the bounded review window in one MEXC futures K-line request."""
+    query = urllib.parse.urlencode({
+        "interval": "Min5",
+        "start": str(start_ms // 1000),
+        "end": str(end_ms // 1000),
+    })
+    payload = fetch_json(f"https://contract.mexc.com/api/v1/contract/kline/{symbol}?{query}")
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if payload.get("success") is not True or payload.get("code") != 0 or not isinstance(data, dict):
+        raise RuntimeError(f"mexc_kline_invalid symbol={symbol}")
+    times = data.get("time") or []
+    opens, highs, lows, closes = data.get("open") or [], data.get("high") or [], data.get("low") or [], data.get("close") or []
+    rows = []
+    for index, value in enumerate(times):
+        if index >= min(len(opens), len(highs), len(lows), len(closes)):
+            break
+        t = number(value)
+        rows.append({"t": t * 1000 if t is not None else None, "o": opens[index], "h": highs[index], "l": lows[index], "c": closes[index]})
     return normalize_bars(rows)
 
 
@@ -214,6 +219,7 @@ def candidate_rows(observation: dict[str, Any]) -> list[dict[str, Any]]:
                 continue
             out.append({
                 "observed_at": observed_at,
+                "shadow_version": (observation.get("shadow") or {}).get("version"),
                 "lane": lane,
                 "base": base,
                 "side": side,
@@ -277,7 +283,7 @@ def evaluate_candidate(
     base = candidate["base"]
     sources = market.get(base) or {}
     refs: dict[str, dict[str, float]] = {}
-    for exchange in ("kucoin", "gate"):
+    for exchange in ("kucoin", "mexc"):
         ref = reference_bar(sources.get(exchange) or [], observed_ms)
         if ref:
             refs[exchange] = ref
@@ -325,6 +331,7 @@ def evaluate_candidate(
         "preferred_shadow_state": preferred,
         "promotion_statistics_eligible": bool(
             promotion_cohort
+            and candidate.get("shadow_version") == "1.3.0-shadow"
             and len(refs) == 2
             and reference_spread_pct is not None
             and reference_spread_pct <= 0.5
@@ -339,7 +346,11 @@ def aggregate(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     mae_groups: dict[tuple[str, str, str, str], list[float]] = defaultdict(list)
     for record in records:
         setup = str(record.get("setup") or "unclassified")
-        cohort = "promotion_cohort" if record.get("promotion_cohort") else "diagnostic"
+        cohort = (
+            "promotion_cohort" if record.get("promotion_statistics_eligible")
+            else "promotion_legacy_diagnostic" if record.get("promotion_cohort")
+            else "diagnostic"
+        )
         for horizon, metric in (record.get("horizons") or {}).items():
             if not metric.get("cross_exchange_ok"):
                 continue
@@ -400,8 +411,8 @@ def main() -> int:
         for base in bases:
             symbol = contracts.get(base)
             entry: dict[str, list[dict[str, float]]] = {}
-            kucoin_ok = gate_ok = False
-            kucoin_error = gate_error = None
+            kucoin_ok = False
+            kucoin_error = None
             if symbol:
                 try:
                     entry["kucoin"] = fetch_kucoin_bars(symbol, start_ms, end_ms)
@@ -410,27 +421,33 @@ def main() -> int:
                     kucoin_error = str(exc)
             else:
                 kucoin_error = "contract_not_found"
+            mexc_symbol = mexc_symbol_for_base(base, symbol)
+            mexc_ok = False
+            mexc_error = None
             try:
-                entry["gate"] = fetch_gate_bars(base, start_ms, end_ms)
-                gate_ok = len(entry["gate"]) > 0
+                entry["mexc"] = fetch_mexc_bars(mexc_symbol, start_ms, end_ms)
+                mexc_ok = len(entry["mexc"]) > 0
             except Exception as exc:
-                gate_error = str(exc)
+                mexc_error = str(exc)
             market[base] = entry
             source_health.append({
                 "base": base,
                 "kucoin_symbol": symbol,
+                "mexc_symbol": mexc_symbol,
                 "kucoin_ok": kucoin_ok,
-                "gate_ok": gate_ok,
-                "required_pair_ok": kucoin_ok and gate_ok,
+                "mexc_ok": mexc_ok,
+                "required_pair_ok": kucoin_ok and mexc_ok,
                 "kucoin_error": kucoin_error,
-                "gate_error": gate_error,
+                "mexc_error": mexc_error,
             })
 
     records = [evaluate_candidate(candidate, market, now) for candidate in candidates]
+    observation_versions = sorted({str((row.get("shadow") or {}).get("version") or "unknown") for row in observations})
     report = {
         "schema_version": "crypto-forward-outcome-v1",
         "generated_at": iso(now),
-        "shadow_version": "1.2.8-shadow",
+        "shadow_version": (observation_versions[0] if len(observation_versions) == 1 else "mixed"),
+        "observation_shadow_versions": observation_versions,
         "research_only": True,
         "production_promotion": False,
         "observation_window": {
@@ -442,7 +459,7 @@ def main() -> int:
             "last_observed_at": observations[-1]["observed_at"] if observations else None,
         },
         "price_evaluation": {
-            "sources": ["kucoin_futures_5m", "gate_futures_5m"],
+            "sources": ["kucoin_futures_5m", "mexc_futures_5m"],
             "reference": "last_closed_5m_at_or_before_observation_per_exchange_then_median",
             "horizons_hours": list(HORIZONS_HOURS),
             "raw_market_series_persisted": False,
