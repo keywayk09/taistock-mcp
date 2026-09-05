@@ -1,0 +1,42 @@
+name: Crypto Shadow Stable Source Diagnostic 2026-09-05
+
+on:
+  push:
+    paths:
+      - '.github/workflows/crypto-shadow-stable-source-diagnostic-20260905.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe Preview and required stable sources
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Diagnostic only: capture status codes and tiny response previews.
+          # Do not persist raw ticker, K-line, OI, or any exchange payload.
+          probe() {
+            name="$1"
+            url="$2"
+            body="$(mktemp)"
+            code="$(curl -L -sS --connect-timeout 8 --max-time 15 \
+              -H 'accept: application/json' \
+              -A 'crypto-shadow-source-diagnostic/2026-09-05' \
+              -o "$body" -w '%{http_code}' "$url" || true)"
+            bytes="$(wc -c < "$body" | tr -d ' ')"
+            preview="$(head -c 300 "$body" | tr '\n\r' '  ' | sed 's/[^[:print:]\t]/?/g')"
+            echo "SOURCE_PROBE name=${name} http_status=${code} bytes=${bytes}"
+            echo "SOURCE_PREVIEW name=${name} body=${preview}"
+            rm -f "$body"
+          }
+
+          probe preview_health 'https://0a7039af-tv-crypto-engine.keikei99887.workers.dev/health'
+          probe preview_stable 'https://0a7039af-tv-crypto-engine.keikei99887.workers.dev/market/candidate-scan?profile=stable_quality&per_side=1&light_limit=12'
+          probe kucoin_contracts 'https://api-futures.kucoin.com/api/v1/contracts/active'
+          probe kucoin_ticker 'https://api.kucoin.com/api/ua/v2/market/ticker?tradeType=FUTURES'
+          probe gate_ticker 'https://api.gateio.ws/api/v4/futures/usdt/tickers'
