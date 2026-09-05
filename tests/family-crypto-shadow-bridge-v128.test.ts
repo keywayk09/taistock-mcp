@@ -87,8 +87,9 @@ assert.equal(status.payload.production_promotion, false, status);
 assert.equal(status.payload.source_reliability_repair?.gate_candlestick_in_data_path, false, status);
 assertNoLegacyBybit(status);
 
-// 2) Stable candidate bridge must preserve observation-only Market
-// Participation and mandatory MTF semantics through the Family wrapper.
+// 2) Stable bridge must preserve mandatory MTF and its fail-closed semantics.
+// A newly listed contract is allowed to remain visible diagnostically when it
+// lacks enough dual-exchange 1D history, but it must be demoted below watch.
 const stable = await invoke("get_crypto_candidates", {
   profile: "stable_quality",
   setup: "all",
@@ -106,15 +107,20 @@ assert.equal(tele.source_health?.required_pair_ok, true, tele);
 for (const candidate of stable.payload.candidates || []) {
   const mtf = candidate.multi_timeframe || {};
   assert.equal(mtf.mandatory, true, candidate);
-  assert.equal(mtf.higher_timeframes_available, true, candidate);
+  if (mtf.higher_timeframes_available === false) {
+    assert.equal(["watch", "strong_watch"].includes(candidate.final_stage), false, candidate);
+    assert.equal(mtf.alignment, "unavailable", candidate);
+  } else {
+    assert.equal(mtf.higher_timeframes_available, true, candidate);
+  }
   if (candidate.selected_side === "short") {
     assert.equal(candidate.research_actionability, "observation_only", candidate);
   }
 }
 assertNoLegacyBybit(stable);
 
-// 3) Volatile bridge must expose the tested three-call KuCoin/Gate source repair
-// and retain observation-only SHORT behavior.
+// 3) Volatile bridge keeps KuCoin+Gate light discovery while price confirmation
+// uses KuCoin+MEXC and SHORT remains observation-only.
 const volatile = await invoke("get_crypto_candidates", {
   profile: "volatile",
   setup: "all",
@@ -128,6 +134,12 @@ assert.equal(volatile.payload.source_repair?.replacement, "kucoin", volatile);
 assert.deepEqual(volatile.payload.policy?.required_exchanges, ["kucoin", "gate"], volatile);
 assert.equal(volatile.payload.policy?.symmetric_short_actionable, false, volatile);
 for (const candidate of volatile.payload.candidates || []) {
+  const mtf = candidate.multi_timeframe || {};
+  assert.equal(mtf.mandatory, true, candidate);
+  if (mtf.higher_timeframes_available === false) {
+    assert.equal(candidate.setup, "unclassified", candidate);
+    assert.equal(candidate.action_state, "wait_higher_timeframe_context", candidate);
+  }
   if (candidate.side === "short") {
     assert.equal(candidate.research_actionability, "observation_only", candidate);
   }
@@ -158,6 +170,7 @@ const mtf = bonk.multi_timeframe || {};
 assert.equal(mtf.mandatory, true, bonk);
 assert.equal(mtf.higher_timeframes_available, true, bonk);
 assert.equal(mtf.higher_context?.kucoin_symbol, "1000BONKUSDTM", bonk);
+assert.equal(mtf.higher_context?.mexc_symbol, "1000BONK_USDT", bonk);
 assert.equal(mtf.higher_context?.requests_total, 2, bonk);
 const higherIds = new Set((mtf.higher_context?.request_status || []).map((item: any) => item.id));
 assert.deepEqual(higherIds, new Set(["kucoin_1h", "mexc_1h"]));
@@ -172,5 +185,6 @@ console.log(JSON.stringify({
   volatile_candidates: (volatile.payload.candidates || []).length,
   volatile_bulk_worst_case: volatile.payload.subrequest_budget?.volatile_bulk_worst_case ?? null,
   bonk_kucoin_symbol: bonk.kucoin_symbol,
+  bonk_mexc_symbol: mtf.higher_context?.mexc_symbol,
   production_promotion: false,
 }, null, 2));
