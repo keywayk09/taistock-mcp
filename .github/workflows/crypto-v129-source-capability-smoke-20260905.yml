@@ -26,7 +26,7 @@ jobs:
             -H 'accept: application/json' \
             -A 'crypto-source-capability-smoke/2026-09-05' \
             -o "$out" -w '%{http_code}' \
-            'https://f439704c-tv-crypto-engine.keikei99887.workers.dev/research/source-capability-v129' || true)"
+            'https://ebd53731-tv-crypto-engine.keikei99887.workers.dev/research/source-capability-v129b' || true)"
 
           echo "CAPABILITY_HTTP_STATUS=${code}"
           jq -c '{ok,version,mode,raw_market_data_returned,persistent_storage,target_bases,probes}' "$out"
