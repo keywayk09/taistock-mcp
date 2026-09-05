@@ -16,6 +16,8 @@ on:
   workflow_dispatch:
 
 # Called research workflows are read-only with respect to repository content.
+# Both reusable workflows explicitly pin their checkout to the isolated research
+# branch; the scheduler never mutates tick files or any Production state.
 # actions:read is needed by the outcome workflow to enumerate/download artifacts.
 permissions:
   contents: read
