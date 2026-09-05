@@ -26,6 +26,10 @@ jobs:
       PREVIEW_BASE: https://7d75ff6c-tv-crypto-engine.keikei99887.workers.dev
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Reusable workflows inherit the caller ref by default. Pin the data/
+          # code checkout to the isolated research branch instead of main.
+          ref: research/crypto-mtf-rr-20260830
 
       - name: Collect aggregate-only Forward Shadow snapshot
         shell: bash
