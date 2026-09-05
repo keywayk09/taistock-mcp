@@ -32,6 +32,10 @@ jobs:
       MAX_AGE_HOURS: '72'
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Reusable workflows inherit the caller ref by default. Pin the data/
+          # evaluator checkout to the isolated research branch instead of main.
+          ref: research/crypto-mtf-rr-20260830
 
       - name: Locate recent aggregate observation artifacts
         env:
