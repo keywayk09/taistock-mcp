@@ -1,8 +1,8 @@
-name: Crypto Forward Shadow V1.2.8 Outcome Review
+name: Crypto Forward Shadow V1.3.0 Outcome Review
 
 on:
   # Push smoke validates evaluator/workflow changes immediately on the isolated
-  # research branch. A later lightweight daily tick can reuse this exact job.
+  # research branch. The daily tick reuses this exact job after observation data matures.
   push:
     branches: [research/crypto-mtf-rr-20260830]
     paths:
@@ -16,7 +16,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: crypto-forward-shadow-v128-outcome
+  group: crypto-forward-shadow-v130-outcome
   cancel-in-progress: false
 
 jobs:
@@ -24,7 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      # Only observations old enough to have a full 24h forward path are scored.
       OBSERVATION_LOOKBACK_HOURS: '96'
       MIN_AGE_HOURS: '24'
       MAX_AGE_HOURS: '72'
@@ -39,15 +38,19 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/crypto-forward-observations
           python - <<'PY' > /tmp/crypto-forward-artifact-ids.txt
-          # List only recent, non-expired aggregate observation artifacts. This
-          # step reads artifact metadata; it does not create a permanent archive.
+          # Transitional review accepts the old V1.2.8 aggregate artifacts for
+          # diagnostics and new V1.3.0 artifacts for future promotion evidence.
+          # No raw market archive is created.
           import json, os, urllib.request
           from datetime import datetime, timedelta, timezone
 
           repo = os.environ['GITHUB_REPOSITORY']
           token = os.environ['GH_TOKEN']
           cutoff = datetime.now(timezone.utc) - timedelta(hours=float(os.environ['OBSERVATION_LOOKBACK_HOURS']))
-          prefix = 'crypto-forward-shadow-v128-observation-'
+          prefixes = (
+              'crypto-forward-shadow-v128-observation-',
+              'crypto-forward-shadow-v130-observation-',
+          )
           page = 1
           found = []
           while page <= 8:
@@ -56,7 +59,7 @@ jobs:
                   'Accept': 'application/vnd.github+json',
                   'Authorization': f'Bearer {token}',
                   'X-GitHub-Api-Version': '2022-11-28',
-                  'User-Agent': 'crypto-forward-shadow-v128-outcome',
+                  'User-Agent': 'crypto-forward-shadow-v130-outcome',
               })
               with urllib.request.urlopen(req, timeout=30) as response:
                   body = json.load(response)
@@ -69,7 +72,7 @@ jobs:
                   if created < cutoff:
                       stop = True
                       continue
-                  if str(row.get('name') or '').startswith(prefix) and not row.get('expired'):
+                  if str(row.get('name') or '').startswith(prefixes) and not row.get('expired'):
                       found.append((created, int(row['id'])))
               if stop:
                   break
@@ -93,8 +96,6 @@ jobs:
             zip="/tmp/crypto-forward-${artifact_id}.zip"
             dest="/tmp/crypto-forward-observations/${artifact_id}"
             mkdir -p "$dest"
-            # gh follows GitHub's signed artifact redirect. Only tiny aggregate
-            # JSON artifacts are downloaded; no raw market history is involved.
             gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "$zip"
             unzip -q "$zip" -d "$dest"
             rm -f "$zip"
@@ -109,21 +110,21 @@ jobs:
             --observation-dir /tmp/crypto-forward-observations \
             --min-age-hours "$MIN_AGE_HOURS" \
             --max-age-hours "$MAX_AGE_HOURS" \
-            --out crypto-forward-outcome-v128.json
+            --out crypto-forward-outcome-v130.json
 
       - name: Validate outcome schema and no-raw-storage policy
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          # Fail closed if the evaluator ever turns into a raw market-data store
-          # or loses the Shadow-only Production guard.
           import json
           from pathlib import Path
 
-          p = json.loads(Path('crypto-forward-outcome-v128.json').read_text(encoding='utf-8'))
+          p = json.loads(Path('crypto-forward-outcome-v130.json').read_text(encoding='utf-8'))
           assert p.get('schema_version') == 'crypto-forward-outcome-v1', p
-          assert p.get('shadow_version') == '1.2.8-shadow', p
+          assert p.get('shadow_version') in {'1.2.8-shadow', '1.3.0-shadow', 'mixed'}, p
+          versions = set(p.get('observation_shadow_versions') or [])
+          assert versions and versions.issubset({'1.2.8-shadow', '1.3.0-shadow'}), versions
           assert p.get('research_only') is True, p
           assert p.get('production_promotion') is False, p
 
@@ -135,28 +136,37 @@ jobs:
           assert storage.get('permanent_archive') is False, storage
 
           price = p.get('price_evaluation') or {}
+          assert price.get('sources') == ['kucoin_futures_5m', 'mexc_futures_5m'], price
           assert price.get('raw_market_series_persisted') is False, price
           assert price.get('rr_policy_metrics') == 'not_computed_without_frozen_entry_stop_receipt', price
+
+          # Old V1.2.8 records are allowed only as diagnostics. They can never
+          # enter the promotion statistics after the source-repair boundary.
+          for row in p.get('records') or []:
+              if row.get('shadow_version') != '1.3.0-shadow':
+                  assert row.get('promotion_statistics_eligible') is False, row
 
           window = p.get('observation_window') or {}
           assert int(window.get('observation_count') or 0) > 0, window
           serialized = json.dumps(p, ensure_ascii=False).lower()
-          for forbidden in ['raw_candles', 'raw_ticker_rows', 'api.bybit.com', 'api.bytick.com']:
+          for forbidden in ['raw_candles', 'raw_ticker_rows', 'api.bybit.com', 'api.bytick.com', 'gate_futures_5m']:
               assert forbidden not in serialized, forbidden
 
           print('CRYPTO_FORWARD_OUTCOME_SCHEMA_ACCEPTANCE')
           print(json.dumps({
+              'observation_versions': sorted(versions),
               'observation_count': window.get('observation_count'),
               'candidate_count': window.get('candidate_count'),
               'summary_rows': len(p.get('summary') or []),
-              'result': 'PASS_FORWARD_OUTCOME_SCHEMA',
+              'promotion_statistics_eligible': sum(1 for row in p.get('records') or [] if row.get('promotion_statistics_eligible')),
+              'result': 'PASS_FORWARD_OUTCOME_SCHEMA_V130',
           }, ensure_ascii=False, indent=2))
           PY
 
       - name: Upload aggregate outcome artifact
         uses: actions/upload-artifact@v4
         with:
-          name: crypto-forward-shadow-v128-outcome-${{ github.run_id }}
-          path: crypto-forward-outcome-v128.json
+          name: crypto-forward-shadow-v130-outcome-${{ github.run_id }}
+          path: crypto-forward-outcome-v130.json
           retention-days: 30
           if-no-files-found: error
