@@ -5,6 +5,9 @@ on:
     branches: [research/crypto-mtf-rr-20260830]
     paths:
       - '.github/workflows/crypto-family-mcp-shadow-v128.yml'
+      - 'tests/family-crypto-shadow-bridge-v128.test.ts'
+      - 'src/v6/shared-crypto-market-tools.ts'
+      - 'src/v6/family-mcp.ts'
   workflow_dispatch:
 
 permissions:
