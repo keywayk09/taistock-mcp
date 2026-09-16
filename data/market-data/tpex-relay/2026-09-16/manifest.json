@@ -1,10 +1,15 @@
 {
   "canonical_storage": "keywayk09/tv-papertrader main/data",
-  "capture_errors": {
-    "institutional": "HTTPError: HTTP Error 520: <none>"
-  },
-  "captured_at_utc": "2026-09-16T14:12:36.438975Z",
+  "capture_errors": {},
+  "captured_at_utc": "2026-09-16T14:59:52.910742Z",
   "datasets": {
+    "institutional": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date=115%2F09%2F16&id=&response=json",
+      "file": "institutional.json",
+      "row_count": 886,
+      "sha256": "84e47abdb1d45840d3a78dab1ec5075e94f20713e2ea14926a0f01505649cad3",
+      "source_date": "2026-09-16"
+    },
     "margin": {
       "endpoint": "https://www.tpex.org.tw/www/zh-tw/margin/balance?date=115%2F09%2F16&id=&response=json",
       "file": "margin.json",
@@ -27,12 +32,10 @@
       "source_date": "2026-09-16"
     }
   },
-  "missing_datasets": [
-    "institutional"
-  ],
+  "missing_datasets": [],
   "schema": "TPEX_OFFICIAL_RELAY_V2",
   "source_owner": "TPEx",
-  "status": "PARTIAL",
+  "status": "COMPLETE",
   "trade_date": "2026-09-16",
   "transport": "GitHub hosted runner exact-date modern official TPEx JSON API"
 }
