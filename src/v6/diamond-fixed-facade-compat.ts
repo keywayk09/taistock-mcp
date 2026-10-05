@@ -1,4 +1,5 @@
 import { readFamilyStockMarketContext } from "./family-ohlc-read-bridge";
+import { readGitHubJson } from "./github-data-store";
 import { getTwMarketCrossSection } from "./market-data-cross-section";
 import { getSupplyChainContract } from "./supply-chain-graph";
 import { getTwMarketChipSummaryOnDemand } from "./tw-market-chip-on-demand-facade";
@@ -132,6 +133,66 @@ function asOfOf(input: CompatInput) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
 }
 
+function taipeiToday() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+function dailyRankingsPath(date: string) {
+  const [year, month, day] = date.split("-");
+  return `data/daily-report-inputs/${year}/${month}/${day}/official-rankings.json`;
+}
+
+async function readExactDateOfficialRankings(env: Env, date: string) {
+  const path = dailyRankingsPath(date);
+  const file = await readGitHubJson<Record<string, unknown>>(env, path);
+  if (!file.exists || !file.value) {
+    return {
+      status: "PENDING_EXACT_DATE_CAPTURE" as const,
+      path,
+      sha: file.sha,
+      artifact: null,
+      error: "exact_date_rankings_artifact_missing",
+    };
+  }
+
+  const artifact = file.value;
+  const rankings = artifact.rankings && typeof artifact.rankings === "object" && !Array.isArray(artifact.rankings)
+    ? artifact.rankings as Record<string, unknown>
+    : {};
+  const groups = ["foreign_buy", "foreign_sell", "trust_buy", "trust_sell"];
+  const markets = Array.isArray(artifact.markets) ? artifact.markets.map(String) : [];
+  const valid = artifact.status === "READY"
+    && artifact.trade_date === date
+    && artifact.source_date_verified === true
+    && artifact.previous_day_substitution === false
+    && markets.includes("listed")
+    && markets.includes("otc")
+    && groups.every((key) => Array.isArray(rankings[key]) && (rankings[key] as unknown[]).length === 10);
+
+  if (!valid) {
+    return {
+      status: "INVALID_EXACT_DATE_ARTIFACT" as const,
+      path,
+      sha: file.sha,
+      artifact,
+      error: "exact_date_rankings_artifact_failed_contract",
+    };
+  }
+
+  return {
+    status: "READY" as const,
+    path,
+    sha: file.sha,
+    artifact,
+    error: null,
+  };
+}
+
 function limitOf(input: CompatInput) {
   const value = Number(input.limit);
   return Number.isInteger(value) && value >= 1 && value <= 2500 ? value : undefined;
@@ -203,26 +264,93 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
   }
 
   if (tool === "get_daily_chip_report") {
-    if (!symbol) return retired(tool, "get_tw_market_data_bundle", "legacy call requires a 4-6 digit Taiwan stock symbol");
+    if (symbol) {
+      return out({
+        compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
+        legacy_tool: tool,
+        modern_tool: "get_tw_market_data_bundle",
+        data: await onDemandSummary(env, symbol, as_of),
+      });
+    }
+
+    const tradeDate = as_of ?? taipeiToday();
+    const exact = await readExactDateOfficialRankings(env, tradeDate);
     return out({
+      ok: exact.status === "READY",
       compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
       legacy_tool: tool,
-      modern_tool: "get_tw_market_data_bundle",
-      data: await onDemandSummary(env, symbol, as_of),
+      modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS",
+      status: exact.status,
+      role: exact.status === "READY" ? "CURRENT_EXACT_DATE_OFFICIAL" : "CURRENT_EXACT_DATE_PENDING",
+      trade_date: tradeDate,
+      current_selection_source: exact.status === "READY",
+      source_path: exact.path,
+      source_sha: exact.sha,
+      previous_day_substitution: false,
+      persistence: "GITHUB_CANONICAL_REPORT_INPUT_READ_ONLY",
+      data: exact.artifact,
+      error: exact.error,
     });
   }
 
-  if (tool === "get_official_market_institutional" || tool === "get_official_market_margin") {
+  if (tool === "get_official_market_institutional") {
+    const tradeDate = as_of ?? taipeiToday();
+    const exact = await readExactDateOfficialRankings(env, tradeDate);
+    if (exact.status === "READY") {
+      return out({
+        ok: true,
+        compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
+        legacy_tool: tool,
+        modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS",
+        projection: "institutional",
+        status: "READY",
+        role: "CURRENT_EXACT_DATE_OFFICIAL",
+        trade_date: tradeDate,
+        current_selection_source: true,
+        source_path: exact.path,
+        source_sha: exact.sha,
+        previous_day_substitution: false,
+        data: exact.artifact,
+      });
+    }
+
+    const history = await getTwMarketCrossSection(env, { as_of: tradeDate, calendar_days: 20, limit: limitOf(input) });
+    const isToday = tradeDate === taipeiToday();
+    return out({
+      ok: false,
+      compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
+      legacy_tool: tool,
+      modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS",
+      projection: "institutional",
+      status: isToday ? exact.status : "LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY",
+      role: isToday ? "CURRENT_EXACT_DATE_PENDING" : "HISTORY_CONTEXT_ONLY",
+      trade_date: tradeDate,
+      current_selection_source: false,
+      exact_date_capture: {
+        status: exact.status,
+        source_path: exact.path,
+        source_sha: exact.sha,
+        error: exact.error,
+      },
+      previous_day_substitution: false,
+      history_context: history,
+      note: isToday
+        ? "當日正式法人排名尚未完成 exact-date capture；不得用舊 GitHub 歷史 cross-section 冒充今日資料。"
+        : "指定歷史日期沒有 exact-date daily-ranking artifact；舊 cross-section 僅作 HISTORY_CONTEXT_ONLY。",
+    });
+  }
+
+  if (tool === "get_official_market_margin") {
     const data = await getTwMarketCrossSection(env, { ...(as_of ? { as_of } : {}), calendar_days: 20, limit: limitOf(input) });
     return out({
       compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
       legacy_tool: tool,
       modern_tool: "get_tw_market_cross_section",
-      projection: tool.endsWith("institutional") ? "institutional" : "margin",
+      projection: "margin",
       status: "LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY",
       role: "HISTORY_CONTEXT_ONLY",
       current_selection_source: false,
-      note: "目前沒有全市場 on-demand cross-section；此 frozen alias 僅保留舊 GitHub archive 歷史背景，不得解讀為當期官方全市場快照。當期個股請改由 exact-date on-demand 工具補證。",
+      note: "目前沒有全市場 on-demand margin cross-section；此 frozen alias 僅保留舊 GitHub archive 歷史背景，不得解讀為當期官方全市場快照。",
       data,
     });
   }

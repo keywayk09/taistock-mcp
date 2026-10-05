@@ -117,6 +117,84 @@ assert.equal(legacyPayload.status, "LEGACY_COMPATIBILITY_RETAINED_FAIL_CLOSED");
 assert.equal(legacyPayload.legacy_tool, "add_industry_evidence");
 assert.equal(legacyPayload.production_mutation, "NONE");
 
+const rankingGroup = Array.from({ length:10 }, (_, i) => ({
+  rank:i + 1,
+  symbol:String(1001 + i),
+  name:`R${i + 1}`,
+  market:i % 2 === 0 ? "listed" : "otc",
+  net_shares:10000 - i,
+  net_lots:(10000 - i) / 1000,
+}));
+const exactDateArtifact = {
+  schema:"TW_OFFICIAL_INSTITUTIONAL_RANKINGS_V2",
+  status:"READY",
+  trade_date:"2026-10-05",
+  source_date_verified:true,
+  markets:["listed", "otc"],
+  etf_excluded:true,
+  ranking_unit:"張",
+  previous_day_substitution:false,
+  read_only:true,
+  coverage:{ listed_rows:1080, otc_rows:795, total_rows:1875 },
+  sources:{ listed:"TWSE_T86_ALLBUT0999", otc:"TPEX_3INSTI_DAILY_TRADING" },
+  rankings:{
+    foreign_buy:rankingGroup,
+    foreign_sell:rankingGroup,
+    trust_buy:rankingGroup,
+    trust_sell:rankingGroup,
+  },
+};
+const reportEnv = {
+  __GITHUB_DATA_MEMORY:new Map([
+    ["data/daily-report-inputs/2026/10/05/official-rankings.json", {
+      sha:"fixture-official-rankings",
+      text:JSON.stringify(exactDateArtifact),
+    }],
+  ]),
+} as any as Env;
+
+const dailyReportCall = new Request("https://taistock-mcp.example/my-mcp", {
+  method:"POST",
+  headers:{ "content-type":"application/json" },
+  body:JSON.stringify({
+    jsonrpc:"2.0",
+    id:81,
+    method:"tools/call",
+    params:{ name:"get_daily_chip_report", arguments:{ date:"2026-10-05", fallback_days:0, watchlist:[], include_raw:false } },
+  }),
+});
+const dailyReportResponse = await tryCompat!(dailyReportCall, reportEnv);
+assert.ok(dailyReportResponse);
+const dailyReportRpc = await dailyReportResponse!.json() as any;
+const dailyReportPayload = JSON.parse(String(dailyReportRpc.result.content[0].text));
+assert.equal(dailyReportPayload.status, "READY");
+assert.equal(dailyReportPayload.role, "CURRENT_EXACT_DATE_OFFICIAL");
+assert.equal(dailyReportPayload.trade_date, "2026-10-05");
+assert.equal(dailyReportPayload.current_selection_source, true);
+assert.equal(dailyReportPayload.previous_day_substitution, false);
+assert.equal(dailyReportPayload.data.coverage.total_rows, 1875);
+assert.equal(dailyReportPayload.data.rankings.foreign_buy.length, 10);
+
+const fullMarketInstitutionalCall = new Request("https://taistock-mcp.example/my-mcp", {
+  method:"POST",
+  headers:{ "content-type":"application/json" },
+  body:JSON.stringify({
+    jsonrpc:"2.0",
+    id:82,
+    method:"tools/call",
+    params:{ name:"get_official_market_institutional", arguments:{ date:"2026-10-05" } },
+  }),
+});
+const fullMarketInstitutionalResponse = await tryCompat!(fullMarketInstitutionalCall, reportEnv);
+assert.ok(fullMarketInstitutionalResponse);
+const fullMarketInstitutionalRpc = await fullMarketInstitutionalResponse!.json() as any;
+const fullMarketInstitutionalPayload = JSON.parse(String(fullMarketInstitutionalRpc.result.content[0].text));
+assert.equal(fullMarketInstitutionalPayload.status, "READY");
+assert.equal(fullMarketInstitutionalPayload.role, "CURRENT_EXACT_DATE_OFFICIAL");
+assert.equal(fullMarketInstitutionalPayload.current_selection_source, true);
+assert.equal(fullMarketInstitutionalPayload.data.source_date_verified, true);
+assert.equal(fullMarketInstitutionalPayload.data.previous_day_substitution, false);
+
 const modernCall = new Request("https://taistock-mcp.example/my-mcp", {
   method:"POST",
   headers:{ "content-type":"application/json" },
@@ -130,8 +208,11 @@ assert.doesNotMatch(compatSource, /\bD1Database\b|env\.DB\b|\.prepare\(/, "fixed
 assert.doesNotMatch(compatSource, /\bR2Bucket\b/, "fixed facade compat must not introduce R2 app persistence");
 assert.match(compatSource, /method !== "tools\/call"/, "compatibility adapter must intercept only tools/call");
 assert.match(compatSource, /getTwMarketChipSummaryOnDemand/, "frozen chip aliases must use the current on-demand facade");
+assert.match(compatSource, /readGitHubJson/, "full-market daily compatibility must read the canonical exact-date report artifact");
+assert.match(compatSource, /daily-report-inputs/, "full-market daily compatibility must use the dedicated report-input namespace");
+assert.match(compatSource, /CURRENT_EXACT_DATE_OFFICIAL/, "current exact-date institutional artifacts must be explicitly marked as current official evidence");
 assert.doesNotMatch(compatSource, /getTwMarketChipSummaryPublished|tw-market-data-github-live/, "frozen chip aliases must not use Published/GitHub-live as current evidence");
-assert.match(compatSource, /LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY/, "market-wide frozen aliases must explicitly fail closed to history-only semantics");
+assert.match(compatSource, /LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY/, "historical or margin-only compatibility must remain explicitly history-only when no exact-date artifact exists");
 
 const bridgePath = path.join(root, "src/v6/legacy-owner-chip-tools.ts");
 const bridgeSource = fs.readFileSync(bridgePath, "utf8");
