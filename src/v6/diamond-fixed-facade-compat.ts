@@ -324,6 +324,29 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
         ? "CURRENT_EXACT_DATE_PARTIAL"
         : "CURRENT_EXACT_DATE_PENDING";
 
+    const componentDiagnostics = [
+      {
+        component: "institutional",
+        card_ready: institutionalReady,
+        serving_path: institutionalSourceMode,
+        direct: directInstitutional.diagnostics,
+      },
+      {
+        component: "margin",
+        card_ready: marginReady,
+        serving_path: "OFFICIAL_EXACT_DATE_ON_DEMAND",
+        direct: directMargin.diagnostics,
+      },
+    ];
+    const blockingComponents = componentDiagnostics.filter((component) => !component.card_ready);
+    const degradedComponents = componentDiagnostics.filter((component) => component.direct.health !== "HEALTHY");
+    const dominantDiagnostic = blockingComponents[0] ?? degradedComponents[0] ?? null;
+    const diagnosticHealth = !anyReady
+      ? "BLOCKED"
+      : degradedComponents.length
+        ? "DEGRADED"
+        : "HEALTHY";
+
     return out({
       ok: anyReady,
       compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
@@ -353,6 +376,7 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
           previous_day_substitution: false,
           persistence: institutionalPersistence,
           source_health: directInstitutional.source_health,
+          direct_diagnostics: directInstitutional.diagnostics,
           direct_error: directInstitutional.error,
           backup_attempt: institutionalBackupAttempt,
         },
@@ -365,8 +389,21 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
           previous_day_substitution: false,
           persistence: "NONE",
           source_health: directMargin.source_health,
+          direct_diagnostics: directMargin.diagnostics,
           direct_error: directMargin.error,
         },
+      },
+      diagnostics: {
+        schema: "DAILY_REPORT_SELF_DIAGNOSTICS_V1",
+        health: diagnosticHealth,
+        blocking_components: blockingComponents.map((component) => component.component),
+        degraded_components: degradedComponents.map((component) => component.component),
+        recommended_action: dominantDiagnostic?.direct.recommended_action ?? "NONE",
+        retry_after_seconds: dominantDiagnostic?.direct.retry_after_seconds ?? null,
+        github_artifact_is_readiness_gate: false,
+        exact_date_required: true,
+        previous_day_substitution: false,
+        components: componentDiagnostics,
       },
       data: institutionalData,
       margin_data: marginReady ? directMargin : null,
