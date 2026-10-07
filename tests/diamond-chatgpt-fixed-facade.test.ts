@@ -214,6 +214,8 @@ const tpexMargin = otcSymbols.map((symbol, i) => {
 
 const originalFetch = globalThis.fetch;
 let failMargin = false;
+let staleMargin = false;
+let shortMarginCoverage = false;
 let transientTwseInstitutionalFailures = 0;
 globalThis.fetch = (async (input:RequestInfo | URL) => {
   const url=String(input);
@@ -227,11 +229,21 @@ globalThis.fetch = (async (input:RequestInfo | URL) => {
   if(url.includes("/openapi/v1/tpex_3insti_daily_trading")) return new Response(JSON.stringify(tpexInstitutional), { status:200, headers:{ "content-type":"application/json" } });
   if(url.includes("/marginTrading/MI_MARGN")) {
     if(failMargin) return new Response("temporary margin source failure", { status:503 });
-    return new Response(JSON.stringify(twseMargin), { status:200, headers:{ "content-type":"application/json" } });
+    const body = staleMargin
+      ? { ...twseMargin, date:"20261004" }
+      : shortMarginCoverage
+        ? { ...twseMargin, tables:twseMargin.tables.map((table) => ({ ...table, data:table.data.slice(0, 10) })) }
+        : twseMargin;
+    return new Response(JSON.stringify(body), { status:200, headers:{ "content-type":"application/json" } });
   }
   if(url.includes("/openapi/v1/tpex_mainboard_margin_balance")) {
     if(failMargin) return new Response("temporary margin source failure", { status:503 });
-    return new Response(JSON.stringify(tpexMargin), { status:200, headers:{ "content-type":"application/json" } });
+    const body = staleMargin
+      ? tpexMargin.map((row) => ({ ...row, Date:"2026-10-04" }))
+      : shortMarginCoverage
+        ? tpexMargin.slice(0, 10)
+        : tpexMargin;
+    return new Response(JSON.stringify(body), { status:200, headers:{ "content-type":"application/json" } });
   }
   throw new Error("unexpected_direct_market_fetch:" + url);
 }) as typeof fetch;
@@ -268,6 +280,14 @@ assert.equal(dailyReportPayload.data.rankings.foreign_buy.length, 10);
 assert.equal(dailyReportPayload.margin_data.schema, "TW_OFFICIAL_MARGIN_CROSS_SECTION_V1");
 assert.equal(dailyReportPayload.margin_data.coverage.total_rows, 800);
 assert.equal(dailyReportPayload.margin_data.rankings.margin_increase.length, 10);
+assert.equal(dailyReportPayload.diagnostics.schema, "DAILY_REPORT_SELF_DIAGNOSTICS_V1");
+assert.equal(dailyReportPayload.diagnostics.health, "HEALTHY");
+assert.deepEqual(dailyReportPayload.diagnostics.blocking_components, []);
+assert.deepEqual(dailyReportPayload.diagnostics.degraded_components, []);
+assert.equal(dailyReportPayload.diagnostics.recommended_action, "NONE");
+assert.equal(dailyReportPayload.diagnostics.github_artifact_is_readiness_gate, false);
+assert.equal(dailyReportPayload.data.diagnostics.health, "HEALTHY");
+assert.equal(dailyReportPayload.margin_data.diagnostics.health, "HEALTHY");
 
 // GitHub persistence must never be a readiness gate. With the exact-date
 // official sources READY and the canonical official-rankings artifact absent,
@@ -305,6 +325,8 @@ assert.equal(noArtifactDailyReportPayload.data.trade_date, "2026-10-05");
 assert.equal(noArtifactDailyReportPayload.margin_data.trade_date, "2026-10-05");
 assert.equal(noArtifactDailyReportPayload.previous_day_substitution, false);
 assert.equal(transientTwseInstitutionalFailures, 0);
+assert.equal(noArtifactDailyReportPayload.diagnostics.health, "HEALTHY");
+assert.equal(noArtifactDailyReportPayload.diagnostics.github_artifact_is_readiness_gate, false);
 
 failMargin = true;
 const partialDailyReportCall = new Request("https://taistock-mcp.example/my-mcp", {
@@ -332,7 +354,59 @@ assert.notEqual(partialDailyReportPayload.cards.margin.status, "READY");
 assert.equal(partialDailyReportPayload.data.rankings.foreign_buy.length, 10);
 assert.equal(partialDailyReportPayload.margin_data, null);
 assert.equal(partialDailyReportPayload.previous_day_substitution, false);
+assert.equal(partialDailyReportPayload.diagnostics.health, "DEGRADED");
+assert.deepEqual(partialDailyReportPayload.diagnostics.blocking_components, ["margin"]);
+assert.equal(partialDailyReportPayload.diagnostics.recommended_action, "RETRY_TRANSIENT_SOURCE");
+assert.equal(partialDailyReportPayload.diagnostics.retry_after_seconds, 30);
+assert.equal(partialDailyReportPayload.cards.margin.direct_diagnostics.code, "TRANSIENT_TRANSPORT");
 failMargin = false;
+
+// A prior-date official response is diagnosed as publication lag, not silently
+// substituted into today's yellow card.
+staleMargin = true;
+const staleDailyReportResponse = await tryCompat!(new Request("https://taistock-mcp.example/my-mcp", {
+  method:"POST",
+  headers:{ "content-type":"application/json" },
+  body:JSON.stringify({
+    jsonrpc:"2.0",
+    id:86,
+    method:"tools/call",
+    params:{ name:"get_daily_chip_report", arguments:{ date:"2026-10-05", fallback_days:0, watchlist:[], include_raw:false } },
+  }),
+}), reportEnv);
+assert.ok(staleDailyReportResponse);
+const staleDailyReportRpc = await staleDailyReportResponse!.json() as any;
+const staleDailyReportPayload = JSON.parse(String(staleDailyReportRpc.result.content[0].text));
+assert.equal(staleDailyReportPayload.status, "PARTIAL_READY");
+assert.equal(staleDailyReportPayload.institutional_cards_ready, true);
+assert.equal(staleDailyReportPayload.margin_card_ready, false);
+assert.equal(staleDailyReportPayload.cards.margin.status, "PENDING");
+assert.equal(staleDailyReportPayload.cards.margin.direct_diagnostics.code, "OFFICIAL_NOT_PUBLISHED");
+assert.equal(staleDailyReportPayload.diagnostics.recommended_action, "WAIT_OFFICIAL_PUBLICATION");
+assert.equal(staleDailyReportPayload.diagnostics.retry_after_seconds, 120);
+assert.equal(staleDailyReportPayload.previous_day_substitution, false);
+staleMargin = false;
+
+// Correct-date but incomplete cross-section is a distinct coverage diagnosis.
+shortMarginCoverage = true;
+const shortCoverageResponse = await tryCompat!(new Request("https://taistock-mcp.example/my-mcp", {
+  method:"POST",
+  headers:{ "content-type":"application/json" },
+  body:JSON.stringify({
+    jsonrpc:"2.0",
+    id:87,
+    method:"tools/call",
+    params:{ name:"get_daily_chip_report", arguments:{ date:"2026-10-05", fallback_days:0, watchlist:[], include_raw:false } },
+  }),
+}), reportEnv);
+assert.ok(shortCoverageResponse);
+const shortCoverageRpc = await shortCoverageResponse!.json() as any;
+const shortCoveragePayload = JSON.parse(String(shortCoverageRpc.result.content[0].text));
+assert.equal(shortCoveragePayload.status, "PARTIAL_READY");
+assert.equal(shortCoveragePayload.cards.margin.direct_diagnostics.code, "COVERAGE_INCOMPLETE");
+assert.equal(shortCoveragePayload.diagnostics.recommended_action, "WAIT_FOR_COMPLETE_COVERAGE");
+assert.equal(shortCoveragePayload.diagnostics.retry_after_seconds, 120);
+shortMarginCoverage = false;
 
 const fullMarketInstitutionalCall = new Request("https://taistock-mcp.example/my-mcp", {
   method:"POST",
@@ -404,6 +478,8 @@ assert.match(compatSource, /PARTIAL_READY/, "margin pending must not suppress in
 assert.match(compatSource, /institutional_cards_ready/, "institutional readiness must be explicit");
 assert.match(compatSource, /margin_card_ready/, "margin readiness must be explicit");
 assert.match(compatSource, /margin_data/, "yellow-card data must be exposed independently");
+assert.match(compatSource, /DAILY_REPORT_SELF_DIAGNOSTICS_V1/, "daily report must expose self-diagnostics");
+assert.match(compatSource, /github_artifact_is_readiness_gate:\s*false/, "GitHub artifact must be explicitly non-gating");
 assert.match(compatSource, /readGitHubJson/, "GitHub exact-date institutional artifact must remain available as backup persistence");
 assert.match(compatSource, /daily-report-inputs/, "full-market daily compatibility must use the dedicated report-input namespace");
 assert.match(compatSource, /CURRENT_EXACT_DATE_OFFICIAL/, "current exact-date institutional artifacts must be explicitly marked as current official evidence");
