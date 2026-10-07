@@ -9,7 +9,7 @@ import {
 import { getTpexInstitutionalPayload, getTpexMarginPayload } from "./tpex-cloudflare-transport.ts";
 import { normalizeTwseMiMargnOfficial } from "./twse-mi-margin-official.ts";
 
-export const TW_FULL_MARKET_ON_DEMAND_VERSION = "tw-full-market-on-demand/v1.0.0";
+export const TW_FULL_MARKET_ON_DEMAND_VERSION = "tw-full-market-on-demand/v1.1.0";
 
 export type TwFullMarketStatus = "READY" | "PENDING" | "ERROR";
 
@@ -76,20 +76,51 @@ function isCommonStockSymbol(symbol: string) {
   return /^[1-9]\d{3}$/.test(symbol);
 }
 
+const TRANSIENT_HTTP_STATUS = new Set([408, 425, 429, 500, 502, 503, 504, 520, 522, 524]);
+const DIRECT_RETRY_DELAYS_MS = [0, 150, 500] as const;
+
+function sleepMs(ms: number) {
+  return ms > 0 ? new Promise<void>((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
 async function fetchFreshJson(url: string, fetcher: FetchLike): Promise<unknown> {
-  const response = await fetcher(url, {
-    headers: {
-      Accept: "application/json,text/plain,*/*",
-      "User-Agent": "Diamond-Official-Full-Market-On-Demand/1.0",
-    },
-  });
-  const text = await response.text();
-  if (!response.ok) throw new Error("http_" + response.status + ":" + text.slice(0, 160));
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error("invalid_json:" + text.slice(0, 160));
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < DIRECT_RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) await sleepMs(DIRECT_RETRY_DELAYS_MS[attempt]);
+
+    try {
+      const response = await fetcher(url, {
+        headers: {
+          Accept: "application/json,text/plain,*/*",
+          "User-Agent": "Diamond-Official-Full-Market-On-Demand/1.1",
+        },
+      });
+      const text = await response.text();
+      if (!response.ok) {
+        const error = new Error("http_" + response.status + ":" + text.slice(0, 160));
+        lastError = error;
+        if (TRANSIENT_HTTP_STATUS.has(response.status) && attempt + 1 < DIRECT_RETRY_DELAYS_MS.length) continue;
+        throw error;
+      }
+      try {
+        return JSON.parse(text);
+      } catch {
+        const error = new Error("invalid_json:" + text.slice(0, 160));
+        lastError = error;
+        if (attempt + 1 < DIRECT_RETRY_DELAYS_MS.length) continue;
+        throw error;
+      }
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      const nonRetryableHttp = message.match(/^http_(\d{3}):/);
+      if (nonRetryableHttp && !TRANSIENT_HTTP_STATUS.has(Number(nonRetryableHttp[1]))) throw error;
+      if (attempt + 1 >= DIRECT_RETRY_DELAYS_MS.length) throw error;
+    }
   }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "official_fetch_failed"));
 }
 
 async function loadFullMarketSource<T extends { trade_date: string; symbol: string }>(input: {
