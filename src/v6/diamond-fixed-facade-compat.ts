@@ -275,72 +275,105 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
     }
 
     const tradeDate = as_of ?? taipeiToday();
-    const direct = await getTwOfficialMarketInstitutionalOnDemand({ as_of: tradeDate });
-    if (direct.status === "READY") {
-      return out({
-        ok: true,
-        compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
-        legacy_tool: tool,
-        modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS",
-        status: "READY",
-        role: "CURRENT_EXACT_DATE_OFFICIAL",
-        trade_date: tradeDate,
-        current_selection_source: true,
-        source_mode: "OFFICIAL_EXACT_DATE_ON_DEMAND",
-        source_path: null,
-        source_sha: null,
-        previous_day_substitution: false,
-        persistence: "NONE",
-        data: direct,
-        error: null,
-      });
-    }
+    const [directInstitutional, directMargin] = await Promise.all([
+      getTwOfficialMarketInstitutionalOnDemand({ as_of: tradeDate }),
+      getTwOfficialMarketMarginOnDemand({ as_of: tradeDate }),
+    ]);
 
-    const exact = await readExactDateOfficialRankings(env, tradeDate);
-    if (exact.status === "READY") {
-      return out({
-        ok: true,
-        compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
-        legacy_tool: tool,
-        modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS",
-        status: "READY",
-        role: "CURRENT_EXACT_DATE_OFFICIAL",
-        trade_date: tradeDate,
-        current_selection_source: true,
-        source_mode: "GITHUB_EXACT_DATE_BACKUP",
-        source_path: exact.path,
-        source_sha: exact.sha,
-        previous_day_substitution: false,
-        persistence: "GITHUB_CANONICAL_REPORT_INPUT_READ_ONLY",
-        data: exact.artifact,
-        direct_attempt: direct,
-        error: null,
-      });
-    }
+    let institutionalStatus: string = directInstitutional.status;
+    let institutionalData: unknown = null;
+    let institutionalSourceMode = "OFFICIAL_EXACT_DATE_ON_DEMAND";
+    let institutionalSourcePath: string | null = null;
+    let institutionalSourceSha: string | null = null;
+    let institutionalPersistence = "NONE";
+    let institutionalBackupAttempt: Record<string, unknown> | null = null;
 
-    return out({
-      ok: false,
-      compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
-      legacy_tool: tool,
-      modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS",
-      status: direct.status === "PENDING" ? "PENDING" : exact.status,
-      role: "CURRENT_EXACT_DATE_PENDING",
-      trade_date: tradeDate,
-      current_selection_source: false,
-      source_mode: "DIRECT_THEN_GITHUB_BACKUP",
-      source_path: exact.path,
-      source_sha: exact.sha,
-      previous_day_substitution: false,
-      persistence: "NONE",
-      direct_attempt: direct,
-      backup_attempt: {
+    if (directInstitutional.status === "READY") {
+      institutionalData = directInstitutional;
+    } else {
+      const exact = await readExactDateOfficialRankings(env, tradeDate);
+      institutionalBackupAttempt = {
         status: exact.status,
         source_path: exact.path,
         source_sha: exact.sha,
         error: exact.error,
+      };
+      if (exact.status === "READY") {
+        institutionalStatus = "READY";
+        institutionalData = exact.artifact;
+        institutionalSourceMode = "GITHUB_EXACT_DATE_BACKUP";
+        institutionalSourcePath = exact.path;
+        institutionalSourceSha = exact.sha ?? null;
+        institutionalPersistence = "GITHUB_CANONICAL_REPORT_INPUT_READ_ONLY";
+      } else if (directInstitutional.status === "PENDING") {
+        institutionalStatus = "PENDING";
+      } else {
+        institutionalStatus = exact.status;
+      }
+    }
+
+    const institutionalReady = institutionalStatus === "READY";
+    const marginReady = directMargin.status === "READY";
+    const anyReady = institutionalReady || marginReady;
+    const complete = institutionalReady && marginReady;
+    const anyPending = institutionalStatus.includes("PENDING") || directMargin.status === "PENDING";
+    const reportStatus = complete ? "READY" : anyReady ? "PARTIAL_READY" : anyPending ? "PENDING" : "ERROR";
+    const reportRole = complete
+      ? "CURRENT_EXACT_DATE_OFFICIAL"
+      : anyReady
+        ? "CURRENT_EXACT_DATE_PARTIAL"
+        : "CURRENT_EXACT_DATE_PENDING";
+
+    return out({
+      ok: anyReady,
+      compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
+      legacy_tool: tool,
+      modern_capability: "OFFICIAL_DAILY_CHIP_REPORT_DECOUPLED",
+      status: reportStatus,
+      role: reportRole,
+      trade_date: tradeDate,
+      current_selection_source: institutionalReady,
+      source_mode: "DECOUPLED_OFFICIAL_EXACT_DATE",
+      source_path: institutionalSourcePath,
+      source_sha: institutionalSourceSha,
+      previous_day_substitution: false,
+      persistence: institutionalPersistence,
+      report_completeness: complete ? "COMPLETE" : anyReady ? "PARTIAL" : "PENDING",
+      institutional_cards_ready: institutionalReady,
+      margin_card_ready: marginReady,
+      cards: {
+        institutional: {
+          status: institutionalStatus,
+          ready: institutionalReady,
+          role: institutionalReady ? "CURRENT_EXACT_DATE_OFFICIAL" : "CURRENT_EXACT_DATE_PENDING",
+          source_mode: institutionalSourceMode,
+          source_path: institutionalSourcePath,
+          source_sha: institutionalSourceSha,
+          current_selection_source: institutionalReady,
+          previous_day_substitution: false,
+          persistence: institutionalPersistence,
+          source_health: directInstitutional.source_health,
+          direct_error: directInstitutional.error,
+          backup_attempt: institutionalBackupAttempt,
+        },
+        margin: {
+          status: directMargin.status,
+          ready: marginReady,
+          role: marginReady ? "CURRENT_EXACT_DATE_OFFICIAL" : "CURRENT_EXACT_DATE_PENDING",
+          source_mode: "OFFICIAL_EXACT_DATE_ON_DEMAND",
+          current_selection_source: marginReady,
+          previous_day_substitution: false,
+          persistence: "NONE",
+          source_health: directMargin.source_health,
+          direct_error: directMargin.error,
+        },
       },
-      data: null,
-      error: direct.error ?? exact.error,
+      data: institutionalData,
+      margin_data: marginReady ? directMargin : null,
+      error: anyReady ? null : {
+        institutional: directInstitutional.error,
+        margin: directMargin.error,
+      },
     });
   }
 
