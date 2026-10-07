@@ -275,72 +275,124 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
     }
 
     const tradeDate = as_of ?? taipeiToday();
-    const direct = await getTwOfficialMarketInstitutionalOnDemand({ as_of: tradeDate });
-    if (direct.status === "READY") {
-      return out({
-        ok: true,
-        compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
-        legacy_tool: tool,
-        modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS",
-        status: "READY",
-        role: "CURRENT_EXACT_DATE_OFFICIAL",
-        trade_date: tradeDate,
-        current_selection_source: true,
-        source_mode: "OFFICIAL_EXACT_DATE_ON_DEMAND",
-        source_path: null,
-        source_sha: null,
-        previous_day_substitution: false,
-        persistence: "NONE",
-        data: direct,
-        error: null,
-      });
+    const [directInstitutional, directMargin] = await Promise.all([
+      getTwOfficialMarketInstitutionalOnDemand({ as_of: tradeDate }),
+      getTwOfficialMarketMarginOnDemand({ as_of: tradeDate }),
+    ]);
+
+    let institutionalData: unknown = null;
+    let institutionalSourceMode = "DIRECT_THEN_GITHUB_BACKUP";
+    let institutionalSourcePath: string | null = null;
+    let institutionalSourceSha: string | null = null;
+    let institutionalPersistence = "NONE";
+    let institutionalError: string | null = directInstitutional.error ?? null;
+    let institutionalBackup: Awaited<ReturnType<typeof readExactDateOfficialRankings>> | null = null;
+
+    if (directInstitutional.status === "READY") {
+      institutionalData = directInstitutional;
+      institutionalSourceMode = "OFFICIAL_EXACT_DATE_ON_DEMAND";
+      institutionalError = null;
+    } else {
+      institutionalBackup = await readExactDateOfficialRankings(env, tradeDate);
+      institutionalSourcePath = institutionalBackup.path;
+      institutionalSourceSha = institutionalBackup.sha ?? null;
+      if (institutionalBackup.status === "READY") {
+        institutionalData = institutionalBackup.artifact;
+        institutionalSourceMode = "GITHUB_EXACT_DATE_BACKUP";
+        institutionalPersistence = "GITHUB_CANONICAL_REPORT_INPUT_READ_ONLY";
+        institutionalError = null;
+      } else {
+        institutionalError = directInstitutional.error ?? institutionalBackup.error;
+      }
     }
 
-    const exact = await readExactDateOfficialRankings(env, tradeDate);
-    if (exact.status === "READY") {
-      return out({
-        ok: true,
-        compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
-        legacy_tool: tool,
-        modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS",
-        status: "READY",
-        role: "CURRENT_EXACT_DATE_OFFICIAL",
-        trade_date: tradeDate,
-        current_selection_source: true,
-        source_mode: "GITHUB_EXACT_DATE_BACKUP",
-        source_path: exact.path,
-        source_sha: exact.sha,
-        previous_day_substitution: false,
-        persistence: "GITHUB_CANONICAL_REPORT_INPUT_READ_ONLY",
-        data: exact.artifact,
-        direct_attempt: direct,
-        error: null,
-      });
-    }
+    const institutionalReady = institutionalData !== null;
+    const marginReady = directMargin.status === "READY";
+    const institutionalCardStatus = institutionalReady
+      ? "READY"
+      : directInstitutional.status === "PENDING" || institutionalBackup?.status === "PENDING_EXACT_DATE_CAPTURE"
+        ? "PENDING"
+        : "ERROR";
+    const marginCardStatus = marginReady
+      ? "READY"
+      : directMargin.status === "PENDING"
+        ? "PENDING"
+        : "ERROR";
+    const reportCompletion = institutionalReady && marginReady
+      ? "COMPLETE"
+      : institutionalReady || marginReady
+        ? "PARTIAL"
+        : institutionalCardStatus === "PENDING" || marginCardStatus === "PENDING"
+          ? "PENDING"
+          : "ERROR";
 
     return out({
-      ok: false,
+      // Legacy status intentionally follows the institutional component so a
+      // pending yellow card can never block the existing green/red report path.
+      ok: institutionalReady,
       compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
       legacy_tool: tool,
       modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS",
-      status: direct.status === "PENDING" ? "PENDING" : exact.status,
-      role: "CURRENT_EXACT_DATE_PENDING",
+      report_capability: "OFFICIAL_DAILY_CHIP_REPORT_COMPONENT_GATES_V1",
+      component_gate_contract: "INDEPENDENT_V1",
+      status: institutionalCardStatus,
+      report_completion: reportCompletion,
+      role: institutionalReady ? "CURRENT_EXACT_DATE_OFFICIAL" : "CURRENT_EXACT_DATE_PENDING",
       trade_date: tradeDate,
-      current_selection_source: false,
-      source_mode: "DIRECT_THEN_GITHUB_BACKUP",
-      source_path: exact.path,
-      source_sha: exact.sha,
+      current_selection_source: institutionalReady,
+      source_mode: institutionalSourceMode,
+      source_path: institutionalSourcePath,
+      source_sha: institutionalSourceSha,
       previous_day_substitution: false,
-      persistence: "NONE",
-      direct_attempt: direct,
-      backup_attempt: {
-        status: exact.status,
-        source_path: exact.path,
-        source_sha: exact.sha,
-        error: exact.error,
+      persistence: institutionalPersistence,
+
+      // Keep the historical data field institutional-only for frozen ChatGPT
+      // callers. New consumers use components/cards; margin is independently
+      // exposed and never gates green/red readiness.
+      data: institutionalData,
+      margin_data: marginReady ? directMargin : null,
+      components: {
+        institutional: {
+          status: institutionalCardStatus,
+          ready: institutionalReady,
+          role: institutionalReady ? "CURRENT_EXACT_DATE_OFFICIAL" : "CURRENT_EXACT_DATE_PENDING",
+          source_mode: institutionalSourceMode,
+          source_path: institutionalSourcePath,
+          source_sha: institutionalSourceSha,
+          persistence: institutionalPersistence,
+          previous_day_substitution: false,
+          data: institutionalData,
+          direct_attempt: directInstitutional,
+          backup_attempt: institutionalBackup ? {
+            status: institutionalBackup.status,
+            source_path: institutionalBackup.path,
+            source_sha: institutionalBackup.sha,
+            error: institutionalBackup.error,
+          } : null,
+          error: institutionalError,
+        },
+        margin: {
+          status: marginCardStatus,
+          ready: marginReady,
+          role: marginReady ? "CURRENT_EXACT_DATE_OFFICIAL" : "CURRENT_EXACT_DATE_PENDING",
+          source_mode: "OFFICIAL_EXACT_DATE_ON_DEMAND",
+          persistence: "NONE",
+          previous_day_substitution: false,
+          data: marginReady ? directMargin : null,
+          direct_attempt: directMargin,
+          error: directMargin.error ?? null,
+        },
       },
-      data: null,
-      error: direct.error ?? exact.error,
+      cards: {
+        green: { status: institutionalCardStatus, dependency: "institutional" },
+        red: { status: institutionalCardStatus, dependency: "institutional" },
+        yellow: { status: marginCardStatus, dependency: "margin" },
+      },
+      error: institutionalError,
+      component_errors: {
+        institutional: institutionalError,
+        margin: directMargin.error ?? null,
+      },
     });
   }
 
