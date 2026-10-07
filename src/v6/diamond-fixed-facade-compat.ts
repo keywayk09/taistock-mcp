@@ -389,16 +389,41 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
       });
     }
 
-    const history = await getTwMarketCrossSection(env, { as_of: tradeDate, calendar_days: 20, limit: limitOf(input) });
     const isToday = tradeDate === taipeiToday();
+    if (isToday) {
+      return out({
+        ok: false,
+        compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
+        legacy_tool: tool,
+        modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS",
+        projection: "institutional",
+        status: direct.status,
+        role: direct.status === "ERROR" ? "CURRENT_EXACT_DATE_ERROR" : "CURRENT_EXACT_DATE_PENDING",
+        trade_date: tradeDate,
+        current_selection_source: false,
+        source_mode: "DIRECT_THEN_GITHUB_BACKUP",
+        direct_attempt: direct,
+        exact_date_capture: {
+          status: exact.status,
+          source_path: exact.path,
+          source_sha: exact.sha,
+          error: exact.error,
+        },
+        previous_day_substitution: false,
+        history_context: null,
+        note: "當日 direct official 與 exact-date backup 均未 READY；fail-closed，且不載入舊 cross-section，避免舊資料冒充今日資料或放大回應。",
+      });
+    }
+
+    const history = await getTwMarketCrossSection(env, { as_of: tradeDate, calendar_days: 20, limit: limitOf(input) });
     return out({
       ok: false,
       compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
       legacy_tool: tool,
       modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS",
       projection: "institutional",
-      status: isToday && direct.status === "PENDING" ? "PENDING" : "LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY",
-      role: isToday ? "CURRENT_EXACT_DATE_PENDING" : "HISTORY_CONTEXT_ONLY",
+      status: "LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY",
+      role: "HISTORY_CONTEXT_ONLY",
       trade_date: tradeDate,
       current_selection_source: false,
       source_mode: "DIRECT_THEN_GITHUB_BACKUP",
@@ -411,9 +436,7 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
       },
       previous_day_substitution: false,
       history_context: history,
-      note: isToday
-        ? "當日官方 exact-date direct read 與 GitHub exact-date backup 都尚未 READY；舊 cross-section 僅作歷史背景，不得冒充今日資料。"
-        : "指定日期 direct exact-date 與 daily-ranking artifact 都未 READY；舊 cross-section 僅作 HISTORY_CONTEXT_ONLY。",
+      note: "指定歷史日期 direct exact-date 與 daily-ranking artifact 都未 READY；舊 cross-section 僅作 HISTORY_CONTEXT_ONLY。",
     });
   }
 
@@ -438,16 +461,36 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
       });
     }
 
-    const history = await getTwMarketCrossSection(env, { as_of: tradeDate, calendar_days: 20, limit: limitOf(input) });
     const isToday = tradeDate === taipeiToday();
+    if (isToday) {
+      return out({
+        ok: false,
+        compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
+        legacy_tool: tool,
+        modern_capability: "OFFICIAL_FULL_MARKET_MARGIN_EXACT_DATE",
+        projection: "margin",
+        status: direct.status,
+        role: direct.status === "ERROR" ? "CURRENT_EXACT_DATE_ERROR" : "CURRENT_EXACT_DATE_PENDING",
+        trade_date: tradeDate,
+        current_selection_source: false,
+        source_mode: "OFFICIAL_EXACT_DATE_ON_DEMAND",
+        previous_day_substitution: false,
+        persistence: "NONE",
+        direct_attempt: direct,
+        history_context: null,
+        note: "當日 TWSE + TPEx full-market exact-date margin 尚未全部 READY；fail-closed，不載入舊 GitHub cross-section，也不影響法人綠／紅卡。",
+      });
+    }
+
+    const history = await getTwMarketCrossSection(env, { as_of: tradeDate, calendar_days: 20, limit: limitOf(input) });
     return out({
       ok: false,
       compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
       legacy_tool: tool,
       modern_capability: "OFFICIAL_FULL_MARKET_MARGIN_EXACT_DATE",
       projection: "margin",
-      status: isToday && direct.status === "PENDING" ? "PENDING" : "LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY",
-      role: isToday ? "CURRENT_EXACT_DATE_PENDING" : "HISTORY_CONTEXT_ONLY",
+      status: "LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY",
+      role: "HISTORY_CONTEXT_ONLY",
       trade_date: tradeDate,
       current_selection_source: false,
       source_mode: "OFFICIAL_EXACT_DATE_ON_DEMAND",
@@ -455,9 +498,7 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
       persistence: "NONE",
       direct_attempt: direct,
       history_context: history,
-      note: isToday
-        ? "當日 TWSE + TPEx full-market exact-date margin 尚未全部 READY；舊 GitHub cross-section 只作歷史背景，不得冒充今日黃卡。"
-        : "指定日期 full-market exact-date margin 未 READY；舊 GitHub cross-section 只作 HISTORY_CONTEXT_ONLY。",
+      note: "指定歷史日期 full-market exact-date margin 未 READY；舊 GitHub cross-section 只作 HISTORY_CONTEXT_ONLY。",
     });
   }
 
