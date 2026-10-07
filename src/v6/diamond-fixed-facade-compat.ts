@@ -1,8 +1,11 @@
 import { readFamilyStockMarketContext } from "./family-ohlc-read-bridge";
 import { readGitHubJson } from "./github-data-store";
-import { getTwMarketCrossSection } from "./market-data-cross-section";
 import { getSupplyChainContract } from "./supply-chain-graph";
 import { getTwMarketChipSummaryOnDemand } from "./tw-market-chip-on-demand-facade";
+import {
+  getTwFullMarketInstitutionalOnDemand,
+  getTwFullMarketMarginOnDemand,
+} from "./tw-full-market-chip-on-demand";
 
 export const DIAMOND_CHATGPT_FIXED_FACADE_VERSION = "diamond-chatgpt-fixed-facade/v1";
 
@@ -193,11 +196,6 @@ async function readExactDateOfficialRankings(env: Env, date: string) {
   };
 }
 
-function limitOf(input: CompatInput) {
-  const value = Number(input.limit);
-  return Number.isInteger(value) && value >= 1 && value <= 2500 ? value : undefined;
-}
-
 function retired(tool: string, modernCapability: string, detail: string) {
   return out({
     ok: false,
@@ -221,6 +219,62 @@ function historyLayerOf(summary: unknown, key: string) {
 
 async function onDemandSummary(env: Env, symbol: string, as_of: string | undefined) {
   return getTwMarketChipSummaryOnDemand(env, { symbol, as_of, calendar_days: 60 });
+}
+
+async function resolveFullMarketInstitutional(env: Env, tradeDate: string) {
+  const direct = await getTwFullMarketInstitutionalOnDemand({ as_of: tradeDate });
+  if (direct.status === "READY") {
+    return {
+      ok: true,
+      status: "READY" as const,
+      role: "CURRENT_EXACT_DATE_OFFICIAL_ON_DEMAND" as const,
+      current_selection_source: true,
+      evidence_source: "DIRECT_TWSE_TPEX_EXACT_DATE_ON_DEMAND" as const,
+      data: direct,
+      direct,
+      exact_date_readback: null,
+      error: null,
+    };
+  }
+
+  // Exact-date GitHub is a fallback/readback only. It is never consulted when
+  // direct official sources are READY, so GitHub latency cannot gate today's
+  // green/red report.
+  const exact = await readExactDateOfficialRankings(env, tradeDate);
+  if (exact.status === "READY") {
+    return {
+      ok: true,
+      status: "READY" as const,
+      role: "CURRENT_EXACT_DATE_CANONICAL_READBACK" as const,
+      current_selection_source: true,
+      evidence_source: "GITHUB_EXACT_DATE_READBACK_FALLBACK" as const,
+      data: exact.artifact,
+      direct,
+      exact_date_readback: {
+        status: exact.status,
+        source_path: exact.path,
+        source_sha: exact.sha,
+      },
+      error: null,
+    };
+  }
+
+  return {
+    ok: false,
+    status: direct.status,
+    role: "CURRENT_EXACT_DATE_NOT_READY" as const,
+    current_selection_source: false,
+    evidence_source: "DIRECT_TWSE_TPEX_EXACT_DATE_ON_DEMAND" as const,
+    data: direct,
+    direct,
+    exact_date_readback: {
+      status: exact.status,
+      source_path: exact.path,
+      source_sha: exact.sha,
+      error: exact.error,
+    },
+    error: direct.error ?? exact.error,
+  };
 }
 
 async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
@@ -274,83 +328,95 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
     }
 
     const tradeDate = as_of ?? taipeiToday();
-    const exact = await readExactDateOfficialRankings(env, tradeDate);
+    const [institutional, margin] = await Promise.all([
+      resolveFullMarketInstitutional(env, tradeDate),
+      getTwFullMarketMarginOnDemand({ as_of: tradeDate }),
+    ]);
+    const institutionalReady = institutional.status === "READY";
+    const marginReady = margin.status === "READY";
     return out({
-      ok: exact.status === "READY",
+      ok: institutionalReady || marginReady,
       compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
       legacy_tool: tool,
-      modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS",
-      status: exact.status,
-      role: exact.status === "READY" ? "CURRENT_EXACT_DATE_OFFICIAL" : "CURRENT_EXACT_DATE_PENDING",
+      modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_AND_MARGIN_EXACT_DATE_ON_DEMAND",
+      // Backward compatibility: top-level readiness follows the green/red
+      // institutional component. Yellow is explicitly independent below.
+      status: institutional.status,
+      role: institutional.role,
       trade_date: tradeDate,
-      current_selection_source: exact.status === "READY",
-      source_path: exact.path,
-      source_sha: exact.sha,
+      current_selection_source: institutionalReady,
       previous_day_substitution: false,
-      persistence: "GITHUB_CANONICAL_REPORT_INPUT_READ_ONLY",
-      data: exact.artifact,
-      error: exact.error,
+      persistence: "CURRENT_ON_DEMAND_NONE; GITHUB_EXACT_DATE_READBACK_FALLBACK_ONLY",
+      all_components_ready: institutionalReady && marginReady,
+      components: {
+        inflow_outflow: {
+          status: institutional.status,
+          ready: institutionalReady,
+          source: institutional.evidence_source,
+          blocks_margin: false,
+        },
+        margin_short: {
+          status: margin.status,
+          ready: marginReady,
+          source: "DIRECT_TWSE_TPEX_EXACT_DATE_ON_DEMAND",
+          blocks_inflow_outflow: false,
+        },
+      },
+      // Keep data as the institutional payload for frozen callers that already
+      // read data.rankings.*, while exposing margin independently for yellow.
+      data: institutional.data,
+      institutional: institutional.data,
+      margin,
+      institutional_direct_status: institutional.direct.status,
+      exact_date_readback: institutional.exact_date_readback,
+      error: institutional.error,
     });
   }
 
   if (tool === "get_official_market_institutional") {
     const tradeDate = as_of ?? taipeiToday();
-    const exact = await readExactDateOfficialRankings(env, tradeDate);
-    if (exact.status === "READY") {
-      return out({
-        ok: true,
-        compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
-        legacy_tool: tool,
-        modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS",
-        projection: "institutional",
-        status: "READY",
-        role: "CURRENT_EXACT_DATE_OFFICIAL",
-        trade_date: tradeDate,
-        current_selection_source: true,
-        source_path: exact.path,
-        source_sha: exact.sha,
-        previous_day_substitution: false,
-        data: exact.artifact,
-      });
-    }
-
-    const history = await getTwMarketCrossSection(env, { as_of: tradeDate, calendar_days: 20, limit: limitOf(input) });
-    const isToday = tradeDate === taipeiToday();
+    const resolved = await resolveFullMarketInstitutional(env, tradeDate);
     return out({
-      ok: false,
+      ok: resolved.ok,
       compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
       legacy_tool: tool,
-      modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS",
+      modern_capability: "OFFICIAL_DAILY_INSTITUTIONAL_RANKINGS_EXACT_DATE_ON_DEMAND",
       projection: "institutional",
-      status: isToday ? exact.status : "LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY",
-      role: isToday ? "CURRENT_EXACT_DATE_PENDING" : "HISTORY_CONTEXT_ONLY",
+      status: resolved.status,
+      role: resolved.role,
       trade_date: tradeDate,
-      current_selection_source: false,
-      exact_date_capture: {
-        status: exact.status,
-        source_path: exact.path,
-        source_sha: exact.sha,
-        error: exact.error,
-      },
+      current_selection_source: resolved.current_selection_source,
+      preferred_current_evidence: "DIRECT_TWSE_TPEX_EXACT_DATE_ON_DEMAND",
+      evidence_source: resolved.evidence_source,
       previous_day_substitution: false,
-      history_context: history,
-      note: isToday
-        ? "當日正式法人排名尚未完成 exact-date capture；不得用舊 GitHub 歷史 cross-section 冒充今日資料。"
-        : "指定歷史日期沒有 exact-date daily-ranking artifact；舊 cross-section 僅作 HISTORY_CONTEXT_ONLY。",
+      persistence: "CURRENT_ON_DEMAND_NONE; GITHUB_EXACT_DATE_READBACK_FALLBACK_ONLY",
+      data: resolved.data,
+      direct_status: resolved.direct.status,
+      direct_source_health: resolved.direct.source_health,
+      exact_date_readback: resolved.exact_date_readback,
+      error: resolved.error,
     });
   }
 
   if (tool === "get_official_market_margin") {
-    const data = await getTwMarketCrossSection(env, { ...(as_of ? { as_of } : {}), calendar_days: 20, limit: limitOf(input) });
+    const tradeDate = as_of ?? taipeiToday();
+    const data = await getTwFullMarketMarginOnDemand({ as_of: tradeDate });
     return out({
+      ok: data.status === "READY",
       compatibility: DIAMOND_CHATGPT_FIXED_FACADE_VERSION,
       legacy_tool: tool,
-      modern_tool: "get_tw_market_cross_section",
+      modern_capability: "OFFICIAL_FULL_MARKET_MARGIN_EXACT_DATE_ON_DEMAND",
       projection: "margin",
-      status: "LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY",
-      role: "HISTORY_CONTEXT_ONLY",
-      current_selection_source: false,
-      note: "目前沒有全市場 on-demand margin cross-section；此 frozen alias 僅保留舊 GitHub archive 歷史背景，不得解讀為當期官方全市場快照。",
+      status: data.status,
+      role: data.role,
+      trade_date: tradeDate,
+      current_selection_source: data.status === "READY",
+      preferred_current_evidence: "DIRECT_TWSE_TPEX_EXACT_DATE_ON_DEMAND",
+      previous_day_substitution: false,
+      persistence: "NONE",
+      note: data.status === "READY"
+        ? "TWSE＋TPEx 全市場融資融券已以指定日官方資料直接讀取；GitHub 歷史 archive 不再是當期 Gate。"
+        : "指定日其中一個官方來源尚未 READY 或讀取失敗；維持 fail-closed，不以舊交易日補值。",
       data,
     });
   }
