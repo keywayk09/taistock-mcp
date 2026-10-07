@@ -262,6 +262,41 @@ assert.equal(dailyReportPayload.margin_data.schema, "TW_OFFICIAL_MARGIN_CROSS_SE
 assert.equal(dailyReportPayload.margin_data.coverage.total_rows, 800);
 assert.equal(dailyReportPayload.margin_data.rankings.margin_increase.length, 10);
 
+// GitHub persistence must never be a readiness gate. With the exact-date
+// official sources READY and the canonical official-rankings artifact absent,
+// the daily report must still be COMPLETE from direct official reads.
+const noArtifactEnv = {
+  __GITHUB_DATA_MEMORY:new Map(),
+} as any as Env;
+const noArtifactDailyReportResponse = await tryCompat!(new Request("https://taistock-mcp.example/my-mcp", {
+  method:"POST",
+  headers:{ "content-type":"application/json" },
+  body:JSON.stringify({
+    jsonrpc:"2.0",
+    id:85,
+    method:"tools/call",
+    params:{ name:"get_daily_chip_report", arguments:{ date:"2026-10-05", fallback_days:0, watchlist:[], include_raw:false } },
+  }),
+}), noArtifactEnv);
+assert.ok(noArtifactDailyReportResponse);
+const noArtifactDailyReportRpc = await noArtifactDailyReportResponse!.json() as any;
+const noArtifactDailyReportPayload = JSON.parse(String(noArtifactDailyReportRpc.result.content[0].text));
+assert.equal(noArtifactDailyReportPayload.ok, true);
+assert.equal(noArtifactDailyReportPayload.status, "READY");
+assert.equal(noArtifactDailyReportPayload.report_completeness, "COMPLETE");
+assert.equal(noArtifactDailyReportPayload.source_mode, "DECOUPLED_OFFICIAL_EXACT_DATE");
+assert.equal(noArtifactDailyReportPayload.persistence, "NONE");
+assert.equal(noArtifactDailyReportPayload.source_path, null);
+assert.equal(noArtifactDailyReportPayload.source_sha, null);
+assert.equal(noArtifactDailyReportPayload.institutional_cards_ready, true);
+assert.equal(noArtifactDailyReportPayload.margin_card_ready, true);
+assert.equal(noArtifactDailyReportPayload.cards.institutional.source_mode, "OFFICIAL_EXACT_DATE_ON_DEMAND");
+assert.equal(noArtifactDailyReportPayload.cards.institutional.backup_attempt, null);
+assert.equal(noArtifactDailyReportPayload.cards.margin.source_mode, "OFFICIAL_EXACT_DATE_ON_DEMAND");
+assert.equal(noArtifactDailyReportPayload.data.trade_date, "2026-10-05");
+assert.equal(noArtifactDailyReportPayload.margin_data.trade_date, "2026-10-05");
+assert.equal(noArtifactDailyReportPayload.previous_day_substitution, false);
+
 failMargin = true;
 const partialDailyReportCall = new Request("https://taistock-mcp.example/my-mcp", {
   method:"POST",
