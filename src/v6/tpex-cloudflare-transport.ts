@@ -193,6 +193,40 @@ function modernExactDateRows(body: any, tradeDate: string, label: string) {
   return rows as any[][];
 }
 
+function normalizeModernInstitutionalPayload(body: any, tradeDate: string) {
+  const rows = modernExactDateRows(body, tradeDate, "TPEX_3INSTI_MODERN_WEB_JSON");
+  const normalized = rows
+    .filter((row) => row.length > 23 && clean(row[0]))
+    .map((row) => ({
+      Date: tradeDate,
+      "證券代號": clean(row[0]),
+      "證券名稱": clean(row[1]),
+      "外資及陸資買賣超股數": row[10],
+      "投信買賣超股數": row[13],
+      "自營商買賣超股數": row[22],
+      "三大法人買賣超股數": row[23],
+    }));
+  if (!normalized.length) throw new Error("TPEX_3INSTI_MODERN_WEB_JSON_exact_date_empty");
+  return normalized;
+}
+
+function normalizeModernMarginPayload(body: any, tradeDate: string) {
+  const rows = modernExactDateRows(body, tradeDate, "TPEX_MARGIN_MODERN_WEB_JSON");
+  const normalized = rows
+    .filter((row) => row.length > 14 && clean(row[0]))
+    .map((row) => ({
+      Date: tradeDate,
+      "證券代號": clean(row[0]),
+      "證券名稱": clean(row[1]),
+      "融資前日餘額": row[2],
+      "融資今日餘額": row[6],
+      "融券前日餘額": row[10],
+      "融券今日餘額": row[14],
+    }));
+  if (!normalized.length) throw new Error("TPEX_MARGIN_MODERN_WEB_JSON_exact_date_empty");
+  return normalized;
+}
+
 function normalizeSblRows(dataset: "sbl_balance" | "sbl_volume", rows: any[][], tradeDate: string) {
   if (dataset === "sbl_balance") {
     return rows.filter((row) => row.length > 13 && clean(row[0])).map((row) => ({
@@ -335,8 +369,24 @@ export async function getTpexInstitutionalPayload(tradeDate: string) {
     if (!Array.isArray(body) || !body.length) throw new Error("TPEX_3INSTI_OPENAPI_empty");
     requireRequestedDate(body, tradeDate, "TPEX_3INSTI_OPENAPI");
     return body;
-  } catch (directError) {
-    return getExactRelayOrOfficialWeb("institutional", tradeDate, directError);
+  } catch (openApiError) {
+    // TPEx retired the old /web daily-trade route and the OpenAPI endpoint can
+    // redirect Cloudflare egress to /errors. The current official exact-date
+    // endpoint is /www/zh-tw/insti/dailyTrade.
+    const modernUrl =
+      `https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date=${encodeURIComponent(rocDate(tradeDate))}&id=&response=json`;
+    try {
+      const body = await getTpexJsonAny(modernUrl, "TPEX_3INSTI_MODERN_WEB_JSON");
+      return normalizeModernInstitutionalPayload(body, tradeDate);
+    } catch (modernError) {
+      const openApi = openApiError instanceof Error ? openApiError.message : String(openApiError);
+      const modern = modernError instanceof Error ? modernError.message : String(modernError);
+      return getExactRelayOrOfficialWeb(
+        "institutional",
+        tradeDate,
+        new Error(`openapi=${openApi.slice(0, 140)};modern=${modern.slice(0, 180)}`),
+      );
+    }
   }
 }
 
@@ -347,7 +397,21 @@ export async function getTpexMarginPayload(tradeDate: string) {
     if (!Array.isArray(body) || !body.length) throw new Error("TPEX_MARGIN_OPENAPI_empty");
     requireRequestedDate(body, tradeDate, "TPEX_MARGIN_OPENAPI");
     return body;
-  } catch (directError) {
-    return getExactRelayOrOfficialWeb("margin", tradeDate, directError);
+  } catch (openApiError) {
+    // The modern margin endpoint expects AD YYYY/MM/DD (not ROC date).
+    const modernUrl =
+      `https://www.tpex.org.tw/www/zh-tw/margin/balance?date=${encodeURIComponent(adSlashDate(tradeDate))}&id=&response=json`;
+    try {
+      const body = await getTpexJsonAny(modernUrl, "TPEX_MARGIN_MODERN_WEB_JSON");
+      return normalizeModernMarginPayload(body, tradeDate);
+    } catch (modernError) {
+      const openApi = openApiError instanceof Error ? openApiError.message : String(openApiError);
+      const modern = modernError instanceof Error ? modernError.message : String(modernError);
+      return getExactRelayOrOfficialWeb(
+        "margin",
+        tradeDate,
+        new Error(`openapi=${openApi.slice(0, 140)};modern=${modern.slice(0, 180)}`),
+      );
+    }
   }
 }
