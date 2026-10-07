@@ -89,8 +89,10 @@ jobs:
               ad = urllib.parse.quote(day.strftime('%Y/%m/%d'), safe='')
               return {
                   'institutional': f'https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date={roc}&id=&response=json',
+                  'institutional_openapi': 'https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading',
                   'institutional_legacy': f'https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=EW&t=D&d={roc}&s=0,asc',
                   'margin': f'https://www.tpex.org.tw/www/zh-tw/margin/balance?date={roc}&id=&response=json',
+                  'margin_openapi': 'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance',
                   'margin_legacy': f'https://www.tpex.org.tw/web/stock/margin_trading/margin_balance/margin_bal_result.php?l=zh-tw&o=json&d={roc}&s=0,asc',
                   'sbl': f'https://www.tpex.org.tw/www/zh-tw/margin/sbl?date={ad}&id=&response=json',
               }
@@ -154,6 +156,39 @@ jobs:
                           f'modern={type(modern_exc).__name__}:{modern_exc};'
                           f'legacy={type(legacy_exc).__name__}:{legacy_exc}'
                       )
+
+          def normalize_openapi_date(value):
+              raw = clean(value)
+              if re.fullmatch(r'\d{7}', raw):
+                  return f'{int(raw[:3]) + 1911:04d}-{raw[3:5]}-{raw[5:7]}'
+              if re.fullmatch(r'\d{8}', raw):
+                  return f'{raw[:4]}-{raw[4:6]}-{raw[6:8]}'
+              match = re.fullmatch(r'(\d{2,4})[/.\-](\d{1,2})[/.\-](\d{1,2})', raw)
+              if match:
+                  year = int(match.group(1))
+                  if year < 1911:
+                      year += 1911
+                  return f'{year:04d}-{int(match.group(2)):02d}-{int(match.group(3)):02d}'
+              return None
+
+          def exact_openapi_rows(body, day, label):
+              expected = day.isoformat()
+              if not isinstance(body, list) or not body:
+                  raise RuntimeError(f'{label}_exact_date_empty')
+              rows = [row for row in body if isinstance(row, dict)]
+              if not rows:
+                  raise RuntimeError(f'{label}_exact_date_empty')
+              observed = []
+              for row in rows:
+                  value = row.get('Date') or row.get('date') or row.get('TradeDate') or row.get('日期') or row.get('資料日期')
+                  parsed = normalize_openapi_date(value)
+                  if not parsed:
+                      raise RuntimeError(f'{label}_row_date_missing')
+                  observed.append(parsed)
+              dates = sorted(set(observed))
+              if dates != [expected]:
+                  raise RuntimeError(f'{label}_source_date_mismatch:{",".join(dates) if dates else "missing"}')
+              return rows
 
           def dataset_valid(base, trade_date, name, meta):
               if not isinstance(meta, dict):
@@ -234,46 +269,58 @@ jobs:
 
               if 'institutional' not in manifest['datasets']:
                   try:
-                      inst, inst_endpoint = modern_then_legacy_rows(
-                          urls['institutional'], 'TPEX_INSTI_MODERN',
-                          urls['institutional_legacy'], 'TPEX_INSTI_LEGACY',
-                          day,
-                      )
-                      rows = [{
-                          'Date': trade_date,
-                          '證券代號': clean(row[0]),
-                          '證券名稱': clean(row[1]),
-                          '外資及陸資買賣超股數': row[10],
-                          '投信買賣超股數': row[13],
-                          '自營商買賣超股數': row[22],
-                          '三大法人買賣超股數': row[23],
-                      } for row in inst if len(row) > 23 and clean(row[0])]
-                      write_dataset(base, manifest, trade_date, 'institutional', rows, inst_endpoint)
+                      endpoint = urls['institutional']
+                      try:
+                          inst = exact_table(fetch_json(endpoint, 'TPEX_INSTI_MODERN'), day, 'TPEX_INSTI_MODERN')
+                          rows = [{
+                              'Date': trade_date,
+                              '證券代號': clean(row[0]),
+                              '證券名稱': clean(row[1]),
+                              '外資及陸資買賣超股數': row[10],
+                              '投信買賣超股數': row[13],
+                              '自營商買賣超股數': row[22],
+                              '三大法人買賣超股數': row[23],
+                          } for row in inst if len(row) > 23 and clean(row[0])]
+                      except Exception as modern_exc:
+                          endpoint = urls['institutional_openapi']
+                          rows = exact_openapi_rows(
+                              fetch_json(endpoint, 'TPEX_INSTI_OPENAPI'),
+                              day,
+                              'TPEX_INSTI_OPENAPI',
+                          )
+                          print(f'institutional modern fallback: {type(modern_exc).__name__}: {modern_exc}')
+                      write_dataset(base, manifest, trade_date, 'institutional', rows, endpoint)
                       changed = True
-                      print(f'institutional READY {trade_date} rows={len(rows)} endpoint={inst_endpoint}')
+                      print(f'institutional READY {trade_date} rows={len(rows)} endpoint={endpoint}')
                   except Exception as exc:
                       manifest['capture_errors']['institutional'] = f'{type(exc).__name__}: {exc}'[:300]
                       print(f'institutional WAIT {manifest["capture_errors"]["institutional"]}')
 
               if 'margin' not in manifest['datasets']:
                   try:
-                      margin, margin_endpoint = modern_then_legacy_rows(
-                          urls['margin'], 'TPEX_MARGIN_MODERN',
-                          urls['margin_legacy'], 'TPEX_MARGIN_LEGACY',
-                          day,
-                      )
-                      rows = [{
-                          'Date': trade_date,
-                          '證券代號': clean(row[0]),
-                          '證券名稱': clean(row[1]),
-                          '融資前日餘額': row[2],
-                          '融資今日餘額': row[6],
-                          '融券前日餘額': row[10],
-                          '融券今日餘額': row[14],
-                      } for row in margin if len(row) > 14 and clean(row[0])]
-                      write_dataset(base, manifest, trade_date, 'margin', rows, margin_endpoint)
+                      endpoint = urls['margin']
+                      try:
+                          margin = exact_table(fetch_json(endpoint, 'TPEX_MARGIN_MODERN'), day, 'TPEX_MARGIN_MODERN')
+                          rows = [{
+                              'Date': trade_date,
+                              '證券代號': clean(row[0]),
+                              '證券名稱': clean(row[1]),
+                              '融資前日餘額': row[2],
+                              '融資今日餘額': row[6],
+                              '融券前日餘額': row[10],
+                              '融券今日餘額': row[14],
+                          } for row in margin if len(row) > 14 and clean(row[0])]
+                      except Exception as modern_exc:
+                          endpoint = urls['margin_openapi']
+                          rows = exact_openapi_rows(
+                              fetch_json(endpoint, 'TPEX_MARGIN_OPENAPI'),
+                              day,
+                              'TPEX_MARGIN_OPENAPI',
+                          )
+                          print(f'margin modern fallback: {type(modern_exc).__name__}: {modern_exc}')
+                      write_dataset(base, manifest, trade_date, 'margin', rows, endpoint)
                       changed = True
-                      print(f'margin READY {trade_date} rows={len(rows)} endpoint={margin_endpoint}')
+                      print(f'margin READY {trade_date} rows={len(rows)} endpoint={endpoint}')
                   except Exception as exc:
                       manifest['capture_errors']['margin'] = f'{type(exc).__name__}: {exc}'[:300]
                       print(f'margin WAIT {manifest["capture_errors"]["margin"]}')
