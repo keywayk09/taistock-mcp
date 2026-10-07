@@ -199,6 +199,11 @@ function limitOf(input: CompatInput) {
   return Number.isInteger(value) && value >= 1 && value <= 2500 ? value : undefined;
 }
 
+function fullMarketFetcherOf(env: Env) {
+  const value = (env as any).__FULL_MARKET_FETCH;
+  return typeof value === "function" ? value as typeof fetch : undefined;
+}
+
 function retired(tool: string, modernCapability: string, detail: string) {
   return out({
     ok: false,
@@ -296,7 +301,7 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
 
   if (tool === "get_official_market_institutional") {
     const tradeDate = as_of ?? taipeiToday();
-    const direct = await getOfficialMarketInstitutionalOnDemand({ date: tradeDate });
+    const direct = await getOfficialMarketInstitutionalOnDemand({ date: tradeDate, fetcher: fullMarketFetcherOf(env) });
     if (direct.status === "READY") {
       return out({
         ok: true,
@@ -368,7 +373,7 @@ async function handleLegacyRead(tool: string, env: Env, input: CompatInput) {
 
   if (tool === "get_official_market_margin") {
     const tradeDate = as_of ?? taipeiToday();
-    const direct = await getOfficialMarketMarginOnDemand({ date: tradeDate });
+    const direct = await getOfficialMarketMarginOnDemand({ date: tradeDate, fetcher: fullMarketFetcherOf(env) });
     if (direct.status === "READY") {
       return out({
         ok: true,
