@@ -214,9 +214,16 @@ const tpexMargin = otcSymbols.map((symbol, i) => {
 
 const originalFetch = globalThis.fetch;
 let failMargin = false;
+let transientTwseInstitutionalFailures = 0;
 globalThis.fetch = (async (input:RequestInfo | URL) => {
   const url=String(input);
-  if(url.includes("/fund/T86")) return new Response(JSON.stringify(twseInstitutional), { status:200, headers:{ "content-type":"application/json" } });
+  if(url.includes("/fund/T86")) {
+    if(transientTwseInstitutionalFailures > 0) {
+      transientTwseInstitutionalFailures--;
+      return new Response("temporary TWSE failure", { status:503 });
+    }
+    return new Response(JSON.stringify(twseInstitutional), { status:200, headers:{ "content-type":"application/json" } });
+  }
   if(url.includes("/openapi/v1/tpex_3insti_daily_trading")) return new Response(JSON.stringify(tpexInstitutional), { status:200, headers:{ "content-type":"application/json" } });
   if(url.includes("/marginTrading/MI_MARGN")) {
     if(failMargin) return new Response("temporary margin source failure", { status:503 });
@@ -268,6 +275,7 @@ assert.equal(dailyReportPayload.margin_data.rankings.margin_increase.length, 10)
 const noArtifactEnv = {
   __GITHUB_DATA_MEMORY:new Map(),
 } as any as Env;
+transientTwseInstitutionalFailures = 1;
 const noArtifactDailyReportResponse = await tryCompat!(new Request("https://taistock-mcp.example/my-mcp", {
   method:"POST",
   headers:{ "content-type":"application/json" },
@@ -296,6 +304,7 @@ assert.equal(noArtifactDailyReportPayload.cards.margin.source_mode, "OFFICIAL_EX
 assert.equal(noArtifactDailyReportPayload.data.trade_date, "2026-10-05");
 assert.equal(noArtifactDailyReportPayload.margin_data.trade_date, "2026-10-05");
 assert.equal(noArtifactDailyReportPayload.previous_day_substitution, false);
+assert.equal(transientTwseInstitutionalFailures, 0);
 
 failMargin = true;
 const partialDailyReportCall = new Request("https://taistock-mcp.example/my-mcp", {
