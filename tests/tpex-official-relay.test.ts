@@ -42,9 +42,9 @@ assert.match(capture, /dueLayerKeys/);
 assert.match(capture, /rawCapture/);
 assert.match(capture, /validateDate/);
 
-// Daily relay must use the same exact-date modern TPEx contract already proven by History.
-// Latest-only OpenAPI is not sufficient because margin/SBL can remain on the prior trade date
-// after institutional data has already advanced.
+// Daily relay prefers the date-addressable TPEx web JSON and may fall back to the
+// official OpenAPI only when every returned row is independently verified to match
+// the requested trade date. Prior-day rows remain a hard fail-closed condition.
 const dailyRelay = read(".github/workflows/tpex-official-relay-v2.yml");
 assert.match(dailyRelay, /\/www\/zh-tw\/insti\/dailyTrade\?type=Daily&sect=EW&date=/);
 assert.match(dailyRelay, /\/www\/zh-tw\/margin\/balance\?date=/);
@@ -52,8 +52,11 @@ assert.match(dailyRelay, /\/www\/zh-tw\/margin\/sbl\?date=/);
 assert.match(dailyRelay, /3itrade_hedge_result\.php/);
 assert.match(dailyRelay, /margin_bal_result\.php/);
 assert.match(dailyRelay, /modern_then_legacy_rows/);
-assert.match(dailyRelay, /TPEX_INSTI_LEGACY/);
-assert.match(dailyRelay, /TPEX_MARGIN_LEGACY/);
+assert.match(dailyRelay, /institutional_openapi/);
+assert.match(dailyRelay, /margin_openapi/);
+assert.match(dailyRelay, /exact_openapi_rows/);
+assert.match(dailyRelay, /TPEX_INSTI_OPENAPI/);
+assert.match(dailyRelay, /TPEX_MARGIN_OPENAPI/);
 assert.match(dailyRelay, /exact_table/);
 assert.match(dailyRelay, /source_date_mismatch/);
 assert.match(dailyRelay, /Asia\/Taipei/);
