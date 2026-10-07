@@ -89,7 +89,9 @@ jobs:
               ad = urllib.parse.quote(day.strftime('%Y/%m/%d'), safe='')
               return {
                   'institutional': f'https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date={roc}&id=&response=json',
+                  'institutional_legacy': f'https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=EW&t=D&d={roc}&s=0,asc',
                   'margin': f'https://www.tpex.org.tw/www/zh-tw/margin/balance?date={roc}&id=&response=json',
+                  'margin_legacy': f'https://www.tpex.org.tw/web/stock/margin_trading/margin_balance/margin_bal_result.php?l=zh-tw&o=json&d={roc}&s=0,asc',
                   'sbl': f'https://www.tpex.org.tw/www/zh-tw/margin/sbl?date={ad}&id=&response=json',
               }
 
@@ -128,6 +130,30 @@ jobs:
               if not rows:
                   raise RuntimeError(f'{label}_exact_date_empty')
               return rows
+
+          def legacy_rows(body, label):
+              if not isinstance(body, dict):
+                  raise RuntimeError(f'{label}_root_not_object')
+              rows = body.get('aaData')
+              if not isinstance(rows, list):
+                  raise RuntimeError(f'{label}_aaData_missing')
+              rows = [row for row in rows if isinstance(row, list)]
+              if not rows:
+                  raise RuntimeError(f'{label}_exact_date_empty')
+              return rows
+
+          def modern_then_legacy_rows(modern_url, modern_label, legacy_url, legacy_label, day):
+              try:
+                  return exact_table(fetch_json(modern_url, modern_label), day, modern_label), modern_url
+              except Exception as modern_exc:
+                  try:
+                      return legacy_rows(fetch_json(legacy_url, legacy_label), legacy_label), legacy_url
+                  except Exception as legacy_exc:
+                      raise RuntimeError(
+                          f'{modern_label}_and_{legacy_label}_failed:'
+                          f'modern={type(modern_exc).__name__}:{modern_exc};'
+                          f'legacy={type(legacy_exc).__name__}:{legacy_exc}'
+                      )
 
           def dataset_valid(base, trade_date, name, meta):
               if not isinstance(meta, dict):
@@ -188,7 +214,7 @@ jobs:
               'trade_date': trade_date,
               'captured_at_utc': existing_manifest.get('captured_at_utc') or now,
               'source_owner': 'TPEx',
-              'transport': 'GitHub hosted runner exact-date modern official TPEx JSON API',
+              'transport': 'GitHub hosted runner exact-date official TPEx JSON API with legacy official fallback',
               'canonical_storage': 'keywayk09/tv-papertrader main/data',
               'datasets': {},
               'capture_errors': {},
@@ -208,7 +234,11 @@ jobs:
 
               if 'institutional' not in manifest['datasets']:
                   try:
-                      inst = exact_table(fetch_json(urls['institutional'], 'TPEX_INSTI_MODERN'), day, 'TPEX_INSTI_MODERN')
+                      inst, inst_endpoint = modern_then_legacy_rows(
+                          urls['institutional'], 'TPEX_INSTI_MODERN',
+                          urls['institutional_legacy'], 'TPEX_INSTI_LEGACY',
+                          day,
+                      )
                       rows = [{
                           'Date': trade_date,
                           '證券代號': clean(row[0]),
@@ -218,16 +248,20 @@ jobs:
                           '自營商買賣超股數': row[22],
                           '三大法人買賣超股數': row[23],
                       } for row in inst if len(row) > 23 and clean(row[0])]
-                      write_dataset(base, manifest, trade_date, 'institutional', rows, urls['institutional'])
+                      write_dataset(base, manifest, trade_date, 'institutional', rows, inst_endpoint)
                       changed = True
-                      print(f'institutional READY {trade_date} rows={len(rows)}')
+                      print(f'institutional READY {trade_date} rows={len(rows)} endpoint={inst_endpoint}')
                   except Exception as exc:
                       manifest['capture_errors']['institutional'] = f'{type(exc).__name__}: {exc}'[:300]
                       print(f'institutional WAIT {manifest["capture_errors"]["institutional"]}')
 
               if 'margin' not in manifest['datasets']:
                   try:
-                      margin = exact_table(fetch_json(urls['margin'], 'TPEX_MARGIN_MODERN'), day, 'TPEX_MARGIN_MODERN')
+                      margin, margin_endpoint = modern_then_legacy_rows(
+                          urls['margin'], 'TPEX_MARGIN_MODERN',
+                          urls['margin_legacy'], 'TPEX_MARGIN_LEGACY',
+                          day,
+                      )
                       rows = [{
                           'Date': trade_date,
                           '證券代號': clean(row[0]),
@@ -237,9 +271,9 @@ jobs:
                           '融券前日餘額': row[10],
                           '融券今日餘額': row[14],
                       } for row in margin if len(row) > 14 and clean(row[0])]
-                      write_dataset(base, manifest, trade_date, 'margin', rows, urls['margin'])
+                      write_dataset(base, manifest, trade_date, 'margin', rows, margin_endpoint)
                       changed = True
-                      print(f'margin READY {trade_date} rows={len(rows)}')
+                      print(f'margin READY {trade_date} rows={len(rows)} endpoint={margin_endpoint}')
                   except Exception as exc:
                       manifest['capture_errors']['margin'] = f'{type(exc).__name__}: {exc}'[:300]
                       print(f'margin WAIT {manifest["capture_errors"]["margin"]}')
