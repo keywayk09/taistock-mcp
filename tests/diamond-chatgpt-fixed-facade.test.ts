@@ -153,6 +153,75 @@ const reportEnv = {
   ]),
 } as any as Env;
 
+const listedSymbols = Array.from({ length:500 }, (_, i) => String(1000 + i));
+const otcSymbols = Array.from({ length:300 }, (_, i) => String(6000 + i));
+const twseInstitutional = {
+  date:"20261005",
+  fields:["證券代號", "證券名稱", "外陸資買賣超股數(不含外資自營商)", "投信買賣超股數", "自營商買賣超股數", "三大法人買賣超股數"],
+  data:listedSymbols.map((symbol, i) => {
+    const foreign=(i % 2 === 0 ? 1 : -1) * (100000 + i);
+    const trust=(i % 2 === 0 ? -1 : 1) * (50000 + i);
+    return [symbol, "L" + symbol, String(foreign), String(trust), "0", String(foreign + trust)];
+  }),
+};
+const tpexInstitutional = otcSymbols.map((symbol, i) => {
+  const foreign=(i % 2 === 0 ? 1 : -1) * (90000 + i);
+  const trust=(i % 2 === 0 ? -1 : 1) * (40000 + i);
+  return {
+    Date:"2026-10-05",
+    SecuritiesCompanyCode:symbol,
+    CompanyName:"O" + symbol,
+    "Foreign Investors include Mainland Area Investors (Foreign Dealers excluded)-Difference":String(foreign),
+    "Securities Investment Trust Companies-Difference":String(trust),
+    "Dealers-Difference":"0",
+    "Total Difference":String(foreign + trust),
+  };
+});
+const twseMargin = {
+  date:"20261005",
+  tables:[{
+    title:"115年10月05日 融資融券彙總 (全部)",
+    fields:[
+      "代號", "名稱",
+      "買進", "賣出", "現金償還", "前日餘額", "今日餘額", "次一營業日限額",
+      "買進", "賣出", "現券償還", "前日餘額", "今日餘額", "次一營業日限額",
+      "資券互抵", "註記",
+    ],
+    data:listedSymbols.map((symbol, i) => {
+      const marginPrev=1000 + i;
+      const marginNow=marginPrev + (i % 2 === 0 ? 20 : -10);
+      const shortPrev=100 + i;
+      const shortNow=shortPrev + (i % 3 === 0 ? 5 : -2);
+      return [symbol, "L" + symbol, "10", "5", "0", String(marginPrev), String(marginNow), "999999", "1", "2", "0", String(shortPrev), String(shortNow), "999999", "0", ""];
+    }),
+  }],
+};
+const tpexMargin = otcSymbols.map((symbol, i) => {
+  const marginPrev=800 + i;
+  const marginNow=marginPrev + (i % 2 === 0 ? 15 : -8);
+  const shortPrev=80 + i;
+  const shortNow=shortPrev + (i % 3 === 0 ? 4 : -1);
+  return {
+    Date:"2026-10-05",
+    SecuritiesCompanyCode:symbol,
+    CompanyName:"O" + symbol,
+    MarginPurchaseYesterdayBalance:String(marginPrev),
+    MarginPurchaseTodayBalance:String(marginNow),
+    ShortSaleYesterdayBalance:String(shortPrev),
+    ShortSaleTodayBalance:String(shortNow),
+  };
+});
+
+const originalFetch = globalThis.fetch;
+globalThis.fetch = (async (input:RequestInfo | URL) => {
+  const url=String(input);
+  if(url.includes("/fund/T86")) return new Response(JSON.stringify(twseInstitutional), { status:200, headers:{ "content-type":"application/json" } });
+  if(url.includes("/openapi/v1/tpex_3insti_daily_trading")) return new Response(JSON.stringify(tpexInstitutional), { status:200, headers:{ "content-type":"application/json" } });
+  if(url.includes("/marginTrading/MI_MARGN")) return new Response(JSON.stringify(twseMargin), { status:200, headers:{ "content-type":"application/json" } });
+  if(url.includes("/openapi/v1/tpex_mainboard_margin_balance")) return new Response(JSON.stringify(tpexMargin), { status:200, headers:{ "content-type":"application/json" } });
+  throw new Error("unexpected_direct_market_fetch:" + url);
+}) as typeof fetch;
+
 const dailyReportCall = new Request("https://taistock-mcp.example/my-mcp", {
   method:"POST",
   headers:{ "content-type":"application/json" },
@@ -171,8 +240,11 @@ assert.equal(dailyReportPayload.status, "READY");
 assert.equal(dailyReportPayload.role, "CURRENT_EXACT_DATE_OFFICIAL");
 assert.equal(dailyReportPayload.trade_date, "2026-10-05");
 assert.equal(dailyReportPayload.current_selection_source, true);
+assert.equal(dailyReportPayload.source_mode, "OFFICIAL_EXACT_DATE_ON_DEMAND");
+assert.equal(dailyReportPayload.persistence, "NONE");
 assert.equal(dailyReportPayload.previous_day_substitution, false);
-assert.equal(dailyReportPayload.data.coverage.total_rows, 1875);
+assert.equal(dailyReportPayload.data.coverage.total_rows, 800);
+assert.equal(dailyReportPayload.data.persistence, "NONE");
 assert.equal(dailyReportPayload.data.rankings.foreign_buy.length, 10);
 
 const fullMarketInstitutionalCall = new Request("https://taistock-mcp.example/my-mcp", {
@@ -192,8 +264,38 @@ const fullMarketInstitutionalPayload = JSON.parse(String(fullMarketInstitutional
 assert.equal(fullMarketInstitutionalPayload.status, "READY");
 assert.equal(fullMarketInstitutionalPayload.role, "CURRENT_EXACT_DATE_OFFICIAL");
 assert.equal(fullMarketInstitutionalPayload.current_selection_source, true);
+assert.equal(fullMarketInstitutionalPayload.source_mode, "OFFICIAL_EXACT_DATE_ON_DEMAND");
+assert.equal(fullMarketInstitutionalPayload.persistence, "NONE");
 assert.equal(fullMarketInstitutionalPayload.data.source_date_verified, true);
 assert.equal(fullMarketInstitutionalPayload.data.previous_day_substitution, false);
+assert.equal(fullMarketInstitutionalPayload.data.coverage.total_rows, 800);
+
+const fullMarketMarginCall = new Request("https://taistock-mcp.example/my-mcp", {
+  method:"POST",
+  headers:{ "content-type":"application/json" },
+  body:JSON.stringify({
+    jsonrpc:"2.0",
+    id:83,
+    method:"tools/call",
+    params:{ name:"get_official_market_margin", arguments:{ date:"2026-10-05" } },
+  }),
+});
+const fullMarketMarginResponse = await tryCompat!(fullMarketMarginCall, reportEnv);
+assert.ok(fullMarketMarginResponse);
+const fullMarketMarginRpc = await fullMarketMarginResponse!.json() as any;
+const fullMarketMarginPayload = JSON.parse(String(fullMarketMarginRpc.result.content[0].text));
+assert.equal(fullMarketMarginPayload.status, "READY");
+assert.equal(fullMarketMarginPayload.role, "CURRENT_EXACT_DATE_OFFICIAL");
+assert.equal(fullMarketMarginPayload.current_selection_source, true);
+assert.equal(fullMarketMarginPayload.source_mode, "OFFICIAL_EXACT_DATE_ON_DEMAND");
+assert.equal(fullMarketMarginPayload.previous_day_substitution, false);
+assert.equal(fullMarketMarginPayload.data.schema, "TW_OFFICIAL_MARGIN_CROSS_SECTION_V1");
+assert.equal(fullMarketMarginPayload.data.source_date_verified, true);
+assert.equal(fullMarketMarginPayload.data.coverage.total_rows, 800);
+assert.equal(fullMarketMarginPayload.data.rankings.margin_increase.length, 10);
+assert.equal(fullMarketMarginPayload.data.rankings.short_increase.length, 10);
+
+globalThis.fetch = originalFetch;
 
 const modernCall = new Request("https://taistock-mcp.example/my-mcp", {
   method:"POST",
@@ -208,11 +310,13 @@ assert.doesNotMatch(compatSource, /\bD1Database\b|env\.DB\b|\.prepare\(/, "fixed
 assert.doesNotMatch(compatSource, /\bR2Bucket\b/, "fixed facade compat must not introduce R2 app persistence");
 assert.match(compatSource, /method !== "tools\/call"/, "compatibility adapter must intercept only tools/call");
 assert.match(compatSource, /getTwMarketChipSummaryOnDemand/, "frozen chip aliases must use the current on-demand facade");
-assert.match(compatSource, /readGitHubJson/, "full-market daily compatibility must read the canonical exact-date report artifact");
+assert.match(compatSource, /getTwOfficialMarketInstitutionalOnDemand/, "full-market institutional compatibility must prefer direct exact-date official reads");
+assert.match(compatSource, /getTwOfficialMarketMarginOnDemand/, "full-market margin compatibility must provide direct exact-date official reads");
+assert.match(compatSource, /readGitHubJson/, "GitHub exact-date institutional artifact must remain available as backup persistence");
 assert.match(compatSource, /daily-report-inputs/, "full-market daily compatibility must use the dedicated report-input namespace");
 assert.match(compatSource, /CURRENT_EXACT_DATE_OFFICIAL/, "current exact-date institutional artifacts must be explicitly marked as current official evidence");
 assert.doesNotMatch(compatSource, /getTwMarketChipSummaryPublished|tw-market-data-github-live/, "frozen chip aliases must not use Published/GitHub-live as current evidence");
-assert.match(compatSource, /LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY/, "historical or margin-only compatibility must remain explicitly history-only when no exact-date artifact exists");
+assert.match(compatSource, /LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY/, "legacy cross-section must remain history-only when direct exact-date evidence is unavailable");
 
 const bridgePath = path.join(root, "src/v6/legacy-owner-chip-tools.ts");
 const bridgeSource = fs.readFileSync(bridgePath, "utf8");
