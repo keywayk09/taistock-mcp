@@ -213,12 +213,19 @@ const tpexMargin = otcSymbols.map((symbol, i) => {
 });
 
 const originalFetch = globalThis.fetch;
+let failMargin = false;
 globalThis.fetch = (async (input:RequestInfo | URL) => {
   const url=String(input);
   if(url.includes("/fund/T86")) return new Response(JSON.stringify(twseInstitutional), { status:200, headers:{ "content-type":"application/json" } });
   if(url.includes("/openapi/v1/tpex_3insti_daily_trading")) return new Response(JSON.stringify(tpexInstitutional), { status:200, headers:{ "content-type":"application/json" } });
-  if(url.includes("/marginTrading/MI_MARGN")) return new Response(JSON.stringify(twseMargin), { status:200, headers:{ "content-type":"application/json" } });
-  if(url.includes("/openapi/v1/tpex_mainboard_margin_balance")) return new Response(JSON.stringify(tpexMargin), { status:200, headers:{ "content-type":"application/json" } });
+  if(url.includes("/marginTrading/MI_MARGN")) {
+    if(failMargin) return new Response("temporary margin source failure", { status:503 });
+    return new Response(JSON.stringify(twseMargin), { status:200, headers:{ "content-type":"application/json" } });
+  }
+  if(url.includes("/openapi/v1/tpex_mainboard_margin_balance")) {
+    if(failMargin) return new Response("temporary margin source failure", { status:503 });
+    return new Response(JSON.stringify(tpexMargin), { status:200, headers:{ "content-type":"application/json" } });
+  }
   throw new Error("unexpected_direct_market_fetch:" + url);
 }) as typeof fetch;
 
@@ -240,12 +247,48 @@ assert.equal(dailyReportPayload.status, "READY");
 assert.equal(dailyReportPayload.role, "CURRENT_EXACT_DATE_OFFICIAL");
 assert.equal(dailyReportPayload.trade_date, "2026-10-05");
 assert.equal(dailyReportPayload.current_selection_source, true);
-assert.equal(dailyReportPayload.source_mode, "OFFICIAL_EXACT_DATE_ON_DEMAND");
+assert.equal(dailyReportPayload.source_mode, "DECOUPLED_OFFICIAL_EXACT_DATE");
 assert.equal(dailyReportPayload.persistence, "NONE");
 assert.equal(dailyReportPayload.previous_day_substitution, false);
+assert.equal(dailyReportPayload.report_completeness, "COMPLETE");
+assert.equal(dailyReportPayload.institutional_cards_ready, true);
+assert.equal(dailyReportPayload.margin_card_ready, true);
+assert.equal(dailyReportPayload.cards.institutional.status, "READY");
+assert.equal(dailyReportPayload.cards.margin.status, "READY");
 assert.equal(dailyReportPayload.data.coverage.total_rows, 800);
 assert.equal(dailyReportPayload.data.persistence, "NONE");
 assert.equal(dailyReportPayload.data.rankings.foreign_buy.length, 10);
+assert.equal(dailyReportPayload.margin_data.schema, "TW_OFFICIAL_MARGIN_CROSS_SECTION_V1");
+assert.equal(dailyReportPayload.margin_data.coverage.total_rows, 800);
+assert.equal(dailyReportPayload.margin_data.rankings.margin_increase.length, 10);
+
+failMargin = true;
+const partialDailyReportCall = new Request("https://taistock-mcp.example/my-mcp", {
+  method:"POST",
+  headers:{ "content-type":"application/json" },
+  body:JSON.stringify({
+    jsonrpc:"2.0",
+    id:84,
+    method:"tools/call",
+    params:{ name:"get_daily_chip_report", arguments:{ date:"2026-10-05", fallback_days:0, watchlist:[], include_raw:false } },
+  }),
+});
+const partialDailyReportResponse = await tryCompat!(partialDailyReportCall, reportEnv);
+assert.ok(partialDailyReportResponse);
+const partialDailyReportRpc = await partialDailyReportResponse!.json() as any;
+const partialDailyReportPayload = JSON.parse(String(partialDailyReportRpc.result.content[0].text));
+assert.equal(partialDailyReportPayload.ok, true);
+assert.equal(partialDailyReportPayload.status, "PARTIAL_READY");
+assert.equal(partialDailyReportPayload.role, "CURRENT_EXACT_DATE_PARTIAL");
+assert.equal(partialDailyReportPayload.report_completeness, "PARTIAL");
+assert.equal(partialDailyReportPayload.institutional_cards_ready, true);
+assert.equal(partialDailyReportPayload.margin_card_ready, false);
+assert.equal(partialDailyReportPayload.cards.institutional.status, "READY");
+assert.notEqual(partialDailyReportPayload.cards.margin.status, "READY");
+assert.equal(partialDailyReportPayload.data.rankings.foreign_buy.length, 10);
+assert.equal(partialDailyReportPayload.margin_data, null);
+assert.equal(partialDailyReportPayload.previous_day_substitution, false);
+failMargin = false;
 
 const fullMarketInstitutionalCall = new Request("https://taistock-mcp.example/my-mcp", {
   method:"POST",
@@ -312,6 +355,11 @@ assert.match(compatSource, /method !== "tools\/call"/, "compatibility adapter mu
 assert.match(compatSource, /getTwMarketChipSummaryOnDemand/, "frozen chip aliases must use the current on-demand facade");
 assert.match(compatSource, /getTwOfficialMarketInstitutionalOnDemand/, "full-market institutional compatibility must prefer direct exact-date official reads");
 assert.match(compatSource, /getTwOfficialMarketMarginOnDemand/, "full-market margin compatibility must provide direct exact-date official reads");
+assert.match(compatSource, /DECOUPLED_OFFICIAL_EXACT_DATE/, "daily report must use a decoupled exact-date orchestrator");
+assert.match(compatSource, /PARTIAL_READY/, "margin pending must not suppress institutional cards");
+assert.match(compatSource, /institutional_cards_ready/, "institutional readiness must be explicit");
+assert.match(compatSource, /margin_card_ready/, "margin readiness must be explicit");
+assert.match(compatSource, /margin_data/, "yellow-card data must be exposed independently");
 assert.match(compatSource, /readGitHubJson/, "GitHub exact-date institutional artifact must remain available as backup persistence");
 assert.match(compatSource, /daily-report-inputs/, "full-market daily compatibility must use the dedicated report-input namespace");
 assert.match(compatSource, /CURRENT_EXACT_DATE_OFFICIAL/, "current exact-date institutional artifacts must be explicitly marked as current official evidence");
