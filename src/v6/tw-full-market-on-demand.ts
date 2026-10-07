@@ -9,7 +9,7 @@ import {
 import { getTpexInstitutionalPayload, getTpexMarginPayload } from "./tpex-cloudflare-transport.ts";
 import { normalizeTwseMiMargnOfficial } from "./twse-mi-margin-official.ts";
 
-export const TW_FULL_MARKET_ON_DEMAND_VERSION = "tw-full-market-on-demand/v1.1.0";
+export const TW_FULL_MARKET_ON_DEMAND_VERSION = "tw-full-market-on-demand/v1.2.0";
 
 export type TwFullMarketStatus = "READY" | "PENDING" | "ERROR";
 
@@ -213,6 +213,80 @@ async function loadFullMarketSource<T extends { trade_date: string; symbol: stri
   }
 }
 
+export type TwFullMarketDiagnosisCode =
+  | "READY"
+  | "OFFICIAL_NOT_PUBLISHED"
+  | "DATE_MISMATCH"
+  | "TRANSIENT_TRANSPORT"
+  | "INVALID_PAYLOAD"
+  | "DATE_CONTRACT_MISSING"
+  | "COVERAGE_INCOMPLETE"
+  | "DATA_CONTRACT_ERROR"
+  | "UNKNOWN";
+
+function diagnoseSource<T>(source: SourceResult<T>) {
+  const error = source.error ?? "";
+  const transientHttp = error.match(/http_(408|425|429|500|502|503|504|520|522|524)(?::|$)/);
+  const transientNetwork = /fetch failed|network|timeout|timed out|connection|econnreset|incompleteread|socket/i.test(error);
+
+  let code: TwFullMarketDiagnosisCode = "UNKNOWN";
+  let retryable = false;
+  let recommendedAction = "CHECK_SOURCE_CONTRACT";
+  let retryAfterSeconds: number | null = null;
+
+  if (source.status === "READY") {
+    code = "READY";
+    recommendedAction = "NONE";
+  } else if (
+    source.status === "PENDING"
+    && (
+      /exact_date_empty|not[_ -]?published/i.test(error)
+      || (source.source_date !== null && source.source_date < source.requested_date)
+    )
+  ) {
+    code = "OFFICIAL_NOT_PUBLISHED";
+    retryable = true;
+    recommendedAction = "WAIT_OFFICIAL_PUBLICATION";
+    retryAfterSeconds = 120;
+  } else if (source.status === "PENDING" || /source_date_mismatch/i.test(error)) {
+    code = "DATE_MISMATCH";
+    retryable = true;
+    recommendedAction = "RECHECK_EXACT_DATE_SOURCE";
+    retryAfterSeconds = 120;
+  } else if (transientHttp || transientNetwork) {
+    code = "TRANSIENT_TRANSPORT";
+    retryable = true;
+    recommendedAction = "RETRY_TRANSIENT_SOURCE";
+    retryAfterSeconds = 30;
+  } else if (/invalid_json/i.test(error)) {
+    code = "INVALID_PAYLOAD";
+    retryable = true;
+    recommendedAction = "RETRY_OR_CHECK_SOURCE_PAYLOAD";
+    retryAfterSeconds = 60;
+  } else if (/source_date_missing|row_date_missing/i.test(error)) {
+    code = "DATE_CONTRACT_MISSING";
+    recommendedAction = "CHECK_DATE_CONTRACT";
+  } else if (/incomplete_rows/i.test(error)) {
+    code = "COVERAGE_INCOMPLETE";
+    retryable = true;
+    recommendedAction = "WAIT_FOR_COMPLETE_COVERAGE";
+    retryAfterSeconds = 120;
+  } else if (/table|fields|parser|normalize|root_not_object|tables_missing|aaData_missing|contract/i.test(error)) {
+    code = "DATA_CONTRACT_ERROR";
+    recommendedAction = "CHECK_NORMALIZER_OR_SOURCE_CONTRACT";
+  }
+
+  return {
+    code,
+    retryable,
+    recommended_action: recommendedAction,
+    retry_after_seconds: retryAfterSeconds,
+    observed_date: source.source_date,
+    requested_date: source.requested_date,
+    error: source.error,
+  };
+}
+
 function sourceHealth<T>(source: SourceResult<T>) {
   return {
     source_id: source.source_id,
@@ -224,6 +298,72 @@ function sourceHealth<T>(source: SourceResult<T>) {
     source_date_verified: source.source_date_verified,
     error: source.error,
     retrieved_at: source.retrieved_at,
+    diagnosis: diagnoseSource(source),
+  };
+}
+
+function fullMarketDiagnostics<T>(sources: SourceResult<T>[], contractError: string | null = null) {
+  const sourceDiagnostics = sources.map((source) => ({
+    source_id: source.source_id,
+    source_name: source.source_name,
+    market: source.market,
+    status: source.status,
+    ...diagnoseSource(source),
+  }));
+  const blockingSources = sourceDiagnostics.filter((source) => source.status !== "READY");
+
+  if (contractError) {
+    return {
+      schema: "TW_FULL_MARKET_SELF_DIAGNOSTICS_V1",
+      health: "ERROR" as const,
+      code: "DATA_CONTRACT_ERROR" as const,
+      retryable: false,
+      recommended_action: "CHECK_NORMALIZER_OR_SOURCE_CONTRACT",
+      retry_after_seconds: null,
+      contract_error: contractError,
+      blocking_sources: blockingSources,
+      sources: sourceDiagnostics,
+    };
+  }
+
+  if (!blockingSources.length) {
+    return {
+      schema: "TW_FULL_MARKET_SELF_DIAGNOSTICS_V1",
+      health: "HEALTHY" as const,
+      code: "READY" as const,
+      retryable: false,
+      recommended_action: "NONE",
+      retry_after_seconds: null,
+      contract_error: null,
+      blocking_sources: [],
+      sources: sourceDiagnostics,
+    };
+  }
+
+  const priority: TwFullMarketDiagnosisCode[] = [
+    "DATA_CONTRACT_ERROR",
+    "DATE_CONTRACT_MISSING",
+    "INVALID_PAYLOAD",
+    "COVERAGE_INCOMPLETE",
+    "TRANSIENT_TRANSPORT",
+    "DATE_MISMATCH",
+    "OFFICIAL_NOT_PUBLISHED",
+    "UNKNOWN",
+  ];
+  const dominantCode = priority.find((code) => blockingSources.some((source) => source.code === code)) ?? "UNKNOWN";
+  const dominant = blockingSources.find((source) => source.code === dominantCode) ?? blockingSources[0];
+  const allRetryable = blockingSources.every((source) => source.retryable);
+
+  return {
+    schema: "TW_FULL_MARKET_SELF_DIAGNOSTICS_V1",
+    health: blockingSources.some((source) => !source.retryable) ? "ERROR" as const : "WAITING" as const,
+    code: dominantCode,
+    retryable: allRetryable,
+    recommended_action: dominant.recommended_action,
+    retry_after_seconds: dominant.retry_after_seconds,
+    contract_error: null,
+    blocking_sources: blockingSources,
+    sources: sourceDiagnostics,
   };
 }
 
@@ -342,6 +482,12 @@ export async function getTwOfficialMarketInstitutionalOnDemand(input: FullMarket
   const completeRankings = rankings !== null && Object.values(rankings).every((group) => group.length === 10);
   const ready = status === "READY" && !duplicateSymbol && completeRankings;
 
+  const contractError = duplicateSymbol
+    ? "cross_market_duplicate_symbol:" + duplicateSymbol
+    : status === "READY" && !completeRankings
+      ? "incomplete_top_ten"
+      : null;
+
   return {
     schema: "TW_OFFICIAL_INSTITUTIONAL_RANKINGS_V2",
     status: ready ? "READY" as const : status === "PENDING" ? "PENDING" as const : "ERROR" as const,
@@ -365,11 +511,8 @@ export async function getTwOfficialMarketInstitutionalOnDemand(input: FullMarket
     },
     rankings,
     source_health: [sourceHealth(listed), sourceHealth(otc)],
-    error: duplicateSymbol
-      ? "cross_market_duplicate_symbol:" + duplicateSymbol
-      : status === "READY" && !completeRankings
-        ? "incomplete_top_ten"
-        : null,
+    diagnostics: fullMarketDiagnostics([listed, otc], contractError),
+    error: contractError,
   };
 }
 
@@ -411,6 +554,8 @@ export async function getTwOfficialMarketMarginOnDemand(input: FullMarketInput =
   const duplicateSymbol = firstDuplicateSymbol(all);
   const ready = status === "READY" && !duplicateSymbol;
 
+  const contractError = duplicateSymbol ? "cross_market_duplicate_symbol:" + duplicateSymbol : null;
+
   return {
     schema: "TW_OFFICIAL_MARGIN_CROSS_SECTION_V1",
     status: ready ? "READY" as const : status === "PENDING" ? "PENDING" as const : "ERROR" as const,
@@ -446,6 +591,7 @@ export async function getTwOfficialMarketMarginOnDemand(input: FullMarketInput =
       short_balance: marginRanking(all, "short_balance_lots", 1),
     } : null,
     source_health: [sourceHealth(listed), sourceHealth(otc)],
-    error: duplicateSymbol ? "cross_market_duplicate_symbol:" + duplicateSymbol : null,
+    diagnostics: fullMarketDiagnostics([listed, otc], contractError),
+    error: contractError,
   };
 }
