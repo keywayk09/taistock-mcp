@@ -151,6 +151,9 @@ const reportEnv = {
       text:JSON.stringify(exactDateArtifact),
     }],
   ]),
+  // Force the direct official path unavailable in this compatibility fallback test.
+  // Dedicated tw-full-market-on-demand tests cover the direct READY contract.
+  __FULL_MARKET_FETCH:async () => new Response("", { status:503 }),
 } as any as Env;
 
 const dailyReportCall = new Request("https://taistock-mcp.example/my-mcp", {
@@ -192,6 +195,8 @@ const fullMarketInstitutionalPayload = JSON.parse(String(fullMarketInstitutional
 assert.equal(fullMarketInstitutionalPayload.status, "READY");
 assert.equal(fullMarketInstitutionalPayload.role, "CURRENT_EXACT_DATE_OFFICIAL");
 assert.equal(fullMarketInstitutionalPayload.current_selection_source, true);
+assert.equal(fullMarketInstitutionalPayload.source_mode, "GITHUB_EXACT_DATE_FALLBACK");
+assert.equal(fullMarketInstitutionalPayload.github_persistence_gate, false);
 assert.equal(fullMarketInstitutionalPayload.data.source_date_verified, true);
 assert.equal(fullMarketInstitutionalPayload.data.previous_day_substitution, false);
 
@@ -208,11 +213,14 @@ assert.doesNotMatch(compatSource, /\bD1Database\b|env\.DB\b|\.prepare\(/, "fixed
 assert.doesNotMatch(compatSource, /\bR2Bucket\b/, "fixed facade compat must not introduce R2 app persistence");
 assert.match(compatSource, /method !== "tools\/call"/, "compatibility adapter must intercept only tools/call");
 assert.match(compatSource, /getTwMarketChipSummaryOnDemand/, "frozen chip aliases must use the current on-demand facade");
-assert.match(compatSource, /readGitHubJson/, "full-market daily compatibility must read the canonical exact-date report artifact");
-assert.match(compatSource, /daily-report-inputs/, "full-market daily compatibility must use the dedicated report-input namespace");
-assert.match(compatSource, /CURRENT_EXACT_DATE_OFFICIAL/, "current exact-date institutional artifacts must be explicitly marked as current official evidence");
+assert.match(compatSource, /getOfficialMarketInstitutionalOnDemand/, "full-market institutional compatibility must try direct official exact-date reads first");
+assert.match(compatSource, /getOfficialMarketMarginOnDemand/, "full-market margin compatibility must use direct official exact-date reads");
+assert.match(compatSource, /github_persistence_gate:\s*false/, "GitHub persistence must not gate current exact-date readiness");
+assert.match(compatSource, /readGitHubJson/, "exact-date institutional persistence remains a read-only fallback");
+assert.match(compatSource, /daily-report-inputs/, "full-market daily compatibility must retain the dedicated persistence namespace");
+assert.match(compatSource, /CURRENT_EXACT_DATE_OFFICIAL/, "current exact-date evidence must be explicitly marked as current official evidence");
 assert.doesNotMatch(compatSource, /getTwMarketChipSummaryPublished|tw-market-data-github-live/, "frozen chip aliases must not use Published/GitHub-live as current evidence");
-assert.match(compatSource, /LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY/, "historical or margin-only compatibility must remain explicitly history-only when no exact-date artifact exists");
+assert.match(compatSource, /LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY/, "historical fallback remains explicitly history-only when neither direct nor persisted exact-date evidence is available");
 
 const bridgePath = path.join(root, "src/v6/legacy-owner-chip-tools.ts");
 const bridgeSource = fs.readFileSync(bridgePath, "utf8");
