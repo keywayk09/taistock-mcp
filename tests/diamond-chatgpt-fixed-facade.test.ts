@@ -221,6 +221,7 @@ globalThis.fetch = (async (input:RequestInfo | URL) => {
   if(url.includes("/openapi/v1/tpex_mainboard_margin_balance")) return new Response(JSON.stringify(tpexMargin), { status:200, headers:{ "content-type":"application/json" } });
   throw new Error("unexpected_direct_market_fetch:" + url);
 }) as typeof fetch;
+const allReadyFetch = globalThis.fetch;
 
 const dailyReportCall = new Request("https://taistock-mcp.example/my-mcp", {
   method:"POST",
@@ -246,6 +247,53 @@ assert.equal(dailyReportPayload.previous_day_substitution, false);
 assert.equal(dailyReportPayload.data.coverage.total_rows, 800);
 assert.equal(dailyReportPayload.data.persistence, "NONE");
 assert.equal(dailyReportPayload.data.rankings.foreign_buy.length, 10);
+assert.equal(dailyReportPayload.report_completion, "COMPLETE");
+assert.equal(dailyReportPayload.component_gate_contract, "INDEPENDENT_V1");
+assert.equal(dailyReportPayload.components.institutional.status, "READY");
+assert.equal(dailyReportPayload.components.margin.status, "READY");
+assert.equal(dailyReportPayload.cards.green.status, "READY");
+assert.equal(dailyReportPayload.cards.red.status, "READY");
+assert.equal(dailyReportPayload.cards.yellow.status, "READY");
+assert.equal(dailyReportPayload.margin_data.status, "READY");
+
+// A stale same-day margin source must never block the institutional green/red
+// path. The legacy top-level status stays READY for compatibility while the
+// independent yellow gate remains PENDING.
+globalThis.fetch = (async (input:RequestInfo | URL) => {
+  const url=String(input);
+  if(url.includes("/fund/T86")) return new Response(JSON.stringify(twseInstitutional), { status:200, headers:{ "content-type":"application/json" } });
+  if(url.includes("/openapi/v1/tpex_3insti_daily_trading")) return new Response(JSON.stringify(tpexInstitutional), { status:200, headers:{ "content-type":"application/json" } });
+  if(url.includes("/marginTrading/MI_MARGN")) return new Response(JSON.stringify({ ...twseMargin, date:"20261004" }), { status:200, headers:{ "content-type":"application/json" } });
+  if(url.includes("/openapi/v1/tpex_mainboard_margin_balance")) return new Response(JSON.stringify(tpexMargin), { status:200, headers:{ "content-type":"application/json" } });
+  throw new Error("unexpected_partial_market_fetch:" + url);
+}) as typeof fetch;
+
+const partialDailyReportResponse = await tryCompat!(new Request("https://taistock-mcp.example/my-mcp", {
+  method:"POST",
+  headers:{ "content-type":"application/json" },
+  body:JSON.stringify({
+    jsonrpc:"2.0",
+    id:811,
+    method:"tools/call",
+    params:{ name:"get_daily_chip_report", arguments:{ date:"2026-10-05", fallback_days:0, watchlist:[], include_raw:false } },
+  }),
+}), reportEnv);
+assert.ok(partialDailyReportResponse);
+const partialDailyReportRpc = await partialDailyReportResponse!.json() as any;
+const partialDailyReportPayload = JSON.parse(String(partialDailyReportRpc.result.content[0].text));
+assert.equal(partialDailyReportPayload.status, "READY");
+assert.equal(partialDailyReportPayload.ok, true);
+assert.equal(partialDailyReportPayload.report_completion, "PARTIAL");
+assert.equal(partialDailyReportPayload.cards.green.status, "READY");
+assert.equal(partialDailyReportPayload.cards.red.status, "READY");
+assert.equal(partialDailyReportPayload.cards.yellow.status, "PENDING");
+assert.equal(partialDailyReportPayload.components.institutional.ready, true);
+assert.equal(partialDailyReportPayload.components.margin.ready, false);
+assert.equal(partialDailyReportPayload.margin_data, null);
+assert.equal(partialDailyReportPayload.previous_day_substitution, false);
+assert.equal(partialDailyReportPayload.components.margin.previous_day_substitution, false);
+
+globalThis.fetch = allReadyFetch;
 
 const fullMarketInstitutionalCall = new Request("https://taistock-mcp.example/my-mcp", {
   method:"POST",
