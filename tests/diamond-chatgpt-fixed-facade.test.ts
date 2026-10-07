@@ -117,41 +117,76 @@ assert.equal(legacyPayload.status, "LEGACY_COMPATIBILITY_RETAINED_FAIL_CLOSED");
 assert.equal(legacyPayload.legacy_tool, "add_industry_evidence");
 assert.equal(legacyPayload.production_mutation, "NONE");
 
-const rankingGroup = Array.from({ length:10 }, (_, i) => ({
-  rank:i + 1,
-  symbol:String(1001 + i),
-  name:`R${i + 1}`,
-  market:i % 2 === 0 ? "listed" : "otc",
-  net_shares:10000 - i,
-  net_lots:(10000 - i) / 1000,
-}));
-const exactDateArtifact = {
-  schema:"TW_OFFICIAL_INSTITUTIONAL_RANKINGS_V2",
-  status:"READY",
-  trade_date:"2026-10-05",
-  source_date_verified:true,
-  markets:["listed", "otc"],
-  etf_excluded:true,
-  ranking_unit:"張",
-  previous_day_substitution:false,
-  read_only:true,
-  coverage:{ listed_rows:1080, otc_rows:795, total_rows:1875 },
-  sources:{ listed:"TWSE_T86_ALLBUT0999", otc:"TPEX_3INSTI_DAILY_TRADING" },
-  rankings:{
-    foreign_buy:rankingGroup,
-    foreign_sell:rankingGroup,
-    trust_buy:rankingGroup,
-    trust_sell:rankingGroup,
-  },
-};
 const reportEnv = {
-  __GITHUB_DATA_MEMORY:new Map([
-    ["data/daily-report-inputs/2026/10/05/official-rankings.json", {
-      sha:"fixture-official-rankings",
-      text:JSON.stringify(exactDateArtifact),
-    }],
-  ]),
+  // Intentionally no exact-date GitHub artifact: direct official reads must be
+  // sufficient, proving GitHub is no longer today's readiness Gate.
+  __GITHUB_DATA_MEMORY:new Map(),
 } as any as Env;
+
+const reportListedCount = 520;
+const reportOtcCount = 320;
+const reportT86 = {
+  date:"20261005",
+  stat:"OK",
+  fields:["證券代號","證券名稱","外陸資買賣超股數(不含外資自營商)","投信買賣超股數","自營商買賣超股數","三大法人買賣超股數"],
+  data:Array.from({ length:reportListedCount }, (_, i) => {
+    const foreign=(i-260)*1000;
+    const trust=(260-i)*700;
+    return [String(1001+i),`L${i}`,String(foreign),String(trust),"0",String(foreign+trust)];
+  }),
+};
+const reportTpexInstitutional = Array.from({ length:reportOtcCount }, (_, i) => {
+  const foreign=(160-i)*900;
+  const trust=(i-160)*600;
+  return {
+    Date:"1151005",
+    Code:String(6001+i),
+    Name:`O${i}`,
+    "Foreign Investors include Mainland Area Investors (Foreign Dealers excluded)-Difference":String(foreign),
+    "Securities Investment Trust Companies-Difference":String(trust),
+    "Dealers-Difference":"0",
+    "Total Difference":String(foreign+trust),
+  };
+});
+const reportTwseMargin = {
+  date:"20261005",
+  tables:[{
+    title:"融資融券彙總 (全部)",
+    fields:["證券代號","證券名稱","前日餘額","買進","賣出","現金償還","今日餘額","前日餘額","賣出","買進","現券償還","今日餘額"],
+    data:Array.from({ length:reportListedCount }, (_, i) => {
+      const marginPrev=1000+i*3;
+      const marginNow=marginPrev+(i-260);
+      const shortPrev=100+i;
+      const shortNow=shortPrev+(260-i);
+      return [String(1001+i),`L${i}`,String(marginPrev),"0","0","0",String(marginNow),String(shortPrev),"0","0","0",String(shortNow)];
+    }),
+  }],
+};
+const reportTpexMargin = Array.from({ length:reportOtcCount }, (_, i) => {
+  const marginPrev=800+i*2;
+  const marginNow=marginPrev+(160-i);
+  const shortPrev=80+i;
+  const shortNow=shortPrev+(i-160);
+  return {
+    Date:"1151005",
+    Code:String(6001+i),
+    Name:`O${i}`,
+    MarginPurchaseYesterdayBalance:String(marginPrev),
+    MarginPurchaseTodayBalance:String(marginNow),
+    ShortSaleYesterdayBalance:String(shortPrev),
+    ShortSaleTodayBalance:String(shortNow),
+  };
+});
+const reportOriginalFetch = globalThis.fetch;
+globalThis.fetch = (async (input:RequestInfo|URL) => {
+  const url=String(input);
+  const response=(value:unknown)=>new Response(JSON.stringify(value),{status:200,headers:{"content-type":"application/json"}});
+  if(url.includes("/fund/T86")) return response(reportT86);
+  if(url.includes("/openapi/v1/tpex_3insti_daily_trading")) return response(reportTpexInstitutional);
+  if(url.includes("/marginTrading/MI_MARGN")) return response(reportTwseMargin);
+  if(url.includes("/openapi/v1/tpex_mainboard_margin_balance")) return response(reportTpexMargin);
+  return new Response("",{status:404});
+}) as typeof fetch;
 
 const dailyReportCall = new Request("https://taistock-mcp.example/my-mcp", {
   method:"POST",
@@ -168,12 +203,17 @@ assert.ok(dailyReportResponse);
 const dailyReportRpc = await dailyReportResponse!.json() as any;
 const dailyReportPayload = JSON.parse(String(dailyReportRpc.result.content[0].text));
 assert.equal(dailyReportPayload.status, "READY");
-assert.equal(dailyReportPayload.role, "CURRENT_EXACT_DATE_OFFICIAL");
+assert.equal(dailyReportPayload.role, "CURRENT_EXACT_DATE_OFFICIAL_ON_DEMAND");
 assert.equal(dailyReportPayload.trade_date, "2026-10-05");
 assert.equal(dailyReportPayload.current_selection_source, true);
 assert.equal(dailyReportPayload.previous_day_substitution, false);
-assert.equal(dailyReportPayload.data.coverage.total_rows, 1875);
+assert.equal(dailyReportPayload.data.coverage.total_rows, 840);
 assert.equal(dailyReportPayload.data.rankings.foreign_buy.length, 10);
+assert.equal(dailyReportPayload.components.inflow_outflow.ready, true);
+assert.equal(dailyReportPayload.components.margin_short.ready, true);
+assert.equal(dailyReportPayload.components.margin_short.blocks_inflow_outflow, false);
+assert.equal(dailyReportPayload.margin.status, "READY");
+assert.equal(dailyReportPayload.exact_date_readback, null);
 
 const fullMarketInstitutionalCall = new Request("https://taistock-mcp.example/my-mcp", {
   method:"POST",
@@ -190,10 +230,36 @@ assert.ok(fullMarketInstitutionalResponse);
 const fullMarketInstitutionalRpc = await fullMarketInstitutionalResponse!.json() as any;
 const fullMarketInstitutionalPayload = JSON.parse(String(fullMarketInstitutionalRpc.result.content[0].text));
 assert.equal(fullMarketInstitutionalPayload.status, "READY");
-assert.equal(fullMarketInstitutionalPayload.role, "CURRENT_EXACT_DATE_OFFICIAL");
+assert.equal(fullMarketInstitutionalPayload.role, "CURRENT_EXACT_DATE_OFFICIAL_ON_DEMAND");
 assert.equal(fullMarketInstitutionalPayload.current_selection_source, true);
+assert.equal(fullMarketInstitutionalPayload.evidence_source, "DIRECT_TWSE_TPEX_EXACT_DATE_ON_DEMAND");
 assert.equal(fullMarketInstitutionalPayload.data.source_date_verified, true);
 assert.equal(fullMarketInstitutionalPayload.data.previous_day_substitution, false);
+assert.equal(fullMarketInstitutionalPayload.exact_date_readback, null);
+
+const fullMarketMarginCall = new Request("https://taistock-mcp.example/my-mcp", {
+  method:"POST",
+  headers:{ "content-type":"application/json" },
+  body:JSON.stringify({
+    jsonrpc:"2.0",
+    id:83,
+    method:"tools/call",
+    params:{ name:"get_official_market_margin", arguments:{ date:"2026-10-05" } },
+  }),
+});
+const fullMarketMarginResponse = await tryCompat!(fullMarketMarginCall, reportEnv);
+assert.ok(fullMarketMarginResponse);
+const fullMarketMarginRpc = await fullMarketMarginResponse!.json() as any;
+const fullMarketMarginPayload = JSON.parse(String(fullMarketMarginRpc.result.content[0].text));
+assert.equal(fullMarketMarginPayload.status, "READY");
+assert.equal(fullMarketMarginPayload.role, "CURRENT_EXACT_DATE_OFFICIAL_ON_DEMAND");
+assert.equal(fullMarketMarginPayload.current_selection_source, true);
+assert.equal(fullMarketMarginPayload.data.source_date_verified, true);
+assert.equal(fullMarketMarginPayload.data.previous_day_substitution, false);
+assert.equal(fullMarketMarginPayload.data.rankings.margin_increase.length, 20);
+assert.equal(fullMarketMarginPayload.data.rankings.short_decrease.length, 20);
+
+globalThis.fetch = reportOriginalFetch;
 
 const modernCall = new Request("https://taistock-mcp.example/my-mcp", {
   method:"POST",
@@ -208,11 +274,16 @@ assert.doesNotMatch(compatSource, /\bD1Database\b|env\.DB\b|\.prepare\(/, "fixed
 assert.doesNotMatch(compatSource, /\bR2Bucket\b/, "fixed facade compat must not introduce R2 app persistence");
 assert.match(compatSource, /method !== "tools\/call"/, "compatibility adapter must intercept only tools/call");
 assert.match(compatSource, /getTwMarketChipSummaryOnDemand/, "frozen chip aliases must use the current on-demand facade");
-assert.match(compatSource, /readGitHubJson/, "full-market daily compatibility must read the canonical exact-date report artifact");
-assert.match(compatSource, /daily-report-inputs/, "full-market daily compatibility must use the dedicated report-input namespace");
-assert.match(compatSource, /CURRENT_EXACT_DATE_OFFICIAL/, "current exact-date institutional artifacts must be explicitly marked as current official evidence");
+assert.match(compatSource, /getTwFullMarketInstitutionalOnDemand/, "full-market institutional compatibility must call direct official exact-date readers");
+assert.match(compatSource, /getTwFullMarketMarginOnDemand/, "full-market margin compatibility must call direct official exact-date readers");
+assert.match(compatSource, /DIRECT_TWSE_TPEX_EXACT_DATE_ON_DEMAND/, "direct official sources must be the preferred current evidence");
+assert.match(compatSource, /readGitHubJson/, "exact-date GitHub artifact may remain as readback fallback/audit context");
+assert.match(compatSource, /GITHUB_EXACT_DATE_READBACK_FALLBACK/, "GitHub exact-date data must be labeled fallback/readback rather than current Gate");
+assert.match(compatSource, /daily-report-inputs/, "canonical report-input namespace must remain available for exact-date readback");
+assert.match(compatSource, /CURRENT_EXACT_DATE_OFFICIAL_ON_DEMAND/, "direct exact-date institutional evidence must be explicitly marked current official");
 assert.doesNotMatch(compatSource, /getTwMarketChipSummaryPublished|tw-market-data-github-live/, "frozen chip aliases must not use Published/GitHub-live as current evidence");
-assert.match(compatSource, /LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY/, "historical or margin-only compatibility must remain explicitly history-only when no exact-date artifact exists");
+assert.doesNotMatch(compatSource, /LEGACY_MARKET_CROSS_SECTION_HISTORY_ONLY/, "current full-market institutional/margin aliases must not be hardcoded to history-only");
+assert.doesNotMatch(compatSource, /getTwMarketCrossSection/, "current full-market aliases must not depend on the legacy GitHub cross-section");
 
 const bridgePath = path.join(root, "src/v6/legacy-owner-chip-tools.ts");
 const bridgeSource = fs.readFileSync(bridgePath, "utf8");
