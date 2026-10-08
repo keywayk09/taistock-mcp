@@ -1,10 +1,10 @@
 {
   "canonical_storage": "keywayk09/tv-papertrader main/data",
   "capture_errors": {
-    "institutional": "RuntimeError: TPEX_INSTI_OPENAPI_source_date_mismatch:2026-10-08",
-    "margin": "RuntimeError: TPEX_MARGIN_OPENAPI_source_date_mismatch:2026-10-08",
-    "sbl_balance": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty",
-    "sbl_volume": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty"
+    "institutional": "HTTPError: HTTP Error 403: Forbidden",
+    "margin": "HTTPError: HTTP Error 403: Forbidden",
+    "sbl_balance": "HTTPError: HTTP Error 403: Forbidden",
+    "sbl_volume": "HTTPError: HTTP Error 403: Forbidden"
   },
   "captured_at_utc": "2026-10-08T16:29:33.974445Z",
   "datasets": {},
