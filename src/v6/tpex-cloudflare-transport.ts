@@ -94,6 +94,22 @@ function requireRequestedDate(body: any, requestedTradeDate: string, label: stri
   if (actual && actual !== requestedTradeDate) throw new Error(`${label}_source_date_mismatch:${actual}`);
 }
 
+// Any data with individually dated records must prove the date of EVERY row.
+function requireEveryRowRequestedDate(body: unknown, tradeDate: string, label: string) {
+  if (!Array.isArray(body) || body.length === 0) throw new Error(label + "_exact_date_empty");
+  for (let index = 0; index < body.length; index++) {
+    const row = body[index];
+    if (row === null || typeof row !== "object" || Array.isArray(row)) {
+      throw new Error(label + "_row_contract_invalid:" + index);
+    }
+    const date = normalizePayloadDate(
+      row.Date ?? row.date ?? row.TradeDate ?? row["日期"] ?? row["資料日期"],
+    );
+    if (!date) throw new Error(label + "_row_date_missing:" + index);
+    if (date !== tradeDate) throw new Error(label + "_source_date_mismatch:" + date + "@" + index);
+  }
+}
+
 async function relayTradeDate(requestedTradeDate?: string) {
   if (requestedTradeDate) return requestedTradeDate;
   const latestText = await fetchText(`${RELAY_ROOT}/latest.json`, "TPEX_RELAY_LATEST", {
@@ -148,6 +164,9 @@ async function getRelayDataset(dataset: RelayDataset, requestedTradeDate?: strin
   }
   if (!Array.isArray(body) || body.length !== Number(meta.row_count)) {
     throw new Error(`TPEX_RELAY_row_count_mismatch:${dataset}`);
+  }
+  if (dataset === "institutional" || dataset === "margin") {
+    requireEveryRowRequestedDate(body, tradeDate, "TPEX_RELAY_" + dataset);
   }
   return body;
 }
@@ -361,7 +380,7 @@ export async function getTpexInstitutionalPayload(tradeDate: string) {
   try {
     const body = await getTpexJsonAny(directUrl, "TPEX_3INSTI_OPENAPI");
     if (!Array.isArray(body) || !body.length) throw new Error("TPEX_3INSTI_OPENAPI_empty");
-    requireRequestedDate(body, tradeDate, "TPEX_3INSTI_OPENAPI");
+    requireEveryRowRequestedDate(body, tradeDate, "TPEX_3INSTI_OPENAPI");
     return body;
   } catch (directError) {
     return getExactRelayOrOfficialWeb("institutional", tradeDate, directError);
@@ -373,7 +392,7 @@ export async function getTpexMarginPayload(tradeDate: string) {
   try {
     const body = await getTpexJsonAny(directUrl, "TPEX_MARGIN_OPENAPI");
     if (!Array.isArray(body) || !body.length) throw new Error("TPEX_MARGIN_OPENAPI_empty");
-    requireRequestedDate(body, tradeDate, "TPEX_MARGIN_OPENAPI");
+    requireEveryRowRequestedDate(body, tradeDate, "TPEX_MARGIN_OPENAPI");
     return body;
   } catch (directError) {
     return getExactRelayOrOfficialWeb("margin", tradeDate, directError);
