@@ -218,6 +218,7 @@ export type TwFullMarketDiagnosisCode =
   | "OFFICIAL_NOT_PUBLISHED"
   | "DATE_MISMATCH"
   | "TRANSIENT_TRANSPORT"
+  | "OFFICIAL_GATEWAY_BLOCKED"
   | "INVALID_PAYLOAD"
   | "DATE_CONTRACT_MISSING"
   | "COVERAGE_INCOMPLETE"
@@ -252,6 +253,15 @@ function diagnoseSource<T>(source: SourceResult<T>) {
     code = "DATE_MISMATCH";
     retryable = true;
     recommendedAction = "RECHECK_EXACT_DATE_SOURCE";
+    retryAfterSeconds = 120;
+  } else if (
+    source.market === "otc"
+    && /redirect_302|redirected_to_errors/i.test(error)
+    && /TPEX_RELAY_dataset_missing|TPEX_RELAY_MANIFEST_http_404|TPEX_RELAY_MANIFEST_http_403/i.test(error)
+  ) {
+    code = "OFFICIAL_GATEWAY_BLOCKED";
+    retryable = true;
+    recommendedAction = "RECOVER_TPEX_EXACT_DATE_RELAY";
     retryAfterSeconds = 120;
   } else if (transientHttp || transientNetwork) {
     code = "TRANSIENT_TRANSPORT";
@@ -345,6 +355,7 @@ function fullMarketDiagnostics<T>(sources: SourceResult<T>[], contractError: str
     "DATE_CONTRACT_MISSING",
     "INVALID_PAYLOAD",
     "COVERAGE_INCOMPLETE",
+    "OFFICIAL_GATEWAY_BLOCKED",
     "TRANSIENT_TRANSPORT",
     "DATE_MISMATCH",
     "OFFICIAL_NOT_PUBLISHED",

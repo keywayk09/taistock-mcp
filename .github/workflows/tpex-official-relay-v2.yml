@@ -8,12 +8,13 @@ on:
       - '.github/workflows/tpex-official-relay-v2.yml'
   schedule:
     # Asia/Taipei: early institutional checks plus late margin/SBL recovery.
-    # 17:15 / 18:15 / 20:15 / 21:15 / 21:45 / 22:15 / 22:45.
+    # 17:15 / 18:15 / 20:15 / 21:15 / 21:45 / 22:15 / 22:45 / 23:15 / 23:45.
     - cron: '15 9 * * 1-5'
     - cron: '15 10 * * 1-5'
     - cron: '15 12 * * 1-5'
     - cron: '15,45 13 * * 1-5'
     - cron: '15,45 14 * * 1-5'
+    - cron: '15,45 15 * * 1-5'
 
 permissions:
   contents: write
@@ -422,3 +423,31 @@ jobs:
           fi
           git commit -m "market-data: refresh exact-date TPEx official relay cache"
           git push origin HEAD:refs/heads/market-data-relay
+
+      - name: Enforce report-critical TPEx datasets after publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import datetime as dt
+          import json
+          import pathlib
+          from zoneinfo import ZoneInfo
+
+          day = dt.datetime.now(ZoneInfo('Asia/Taipei')).date()
+          while day.weekday() >= 5:
+              day -= dt.timedelta(days=1)
+          path = pathlib.Path('/tmp/tpex-relay-build/data/market-data/tpex-relay') / day.isoformat() / 'manifest.json'
+          if not path.exists():
+              print('::error title=TPEx relay missing::Exact-date manifest is absent: ' + str(path))
+              raise SystemExit(1)
+          manifest = json.loads(path.read_text(encoding='utf-8'))
+          datasets = manifest.get('datasets') or {}
+          required = ('institutional', 'margin')
+          missing = [key for key in required if key not in datasets or datasets[key].get('source_date') != day.isoformat()]
+          if missing:
+              print('::error title=TPEx report data pending::' + day.isoformat() + ' official exact-date datasets missing: ' + ', '.join(missing))
+              print('Capture diagnostics: ' + json.dumps(manifest.get('capture_errors') or {}, ensure_ascii=False))
+              raise SystemExit(1)
+          print('TPEx report-critical exact-date READY: ' + day.isoformat() + ' ' + ', '.join(required))
+          PY
