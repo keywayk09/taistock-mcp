@@ -157,12 +157,16 @@ assert.equal(fs.existsSync(path.join(root, ".github/workflows/tpex-official-rela
 assert.match(tpexTransport, /TPEX_3INSTI_MODERN_EXACT_DATE/);
 assert.match(tpexTransport, /TPEX_MARGIN_MODERN_EXACT_DATE/);
 assert.match(tpexTransport, /legacy_exact_date_unverifiable/);
+assert.match(tpexTransport, /requireEveryRowRequestedDate/);
+assert.match(tpexTransport, /TPEX_RELAY_.*row_date_missing|requireEveryRowRequestedDate\(body, tradeDate, "TPEX_RELAY_"/);
+
 assert.match(dailyRelay, /Enforce report-critical TPEx datasets after publishing/);
 assert.match(dailyRelay, /SystemExit\(1\)/);
 assert.match(dailyRelay, /23:15 \/ 23:45/);
 const originalTpexFetch = globalThis.fetch;
 const testDay = "2026-10-08";
 let modernMode: "ready" | "stale" | "redirect" = "ready";
+let openApiMode: "redirect" | "mixed" | "undated" | "ready" = "redirect";
 let legacyCalls = 0;
 const instRow = Array(24).fill("0");
 instRow[0] = "5347";
@@ -186,7 +190,12 @@ globalThis.fetch = (async (input: RequestInfo | URL) => {
   const redirect = () => new Response("", {
     status: 302, headers: { location: "https://www.tpex.org.tw/errors" },
   });
-  if (url.includes("/openapi/v1/tpex_")) return redirect();
+  if (url.includes("/openapi/v1/tpex_")) {
+    if (openApiMode === "redirect") return redirect();
+    if (openApiMode === "mixed") return json([{ Date: testDay }, { Date: "2026-10-07" }]);
+    if (openApiMode === "undated") return json([{ Date: testDay }, { "證券代號": "5347" }]);
+    return json([{ Date: testDay, "證券代號": "5347" }]);
+  }
   if (url.includes("/market-data/tpex-relay/2026-10-08/manifest.json")) {
     return json({ schema: "TPEX_OFFICIAL_RELAY_V2", trade_date: testDay, source_owner: "TPEx", datasets: {} });
   }
@@ -223,6 +232,21 @@ try {
   await assert.rejects(() => getTpexInstitutionalPayload(testDay), /source_date_mismatch/);
   await assert.rejects(() => getTpexMarginPayload(testDay), /source_date_mismatch/);
   assert.equal(legacyCalls, 0, "stale verified modern dates must never trigger unverifiable PHP fallback");
+
+  // Latest-only OpenAPI must reject any stale OR undated row, not just
+  // inspect the first dated row and silently label the rest as today's data.
+  modernMode = "stale";
+  openApiMode = "mixed";
+  await assert.rejects(() => getTpexInstitutionalPayload(testDay), /source_date_mismatch:2026-10-07@1/);
+  await assert.rejects(() => getTpexMarginPayload(testDay), /source_date_mismatch:2026-10-07@1/);
+  openApiMode = "undated";
+  await assert.rejects(() => getTpexInstitutionalPayload(testDay), /row_date_missing:1/);
+  await assert.rejects(() => getTpexMarginPayload(testDay), /row_date_missing:1/);
+  openApiMode = "ready";
+  const confirmedDirect = await getTpexInstitutionalPayload(testDay) as any[];
+  assert.equal(confirmedDirect.length, 1);
+  assert.equal(confirmedDirect[0].Date, testDay);
+  openApiMode = "redirect";
 
   modernMode = "redirect";
   await assert.rejects(() => getTpexInstitutionalPayload(testDay), /legacy_exact_date_unverifiable/);
