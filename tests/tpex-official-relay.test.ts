@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getTpexInstitutionalPayload, getTpexMarginPayload } from "../src/v6/tpex-cloudflare-transport.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p: string) => fs.readFileSync(path.join(root, p), "utf8");
@@ -147,5 +148,88 @@ assert.equal(fs.existsSync(path.join(root, "src/v6/github-canonical-sync.ts")), 
 assert.equal(fs.existsSync(path.join(root, "src/v6/tpex-official-relay.ts")), false);
 assert.equal(fs.existsSync(path.join(root, "src/v6/tpex-market-data-backfill.ts")), false);
 assert.equal(fs.existsSync(path.join(root, ".github/workflows/tpex-official-relay.yml")), false);
+
+
+// Exact-date TPEx recovery regression: upstream latest-only OpenAPI redirects
+// to /errors while the relay exists but lacks institutional/margin snapshots.
+// A modern day-addressable official response can recover only if it proves the
+// requested date at both root/table. Undated legacy PHP must never be relabelled.
+assert.match(tpexTransport, /TPEX_3INSTI_MODERN_EXACT_DATE/);
+assert.match(tpexTransport, /TPEX_MARGIN_MODERN_EXACT_DATE/);
+assert.match(tpexTransport, /legacy_exact_date_unverifiable/);
+assert.match(dailyRelay, /Enforce report-critical TPEx datasets after publishing/);
+assert.match(dailyRelay, /SystemExit\(1\)/);
+assert.match(dailyRelay, /23:15 \/ 23:45/);
+const originalTpexFetch = globalThis.fetch;
+const testDay = "2026-10-08";
+let modernMode: "ready" | "stale" | "redirect" = "ready";
+let legacyCalls = 0;
+const instRow = Array(24).fill("0");
+instRow[0] = "5347";
+instRow[1] = "世界";
+instRow[10] = "1200000";
+instRow[13] = "100000";
+instRow[22] = "5000";
+instRow[23] = "1305000";
+const marginRow = Array(15).fill("0");
+marginRow[0] = "5347";
+marginRow[1] = "世界";
+marginRow[2] = "12000";
+marginRow[6] = "11777";
+marginRow[10] = "445";
+marginRow[14] = "600";
+globalThis.fetch = (async (input: RequestInfo | URL) => {
+  const url = String(input);
+  const json = (body: unknown) => new Response(JSON.stringify(body), {
+    status: 200, headers: { "content-type": "application/json" },
+  });
+  const redirect = () => new Response("", {
+    status: 302, headers: { location: "https://www.tpex.org.tw/errors" },
+  });
+  if (url.includes("/openapi/v1/tpex_")) return redirect();
+  if (url.includes("/market-data/tpex-relay/2026-10-08/manifest.json")) {
+    return json({ schema: "TPEX_OFFICIAL_RELAY_V2", trade_date: testDay, source_owner: "TPEx", datasets: {} });
+  }
+  if (url.includes("/www/zh-tw/insti/dailyTrade")) {
+    if (modernMode === "redirect") return redirect();
+    return json({ date: modernMode === "stale" ? "20261007" : "20261008", tables: [
+      { date: modernMode === "stale" ? "115/10/07" : "115/10/08", data: [instRow] },
+    ] });
+  }
+  if (url.includes("/www/zh-tw/margin/balance")) {
+    if (modernMode === "redirect") return redirect();
+    return json({ date: modernMode === "stale" ? "20261007" : "20261008", tables: [
+      { date: modernMode === "stale" ? "115/10/07" : "115/10/08", data: [marginRow] },
+    ] });
+  }
+  if (url.includes("/web/stock/")) {
+    legacyCalls += 1;
+    return json({ aaData: [instRow] });
+  }
+  throw new Error("unexpected_tpex_test_url:" + url);
+}) as typeof fetch;
+try {
+  const instRecovered = await getTpexInstitutionalPayload(testDay) as any[];
+  const marginRecovered = await getTpexMarginPayload(testDay) as any[];
+  assert.equal(instRecovered.length, 1);
+  assert.equal(instRecovered[0].Date, testDay);
+  assert.equal(instRecovered[0]["外資及陸資買賣超股數"], "1200000");
+  assert.equal(marginRecovered.length, 1);
+  assert.equal(marginRecovered[0].Date, testDay);
+  assert.equal(marginRecovered[0]["融資今日餘額"], "11777");
+  assert.equal(legacyCalls, 0);
+
+  modernMode = "stale";
+  await assert.rejects(() => getTpexInstitutionalPayload(testDay), /source_date_mismatch/);
+  await assert.rejects(() => getTpexMarginPayload(testDay), /source_date_mismatch/);
+  assert.equal(legacyCalls, 0, "stale verified modern dates must never trigger unverifiable PHP fallback");
+
+  modernMode = "redirect";
+  await assert.rejects(() => getTpexInstitutionalPayload(testDay), /legacy_exact_date_unverifiable/);
+  await assert.rejects(() => getTpexMarginPayload(testDay), /legacy_exact_date_unverifiable/);
+  assert.equal(legacyCalls, 2, "legacy is attempted but undated old rows must fail closed");
+} finally {
+  globalThis.fetch = originalTpexFetch;
+}
 
 console.log("P19 exact-date monotonic TPEx daily + historical no-trading evidence contracts passed");
