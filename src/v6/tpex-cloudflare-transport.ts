@@ -282,6 +282,36 @@ export async function getTpexJson(url: string, label: string) {
   }
 }
 
+function officialModernUrl(dataset: "institutional" | "margin", tradeDate: string) {
+  const date = encodeURIComponent(rocDate(tradeDate));
+  return dataset === "institutional"
+    ? "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date=" + date + "&id=&response=json"
+    : "https://www.tpex.org.tw/www/zh-tw/margin/balance?date=" + date + "&id=&response=json";
+}
+
+function normalizedOfficialModernRows(dataset: "institutional" | "margin", rows: any[][], tradeDate: string) {
+  if (dataset === "institutional") {
+    return rows.filter((row) => row.length > 23 && clean(row[0])).map((row) => ({
+      Date: tradeDate,
+      "證券代號": clean(row[0]),
+      "證券名稱": clean(row[1]),
+      "外資及陸資買賣超股數": row[10],
+      "投信買賣超股數": row[13],
+      "自營商買賣超股數": row[22],
+      "三大法人買賣超股數": row[23],
+    }));
+  }
+  return rows.filter((row) => row.length > 14 && clean(row[0])).map((row) => ({
+    Date: tradeDate,
+    "證券代號": clean(row[0]),
+    "證券名稱": clean(row[1]),
+    "融資前日餘額": row[2],
+    "融資今日餘額": row[6],
+    "融券前日餘額": row[10],
+    "融券今日餘額": row[14],
+  }));
+}
+
 async function getExactRelayOrOfficialWeb(
   dataset: "institutional" | "margin",
   tradeDate: string,
@@ -290,40 +320,38 @@ async function getExactRelayOrOfficialWeb(
   try {
     return await getRelayDataset(dataset, tradeDate);
   } catch (relayError) {
+    const modernLabel = dataset === "institutional" ? "TPEX_3INSTI_MODERN_EXACT_DATE" : "TPEX_MARGIN_MODERN_EXACT_DATE";
     try {
-      const date = encodeURIComponent(rocDate(tradeDate));
-      if (dataset === "institutional") {
-        const legacyUrl = `https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=EW&t=D&d=${date}&s=0,asc`;
-        const body = await getTpexJsonAny(legacyUrl, "TPEX_3INSTI_WEB_JSON");
-        const rows = legacyRows(body, "TPEX_3INSTI_WEB_JSON");
-        return rows.map((row) => ({
-          Date: tradeDate,
-          "證券代號": clean(row[0]),
-          "證券名稱": clean(row[1]),
-          "外資及陸資買賣超股數": row[10],
-          "投信買賣超股數": row[13],
-          "自營商買賣超股數": row[22],
-          "三大法人買賣超股數": row[23],
-        }));
-      }
-
-      const legacyUrl = `https://www.tpex.org.tw/web/stock/margin_trading/margin_balance/margin_bal_result.php?l=zh-tw&o=json&d=${date}&s=0,asc`;
-      const body = await getTpexJsonAny(legacyUrl, "TPEX_MARGIN_WEB_JSON");
-      const rows = legacyRows(body, "TPEX_MARGIN_WEB_JSON");
-      return rows.map((row) => ({
-        Date: tradeDate,
-        "證券代號": clean(row[0]),
-        "證券名稱": clean(row[1]),
-        "融資前日餘額": row[2],
-        "融資今日餘額": row[6],
-        "融券前日餘額": row[10],
-        "融券今日餘額": row[14],
-      }));
-    } catch (webError) {
+      // The modern date-addressable endpoint proves its date at root/table level.
+      const body = await getTpexJsonAny(officialModernUrl(dataset, tradeDate), modernLabel);
+      const rows = modernExactDateRows(body, tradeDate, modernLabel);
+      const normalized = normalizedOfficialModernRows(dataset, rows, tradeDate);
+      if (!normalized.length) throw new Error(modernLabel + "_exact_date_empty");
+      return normalized;
+    } catch (modernError) {
       const direct = directError instanceof Error ? directError.message : String(directError);
       const relay = relayError instanceof Error ? relayError.message : String(relayError);
-      const web = webError instanceof Error ? webError.message : String(webError);
-      throw new Error(`TPEX_${dataset}_all_transports_failed:direct=${direct.slice(0, 180)};relay=${relay.slice(0, 180)};web=${web.slice(0, 180)}`);
+      const modern = modernError instanceof Error ? modernError.message : String(modernError);
+      if (isModernSblSemanticError(modernError)) {
+        throw new Error("TPEX_" + dataset + "_all_transports_failed:direct=" + direct.slice(0, 150) + ";relay=" + relay.slice(0, 150) + ";modern=" + modern.slice(0, 180));
+      }
+      // Legacy PHP may omit its own date. Never label undated old rows today.
+      const date = encodeURIComponent(rocDate(tradeDate));
+      const legacyUrl = dataset === "institutional"
+        ? "https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=EW&t=D&d=" + date + "&s=0,asc"
+        : "https://www.tpex.org.tw/web/stock/margin_trading/margin_balance/margin_bal_result.php?l=zh-tw&o=json&d=" + date + "&s=0,asc";
+      try {
+        const legacyBody = await getTpexJsonAny(legacyUrl, "TPEX_" + dataset + "_LEGACY_JSON");
+        const verifiedDate = firstPayloadDate(legacyBody);
+        if (verifiedDate !== tradeDate) throw new Error("legacy_exact_date_unverifiable:" + (verifiedDate ?? "missing"));
+        const rows = legacyRows(legacyBody, "TPEX_" + dataset + "_LEGACY_JSON");
+        const normalized = normalizedOfficialModernRows(dataset, rows, tradeDate);
+        if (!normalized.length) throw new Error("legacy_exact_date_empty");
+        return normalized;
+      } catch (legacyError) {
+        const legacy = legacyError instanceof Error ? legacyError.message : String(legacyError);
+        throw new Error("TPEX_" + dataset + "_all_transports_failed:direct=" + direct.slice(0, 150) + ";relay=" + relay.slice(0, 150) + ";modern=" + modern.slice(0, 150) + ";legacy=" + legacy.slice(0, 150));
+      }
     }
   }
 }
