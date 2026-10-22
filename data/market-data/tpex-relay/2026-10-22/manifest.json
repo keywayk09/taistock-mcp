@@ -1,22 +1,41 @@
 {
   "canonical_storage": "keywayk09/tv-papertrader main/data",
-  "capture_errors": {
-    "institutional": "RuntimeError: TPEX_INSTI_OPENAPI_source_date_mismatch:2026-10-21",
-    "margin": "RuntimeError: TPEX_MARGIN_OPENAPI_source_date_mismatch:2026-10-21",
-    "sbl_balance": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty",
-    "sbl_volume": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty"
+  "capture_errors": {},
+  "captured_at_utc": "2026-10-22T14:31:17.717767Z",
+  "datasets": {
+    "institutional": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date=115%2F10%2F22&id=&response=json",
+      "file": "institutional.json",
+      "row_count": 909,
+      "sha256": "3885f4cb4760f9df434529d751e4b991ca3bdd8de6da9d03ac37060075915c9e",
+      "source_date": "2026-10-22"
+    },
+    "margin": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/margin/balance?date=115%2F10%2F22&id=&response=json",
+      "file": "margin.json",
+      "row_count": 919,
+      "sha256": "db76ffbd45ab0e7873401e5a8cbe8098967293711ca92ec8c8b5c0517513823a",
+      "source_date": "2026-10-22"
+    },
+    "sbl_balance": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=2026%2F10%2F22&id=&response=json",
+      "file": "sbl_balance.json",
+      "row_count": 932,
+      "sha256": "1139856227a2194818a0e592aa52c9cdab5259d2f35abf2af0d5c64b2618d06b",
+      "source_date": "2026-10-22"
+    },
+    "sbl_volume": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=2026%2F10%2F22&id=&response=json",
+      "file": "sbl_volume.json",
+      "row_count": 932,
+      "sha256": "d00b45659f13e26fb117f3eb1e3fa9ddb7cb62fd68dc8ba94bebf01c7c7f409a",
+      "source_date": "2026-10-22"
+    }
   },
-  "captured_at_utc": "2026-10-21T17:06:36.849245Z",
-  "datasets": {},
-  "missing_datasets": [
-    "institutional",
-    "margin",
-    "sbl_balance",
-    "sbl_volume"
-  ],
+  "missing_datasets": [],
   "schema": "TPEX_OFFICIAL_RELAY_V2",
   "source_owner": "TPEx",
-  "status": "PARTIAL",
+  "status": "COMPLETE",
   "trade_date": "2026-10-22",
   "transport": "GitHub hosted runner exact-date official TPEx JSON API with legacy official fallback"
 }
