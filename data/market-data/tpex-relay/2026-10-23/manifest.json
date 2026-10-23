@@ -1,7 +1,7 @@
 {
   "canonical_storage": "keywayk09/tv-papertrader main/data",
   "capture_errors": {
-    "institutional": "TimeoutError: The read operation timed out",
+    "institutional": "RuntimeError: TPEX_INSTI_OPENAPI_source_date_mismatch:2026-10-22",
     "margin": "RuntimeError: TPEX_MARGIN_OPENAPI_source_date_mismatch:2026-10-22",
     "sbl_balance": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty",
     "sbl_volume": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty"
