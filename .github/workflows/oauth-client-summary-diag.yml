@@ -1,0 +1,100 @@
+name: OAuth client summary diagnostic
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Read sanitized OAuth client summaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os, urllib.parse, urllib.request
+          from datetime import datetime, timezone
+
+          token=os.environ.get('CLOUDFLARE_API_TOKEN','')
+          account=os.environ.get('CLOUDFLARE_ACCOUNT_ID','')
+          if not token or not account:
+              raise SystemExit('missing_cloudflare_credentials')
+
+          def get_json(url):
+              req=urllib.request.Request(url, headers={
+                  'Authorization': f'Bearer {token}',
+                  'Content-Type': 'application/json',
+              })
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return json.loads(r.read().decode())
+
+          def get_text(url):
+              req=urllib.request.Request(url, headers={
+                  'Authorization': f'Bearer {token}',
+              })
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return r.read().decode()
+
+          ns_url=f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/namespaces?per_page=1000'
+          ns=get_json(ns_url)
+          if not ns.get('success'):
+              raise SystemExit('kv_namespace_list_failed')
+          rows=ns.get('result') or []
+          preferred=[x for x in rows if x.get('title')=='taistock-mcp-OAUTH_KV']
+          legacy=[x for x in rows if x.get('title')=='OAUTH_KV']
+          chosen=(preferred[0] if len(preferred)==1 else (legacy[0] if len(legacy)==1 else None))
+          if not chosen:
+              raise SystemExit('oauth_kv_not_uniquely_resolved')
+          nsid=chosen['id']
+
+          keys_url=(f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/'
+                    f'namespaces/{nsid}/keys?limit=1000&prefix='+urllib.parse.quote('client:', safe=''))
+          keys=get_json(keys_url)
+          if not keys.get('success'):
+              raise SystemExit('kv_key_list_failed')
+
+          out=[]
+          for item in keys.get('result') or []:
+              key=str(item.get('name') or '')
+              if not key.startswith('client:'):
+                  continue
+              value_url=(f'https://api.cloudflare.com/client/v4/accounts/{account}/storage/kv/'
+                         f'namespaces/{nsid}/values/'+urllib.parse.quote(key, safe=''))
+              try:
+                  raw=json.loads(get_text(value_url))
+              except Exception:
+                  continue
+              client_id=str(raw.get('clientId') or key.split(':',1)[1])
+              redirects=[]
+              for v in raw.get('redirectUris') or []:
+                  try:
+                      u=urllib.parse.urlparse(str(v))
+                      redirects.append({'host':u.hostname or '', 'path':u.path or '/'})
+                  except Exception:
+                      pass
+              reg=raw.get('registrationDate')
+              try:
+                  reg_iso=datetime.fromtimestamp(float(reg), tz=timezone.utc).isoformat() if reg else None
+              except Exception:
+                  reg_iso=None
+              out.append({
+                  'client_hash': hashlib.sha256(client_id.encode()).hexdigest()[:20],
+                  'client_name': str(raw.get('clientName') or ''),
+                  'redirects': redirects,
+                  'token_endpoint_auth_method': str(raw.get('tokenEndpointAuthMethod') or ''),
+                  'registration_time_utc': reg_iso,
+                  'recovery_kind': str(raw.get('recoveryKind') or ''),
+              })
+
+          out.sort(key=lambda x:(x.get('registration_time_utc') or '', x['client_hash']))
+          print('oauth_client_count='+str(len(out)))
+          print(json.dumps(out, ensure_ascii=False, indent=2))
+          PY
