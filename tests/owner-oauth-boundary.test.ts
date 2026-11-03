@@ -9,16 +9,18 @@ const ORIGIN = "https://taistock-mcp.keywayk09.workers.dev";
 const OWNER_AUTHORIZATION_SERVER = "https://taistock-owner-oauth.keywayk09.workers.dev";
 assert.equal(CODE_OWNER_ISSUER, OWNER_AUTHORIZATION_SERVER);
 const CLIENT_ID = "owner-client-12345";
+const CIMD_CLIENT_ID = "https://chatgpt.com/oauth/client.json";
+const CALLBACK_CIMD_CLIENT_ID = "https://chatgpt.com/oauth/OwnerApp123/client.json";
 const REDIRECT_URI = "https://chatgpt.com/connector/oauth/OwnerApp123";
 const CHALLENGE = "A".repeat(43);
 const VERIFIER = "v".repeat(43);
 const ctx = {} as ExecutionContext;
 const env = {} as Env;
 
-function authorizeUrl(resource: string) {
+function authorizeUrl(resource: string, clientId = CLIENT_ID) {
   const url = new URL(`${ORIGIN}/authorize`);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("client_id", CLIENT_ID);
+  url.searchParams.set("client_id", clientId);
   url.searchParams.set("redirect_uri", REDIRECT_URI);
   url.searchParams.set("code_challenge", CHALLENGE);
   url.searchParams.set("code_challenge_method", "S256");
@@ -241,6 +243,39 @@ function runtimeEnv(options: { existingClient?: boolean } = {}) {
   assert.equal(runtime.getAuthorization().props.role, "owner");
   assert.equal(runtime.getAuthorization().request.issuer, OWNER_AUTHORIZATION_SERVER);
   assert.equal(new URL(response.headers.get("location") || "").searchParams.get("iss"), OWNER_AUTHORIZATION_SERVER);
+}
+
+// ChatGPT CIMD identities must pass the Owner PKCE flow without creating
+// DCR records; the registered metadata itself is checked by OAuthProvider.
+for (const clientId of [CIMD_CLIENT_ID, CALLBACK_CIMD_CLIENT_ID]) {
+  const runtime = runtimeEnv();
+  const original = authorizeUrl(`${ORIGIN}/my-mcp`, clientId);
+  const get = await handleOwnerAuthorize(new Request(original.toString()), runtime.env);
+  assert.equal(get.status, 200, `valid ChatGPT CIMD should show Owner login: ${clientId}`);
+  const form = new FormData();
+  form.set("oauth_query", original.searchParams.toString());
+  form.set("login_secret", "owner-secret");
+  const post = await handleOwnerAuthorize(new Request(`${ORIGIN}/authorize`, {
+    method: "POST",
+    body: form,
+  }), runtime.env);
+  assert.equal(post.status, 302);
+  assert.equal(runtime.getAuthorization().request.clientId, clientId);
+  assert.equal(runtime.getAuthorization().request.issuer, OWNER_AUTHORIZATION_SERVER);
+  assert.equal(new URL(post.headers.get("location") || "").searchParams.get("iss"), OWNER_AUTHORIZATION_SERVER);
+  assert.equal(runtime.writes.length, 0, "CIMD must never write a DCR record");
+}
+
+// Owner must reject arbitrary metadata-document URLs and malformed client IDs.
+for (const clientId of [
+  "https://attacker.example/oauth/client.json",
+  "https://chatgpt.com/oauth/client.json?redirect=evil",
+  "https://chatgpt.com/other/client.json",
+]) {
+  const runtime = runtimeEnv();
+  const get = await handleOwnerAuthorize(new Request(authorizeUrl(`${ORIGIN}/my-mcp`, clientId).toString()), runtime.env);
+  assert.equal(get.status, 400, `untrusted CIMD must be denied: ${clientId}`);
+  assert.equal(runtime.writes.length, 0);
 }
 
 // Owner authorization uses its own existing secret boundary, not the Family
