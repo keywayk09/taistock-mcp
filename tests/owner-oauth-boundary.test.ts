@@ -3,10 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createFamilyOAuthPublicClientCompatWrapper } from "../src/v6/family-oauth-public-client-compat.ts";
-import { handleOwnerAuthorize } from "../src/v6/owner-oauth.ts";
+import { handleOwnerAuthorize, OWNER_AUTHORIZATION_SERVER as CODE_OWNER_ISSUER } from "../src/v6/owner-oauth.ts";
 
 const ORIGIN = "https://taistock-mcp.keywayk09.workers.dev";
 const OWNER_AUTHORIZATION_SERVER = "https://taistock-owner-oauth.keywayk09.workers.dev";
+assert.equal(CODE_OWNER_ISSUER, OWNER_AUTHORIZATION_SERVER);
 const CLIENT_ID = "owner-client-12345";
 const REDIRECT_URI = "https://chatgpt.com/connector/oauth/OwnerApp123";
 const CHALLENGE = "A".repeat(43);
@@ -169,7 +170,7 @@ function runtimeEnv(options: { existingClient?: boolean } = {}) {
   const oauthProvider = {
     async completeAuthorization(input: any) {
       authorization = input;
-      return { redirectTo: `${REDIRECT_URI}?code=owner-code&state=owner-state-123` };
+      return { redirectTo: `${REDIRECT_URI}?code=owner-code&state=owner-state-123&iss=${encodeURIComponent(input.request.issuer)}` };
     },
   };
   return {
@@ -218,6 +219,8 @@ function runtimeEnv(options: { existingClient?: boolean } = {}) {
   assert.equal(authorization.props.role, "owner");
   assert.deepEqual(authorization.request.scope, ["owner:full", "offline_access", "mcp:tools"]);
   assert.equal(authorization.request.resource, `${ORIGIN}/my-mcp`);
+  assert.equal(authorization.request.issuer, OWNER_AUTHORIZATION_SERVER);
+  assert.equal(new URL(response.headers.get("location") || "").searchParams.get("iss"), OWNER_AUTHORIZATION_SERVER);
   assert.equal(runtime.writes.some(([key]) => key === `client:${CLIENT_ID}`), true);
 }
 
@@ -236,6 +239,8 @@ function runtimeEnv(options: { existingClient?: boolean } = {}) {
   assert.equal(response.status, 302);
   assert.equal(runtime.writes.some(([key]) => key === `client:${CLIENT_ID}`), false);
   assert.equal(runtime.getAuthorization().props.role, "owner");
+  assert.equal(runtime.getAuthorization().request.issuer, OWNER_AUTHORIZATION_SERVER);
+  assert.equal(new URL(response.headers.get("location") || "").searchParams.get("iss"), OWNER_AUTHORIZATION_SERVER);
 }
 
 // Owner authorization uses its own existing secret boundary, not the Family
