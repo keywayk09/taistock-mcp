@@ -37,6 +37,9 @@ type StoredOwnerConnectorClient = {
 };
 
 export const OWNER_SCOPE = "owner:full";
+// The authorization response `iss` must match the issuer advertised by the
+// dedicated Owner authorization server, not the canonical MCP resource origin.
+export const OWNER_AUTHORIZATION_SERVER = "https://taistock-owner-oauth.keywayk09.workers.dev";
 export const OWNER_MCP_TOOLS_COMPAT_SCOPE = "mcp:tools";
 export const OWNER_OFFLINE_ACCESS_COMPAT_SCOPE = "offline_access";
 export const OWNER_OPENID_COMPAT_SCOPE = "openid";
@@ -366,7 +369,7 @@ function ownerGrantScopes(candidate: OwnerConnectorCandidate) {
   return scopes;
 }
 
-function ownerAuthRequest(candidate: OwnerConnectorCandidate, origin: string, scopes: string[]): AuthRequest {
+function ownerAuthRequest(candidate: OwnerConnectorCandidate, scopes: string[]): AuthRequest {
   return {
     responseType: "code",
     clientId: candidate.clientId,
@@ -377,7 +380,7 @@ function ownerAuthRequest(candidate: OwnerConnectorCandidate, origin: string, sc
       ? { codeChallenge: candidate.codeChallenge, codeChallengeMethod: candidate.codeChallengeMethod }
       : {}),
     resource: candidate.resource,
-    issuer: origin,
+    issuer: OWNER_AUTHORIZATION_SERVER,
   };
 }
 
@@ -438,7 +441,7 @@ export async function handleOwnerAuthorize(request: Request, env: Env) {
     const grantedScopes = ownerGrantScopes(candidate);
     try {
       const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-        request: ownerAuthRequest(candidate, synthetic.origin, grantedScopes),
+        request: ownerAuthRequest(candidate, grantedScopes),
         userId: "owner",
         metadata: { clientName: OWNER_CONNECTOR_NAME },
         scope: grantedScopes,
