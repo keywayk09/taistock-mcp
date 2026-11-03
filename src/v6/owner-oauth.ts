@@ -37,6 +37,9 @@ type StoredOwnerConnectorClient = {
 };
 
 export const OWNER_SCOPE = "owner:full";
+// The authorization response `iss` must match the issuer advertised by the
+// dedicated Owner authorization server, not the canonical MCP resource origin.
+export const OWNER_AUTHORIZATION_SERVER = "https://taistock-owner-oauth.keywayk09.workers.dev";
 export const OWNER_MCP_TOOLS_COMPAT_SCOPE = "mcp:tools";
 export const OWNER_OFFLINE_ACCESS_COMPAT_SCOPE = "offline_access";
 export const OWNER_OPENID_COMPAT_SCOPE = "openid";
@@ -54,6 +57,28 @@ const MAX_SCOPE_LENGTH = 2_048;
 const LOGIN_FAIL_TTL_SECONDS = 15 * 60;
 const LOGIN_FAIL_MAX = 5;
 const TRUSTED_CHATGPT_HOSTS = new Set(["chatgpt.com", "chat.openai.com"]);
+// ChatGPT now prefers Client ID Metadata Documents when supported. Accept only
+// exact ChatGPT-hosted CIMD identities; the OAuth provider still validates the
+// signed-in client's metadata, redirect URI, PKCE, and token exchange itself.
+const TRUSTED_CHATGPT_CIMD_PATH = /^\/oauth\/(?:client\.json|[A-Za-z0-9_-]{8,256}\/client\.json)$/;
+
+function isTrustedChatGptCimdClientId(raw: string) {
+  if (raw.length > 2_048) return false;
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:"
+      && TRUSTED_CHATGPT_HOSTS.has(url.hostname)
+      && !url.username && !url.password && !url.search && !url.hash
+      && TRUSTED_CHATGPT_CIMD_PATH.test(url.pathname)
+      && url.toString() === raw;
+  } catch {
+    return false;
+  }
+}
+
+function isValidOwnerClientId(raw: string) {
+  return OPAQUE_CLIENT_ID.test(raw) || isTrustedChatGptCimdClientId(raw);
+}
 
 function escapeHtml(value: unknown) {
   return String(value ?? "")
@@ -157,7 +182,7 @@ type OwnerAuthorizeDiag =
 
 function ownerAuthorizeDiag(url: URL): OwnerAuthorizeDiag | null {
   if (url.pathname !== "/authorize" || url.searchParams.get("response_type") !== "code") return "METHOD_OR_RESPONSE";
-  if (!OPAQUE_CLIENT_ID.test(String(url.searchParams.get("client_id") || ""))) return "CLIENT_ID";
+  if (!isValidOwnerClientId(String(url.searchParams.get("client_id") || ""))) return "CLIENT_ID";
   if (!trustedConnectorRedirect(String(url.searchParams.get("redirect_uri") || ""))) return "REDIRECT_URI";
   const method = String(url.searchParams.get("code_challenge_method") || "");
   const challenge = String(url.searchParams.get("code_challenge") || "");
@@ -179,7 +204,7 @@ function ownerConnectorCandidate(url: URL): OwnerConnectorCandidate | null {
   if (!resource) return null;
 
   const clientId = String(url.searchParams.get("client_id") || "");
-  if (!OPAQUE_CLIENT_ID.test(clientId)) return null;
+  if (!isValidOwnerClientId(clientId)) return null;
 
   const redirect = trustedConnectorRedirect(String(url.searchParams.get("redirect_uri") || ""));
   if (!redirect) return null;
@@ -281,6 +306,15 @@ function storedOwnerAuthMethod(raw: string | null) {
 }
 
 async function ownerClientState(candidate: OwnerConnectorCandidate, env: Env) {
+  // CIMD clients are resolved directly from trusted client metadata documents by
+  // OAuthProvider. Do not require, create, or overwrite a DCR KV client record.
+  if (isTrustedChatGptCimdClientId(candidate.clientId)) {
+    return {
+      exists: false as const,
+      compatible: true as const,
+      authorizationCompatible: ownerHasStrictPkce(candidate),
+    };
+  }
   const raw = await env.OAUTH_KV.get(ownerClientKey(candidate.clientId));
   if (!raw) {
     return {
@@ -309,6 +343,8 @@ async function ownerClientState(candidate: OwnerConnectorCandidate, env: Env) {
 }
 
 async function registerOwnerClient(candidate: OwnerConnectorCandidate, env: Env) {
+  // CIMD is registered by verified metadata, not a mutable local DCR record.
+  if (isTrustedChatGptCimdClientId(candidate.clientId)) return { ok: true, created: false };
   const key = ownerClientKey(candidate.clientId);
   const existing = await env.OAUTH_KV.get(key);
   if (existing) return { ok: ownerClientMatches(existing, candidate), created: false };
@@ -366,7 +402,7 @@ function ownerGrantScopes(candidate: OwnerConnectorCandidate) {
   return scopes;
 }
 
-function ownerAuthRequest(candidate: OwnerConnectorCandidate, origin: string, scopes: string[]): AuthRequest {
+function ownerAuthRequest(candidate: OwnerConnectorCandidate, scopes: string[]): AuthRequest {
   return {
     responseType: "code",
     clientId: candidate.clientId,
@@ -377,7 +413,7 @@ function ownerAuthRequest(candidate: OwnerConnectorCandidate, origin: string, sc
       ? { codeChallenge: candidate.codeChallenge, codeChallengeMethod: candidate.codeChallengeMethod }
       : {}),
     resource: candidate.resource,
-    issuer: origin,
+    issuer: OWNER_AUTHORIZATION_SERVER,
   };
 }
 
@@ -438,7 +474,7 @@ export async function handleOwnerAuthorize(request: Request, env: Env) {
     const grantedScopes = ownerGrantScopes(candidate);
     try {
       const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-        request: ownerAuthRequest(candidate, synthetic.origin, grantedScopes),
+        request: ownerAuthRequest(candidate, grantedScopes),
         userId: "owner",
         metadata: { clientName: OWNER_CONNECTOR_NAME },
         scope: grantedScopes,
