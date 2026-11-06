@@ -217,6 +217,13 @@ const provider = new OAuthProvider<OwnerOAuthWorkerEnv>({
   allowPlainPKCE: false,
   allowImplicitFlow: false,
   clientIdMetadataDocumentEnabled: true,
+  // Owner/Diamond ChatGPT connections have no calendar-based forced renewal.
+  // The provider 0.10.3 options spread intentionally honors explicit undefined,
+  // unlike an omitted setting, which defaults to 30d refresh / 90d DCR.
+  // Access tokens remain short-lived (provider default: 1h); refresh still
+  // rotates credentials and supports explicit revocation.
+  refreshTokenTTL: undefined,
+  clientRegistrationTTL: undefined,
 }) as unknown as ConcreteFetchHandler;
 
 async function authorizationServerMetadata(request: Request, env: OwnerOAuthWorkerEnv, ctx: ExecutionContext) {
