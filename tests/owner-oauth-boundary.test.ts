@@ -292,4 +292,23 @@ for (const clientId of [
   assert.match(familySource, /scopesSupported: \[FAMILY_SCOPE, OWNER_SCOPE\]/);
 }
 
+// No fixed Owner/Diamond OAuth refresh or DCR registration deadline.
+// Explicit undefined is essential in workers-oauth-provider@0.10.3:
+// omitting it would reinstate the provider's 30-day / 90-day defaults.
+{
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const source = fs.readFileSync(path.resolve(here, "../src/owner-oauth-worker.ts"), "utf8");
+  const family = fs.readFileSync(path.resolve(here, "../src/v6/family-oauth.ts"), "utf8");
+  assert.match(source, /clientIdMetadataDocumentEnabled:\s*true/);
+  assert.match(source, /refreshTokenTTL:\s*undefined/);
+  assert.match(source, /clientRegistrationTTL:\s*undefined/);
+  assert.doesNotMatch(source, /refreshTokenTTL:\s*0\b/);
+  assert.match(source, /tokenEndpoint:\s*TOKEN_ENDPOINT/);
+  assert.match(source, /allowPlainPKCE:\s*false/);
+  assert.match(source, /allowImplicitFlow:\s*false/);
+  assert.match(source, /ownerTokenTargetIsValid/);
+  // Family provider and its lifetime settings are outside this Owner-only change.
+  assert.match(family, /scopesSupported:\s*\[FAMILY_SCOPE, OWNER_SCOPE\]/);
+}
+
 console.log("Owner OAuth boundary contract passed");
