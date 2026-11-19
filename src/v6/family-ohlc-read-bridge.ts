@@ -252,7 +252,16 @@ export async function readFamilyCanonicalOhlc(
   }));
   if (!dailyCall.ok) return canonicalUnavailable(dailyCall.error);
   const daily = compactOhlcResult(dailyCall.data);
-  if (!formalStockOhlcReady(dailyCall.data)) {
+  const archiveOnly = (raw: unknown) => {
+    const value = rec(raw);
+    return value.source === "OHLC_MCP_GITHUB_CANONICAL_READ"
+      && verificationLevel(raw, "") === "GITHUB_CANONICAL_PATH_SHA_BOUND"
+      && value.ok === true && value.blocked !== true && statusIsReady(value)
+      && Array.isArray(value.rows) && value.rows.length > 0;
+  };
+  const dailyArchiveOnly = archiveOnly(dailyCall.data);
+  if (dailyArchiveOnly) daily.formal_research_eligible = false;
+  if (!dailyArchiveOnly && !formalStockOhlcReady(dailyCall.data)) {
     return canonicalUnavailable(String(rec(dailyCall.data).error ?? rec(dailyCall.data).data_status ?? rec(dailyCall.data).status ?? "OHLC_MCP_FORMAL_GATE_NOT_READY"));
   }
 
@@ -261,21 +270,27 @@ export async function readFamilyCanonicalOhlc(
     const intradayCall = await safeRpc("OHLC_MCP_READ_5M", () => rpc.readOhlc({
       symbol, timeframe: "5m", mode: "research", from: subtractDays(asOf, 10), to: asOf, limit: 2000,
     }));
-    if (intradayCall.ok && formalStockOhlcReady(intradayCall.data)) intraday5m = compactOhlcResult(intradayCall.data);
+    if (intradayCall.ok) {
+      if (dailyArchiveOnly && archiveOnly(intradayCall.data)) {
+        intraday5m = { ...compactOhlcResult(intradayCall.data), formal_research_eligible: false };
+      } else if (!archiveOnly(intradayCall.data) && formalStockOhlcReady(intradayCall.data)) {
+        intraday5m = compactOhlcResult(intradayCall.data);
+      }
+    }
   }
 
   const rawSource = String(daily.source ?? "");
   return {
-    status: "READY",
+    status: dailyArchiveOnly ? "DISPLAY_ONLY" : "READY",
     source: /OHLC_MCP/i.test(rawSource) ? rawSource : "OHLC_MCP",
-    formal_research_eligible: true,
+    formal_research_eligible: !dailyArchiveOnly,
     verification_level: verificationLevel(dailyCall.data, "OHLC_MCP_VERIFIED"),
     dataset_version: daily.dataset_version,
     provenance: daily.provenance,
     data_as_of: daily.resolved_date ?? asOf,
     daily,
     intraday_5m: intraday5m,
-    error: null,
+    error: dailyArchiveOnly ? "OHLC_VERIFICATION_RECEIPT_REQUIRED" : null,
     bridge_version: FAMILY_OHLC_READ_BRIDGE_VERSION,
   };
 }
