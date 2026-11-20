@@ -131,7 +131,8 @@ function blindMemory(date: string, symbol: string) {
   assert.equal(response.status, 200);
   const body = await response.json() as any;
   assert.equal(body.ok, true);
-  assert.equal(body.formal_research_eligible, true);
+  assert.equal(body.formal_research_eligible, false);
+  assert.equal(body.eligibility_reason, "OHLC_VERIFICATION_RECEIPT_REQUIRED");
   assert.equal(body.source_revision, REV);
   assert.equal(body.provenance.branch, REV);
   assert.equal(body.rows[0].volume_raw, 13471);

@@ -181,9 +181,9 @@ async function readStockCanonicalOhlc(env: Env, args: ReadOhlcArgs) {
     dataset_version: `github-canonical:${shas.join(":")}`,
     dataset_hash: shas.join(":"),
     dataset_complete_view: true,
-    formal_research_eligible: true,
+    formal_research_eligible: false,
     verification_level: "GITHUB_CANONICAL_PATH_SHA_BOUND",
-    quality: { gate: "PASS", identity: "EXISTING_TV_FUGLE_1D_CANONICAL_ONLY", read_only: true },
+    quality: { gate: "PENDING_VERIFICATION", identity: "EXISTING_TV_FUGLE_1D_CANONICAL_ONLY", read_only: true },
     provenance: {
       source: "OHLC_MCP_GITHUB_CANONICAL_READ",
       repository: String((env as any)?.GITHUB_DATA_REPO ?? "keywayk09/tv-papertrader"),
@@ -350,6 +350,9 @@ async function readStockMarketContextDirect(env: Env, args: AnyRecord) {
         feed: {
           quality: tape.rows.length > 0 ? "FULL_REST" : "QUOTE_ONLY",
           transport: "FUGLE_REST_READ_ONLY",
+          quote_date: typeof quote.date === "string" ? quote.date : null,
+          session_high_price: typeof quote.highPrice === "number" && Number.isFinite(quote.highPrice) && quote.highPrice > 0 ? quote.highPrice : null,
+          session_high_time_ms: typeof quote.highTime === "number" && Number.isFinite(quote.highTime) && quote.highTime > 0 ? microToMs(quote.highTime) : null,
           quote_time_ms: microToMs(quote.lastUpdated ?? quote.closeTime ?? rec(quote.total).time),
           trade_time_ms: tape.latest_time,
         },

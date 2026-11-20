@@ -76,6 +76,18 @@ const service = {
   },
 };
 
+const archive = await readFamilyCanonicalOhlc({ OHLC_READ_SERVICE: {
+  async readOhlc(args: any) {
+    return { ...verifiedStock(args.symbol, args.timeframe), source: "OHLC_MCP_GITHUB_CANONICAL_READ",
+      verification_level: "GITHUB_CANONICAL_PATH_SHA_BOUND" };
+  },
+} } as any, { symbol: "2375", as_of_date: "2026-11-19", intent: "FULL_STOCK_ANALYSIS" });
+assert.equal(archive.status, "DISPLAY_ONLY");
+assert.equal(archive.formal_research_eligible, false);
+assert.equal(archive.daily?.formal_research_eligible, false);
+assert.equal(archive.intraday_5m?.formal_research_eligible, false);
+assert.ok(archive.daily?.rows.length);
+
 const env = { OHLC_READ_SERVICE: service } as any;
 
 assert.equal(shouldUseFamilyIntradayContext("3105 技術位置與支撐", "QUICK_STOCK_QUESTION"), true);
