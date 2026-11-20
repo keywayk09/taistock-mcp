@@ -95,7 +95,7 @@ export async function handleAutomationOhlc1dRoute(request: Request, env: Env, ur
   try {
     const service = createCrossAccountReadService(pinnedEnv(env, revision));
     const result = await service.readOhlc({ symbol, timeframe: "1d", from: subtractDays(asOf, 560), to: asOf, limit }) as AnyRecord;
-    if (result.ok !== true || result.formal_research_eligible !== true) {
+    if (result.ok !== true || result.blocked === true) {
       const readerError = result.error ?? result.data_status ?? null;
       if (isRetryableAutomationTransportError(readerError)) {
         return transportUnavailable(readerError, { symbol, as_of: asOf, source_revision: revision });
@@ -116,7 +116,8 @@ export async function handleAutomationOhlc1dRoute(request: Request, env: Env, ur
       as_of: asOf,
       source_revision: revision,
       data_status: result.data_status,
-      formal_research_eligible: true,
+      formal_research_eligible: result.formal_research_eligible === true,
+      eligibility_reason: result.formal_research_eligible === true ? null : "OHLC_VERIFICATION_RECEIPT_REQUIRED",
       verification_level: result.verification_level,
       dataset_id: result.dataset_id,
       dataset_version: result.dataset_version,
