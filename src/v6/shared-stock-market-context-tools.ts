@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { verifyDailyArchiveReceipt } from "./daily-archive-receipt.ts";
 import {
   readFamilyCanonicalOhlc,
   readFamilyStockMarketContext,
@@ -245,6 +246,25 @@ export function registerSharedStockMarketContextTools(server: McpServer, env: En
       if (end && date && date > end) return false;
       return true;
     });
+    // The dated receipt certifies exactly one day and its OHLC fields. Keep the
+    // wider context unverified unless the requested result can be narrowed.
+    const receipt = start_date && start_date === end_date && canonical.status === "DISPLAY_ONLY"
+      ? await verifyDailyArchiveReceipt(env, symbol, end, filtered) : null;
+    if (receipt?.verified) {
+      const version = `sha256:${receipt.fingerprint}`;
+      const provenance = { ...canonical.provenance, verification: receipt };
+      const verifiedFields = receipt.verified_fields;
+      const daily = { ...canonical.daily, status: "READY", formal_research_eligible: true,
+        quality: { gate: "PASS", verified_fields: verifiedFields }, dataset_id: `tw-stock:${symbol}:1d:${end}`,
+        dataset_version: version, dataset_hash: receipt.fingerprint, dataset_complete_view: true,
+        resolved_date: end, row_count: 1, returned: 1, rows: filtered, provenance };
+      return out({ ok: true, source: canonical.source, formal_research_eligible: true,
+        verified_fields: verifiedFields, symbol, start_date, end_date: end, dataset_version: version, provenance,
+        data: filtered, canonical: { ...canonical, status: "READY", formal_research_eligible: true,
+          verification_level: "OFFICIAL_RECEIPT_OHLC_CORE_FINGERPRINT", dataset_version: version,
+          provenance, data_as_of: end, daily, intraday_5m: null, error: null }, error: null,
+        version: SHARED_STOCK_MARKET_CONTEXT_TOOLS_VERSION });
+    }
     return out({
       ok: canonical.status === "READY",
       source: String(canonical.source ?? "OHLC_MCP_GITHUB_CANONICAL_READ"),
@@ -256,7 +276,7 @@ export function registerSharedStockMarketContextTools(server: McpServer, env: En
       provenance: canonical.provenance ?? null,
       data: filtered.slice(-limit),
       canonical,
-      error: canonical.error ?? null,
+      error: receipt && !receipt.verified ? receipt.reason : canonical.error ?? null,
       version: SHARED_STOCK_MARKET_CONTEXT_TOOLS_VERSION,
     });
   });

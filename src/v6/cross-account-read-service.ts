@@ -83,13 +83,13 @@ function scalar(value: string) {
   return text;
 }
 
-function parseCanonicalCsv(text: string) {
+export function parseCanonicalCsv(text: string) {
   const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim());
   if (lines.length < 2) return [] as AnyRecord[];
   const headers = csvLine(lines[0]).map((value) => value.trim());
   return lines.slice(1).map((line) => {
     const values = csvLine(line);
-    return Object.fromEntries(headers.map((header, index) => [header, scalar(values[index] ?? "")])) as AnyRecord;
+    return Object.fromEntries(headers.map((header, index) => [header, header === "symbol" && /^0\d+$/.test(values[index] ?? "") ? values[index] : scalar(values[index] ?? "")])) as AnyRecord;
   });
 }
 
