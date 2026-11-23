@@ -3,8 +3,8 @@
   "capture_errors": {
     "institutional": "RuntimeError: TPEX_INSTI_OPENAPI_source_date_mismatch:2026-11-23",
     "margin": "RuntimeError: TPEX_MARGIN_OPENAPI_source_date_mismatch:2026-11-23",
-    "sbl_balance": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty",
-    "sbl_volume": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty"
+    "sbl_balance": "TimeoutError: The read operation timed out",
+    "sbl_volume": "TimeoutError: The read operation timed out"
   },
   "captured_at_utc": "2026-11-23T21:26:45.864474Z",
   "datasets": {},
