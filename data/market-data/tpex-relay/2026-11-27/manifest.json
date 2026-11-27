@@ -1,16 +1,27 @@
 {
   "canonical_storage": "keywayk09/tv-papertrader main/data",
   "capture_errors": {
-    "institutional": "RuntimeError: TPEX_INSTI_OPENAPI_source_date_mismatch:2026-11-26",
-    "margin": "RuntimeError: TPEX_MARGIN_OPENAPI_source_date_mismatch:2026-11-26",
-    "sbl_balance": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty",
-    "sbl_volume": "RuntimeError: TPEX_SBL_MODERN_exact_date_empty"
+    "sbl_balance": "HTTPError: HTTP Error 520: <none>",
+    "sbl_volume": "HTTPError: HTTP Error 520: <none>"
   },
-  "captured_at_utc": "2026-11-26T19:01:02.817738Z",
-  "datasets": {},
+  "captured_at_utc": "2026-11-27T18:59:32.744279Z",
+  "datasets": {
+    "institutional": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date=115%2F11%2F27&id=&response=json",
+      "file": "institutional.json",
+      "row_count": 872,
+      "sha256": "e42a4db6d87d8ae94d46dccc50088d6c157068b883cc39757cb4915f5756e802",
+      "source_date": "2026-11-27"
+    },
+    "margin": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/margin/balance?date=115%2F11%2F27&id=&response=json",
+      "file": "margin.json",
+      "row_count": 923,
+      "sha256": "0a1a0cd0e9afe5c0385f56e7c655df35ee6bfd77e92f7007599d53bcb8b6be77",
+      "source_date": "2026-11-27"
+    }
+  },
   "missing_datasets": [
-    "institutional",
-    "margin",
     "sbl_balance",
     "sbl_volume"
   ],
