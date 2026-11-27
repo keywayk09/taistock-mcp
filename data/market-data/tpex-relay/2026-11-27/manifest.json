@@ -1,10 +1,7 @@
 {
   "canonical_storage": "keywayk09/tv-papertrader main/data",
-  "capture_errors": {
-    "sbl_balance": "HTTPError: HTTP Error 520: <none>",
-    "sbl_volume": "HTTPError: HTTP Error 520: <none>"
-  },
-  "captured_at_utc": "2026-11-27T18:59:32.744279Z",
+  "capture_errors": {},
+  "captured_at_utc": "2026-11-27T19:29:30.776605Z",
   "datasets": {
     "institutional": {
       "endpoint": "https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date=115%2F11%2F27&id=&response=json",
@@ -19,15 +16,26 @@
       "row_count": 923,
       "sha256": "0a1a0cd0e9afe5c0385f56e7c655df35ee6bfd77e92f7007599d53bcb8b6be77",
       "source_date": "2026-11-27"
+    },
+    "sbl_balance": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=2026%2F11%2F27&id=&response=json",
+      "file": "sbl_balance.json",
+      "row_count": 935,
+      "sha256": "f345b33b34d655d819bd64e3734903462144f3d05554fca71750de97bc7b5625",
+      "source_date": "2026-11-27"
+    },
+    "sbl_volume": {
+      "endpoint": "https://www.tpex.org.tw/www/zh-tw/margin/sbl?date=2026%2F11%2F27&id=&response=json",
+      "file": "sbl_volume.json",
+      "row_count": 935,
+      "sha256": "2d73a99a37b33a29604e524a39e2baeab45c4ca526a637812aa6bce5f1c001d3",
+      "source_date": "2026-11-27"
     }
   },
-  "missing_datasets": [
-    "sbl_balance",
-    "sbl_volume"
-  ],
+  "missing_datasets": [],
   "schema": "TPEX_OFFICIAL_RELAY_V2",
   "source_owner": "TPEx",
-  "status": "PARTIAL",
+  "status": "COMPLETE",
   "trade_date": "2026-11-27",
   "transport": "GitHub hosted runner exact-date official TPEx JSON API with legacy official fallback"
 }
